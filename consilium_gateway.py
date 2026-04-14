@@ -449,7 +449,12 @@ class RalphexTransport:
             text = stdout_text.strip()
         if not text.strip():
             raise RuntimeError("ralphex returned empty response")
-        return text.strip()
+        user_prompt = ""
+        for item in reversed(messages):
+            if (item.get("role") or "").strip().lower() == "user":
+                user_prompt = (item.get("content") or "").strip()
+                break
+        return self._format_chat_response(text.strip(), user_prompt=user_prompt)
 
     @staticmethod
     def _write_plan_file(messages: list[dict[str, str]]) -> pathlib.Path:
@@ -512,6 +517,87 @@ class RalphexTransport:
                         if isinstance(delta_obj, dict) and isinstance(delta_obj.get("content"), str):
                             chunks.append(delta_obj["content"])
         return "".join(chunks)
+
+    @staticmethod
+    def _looks_like_ralphex_log(raw_text: str) -> bool:
+        normalized = raw_text.lower()
+        markers = (
+            "starting ralphex loop",
+            "starting task execution phase",
+            "starting code review",
+            "all tasks completed, starting code review",
+            "task execution completed successfully",
+            "--- task iteration",
+            "--- claude review",
+            "<<<ralphex:",
+        )
+        return any(marker in normalized for marker in markers)
+
+    @staticmethod
+    def _format_chat_response(raw_text: str, user_prompt: str) -> str:
+        if not raw_text:
+            return raw_text
+        # If output is already concise/non-ralphex logs, keep as is.
+        if not RalphexTransport._looks_like_ralphex_log(raw_text):
+            return raw_text
+
+        duration_match = re.search(r"completed in ([^\n]+)", raw_text, flags=re.IGNORECASE)
+        duration = duration_match.group(1).strip() if duration_match else None
+
+        branch_match = None
+        for match in re.finditer(r"branch:\s*([^\n]+)", raw_text, flags=re.IGNORECASE):
+            branch_match = match
+        branch = branch_match.group(1).strip() if branch_match else None
+
+        raw_upper = raw_text.upper()
+        raw_lower = raw_text.lower()
+        no_issues = "NO ISSUES FOUND" in raw_upper
+        all_done = "ALL_TASKS_DONE" in raw_upper
+        review_done = "REVIEW_DONE" in raw_upper
+        codex_done = "CODEX_REVIEW_DONE" in raw_upper
+        task_failed = "TASK_FAILED" in raw_upper
+        success = (
+            "all phases completed successfully" in raw_lower
+            or "review phases completed successfully" in raw_lower
+            or "task execution completed successfully" in raw_lower
+            or "all tasks completed" in raw_lower
+            or all_done
+            or review_done
+            or codex_done
+            or no_issues
+            or duration is not None
+        ) and not task_failed
+
+        # Targeted integration-status answer for direct health checks.
+        normalized_user = (user_prompt or "").strip().lower()
+        if ("интеграци" in normalized_user and "жив" in normalized_user) or (
+            "integration" in normalized_user
+            and ("alive" in normalized_user or "working" in normalized_user or "live" in normalized_user)
+        ):
+            return "Да, интеграция живая." if success else "Нет, интеграция не живая."
+
+        lines: list[str] = []
+        status = "успешно" if success else "с ошибками"
+        lines.append(f"Ralphex завершил прогон {status}.")
+        if duration:
+            lines.append(f"Длительность: {duration}.")
+        if branch:
+            lines.append(f"Branch: `{branch}`.")
+        signals: list[str] = []
+        if all_done:
+            signals.append("ALL_TASKS_DONE")
+        if review_done:
+            signals.append("REVIEW_DONE")
+        if codex_done:
+            signals.append("CODEX_REVIEW_DONE")
+        if task_failed:
+            signals.append("TASK_FAILED")
+        if signals:
+            lines.append(f"Сигналы: {', '.join(signals)}.")
+        if no_issues:
+            lines.append("Внешний Codex review: `NO ISSUES FOUND`.")
+        lines.append("Технический лог скрыт; при необходимости включу полный вывод.")
+        return " ".join(lines)
 
 
 class RalphexProxyAgent(autogen.ConversableAgent):

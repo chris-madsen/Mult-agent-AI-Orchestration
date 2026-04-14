@@ -51,6 +51,40 @@ class GatewayRuntimeSafetyTests(unittest.TestCase):
         self.assertNotIn(api_key, rendered)
         self.assertNotIn(bad_token, rendered)
 
+    def test_format_chat_response_integration_health_for_progress_log(self) -> None:
+        raw = """
+starting task execution phase
+--- task iteration 1 ---
+[26-04-15 02:45:05] <<<RALPHEX:ALL_TASKS_DONE>>>
+all tasks completed, starting code review...
+[26-04-15 02:45:05] task execution completed successfully
+"""
+        text = gateway.RalphexTransport._format_chat_response(
+            raw_text=raw,
+            user_prompt="Ответь одной строкой: интеграция живая?",
+        )
+        self.assertEqual(text, "Да, интеграция живая.")
+
+    def test_format_chat_response_integration_health_with_failed_signal(self) -> None:
+        raw = """
+starting task execution phase
+--- task iteration 1 ---
+[26-04-15 02:45:05] <<<RALPHEX:TASK_FAILED>>>
+"""
+        text = gateway.RalphexTransport._format_chat_response(
+            raw_text=raw,
+            user_prompt="Ответь одной строкой: интеграция живая?",
+        )
+        self.assertEqual(text, "Нет, интеграция не живая.")
+
+    def test_format_chat_response_passthrough_for_non_logs(self) -> None:
+        raw = "Да, интеграция живая."
+        text = gateway.RalphexTransport._format_chat_response(
+            raw_text=raw,
+            user_prompt="Ответь одной строкой: интеграция живая?",
+        )
+        self.assertEqual(text, raw)
+
 
 if __name__ == "__main__":
     unittest.main()
