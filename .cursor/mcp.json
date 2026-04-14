@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "consilium": {
+      "command": "/media/ilja/DATA/soft/consillium/scripts/start-mcp.sh",
+      "args": []
+    }
+  }
+}

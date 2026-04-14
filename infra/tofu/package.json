@@ -1,0 +1,12 @@
+{
+  "name": "consilium-aws-q-bootstrap",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Automation for Amazon Q Developer standalone onboarding",
+  "scripts": {
+    "q:ensure": "node ./scripts/ensure_q_pro.mjs --region us-east-1 --timeout-sec 1200"
+  },
+  "dependencies": {
+    "playwright": "^1.53.0"
+  }
+}

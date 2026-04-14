@@ -1,0 +1,61 @@
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*~
+*.swp
+
+# Local env/secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+
+# Nix/direnv local outputs
+.direnv/
+result
+result-*
+
+# Terraform/OpenTofu runtime state
+.terraform/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.auto.tfvars
+*.auto.tfvars.json
+tfplan
+tfplan.*
+tfplan-*
+
+# Local tool/runtime caches
+.cache/
+.ralphex/
+.codex
+
+# Consilium runtime artifacts (keep policies/decisions/config in git)
+.consilium/.runtime-check.sig
+.consilium/gateway.pid
+.consilium/logs/
+.consilium/gateway/plans/
+.consilium/plans/
+.consilium/reviews/
+.consilium/state/
+.consilium/runs/
+
+# Infra local runtime/deps
+infra/tofu/.consilium/
+infra/tofu/node_modules/

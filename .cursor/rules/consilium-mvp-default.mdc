@@ -1,0 +1,21 @@
+---
+description: API-key gateway-first routing for all workspace chat requests
+alwaysApply: true
+---
+
+Use the Consilium OpenAI-compatible API-key gateway as the primary path for all user requests in this workspace.
+
+Routing contract:
+- Primary inference path is: Cursor Chat -> `http://127.0.0.1:8000/v1/chat/completions` with `CONSILIUM_API_KEY`.
+- Treat gateway responses as the default answer source for all prompts (architecture, planning, diagnostics, coding, general technical questions).
+- Use MCP tools (`consilium_chat`, `execute_task`) only for structured orchestration metadata or explicit artifact/state workflows.
+- Do not provide a direct non-Consilium model answer before attempting the gateway path.
+
+Failure policy:
+- If gateway is unavailable or times out, report the failure explicitly and ask the user to retry after `make start` or `make ensure-gateway`.
+- If gateway auth fails, instruct to verify `CONSILIUM_API_KEY` in `.env` and Cursor provider settings.
+- Do not silently fallback to a non-Consilium answer.
+
+Response policy:
+- Prefer the response returned by gateway/Consilium as the final answer body.
+- Keep answers concise unless the user asks for detailed output.

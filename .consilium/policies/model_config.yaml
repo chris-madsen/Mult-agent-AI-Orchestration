@@ -1,0 +1,24 @@
+execution:
+  adapter: ralphex
+
+roles:
+  architect:
+    provider: google
+    model: gemini-3.1-pro-preview
+    temperature: 0.3
+    max_tokens: 8192
+    timeout_sec: 120
+
+  critic:
+    provider: google
+    model: gemini-2.5-flash
+    temperature: 0.1
+    max_tokens: 4096
+    timeout_sec: 120
+
+  implementer:
+    provider: codex-cli
+    model: gpt-5.3-codex
+    temperature: 0.1
+    max_tokens: 65536
+    timeout_sec: 1200

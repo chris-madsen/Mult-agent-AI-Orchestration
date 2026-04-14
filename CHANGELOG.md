@@ -1,0 +1,211 @@
+# CHANGELOG
+
+All notable changes and delivery notes for Consilium MVP are documented here.
+
+## [0.1.3-cursor-gpu-default-and-openai-gateway] - 2026-04-15
+
+### Done
+- Restored GPU as the default launch mode:
+  - `make start` now routes to `start-gpu` again.
+  - `make start-safe` remains available for fallback software rendering.
+- Fixed startup orchestration for API-key mode:
+  - `make start` now does full sequence: `check -> ensure-gateway (:8000) -> Cursor GPU launch`.
+  - Added `ensure-gateway` target (background launch + readiness probe on port).
+  - Added `stop-gateway` target (graceful stop via pid file).
+- Added OpenAI-compatible Consilium API gateway for API-key routing:
+  - New file `consilium_gateway.py` with endpoint:
+    - `POST /v1/chat/completions`
+    - `GET /healthz`
+  - Implemented Bearer auth (`CONSILIUM_API_KEY`, default `consilium-mvp-key`).
+  - Implemented per-session history cache (`user` or `X-Session-Id`).
+  - Implemented OpenAI JSON and SSE (`stream=true`) response formats.
+- Added AutoGen pipe layer (MVP transport role):
+  - Added `RalphexProxyAgent` (single-purpose proxy agent).
+  - Added `AutoGenPipe` with single-agent GroupChat routing to Ralphex transport.
+- Added Ralphex subprocess transport for gateway:
+  - Configurable via `CONSILIUM_RALPHEX_CMD`.
+  - Gateway writes conversation context to `CONSILIUM_PLAN_FILE` and runs ralphex in native plan-file mode.
+  - Added `CONSILIUM_RALPHEX_MODE` (`review|execute`, default `review`) for auto command selection.
+  - Default auto mode is now `review` to avoid branch-creation failures on dirty worktrees.
+  - Task payload is also exposed as `CONSILIUM_TASK_JSON` for custom command overrides.
+  - Added automatic binary discovery for non-dev-shell setups:
+    - `PATH`
+    - `~/.nix-profile/bin/ralphex`
+    - `/etc/profiles/per-user/$USER/bin/ralphex`
+    - `/run/current-system/sw/bin/ralphex`
+    - `/nix/store/*-ralphex-*/bin/ralphex`
+  - Added fail-fast startup guard: gateway now exits immediately if `ralphex` cannot be resolved, instead of returning first-request HTTP 500.
+  - Added fail-fast startup guard for legacy override: gateway rejects unsupported `--task` flag in `CONSILIUM_RALPHEX_CMD`.
+- Added ralphex repository precondition handling:
+  - `make ensure-gateway` now auto-runs `git init` when `.git` is missing (controlled by `CONSILIUM_AUTO_GIT_INIT`, default enabled).
+  - `make ensure-gateway` now also auto-creates an empty initial commit when repo has no commits.
+- Added startup target for gateway:
+  - `make start-gateway` launches `uvicorn consilium_gateway:app` on `127.0.0.1:8000`.
+- Updated docs:
+  - `README.md` now includes API-key routing setup for Cursor custom OpenAI provider.
+- Updated dependencies:
+  - Added `fastapi` and `uvicorn` to `requirements.txt`.
+
+### Remaining / Next
+- Add strict OpenAI compatibility details if Cursor requires them:
+  - `model list` endpoint (`GET /v1/models`)
+  - optional `tool_calls`/function-calling passthrough
+  - token usage accounting.
+- Add gateway integration smoke tests (auth, session continuity, streaming format, ralphex failure mapping).
+- Add optional persistent session store (sqlite/redis) if process restarts must preserve history.
+
+## [0.1.2-consilium-first-runtime-fix] - 2026-04-14
+
+### Done
+- Implemented missing Stage-1 runtime files that were referenced but absent:
+  - `model_config.py`
+  - `execution_port.py`
+  - `.consilium/policies/model_config.yaml`
+- Refactored role/model wiring to runtime policy:
+  - `agents/architect.py` now reads role model from `model_config.py`.
+  - `agents/critic.py` now reads role model from `model_config.py`.
+  - `agents/implementer.py` now executes through `ExecutionPort` adapter selection.
+- Completed consult-path orchestration for non-coding chat:
+  - Added `APPROVED_NO_EXEC -> approved_no_exec` signal mapping in `consilium_core.py`.
+  - Added mode inference (`CONSULT` vs `EXECUTE`) and explicit `CONSILIUM_MODE` propagation.
+  - `run_task` now returns structured payload including assistant response and artifacts.
+- Added Consilium-first MCP chat entrypoint:
+  - Added `consilium_chat` tool in `mcp_server.py` for seamless workspace chat routing.
+- Enforced workspace behavior via project rule:
+  - Added `.cursor/rules/consilium-mvp-default.mdc` (`alwaysApply: true`) requiring MCP-first path.
+- Updated runtime checks:
+  - `Makefile` now validates model policy, consult signal mapping, and `consilium_chat` availability.
+- Updated docs:
+  - `README.md` now reflects ExecutionPort + policy-based model binding + Consilium-first routing.
+
+## [0.1.1-consilium-first-routing-plan] - 2026-04-14
+
+### Done
+- Defined and approved a concrete **Consilium-First Global Routing Plan** for seamless chat usage.
+- Updated workspace rule policy to enforce MCP-first routing for all workspace chat requests:
+  - `.cursor/rules/consilium-mvp-default.mdc` now requires `consilium.execute_task` as the first path.
+  - Rule explicitly allows fallback only when MCP is unavailable or times out.
+  - Rule content remains fully in English.
+- Aligned Stage 1 runtime foundations with `consilium-design.md`:
+  - Added role model configuration loader (`model_config.py`).
+  - Added execution abstraction (`execution_port.py`) with `RalphexAdapter` default path.
+  - Externalized role and execution settings to `.consilium/policies/model_config.yaml`.
+  - Wired Architect/Critic/Implementer model selection through role config.
+  - Updated preflight checks in `Makefile` to validate `model_config.yaml` and `execution.adapter: ralphex`.
+- Verified integration startup path:
+  - `make check` passed (including deep runtime validation).
+  - `make start` passed and launched Cursor through project startup script.
+
+### Plan: What still needs to be done for seamless integration
+- Runtime contract normalization for broad chat intents:
+  - Ensure `consilium.execute_task` cleanly handles architecture, planning, diagnostics, and non-code technical prompts through the same pipeline.
+  - Add lightweight intent handling so responses remain consistent even when no code execution is required.
+- Validation of routing behavior in normal chat UX:
+  - Confirm that typical chat prompts are routed through Consilium without manual tool commands.
+  - Confirm emergency fallback behavior is explicit and not silent.
+  - Confirm generated artifacts and task states are coherent for mixed prompt types.
+- Hard guarantee path (Cursor-level enforcement):
+  - Patch Cursor chat routing in a fork to enforce MCP-first dispatch before default model inference.
+  - Add a runtime config gate (for example `consiliumFirst=true`) controlling strict MCP-first behavior.
+  - Build and run patched Cursor binary for this workspace.
+  - Document reproducible build/run steps and maintenance notes for upgrades.
+
+### Notes
+- Per user request, implementation is paused at planning-and-tracking level for the remaining seamless-integration tasks.
+
+## [0.1.0-mvp-bootstrap] - 2026-04-12
+
+### Done
+- Bootstrapped a reproducible dev environment with Nix Flakes:
+  - Added `flake.nix` as the single source of truth for the toolchain.
+  - Generated and pinned `flake.lock`.
+  - Added `devShell` with:
+    - Python 3.11 (`python311`)
+    - `google-cloud-sdk`
+    - Pinned AWS Q Developer CLI package (`aws-q-cli`) from an official versioned artifact
+    - Pinned `ralphex` binary package
+- Implemented idempotent shell bootstrap behavior:
+  - Auto-creates `.venv` on first `nix develop`.
+  - Installs `requirements.txt` only when the file hash changes.
+  - Auto-activates `.venv`.
+  - Prints a compact tool version status line on shell entry.
+- Added environment and config files:
+  - `.envrc` (`use flake`)
+  - `.env.example` (template for `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION`)
+  - `.cursor/mcp.json` with absolute paths and MCP startup via `nix develop`
+  - `$HOME/.config/ralphex/config.yaml` with Nix sandbox configuration
+- Created runtime directories:
+  - `.consilium/plans`
+  - `.consilium/reviews`
+  - `.consilium/state`
+  - `.consilium/runs`
+  - `.consilium/decisions`
+- Integrated dynamic GCP project wiring in code (no hardcoded placeholder):
+  - Added `agents/env_config.py` for `.env` and environment variable loading.
+  - Updated `agents/architect.py` and `agents/critic.py` to read `GOOGLE_CLOUD_PROJECT`.
+  - Kept explicit TODO guidance for missing project configuration.
+- Fixed Python dependency compatibility:
+  - Constrained `pyautogen` to `<0.3.0` to preserve `import autogen` compatibility with current code.
+- Verification completed:
+  - `nix develop` succeeds.
+  - `python3 --version` returns 3.11.x.
+  - `ralphex --help`, `gcloud --version`, `q --version` exit with code 0.
+  - `.venv/bin/python3 -c "import autogen, mcp; from google.cloud import aiplatform"` exits with code 0.
+  - `.cursor/mcp.json` is valid JSON.
+  - `~/.config/ralphex/config.yaml` exists.
+
+### In Progress / Next
+- End-to-end live run from Cursor MCP:
+  - Validate `execute_task` full path: Cursor -> MCP -> GroupChat -> Ralphex.
+- Vertex model/runtime hardening:
+  - Confirm final production model IDs and region policy for Architect/Critic.
+  - Add fail-fast startup validation when `GOOGLE_CLOUD_PROJECT` is missing.
+- Implementer hardening:
+  - Add richer run metrics (duration, retries, diagnostics).
+  - Add return code classification (`infra/auth/tooling/logic`).
+- FSM and orchestration hardening:
+  - Add retry ceilings and loop detection guards.
+  - Persist deterministic stop reasons in `.consilium/state`.
+- Testing:
+  - Add smoke tests for config loading and signal parsing.
+  - Add an integration test for FSM transitions with mocked agents.
+- Security and secrets hygiene:
+  - Ensure local secret files (for example `.env`) are covered by VCS policy.
+  - Verify least-privilege settings for cloud profiles used by agents.
+
+### Notes: Difficulties Encountered
+- Nix license gating:
+  - AWS Q package is unfree and required explicit `allowUnfreePredicate`.
+- Binary packaging friction:
+  - GNU AWS Q build needed extra runtime libraries and longer builds.
+  - Switched to a pinned official MUSL artifact for better reproducibility.
+- Dependency drift:
+  - Newer `pyautogen` releases changed API surface and broke `import autogen`.
+  - Required explicit version constraints.
+- Native runtime linking:
+  - `grpc` from `google-cloud-aiplatform` required `libstdc++.so.6`; fixed via RPATH patch in shell bootstrap.
+
+### Expected Future Difficulties
+- Upstream model naming/version changes and deprecations in Gemini lineups.
+- Auth context mismatch between interactive CLI sessions and non-interactive subprocesses.
+- Context growth and quality degradation on long-running tasks.
+- Potential multi-agent loops on ambiguous signals.
+- Environment drift between workstation and CI/runtime hosts without continuous verification.
+
+### Architectural Ideas for Mitigation
+- Add a dedicated `Supervisor` guardrail layer:
+  - Iteration/time/cost budget control
+  - Loop detection
+  - Automatic rollback/escalation policy
+- Introduce a model/provider adapter layer:
+  - Central mapping of logical role -> concrete model/provider
+  - Fast fallback policy when primary model/tooling fails
+- Strengthen canonical task artifacts:
+  - Structured decision log per iteration
+  - Invariant checks before every FSM transition
+- Add baseline observability:
+  - Structured logs with shared run/task IDs
+  - Basic failure taxonomy and operational reporting
+- Add deterministic verification stage:
+  - Mandatory pre/post checks before `DONE`
+  - Explicit evidence bundle as part of final output

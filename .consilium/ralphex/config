@@ -1,0 +1,8 @@
+claude_command = /media/ilja/DATA/soft/consillium/.consilium/ralphex/scripts/codex-as-claude.sh
+claude_args =
+external_review_tool = codex
+codex_enabled = true
+codex_command = codex
+codex_model = gpt-5.3-codex
+codex_reasoning_effort = xhigh
+codex_timeout_ms = 3600000

@@ -1,0 +1,16 @@
+# Core orchestration
+pyautogen>=0.2.35,<0.3.0
+
+# MCP server (Cursor integration)
+mcp>=1.0.0
+
+# Google Vertex AI (Architect + Critic)
+google-cloud-aiplatform>=1.48.0
+google-auth>=2.28.0
+
+# Runtime model policy config
+PyYAML>=6.0.1
+
+# OpenAI-compatible Consilium API gateway
+fastapi>=0.115.0
+uvicorn>=0.30.0
