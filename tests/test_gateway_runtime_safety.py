@@ -85,6 +85,14 @@ starting task execution phase
         )
         self.assertEqual(text, raw)
 
+    def test_format_chat_response_does_not_rewrite_plain_text_with_log_phrase(self) -> None:
+        raw = "Starting code review is useful for teams."
+        text = gateway.RalphexTransport._format_chat_response(
+            raw_text=raw,
+            user_prompt="Explain why code review helps",
+        )
+        self.assertEqual(text, raw)
+
 
 if __name__ == "__main__":
     unittest.main()

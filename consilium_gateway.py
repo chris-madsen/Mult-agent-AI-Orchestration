@@ -521,17 +521,25 @@ class RalphexTransport:
     @staticmethod
     def _looks_like_ralphex_log(raw_text: str) -> bool:
         normalized = raw_text.lower()
-        markers = (
+        strong_markers = (
             "starting ralphex loop",
             "starting task execution phase",
-            "starting code review",
-            "all tasks completed, starting code review",
-            "task execution completed successfully",
             "--- task iteration",
             "--- claude review",
             "<<<ralphex:",
         )
-        return any(marker in normalized for marker in markers)
+        if any(marker in normalized for marker in strong_markers):
+            return True
+
+        weak_markers = (
+            "starting code review",
+            "all tasks completed, starting code review",
+            "task execution completed successfully",
+            "review phases completed successfully",
+            "all phases completed successfully",
+        )
+        weak_hits = sum(1 for marker in weak_markers if marker in normalized)
+        return weak_hits >= 2 and ("\n" in raw_text or "[" in raw_text)
 
     @staticmethod
     def _format_chat_response(raw_text: str, user_prompt: str) -> str:
@@ -552,10 +560,10 @@ class RalphexTransport:
         raw_upper = raw_text.upper()
         raw_lower = raw_text.lower()
         no_issues = "NO ISSUES FOUND" in raw_upper
-        all_done = "ALL_TASKS_DONE" in raw_upper
-        review_done = "REVIEW_DONE" in raw_upper
-        codex_done = "CODEX_REVIEW_DONE" in raw_upper
-        task_failed = "TASK_FAILED" in raw_upper
+        all_done = re.search(r"\bALL_TASKS_DONE\b", raw_upper) is not None
+        review_done = re.search(r"\bREVIEW_DONE\b", raw_upper) is not None
+        codex_done = re.search(r"\bCODEX_REVIEW_DONE\b", raw_upper) is not None
+        task_failed = re.search(r"\bTASK_FAILED\b", raw_upper) is not None
         success = (
             "all phases completed successfully" in raw_lower
             or "review phases completed successfully" in raw_lower
