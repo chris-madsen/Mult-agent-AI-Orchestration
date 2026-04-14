@@ -2,6 +2,28 @@
 
 All notable changes and delivery notes for Consilium MVP are documented here.
 
+## [0.1.4-gateway-stall-visibility-and-process-cleanup] - 2026-04-15
+
+### Done
+- Added explicit "thinking vs stuck" runtime telemetry for gateway transport:
+  - Gateway now tracks each active request with `request_id/session_id/pid/pgid/phase/elapsed/idle/stdout/stderr`.
+  - Added periodic heartbeat logs during long-running Ralphex/Codex execution.
+  - Added active execution snapshot to `GET /healthz`.
+- Added stall detection and controlled termination:
+  - New `CONSILIUM_RALPHEX_IDLE_TIMEOUT_SEC` (default `300`) terminates a run when no subprocess output is seen for too long.
+  - Existing hard timeout remains (`CONSILIUM_RALPHEX_TIMEOUT_SEC`, default `1200`).
+  - Added `CONSILIUM_RALPHEX_IDLE_WARN_SEC` (default `45`) to switch phase to `running_no_output` before hard stall.
+  - Added `CONSILIUM_RALPHEX_HEARTBEAT_SEC` (default `15`) for consistent operational heartbeat.
+- Added process-group lifecycle control:
+  - Transport now runs each invocation in a dedicated process group and can terminate the entire tree (`ralphex` + wrappers + `codex`) on timeout/stall.
+  - Active process metadata persisted in `.consilium/gateway/active/*.json`.
+- Hardened shutdown cleanup:
+  - `make stop-gateway` now kills active transport process groups recorded in `.consilium/gateway/active`.
+  - Added legacy orphan cleanup fallback for old runs that predate active-run tracking.
+- Updated docs/config templates:
+  - Updated `.env.example` with new timeout/heartbeat variables.
+  - Updated `README.md` gateway operational notes (`/healthz`, timeout knobs, cleanup behavior).
+
 ## [0.1.3-cursor-gpu-default-and-openai-gateway] - 2026-04-15
 
 ### Done

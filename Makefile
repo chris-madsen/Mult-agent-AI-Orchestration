@@ -207,3 +207,24 @@ stop-gateway:
 		sleep 0.2; \
 		kill -9 "$$listener_pid" 2>/dev/null || true; \
 	fi
+	@active_dir=".consilium/gateway/active"; \
+	if [[ -d "$$active_dir" ]]; then \
+		found=0; \
+		for f in "$$active_dir"/*.json; do \
+			[[ -e "$$f" ]] || continue; \
+			found=1; \
+			pgid="$$(jq -r '.pgid // empty' "$$f" 2>/dev/null || true)"; \
+			req="$$(jq -r '.request_id // empty' "$$f" 2>/dev/null || true)"; \
+			if [[ "$$pgid" =~ ^[0-9]+$$ ]]; then \
+				echo "[run] stopping active transport request_id=$$req pgid=$$pgid"; \
+				kill -TERM -- "-$$pgid" 2>/dev/null || true; \
+				sleep 0.2; \
+				kill -KILL -- "-$$pgid" 2>/dev/null || true; \
+			fi; \
+			rm -f "$$f"; \
+		done; \
+		if [[ "$$found" -eq 0 ]]; then \
+			echo "[ok] no active transport records"; \
+		fi; \
+	fi
+	@python3 ./scripts/kill_gateway_orphans.py "$(PROJECT_ROOT)"

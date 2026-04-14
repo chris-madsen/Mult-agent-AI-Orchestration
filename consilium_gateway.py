@@ -7,6 +7,7 @@ import pathlib
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -28,11 +29,15 @@ DEFAULT_API_KEY = "consilium-mvp-key"
 DEFAULT_MODEL = "ralphex-mcp"
 MAX_SESSION_MESSAGES = 80
 DEFAULT_TIMEOUT_SEC = 1200
+DEFAULT_IDLE_TIMEOUT_SEC = 300
+DEFAULT_HEARTBEAT_SEC = 15
+DEFAULT_IDLE_WARN_SEC = 45
 LOGGER = logging.getLogger("consilium.gateway")
 logging.basicConfig(level=os.getenv("CONSILIUM_GATEWAY_LOG_LEVEL", "INFO"))
 _GATEWAY_PLANS_DIR = pathlib.Path(".consilium/gateway/plans")
 _RALPHEX_CONFIG_DIR = pathlib.Path(".consilium/ralphex")
 _CODEX_SANDBOX = os.getenv("CONSILIUM_CODEX_SANDBOX", "danger-full-access")
+_ACTIVE_RUNS_DIR = pathlib.Path(".consilium/gateway/active")
 
 
 def _resolve_ralphex_binary() -> str | None:
@@ -67,6 +72,120 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_int(name: str, default: int, minimum: int = 0) -> int:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        return default
+    return max(minimum, value)
+
+
+def _active_run_path(request_id: str) -> pathlib.Path:
+    return _ACTIVE_RUNS_DIR / f"{request_id}.json"
+
+
+def _persist_active_run(state: ActiveExecution) -> None:
+    try:
+        _ACTIVE_RUNS_DIR.mkdir(parents=True, exist_ok=True)
+        now = time.monotonic()
+        payload = {
+            "request_id": state.request_id,
+            "session_id": state.session_id,
+            "pid": state.pid,
+            "pgid": state.pgid,
+            "phase": state.phase,
+            "elapsed_sec": round(now - state.started_monotonic, 1),
+            "idle_sec": round(now - state.last_activity_monotonic, 1),
+            "stdout_bytes": state.stdout_bytes,
+            "stderr_bytes": state.stderr_bytes,
+            "plan_path": state.plan_path,
+            "command": state.command,
+        }
+        target = _active_run_path(state.request_id)
+        tmp = target.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(target)
+    except OSError as exc:
+        LOGGER.warning(
+            "active_run_persist_failed request_id=%s path=%s error=%s",
+            state.request_id,
+            str(_ACTIVE_RUNS_DIR),
+            str(exc),
+        )
+
+
+def _register_active_run(state: ActiveExecution) -> None:
+    with _ACTIVE_LOCK:
+        _ACTIVE_EXECUTIONS[state.request_id] = state
+    _persist_active_run(state)
+
+
+def _update_active_run(state: ActiveExecution, persist: bool = False) -> None:
+    with _ACTIVE_LOCK:
+        _ACTIVE_EXECUTIONS[state.request_id] = state
+    if persist:
+        _persist_active_run(state)
+
+
+def _clear_active_run(request_id: str) -> None:
+    with _ACTIVE_LOCK:
+        _ACTIVE_EXECUTIONS.pop(request_id, None)
+    try:
+        _active_run_path(request_id).unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _active_runs_snapshot() -> list[dict]:
+    now = time.monotonic()
+    with _ACTIVE_LOCK:
+        active = list(_ACTIVE_EXECUTIONS.values())
+    result: list[dict] = []
+    for state in active:
+        result.append(
+            {
+                "request_id": state.request_id,
+                "session_id": state.session_id,
+                "pid": state.pid,
+                "pgid": state.pgid,
+                "phase": state.phase,
+                "elapsed_sec": round(now - state.started_monotonic, 1),
+                "idle_sec": round(now - state.last_activity_monotonic, 1),
+                "stdout_bytes": state.stdout_bytes,
+                "stderr_bytes": state.stderr_bytes,
+                "plan_path": state.plan_path,
+            }
+        )
+    result.sort(key=lambda item: item["elapsed_sec"], reverse=True)
+    return result
+
+
+def _kill_process_group(pgid: int, sig: signal.Signals) -> None:
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        return
+    except PermissionError:
+        return
+
+
+def _terminate_process_group(pgid: int, grace_sec: float = 2.0) -> None:
+    _kill_process_group(pgid, signal.SIGTERM)
+    deadline = time.monotonic() + grace_sec
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            return
+        time.sleep(0.1)
+    _kill_process_group(pgid, signal.SIGKILL)
+
+
 class ChatMessage(BaseModel):
     role: str
     content: str | list[dict] | None = ""
@@ -88,6 +207,25 @@ class SessionState:
 
 _SESSION_LOCK = threading.Lock()
 _SESSIONS: dict[str, SessionState] = {}
+
+
+@dataclass
+class ActiveExecution:
+    request_id: str
+    session_id: str
+    plan_path: str
+    command: str
+    pid: int
+    pgid: int
+    started_monotonic: float
+    last_activity_monotonic: float
+    phase: str = "starting"
+    stdout_bytes: int = 0
+    stderr_bytes: int = 0
+
+
+_ACTIVE_LOCK = threading.Lock()
+_ACTIVE_EXECUTIONS: dict[str, ActiveExecution] = {}
 
 
 class RalphexTransport:
@@ -120,9 +258,12 @@ class RalphexTransport:
                     self.command = 'ralphex --review "$CONSILIUM_PLAN_FILE"'
                 else:
                     self.command = 'ralphex "$CONSILIUM_PLAN_FILE"'
-        self.timeout_sec = int(os.getenv("CONSILIUM_RALPHEX_TIMEOUT_SEC", str(DEFAULT_TIMEOUT_SEC)))
+        self.timeout_sec = _env_int("CONSILIUM_RALPHEX_TIMEOUT_SEC", DEFAULT_TIMEOUT_SEC, minimum=1)
+        self.idle_timeout_sec = _env_int("CONSILIUM_RALPHEX_IDLE_TIMEOUT_SEC", DEFAULT_IDLE_TIMEOUT_SEC, minimum=0)
+        self.heartbeat_sec = _env_int("CONSILIUM_RALPHEX_HEARTBEAT_SEC", DEFAULT_HEARTBEAT_SEC, minimum=1)
+        self.idle_warn_sec = _env_int("CONSILIUM_RALPHEX_IDLE_WARN_SEC", DEFAULT_IDLE_WARN_SEC, minimum=1)
 
-    def execute(self, messages: list[dict[str, str]]) -> str:
+    def execute(self, messages: list[dict[str, str]], session_id: str, request_id: str) -> str:
         plan_path = self._write_plan_file(messages)
         task_json = json.dumps(messages, ensure_ascii=False)
         env = os.environ.copy()
@@ -134,17 +275,167 @@ class RalphexTransport:
         env.setdefault("CODEX_VERBOSE", "0")
         self._adapter_bootstrap._ensure_ralphex_codex_bridge()
 
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             ["bash", "-lc", self.command],
-            capture_output=True,
-            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
             env=env,
-            timeout=self.timeout_sec,
+            start_new_session=True,
+        )
+        if proc.stdout is not None:
+            os.set_blocking(proc.stdout.fileno(), False)
+        if proc.stderr is not None:
+            os.set_blocking(proc.stderr.fileno(), False)
+
+        def _read_available(pipe) -> bytes:
+            if pipe is None:
+                return b""
+            try:
+                return os.read(pipe.fileno(), 4096)
+            except BlockingIOError:
+                return b""
+
+        def _drain_pipe(pipe) -> bytes:
+            chunks: list[bytes] = []
+            while True:
+                chunk = _read_available(pipe)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            return b"".join(chunks)
+
+        pgid = os.getpgid(proc.pid)
+        now = time.monotonic()
+        state = ActiveExecution(
+            request_id=request_id,
+            session_id=session_id,
+            plan_path=str(plan_path.resolve()),
+            command=self.command,
+            pid=proc.pid,
+            pgid=pgid,
+            started_monotonic=now,
+            last_activity_monotonic=now,
+            phase="running_waiting_output",
+        )
+        _register_active_run(state)
+        LOGGER.info(
+            "transport_started request_id=%s session_id=%s pid=%s pgid=%s timeout_sec=%s idle_timeout_sec=%s mode=%s",
+            request_id,
+            session_id,
+            str(proc.pid),
+            str(pgid),
+            str(self.timeout_sec),
+            str(self.idle_timeout_sec),
+            self.mode,
+        )
+        heartbeat_deadline = now + self.heartbeat_sec
+        stdout_chunks: list[bytes] = []
+        stderr_chunks: list[bytes] = []
+
+        try:
+            while True:
+                now = time.monotonic()
+                if now >= heartbeat_deadline:
+                    idle_sec = now - state.last_activity_monotonic
+                    if idle_sec >= self.idle_warn_sec:
+                        state.phase = "running_no_output"
+                    _update_active_run(state, persist=True)
+                    LOGGER.info(
+                        "transport_heartbeat request_id=%s session_id=%s pid=%s pgid=%s phase=%s elapsed_sec=%.1f idle_sec=%.1f stdout_bytes=%d stderr_bytes=%d",
+                        state.request_id,
+                        state.session_id,
+                        str(state.pid),
+                        str(state.pgid),
+                        state.phase,
+                        now - state.started_monotonic,
+                        idle_sec,
+                        state.stdout_bytes,
+                        state.stderr_bytes,
+                    )
+                    heartbeat_deadline = now + self.heartbeat_sec
+
+                elapsed = now - state.started_monotonic
+                idle = now - state.last_activity_monotonic
+                if elapsed >= self.timeout_sec:
+                    _terminate_process_group(pgid)
+                    raise subprocess.TimeoutExpired(cmd=self.command, timeout=self.timeout_sec)
+                if self.idle_timeout_sec > 0 and idle >= self.idle_timeout_sec:
+                    _terminate_process_group(pgid)
+                    raise RuntimeError(
+                        f"ralphex stalled: no subprocess output for {int(idle)}s "
+                        f"(idle timeout {self.idle_timeout_sec}s)"
+                    )
+
+                if proc.poll() is not None:
+                    break
+
+                chunk_read = False
+                chunk = _read_available(proc.stdout)
+                if chunk:
+                    chunk_read = True
+                    stdout_chunks.append(chunk)
+                    state.stdout_bytes += len(chunk)
+
+                chunk = _read_available(proc.stderr)
+                if chunk:
+                    chunk_read = True
+                    stderr_chunks.append(chunk)
+                    state.stderr_bytes += len(chunk)
+
+                if chunk_read:
+                    now = time.monotonic()
+                    state.last_activity_monotonic = now
+                    state.phase = "running_output_flow"
+                    _update_active_run(state, persist=False)
+                else:
+                    time.sleep(0.1)
+
+            remainder = _drain_pipe(proc.stdout)
+            if remainder:
+                stdout_chunks.append(remainder)
+                state.stdout_bytes += len(remainder)
+
+            remainder = _drain_pipe(proc.stderr)
+            if remainder:
+                stderr_chunks.append(remainder)
+                state.stderr_bytes += len(remainder)
+        finally:
+            _clear_active_run(request_id)
+            if proc.poll() is None:
+                _terminate_process_group(pgid)
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                _terminate_process_group(pgid)
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    pass
+            finally:
+                if proc.stdout is not None:
+                    proc.stdout.close()
+                if proc.stderr is not None:
+                    proc.stderr.close()
+
+        stdout_text = b"".join(stdout_chunks).decode("utf-8", errors="replace")
+        stderr_text = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+
+        LOGGER.info(
+            "transport_finished request_id=%s session_id=%s pid=%s pgid=%s returncode=%s elapsed_sec=%.1f stdout_bytes=%d stderr_bytes=%d",
+            request_id,
+            session_id,
+            str(proc.pid),
+            str(pgid),
+            str(proc.returncode),
+            time.monotonic() - state.started_monotonic,
+            len(stdout_text.encode("utf-8")),
+            len(stderr_text.encode("utf-8")),
         )
 
         if proc.returncode != 0:
-            stderr = (proc.stderr or "").strip()
-            stdout = (proc.stdout or "").strip()
+            stderr = stderr_text.strip()
+            stdout = stdout_text.strip()
             details = stderr or stdout or f"exit code {proc.returncode}"
             if proc.returncode == 127 and "not found" in details.lower():
                 raise RuntimeError(
@@ -153,9 +444,9 @@ class RalphexTransport:
                 )
             raise RuntimeError(f"ralphex command failed: {details}")
 
-        text = self._extract_text(proc.stdout or "")
+        text = self._extract_text(stdout_text)
         if not text.strip():
-            text = (proc.stdout or "").strip()
+            text = stdout_text.strip()
         if not text.strip():
             raise RuntimeError("ralphex returned empty response")
         return text.strip()
@@ -239,7 +530,9 @@ class RalphexProxyAgent(autogen.ConversableAgent):
         message_list = self._payload.get("messages") or []
         if not isinstance(message_list, list):
             return "ralphex proxy payload must contain messages list"
-        return self._transport.execute(message_list)
+        session_id = str(self._payload.get("session_id") or "default")
+        request_id = str(self._payload.get("request_id") or uuid.uuid4().hex)
+        return self._transport.execute(message_list, session_id=session_id, request_id=request_id)
 
 
 class AutoGenPipe:
@@ -248,9 +541,10 @@ class AutoGenPipe:
     def __init__(self, transport: RalphexTransport) -> None:
         self._transport = transport
 
-    def complete(self, session_id: str, messages: list[dict[str, str]]) -> str:
+    def complete(self, session_id: str, messages: list[dict[str, str]], request_id: str) -> str:
         payload = {
             "session_id": session_id,
+            "request_id": request_id,
             "messages": messages,
         }
         proxy = RalphexProxyAgent(transport=self._transport, payload=payload)
@@ -428,12 +722,10 @@ def _check_bearer_token(auth_header: str | None) -> None:
     token = token.strip()
     if scheme.lower() != "bearer" or token != api_key:
         LOGGER.warning(
-            "auth_failed scheme=%r token_len=%d api_key_len=%d token_repr=%r api_key_repr=%r",
+            "auth_failed scheme=%r token_present=%s token_len=%d",
             scheme,
+            str(bool(token)).lower(),
             len(token),
-            len(api_key or ""),
-            token,
-            api_key,
         )
         raise HTTPException(status_code=401, detail="Invalid API key")
 
@@ -458,9 +750,11 @@ def _startup_checks() -> None:
             "Set a strong non-default key before starting gateway."
         )
     LOGGER.info(
-        "gateway_startup strict_api_key=%s transport_timeout_sec=%s transport_mode=%s transport_source=%s transport_cmd=%s",
+        "gateway_startup strict_api_key=%s transport_timeout_sec=%s transport_idle_timeout_sec=%s transport_heartbeat_sec=%s transport_mode=%s transport_source=%s transport_cmd=%s",
         str(strict).lower(),
         str(_transport.timeout_sec),
+        str(_transport.idle_timeout_sec),
+        str(_transport.heartbeat_sec),
         _transport.mode,
         _transport.command_source,
         _transport.command,
@@ -479,7 +773,8 @@ def _startup_checks() -> None:
 
 @app.get("/healthz")
 def healthz() -> dict:
-    return {"status": "ok"}
+    active = _active_runs_snapshot()
+    return {"status": "ok", "active_count": len(active), "active": active}
 
 
 @app.post("/v1/chat/completions")
@@ -504,11 +799,17 @@ def chat_completions(
     history = _upsert_session_messages(session_id, incoming)
     completion_id = _make_completion_id()
     model = payload.model or DEFAULT_MODEL
+    LOGGER.info("chat_request_dispatch completion_id=%s session_id=%s", completion_id, session_id)
 
     try:
-        answer = _pipe.complete(session_id=session_id, messages=history)
+        answer = _pipe.complete(session_id=session_id, messages=history, request_id=completion_id)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="ralphex timeout")
+    except RuntimeError as exc:
+        message = str(exc)
+        if message.startswith("ralphex stalled:"):
+            raise HTTPException(status_code=504, detail=message)
+        raise HTTPException(status_code=500, detail=message)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=500, detail=f"runtime dependency missing: {exc}")
     except HTTPException:

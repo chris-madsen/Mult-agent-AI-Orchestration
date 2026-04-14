@@ -51,6 +51,7 @@ tfplan-*
 .consilium/gateway.pid
 .consilium/logs/
 .consilium/gateway/plans/
+.consilium/gateway/active/
 .consilium/plans/
 .consilium/reviews/
 .consilium/state/

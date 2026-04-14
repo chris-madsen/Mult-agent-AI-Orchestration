@@ -135,12 +135,17 @@ Path:
 ### Gateway operational notes
 
 - Endpoint: `POST /v1/chat/completions` (OpenAI-compatible)
+- Health/ops: `GET /healthz` (includes active transport runs, phase, elapsed/idle seconds)
 - Auth: `Authorization: Bearer <CONSILIUM_API_KEY>`
 - Session: `user` field or `X-Session-Id` header
 - Ralphex command: `CONSILIUM_RALPHEX_CMD` (optional explicit override)
 - Auto command mode: `CONSILIUM_RALPHEX_MODE=review|execute` (default `review`)
   - review mode default command: `ralphex --review "$CONSILIUM_PLAN_FILE"` (works on dirty trees)
   - execute mode default command: `ralphex "$CONSILIUM_PLAN_FILE"` (requires clean branch workflow)
+- Hard timeout: `CONSILIUM_RALPHEX_TIMEOUT_SEC` (default `1200`)
+- Idle timeout (no subprocess output): `CONSILIUM_RALPHEX_IDLE_TIMEOUT_SEC` (default `300`, `0` disables)
+- Heartbeat telemetry cadence: `CONSILIUM_RALPHEX_HEARTBEAT_SEC` (default `15`)
+- `running_no_output` phase threshold: `CONSILIUM_RALPHEX_IDLE_WARN_SEC` (default `45`)
 - Strict API key mode: set `CONSILIUM_STRICT_API_KEY=1` to fail startup when default key is used
 - If `CONSILIUM_RALPHEX_CMD` is not set, gateway auto-detects `ralphex` from:
   - `PATH`
@@ -151,6 +156,7 @@ Path:
 - Gateway now fails fast on startup if no `ralphex` command is resolvable (instead of failing on first chat request).
 - Gateway fails fast if `CONSILIUM_RALPHEX_CMD` still uses unsupported `--task` flag on modern ralphex.
 - `ralphex` requires repository root with at least one commit; `make ensure-gateway` can auto-run `git init` and create an empty bootstrap commit when needed.
+- `make stop-gateway` now force-cleans active/stale gateway-owned `ralphex/codex` subprocesses.
 
 ---
 
