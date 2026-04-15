@@ -14,6 +14,33 @@ import consilium_gateway as gateway
 
 
 class GatewayRuntimeSafetyTests(unittest.TestCase):
+    def test_resolve_public_model_name_falls_back_for_blank_env(self) -> None:
+        with patch.dict(os.environ, {"CONSILIUM_PUBLIC_MODEL": "   "}, clear=False):
+            name = gateway._resolve_public_model_name()
+        self.assertEqual(name, "consilium-auto")
+
+    def test_extract_text_keeps_stream_token_chunks_contiguous(self) -> None:
+        stdout = "\n".join(
+            [
+                'data: {"choices":[{"delta":{"content":"Hel"}}]}',
+                'data: {"choices":[{"delta":{"content":"lo"}}]}',
+                'data: {"choices":[{"delta":{"content":" world"}}]}',
+            ]
+        )
+        text = gateway.RalphexTransport._extract_text(stdout)
+        self.assertEqual(text, "Hello world")
+
+    def test_extract_text_keeps_line_breaks_for_plain_logs(self) -> None:
+        stdout = "starting task execution phase\n--- task iteration 1 ---"
+        text = gateway.RalphexTransport._extract_text(stdout)
+        self.assertEqual(text, "starting task execution phase\n--- task iteration 1 ---")
+
+    def test_probe_version_command_uses_binary_only_for_env_template(self) -> None:
+        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
+        transport.binary_path = None
+        transport.command_template = 'ralphex --review "$CONSILIUM_PLAN_FILE"'
+        self.assertEqual(transport._probe_version_command(), "ralphex --version")
+
     def test_env_int_parses_and_clamps(self) -> None:
         with patch.dict(os.environ, {"CONSILIUM_TEST_INT": "-5"}, clear=False):
             value = gateway._env_int("CONSILIUM_TEST_INT", default=10, minimum=0)
@@ -228,6 +255,44 @@ branch: feature/internal-ticket-123
         self.assertEqual(body["choices"][0]["message"]["content"], "ok")
         complete_mock.assert_called_once()
         probe_mock.assert_not_called()
+
+    def test_chat_completion_ping_endpoint_request_uses_full_pipeline(self) -> None:
+        request = gateway.ChatCompletionsRequest(
+            model="gpt-4.1",
+            messages=[gateway.ChatMessage(role="user", content="Add ping endpoint to API")],
+            stream=False,
+        )
+        with patch.dict(os.environ, {"CONSILIUM_API_KEY": "test-key"}, clear=False):
+            with patch.object(gateway._transport, "quick_probe", return_value="probe") as probe_mock:
+                with patch.object(gateway._pipe, "complete", return_value="ok") as complete_mock:
+                    response = gateway.chat_completions(
+                        request,
+                        authorization="Bearer test-key",
+                        x_session_id=None,
+                    )
+        body = json.loads(response.body.decode("utf-8"))
+        self.assertEqual(body["choices"][0]["message"]["content"], "ok")
+        complete_mock.assert_called_once()
+        probe_mock.assert_not_called()
+
+    def test_chat_completion_plain_ping_uses_probe_path(self) -> None:
+        request = gateway.ChatCompletionsRequest(
+            model="gpt-4.1",
+            messages=[gateway.ChatMessage(role="user", content="ping")],
+            stream=False,
+        )
+        with patch.dict(os.environ, {"CONSILIUM_API_KEY": "test-key"}, clear=False):
+            with patch.object(gateway._transport, "quick_probe", return_value="probe") as probe_mock:
+                with patch.object(gateway._pipe, "complete", return_value="ok") as complete_mock:
+                    response = gateway.chat_completions(
+                        request,
+                        authorization="Bearer test-key",
+                        x_session_id=None,
+                    )
+        body = json.loads(response.body.decode("utf-8"))
+        self.assertEqual(body["choices"][0]["message"]["content"], "probe")
+        probe_mock.assert_called_once()
+        complete_mock.assert_not_called()
 
 
 if __name__ == "__main__":

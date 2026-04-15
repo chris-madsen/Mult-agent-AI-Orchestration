@@ -25,8 +25,15 @@ from pydantic import BaseModel, Field
 from execution_port import RalphexAdapter
 from model_config import load_runtime_config
 
+
+def _resolve_public_model_name() -> str:
+    raw = os.getenv("CONSILIUM_PUBLIC_MODEL", "consilium-auto")
+    normalized = (raw or "").strip()
+    return normalized or "consilium-auto"
+
+
 DEFAULT_API_KEY = "consilium-mvp-key"
-DEFAULT_MODEL = (os.getenv("CONSILIUM_PUBLIC_MODEL", "consilium-auto") or "consilium-auto").strip()
+DEFAULT_MODEL = _resolve_public_model_name()
 LEGACY_MODEL_ALIAS = "ralphex-mcp"
 MAX_SESSION_MESSAGES = 80
 DEFAULT_TIMEOUT_SEC = 1200
@@ -329,7 +336,7 @@ class RalphexTransport:
         return self._execute_command()
 
     def quick_probe(self) -> str:
-        version_cmd = f"{self.command_template} --version"
+        version_cmd = self._probe_version_command()
         env = os.environ.copy()
         local_tmp = _ensure_local_tmp_dir()
         env["TMPDIR"] = str(local_tmp)
@@ -352,6 +359,18 @@ class RalphexTransport:
 
         text = (proc.stdout or "").strip() or "ralphex available"
         return f"Связь есть. {text}"
+
+    def _probe_version_command(self) -> str:
+        if self.binary_path:
+            return f"{shlex.quote(self.binary_path)} --version"
+        try:
+            parts = shlex.split(self.command_template)
+        except ValueError:
+            parts = []
+        binary = parts[0] if parts else self.command_template.strip()
+        if not binary:
+            binary = "ralphex"
+        return f"{shlex.quote(binary)} --version"
 
     def execute(self, messages: list[dict[str, str]], session_id: str, request_id: str) -> str:
         plan_path = self._write_plan_file(messages)
@@ -626,6 +645,8 @@ class RalphexTransport:
     @staticmethod
     def _extract_text(stdout: str) -> str:
         chunks: list[str] = []
+        saw_delta = False
+        saw_raw = False
         for raw_line in stdout.splitlines():
             line = raw_line.strip()
             if not line:
@@ -637,16 +658,19 @@ class RalphexTransport:
                     continue
             if not (line.startswith("{") and line.endswith("}")):
                 chunks.append(raw_line)
+                saw_raw = True
                 continue
             try:
                 payload = json.loads(line)
             except json.JSONDecodeError:
                 chunks.append(raw_line)
+                saw_raw = True
                 continue
             if isinstance(payload, dict):
                 delta = payload.get("delta") or {}
                 if isinstance(delta, dict) and isinstance(delta.get("text"), str):
                     chunks.append(delta["text"])
+                    saw_delta = True
                     continue
                 choices = payload.get("choices")
                 if isinstance(choices, list):
@@ -656,6 +680,9 @@ class RalphexTransport:
                         delta_obj = choice.get("delta") or {}
                         if isinstance(delta_obj, dict) and isinstance(delta_obj.get("content"), str):
                             chunks.append(delta_obj["content"])
+                            saw_delta = True
+        if saw_delta and not saw_raw:
+            return "".join(chunks)
         return "\n".join(chunks)
 
     @staticmethod
@@ -1003,9 +1030,13 @@ def _is_connectivity_probe(text: str) -> bool:
     if len(normalized) > 120:
         return False
 
-    strong_probe_markers = (
+    normalized_compact = re.sub(r"\s+", " ", normalized).strip()
+    probe_candidate = normalized_compact.strip(" \t\r\n.,!?;:\"'`()[]{}")
+    exact_probe_markers = {
         "ping",
         "пинг",
+    }
+    phrase_probe_markers = (
         "проверка связи",
         "check connection",
         "ты тут",
@@ -1017,21 +1048,41 @@ def _is_connectivity_probe(text: str) -> bool:
     )
     greeting_markers = ("привет", "hello")
     coding_markers = (
+        "add",
+        "create",
+        "write",
+        "code",
         "fix",
         "implement",
         "refactor",
         "review",
         "audit",
+        "endpoint",
+        "api",
+        "route",
+        "handler",
+        "service",
+        "function",
+        "test",
+        "tests",
         "bug",
         "issue",
+        "добав",
+        "создай",
+        "напиши",
         "код",
         "файл",
+        "эндпоинт",
+        "маршрут",
+        "роут",
         "terraform",
         "tofu",
     )
     if any(marker in normalized for marker in coding_markers):
         return False
-    if any(marker in normalized for marker in strong_probe_markers):
+    if probe_candidate in exact_probe_markers:
+        return True
+    if any(marker in normalized for marker in phrase_probe_markers):
         return True
     # A plain greeting should not bypass the full execution path.
     return any(marker in normalized for marker in greeting_markers) and (
