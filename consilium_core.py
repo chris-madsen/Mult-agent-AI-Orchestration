@@ -12,7 +12,7 @@ from autogen.agentchat.contrib.capabilities.transforms import (
     MessageTokenLimiter,
 )
 
-from fsm import ConsiliumFSM, State
+from fsm import ConsiliumFSM
 from agents.architect import make_architect, LLM_CONFIG as ARCHITECT_LLM
 from agents.critic import make_critic
 from agents.implementer import ImplementerAgent

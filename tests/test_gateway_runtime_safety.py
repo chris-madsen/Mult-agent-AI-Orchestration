@@ -121,6 +121,17 @@ starting task execution phase
         )
         self.assertEqual(text, "Статус интеграции неизвестен.")
 
+    def test_format_chat_response_health_check_with_duration_but_no_terminal_signal(self) -> None:
+        raw = """
+starting task execution phase
+completed in 3.1s
+"""
+        text = gateway.RalphexTransport._format_chat_response(
+            raw_text=raw,
+            user_prompt="Ответь одной строкой: интеграция живая?",
+        )
+        self.assertEqual(text, "Статус интеграции неизвестен.")
+
     def test_format_chat_response_extracts_final_answer_from_mixed_log(self) -> None:
         raw = """
 starting task execution phase

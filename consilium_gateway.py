@@ -709,7 +709,7 @@ class RalphexTransport:
         review_done = re.search(r"\bREVIEW_DONE\b", raw_upper) is not None
         codex_done = re.search(r"\bCODEX_REVIEW_DONE\b", raw_upper) is not None
         task_failed = re.search(r"\bTASK_FAILED\b", raw_upper) is not None
-        success = (
+        positive_terminal_signal = (
             "all phases completed successfully" in raw_lower
             or "review phases completed successfully" in raw_lower
             or "task execution completed successfully" in raw_lower
@@ -718,26 +718,16 @@ class RalphexTransport:
             or review_done
             or codex_done
             or no_issues
-            or duration is not None
-        ) and not task_failed
+        )
+        terminal_signal = positive_terminal_signal or task_failed
+        success = positive_terminal_signal and not task_failed
 
         normalized_user = (user_prompt or "").strip().lower()
         integration_health_probe = ("интеграци" in normalized_user and "жив" in normalized_user) or (
             "integration" in normalized_user
             and ("alive" in normalized_user or "working" in normalized_user or "live" in normalized_user)
         )
-        has_execution_signal = (
-            "all phases completed successfully" in raw_lower
-            or "review phases completed successfully" in raw_lower
-            or "task execution completed successfully" in raw_lower
-            or "all tasks completed" in raw_lower
-            or all_done
-            or review_done
-            or codex_done
-            or no_issues
-            or task_failed
-            or duration is not None
-        )
+        has_execution_signal = terminal_signal
 
         # Targeted integration-status answer for direct health checks.
         if integration_health_probe and has_execution_signal:
@@ -756,7 +746,10 @@ class RalphexTransport:
             return raw_text
 
         lines: list[str] = []
-        status = "успешно" if success else "с ошибками"
+        if terminal_signal:
+            status = "успешно" if success else "с ошибками"
+        else:
+            status = "без финального статуса"
         lines.append(f"Ralphex завершил прогон {status}.")
         if duration:
             lines.append(f"Длительность: {duration}.")

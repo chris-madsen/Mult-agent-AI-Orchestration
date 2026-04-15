@@ -14,8 +14,8 @@ warnings.filterwarnings(
     message=r"flaml\.automl is not available\..*",
 )
 
-from mcp.server.fastmcp import FastMCP
-from consilium_core import run_task
+from mcp.server.fastmcp import FastMCP  # noqa: E402
+from consilium_core import run_task  # noqa: E402
 
 mcp = FastMCP(
     name="Consilium",
