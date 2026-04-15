@@ -210,6 +210,25 @@ branch: feature/internal-ticket-123
         body = json.loads(response.body.decode("utf-8"))
         self.assertEqual(body["model"], gateway.DEFAULT_MODEL)
 
+    def test_chat_completion_plain_hello_uses_full_pipeline(self) -> None:
+        request = gateway.ChatCompletionsRequest(
+            model="gpt-4.1",
+            messages=[gateway.ChatMessage(role="user", content="hello")],
+            stream=False,
+        )
+        with patch.dict(os.environ, {"CONSILIUM_API_KEY": "test-key"}, clear=False):
+            with patch.object(gateway._transport, "quick_probe", return_value="probe") as probe_mock:
+                with patch.object(gateway._pipe, "complete", return_value="ok") as complete_mock:
+                    response = gateway.chat_completions(
+                        request,
+                        authorization="Bearer test-key",
+                        x_session_id=None,
+                    )
+        body = json.loads(response.body.decode("utf-8"))
+        self.assertEqual(body["choices"][0]["message"]["content"], "ok")
+        complete_mock.assert_called_once()
+        probe_mock.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

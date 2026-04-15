@@ -1003,18 +1003,19 @@ def _is_connectivity_probe(text: str) -> bool:
     if len(normalized) > 120:
         return False
 
-    probe_markers = (
+    strong_probe_markers = (
         "ping",
         "пинг",
-        "привет",
-        "hello",
         "проверка связи",
         "check connection",
         "ты тут",
         "ты здесь",
         "живой",
         "живая",
+        "integration alive",
+        "интеграция живая",
     )
+    greeting_markers = ("привет", "hello")
     coding_markers = (
         "fix",
         "implement",
@@ -1028,8 +1029,13 @@ def _is_connectivity_probe(text: str) -> bool:
         "terraform",
         "tofu",
     )
-    return any(marker in normalized for marker in probe_markers) and not any(
-        marker in normalized for marker in coding_markers
+    if any(marker in normalized for marker in coding_markers):
+        return False
+    if any(marker in normalized for marker in strong_probe_markers):
+        return True
+    # A plain greeting should not bypass the full execution path.
+    return any(marker in normalized for marker in greeting_markers) and (
+        "связ" in normalized or "connection" in normalized
     )
 
 

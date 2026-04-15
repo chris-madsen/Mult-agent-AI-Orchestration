@@ -133,7 +133,7 @@ Path:
 - Endpoint: `POST /v1/chat/completions` (OpenAI-compatible)
 - Models API: `GET /v1/models`, `GET /v1/models/{id}` (for Cursor model discovery)
 - Health/ops: `GET /healthz` (includes active transport runs, phase, elapsed/idle seconds)
-- Auth: `Authorization: Bearer <CONSILIUM_API_KEY>`
+- Auth: `Authorization: Bearer <CONSILIUM_API_KEY>` (chat + models), or `X-API-Key: <CONSILIUM_API_KEY>` (chat + models)
 - Session: `user` field or `X-Session-Id` header
 - Ralphex command: `CONSILIUM_RALPHEX_CMD` (optional explicit override)
 - Auto command mode: `CONSILIUM_RALPHEX_MODE=auto|tasks|execute|review` (default `auto`)
