@@ -94,6 +94,44 @@ def _env_int(name: str, default: int, minimum: int = 0) -> int:
     return max(minimum, value)
 
 
+def _is_env_assignment(token: str) -> bool:
+    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*$", token or ""))
+
+
+def _extract_command_binary(command_template: str) -> str | None:
+    try:
+        parts = shlex.split(command_template or "")
+    except ValueError:
+        return None
+    if not parts:
+        return None
+
+    idx = 0
+    while idx < len(parts) and _is_env_assignment(parts[idx]):
+        idx += 1
+
+    if idx < len(parts) and parts[idx] == "env":
+        idx += 1
+        while idx < len(parts):
+            token = parts[idx]
+            if token.startswith("-") or _is_env_assignment(token):
+                idx += 1
+                continue
+            return token
+        return "env"
+
+    if idx < len(parts):
+        return parts[idx]
+    return None
+
+
+def _redacted_command_for_log(command_template: str) -> str:
+    binary = _extract_command_binary(command_template)
+    if not binary:
+        return "<redacted>"
+    return f"{binary} <args redacted>"
+
+
 def _ensure_local_tmp_dir() -> pathlib.Path:
     _LOCAL_TMP_DIR.mkdir(parents=True, exist_ok=True)
     try:
@@ -368,11 +406,9 @@ class RalphexTransport:
     def _probe_version_command(self) -> str:
         if self.binary_path:
             return f"{shlex.quote(self.binary_path)} --version"
-        try:
-            parts = shlex.split(self.command_template)
-        except ValueError:
-            parts = []
-        binary = parts[0] if parts else self.command_template.strip()
+        binary = _extract_command_binary(self.command_template)
+        if not binary:
+            binary = self.command_template.strip()
         if not binary:
             binary = "ralphex"
         return f"{shlex.quote(binary)} --version"
@@ -1150,7 +1186,7 @@ def _startup_checks() -> None:
         str(_transport.heartbeat_sec),
         _transport.mode,
         _transport.command_source,
-        _transport.command_template,
+        _redacted_command_for_log(_transport.command_template),
     )
     if _transport.command_source == "default":
         raise RuntimeError(

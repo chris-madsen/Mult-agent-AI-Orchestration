@@ -41,6 +41,25 @@ class GatewayRuntimeSafetyTests(unittest.TestCase):
         transport.command_template = 'ralphex --review "$CONSILIUM_PLAN_FILE"'
         self.assertEqual(transport._probe_version_command(), "ralphex --version")
 
+    def test_probe_version_command_handles_env_assignment_prefix(self) -> None:
+        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
+        transport.binary_path = None
+        transport.command_template = 'RUST_LOG=debug ralphex --review "$CONSILIUM_PLAN_FILE"'
+        self.assertEqual(transport._probe_version_command(), "ralphex --version")
+
+    def test_probe_version_command_handles_env_wrapper(self) -> None:
+        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
+        transport.binary_path = None
+        transport.command_template = 'env RUST_LOG=debug /usr/local/bin/ralphex "$CONSILIUM_PLAN_FILE"'
+        self.assertEqual(transport._probe_version_command(), "/usr/local/bin/ralphex --version")
+
+    def test_redacted_command_for_log_hides_assignment_values(self) -> None:
+        rendered = gateway._redacted_command_for_log(
+            'CONSILIUM_TOKEN=super-secret env RUST_LOG=debug /usr/local/bin/ralphex "$CONSILIUM_PLAN_FILE"'
+        )
+        self.assertEqual(rendered, "/usr/local/bin/ralphex <args redacted>")
+        self.assertNotIn("super-secret", rendered)
+
     def test_is_review_intent_matches_review_request(self) -> None:
         self.assertTrue(gateway.RalphexTransport._is_review_intent("Please review this patch."))
 
