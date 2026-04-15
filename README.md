@@ -14,7 +14,7 @@ Connected to Cursor via MCP. Zero manual handoffs.
 | Orchestrator | AutoGen GroupChat + FSM | — |
 | Architect | `agents/architect.py` | Configured in `.consilium/policies/model_config.yaml` |
 | Critic | `agents/critic.py` | Configured in `.consilium/policies/model_config.yaml` |
-| Implementer | `agents/implementer.py` | `ExecutionPort` → `RalphexAdapter` (`gpt-5.3-codex`) |
+| Implementer | `agents/implementer.py` | Configured in `.consilium/policies/model_config.yaml` |
 | Context compression | `TransformMessages` | — |
 
 ---

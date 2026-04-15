@@ -291,8 +291,12 @@ class RalphexTransport:
 
     def __init__(self) -> None:
         runtime = load_runtime_config()
-        self.model = runtime.model_for("implementer").model
-        self._adapter_bootstrap = RalphexAdapter(model=self.model)
+        implementer_cfg = runtime.model_for("implementer")
+        self.model = implementer_cfg.model
+        self._adapter_bootstrap = RalphexAdapter(
+            provider=implementer_cfg.provider,
+            model=self.model,
+        )
         self.mode = (os.getenv("CONSILIUM_RALPHEX_MODE", "auto") or "auto").strip().lower()
         if self.mode not in {"auto", "review", "execute", "tasks"}:
             self.mode = "auto"
@@ -428,7 +432,7 @@ class RalphexTransport:
         env["TMPDIR"] = str(local_tmp)
         env["TMP"] = str(local_tmp)
         env["TEMP"] = str(local_tmp)
-        self._adapter_bootstrap._ensure_ralphex_codex_bridge()
+        self._adapter_bootstrap._ensure_ralphex_bridge()
 
         proc = subprocess.Popen(
             ["bash", "-lc", command],

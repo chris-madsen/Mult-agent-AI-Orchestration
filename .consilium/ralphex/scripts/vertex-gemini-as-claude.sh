@@ -48,7 +48,7 @@ payload="$(jq -cn --arg text "$prompt" '{
 }')"
 
 response="$(curl -sS --connect-timeout 10 --max-time 600 \
-  -H "Authorization: Bearer '"$token"'" \
+  -H "Authorization: Bearer ${token}" \
   -H "Content-Type: application/json" \
   -d "$payload" \
   "$endpoint" || true)"
@@ -68,4 +68,3 @@ fi
 
 jq -cn --arg text "$text" '{type:"content_block_delta",delta:{type:"text_delta",text:($text+"\n")}}'
 echo '{"type":"result","result":""}'
-
