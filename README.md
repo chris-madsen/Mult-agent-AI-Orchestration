@@ -148,6 +148,7 @@ Path:
   - if output contains an explicit `Final answer:`/`Result:`/`Ответ:` line, that final answer is returned as the user-facing response.
 - Integration health probe shortcut:
   - prompts like `интеграция живая?` or `integration alive?` can return a one-line liveness answer when execution completion/failure signals are present.
+  - if logs are present but completion/failure signal is still inconclusive, gateway responds with `Статус интеграции неизвестен.`
 - Hard timeout: `CONSILIUM_RALPHEX_TIMEOUT_SEC` (default `1200`)
 - Idle timeout (no subprocess output): `CONSILIUM_RALPHEX_IDLE_TIMEOUT_SEC` (default `300`, `0` disables)
 - Heartbeat telemetry cadence: `CONSILIUM_RALPHEX_HEARTBEAT_SEC` (default `15`)
