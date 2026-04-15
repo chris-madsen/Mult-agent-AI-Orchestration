@@ -296,16 +296,21 @@ class RalphexTransport:
     @staticmethod
     def _is_review_intent(user_prompt: str) -> bool:
         text = (user_prompt or "").lower()
-        review_markers = (
+        review_phrases = (
             "code review",
-            "review",
-            "audit",
             "security review",
-            "проверь",
-            "ревью",
-            "аудит",
         )
-        return any(marker in text for marker in review_markers)
+        if any(marker in text for marker in review_phrases):
+            return True
+
+        review_word_patterns = (
+            r"(?<!\w)review(?:s|ed|ing)?(?!\w)",
+            r"(?<!\w)audit(?:s|ed|ing)?(?!\w)",
+            r"(?<!\w)провер\w*(?!\w)",
+            r"(?<!\w)ревью(?!\w)",
+            r"(?<!\w)аудит\w*(?!\w)",
+        )
+        return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in review_word_patterns)
 
     def _review_command(self) -> str:
         return f'{self.command_template} --review "$CONSILIUM_PLAN_FILE"'

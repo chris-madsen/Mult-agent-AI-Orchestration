@@ -41,6 +41,20 @@ class GatewayRuntimeSafetyTests(unittest.TestCase):
         transport.command_template = 'ralphex --review "$CONSILIUM_PLAN_FILE"'
         self.assertEqual(transport._probe_version_command(), "ralphex --version")
 
+    def test_is_review_intent_matches_review_request(self) -> None:
+        self.assertTrue(gateway.RalphexTransport._is_review_intent("Please review this patch."))
+
+    def test_is_review_intent_ignores_preview_word(self) -> None:
+        self.assertFalse(gateway.RalphexTransport._is_review_intent("Please preview this patch."))
+
+    def test_auto_mode_preview_prompt_keeps_execute_command(self) -> None:
+        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
+        transport.command_source = "auto"
+        transport.mode = "auto"
+        transport.command_template = "ralphex"
+        cmd = transport._resolve_command([{"role": "user", "content": "Please preview this patch."}])
+        self.assertEqual(cmd, 'ralphex "$CONSILIUM_PLAN_FILE"')
+
     def test_env_int_parses_and_clamps(self) -> None:
         with patch.dict(os.environ, {"CONSILIUM_TEST_INT": "-5"}, clear=False):
             value = gateway._env_int("CONSILIUM_TEST_INT", default=10, minimum=0)
