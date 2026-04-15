@@ -13,14 +13,19 @@ GOOGLE_CLOUD_PROJECT = get_google_cloud_project()
 GOOGLE_CLOUD_LOCATION = get_google_cloud_location()
 _ROLE_CFG = load_runtime_config().model_for("critic")
 
-LLM_CONFIG = {
-    "config_list": [{
-        "model":    _ROLE_CFG.model,
+_CONFIG_LIST = []
+for model in _ROLE_CFG.models:
+    entry = {
+        "model": model,
         "api_type": _ROLE_CFG.provider,
-        # TODO: set GOOGLE_CLOUD_PROJECT in .env (or env var) for Vertex AI calls.
-        "project":  GOOGLE_CLOUD_PROJECT,
-        "location": GOOGLE_CLOUD_LOCATION,
-    }],
+    }
+    if _ROLE_CFG.provider == "google":
+        entry["project"] = GOOGLE_CLOUD_PROJECT
+        entry["location"] = GOOGLE_CLOUD_LOCATION
+    _CONFIG_LIST.append(entry)
+
+LLM_CONFIG = {
+    "config_list": _CONFIG_LIST,
     "temperature": _ROLE_CFG.temperature,
 }
 

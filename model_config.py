@@ -12,10 +12,15 @@ _POLICY_PATH = Path(".consilium/policies/model_config.yaml")
 @dataclass(frozen=True)
 class ModelConfig:
     provider: str
-    model: str
+    models: list[str]
     temperature: float
     max_tokens: int
     timeout_sec: int
+
+    @property
+    def model(self) -> str:
+        # Backward-compatible convenience: primary model is first in the list.
+        return self.models[0]
 
 
 @dataclass(frozen=True)
@@ -59,6 +64,17 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     },
 }
 
+def _normalize_models(value: Any) -> list[str]:
+    if isinstance(value, list):
+        models = [str(x).strip() for x in value if str(x).strip()]
+        if not models:
+            raise ValueError("model list must be non-empty")
+        return models
+    model = str(value or "").strip()
+    if not model:
+        raise ValueError("model must be a non-empty string")
+    return [model]
+
 
 def _merge_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     merged = {
@@ -74,9 +90,10 @@ def _merge_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     provided_roles = cfg.get("roles", {})
     for role, role_default in _DEFAULT_CONFIG["roles"].items():
         candidate = provided_roles.get(role, {})
+        model_value = candidate.get("model", role_default["model"])
         merged["roles"][role] = {
             "provider": candidate.get("provider", role_default["provider"]),
-            "model": candidate.get("model", role_default["model"]),
+            "models": _normalize_models(model_value),
             "temperature": float(candidate.get("temperature", role_default["temperature"])),
             "max_tokens": int(candidate.get("max_tokens", role_default["max_tokens"])),
             "timeout_sec": int(candidate.get("timeout_sec", role_default["timeout_sec"])),

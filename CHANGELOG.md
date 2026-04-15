@@ -2,6 +2,102 @@
 
 All notable changes and delivery notes for Consilium MVP are documented here.
 
+## [0.1.9-ralphex-tempdir-permission-fix] - 2026-04-15
+
+### Done
+- Fixed `here-document` temp file permission failures in Cursor-triggered Ralphex runs:
+  - Gateway transport now forces local writable temp env:
+    - `TMPDIR=.consilium/tmp`
+    - `TMP=.consilium/tmp`
+    - `TEMP=.consilium/tmp`
+  - `ExecutionPort` path uses the same temp-dir override for non-gateway runs.
+  - `.consilium/tmp` is auto-created with restricted permissions.
+
+## [0.1.8-cursor-state-db-provider-sync] - 2026-04-15
+
+### Done
+- Added direct Cursor local state sync for OpenAI provider wiring:
+  - New script: `scripts/sync-cursor-provider-state.py`.
+  - Updates Cursor global storage DB (`~/.config/Cursor/User/globalStorage/state.vscdb`) to set:
+    - `openAIBaseUrl`
+    - `cursorAuth/openAIKey`
+    - `availableAPIKeyModels`
+    - `aiSettings.userAddedModels`
+    - `aiSettings.modelOverrideEnabled`
+- Added `make cursor-provider-sync` target and included it into:
+  - `make start`
+  - `make start-gpu`
+  - `make start-safe`
+- This removes manual model addition in Cursor UI for Consilium aliases.
+- Improved OpenAI compatibility for model discovery:
+  - `GET /v1/models` and `GET /v1/models/{id}` now allow unauthenticated discovery (or `x-api-key`) to match Cursor behavior.
+  - `/v1/chat/completions` now accepts `x-api-key` in addition to `Authorization: Bearer`.
+- Extended Cursor DB sync with explicit model cards and defaults:
+  - Injects Consilium model cards into `availableDefaultModels2` (`consilium-auto`, `ralphex-mcp`).
+  - Forces Cursor model defaults (`aiSettings.modelConfig.*` and `featureModelConfigs.*.defaultModel`) to `consilium-auto`.
+
+## [0.1.7-public-model-alias-and-dynamic-routing] - 2026-04-15
+
+### Done
+- Switched Cursor-facing model contract to public alias:
+  - New default public alias: `consilium-auto` (`CONSILIUM_PUBLIC_MODEL`).
+  - Gateway model discovery (`/v1/models`) now returns public alias + legacy `ralphex-mcp` for compatibility.
+- Clarified dynamic routing boundary:
+  - Cursor `model` field is now treated as a hint only.
+  - Chat completion responses always return the public alias model id.
+  - Internal Consilium role routing remains dynamic and independent from Cursor model selection.
+- Updated local bootstrap and provider hint output:
+  - `scripts/bootstrap-local-config.sh` now ensures `CONSILIUM_PUBLIC_MODEL`.
+  - `make cursor-provider-hint` now writes `Model: consilium-auto`.
+- Added regression tests:
+  - model list excludes internal implementation model ids.
+  - chat completion response model always maps to public alias.
+
+## [0.1.6-one-command-start-and-config-bootstrap] - 2026-04-15
+
+### Done
+- Added single-command startup flow:
+  - `make start` now runs deterministic sequence:
+    - `check-lite` (local checks, auth checks skipped)
+    - `ensure-gateway`
+    - `cursor-provider-hint`
+    - `start-gpu-only`
+  - `make start-gpu` and `make start-safe` now use the same preflight/bootstrap path.
+- Added local config bootstrap automation:
+  - New script: `scripts/bootstrap-local-config.sh`.
+  - Auto-creates `.env` from `.env.example` when missing.
+  - Auto-generates strong `CONSILIUM_API_KEY` when value is empty/default/placeholder.
+  - Auto-fills missing defaults for core gateway vars (strict key mode, timeouts, auto git init, mode).
+  - Tries to auto-fill `GOOGLE_CLOUD_PROJECT` from `gcloud config get-value project`.
+- Added Cursor provider handoff file:
+  - New Make target: `make cursor-provider-hint`.
+  - Writes exact provider values to `.consilium/cursor-provider.txt` (gitignored, chmod 600).
+- Added OpenAI model discovery endpoints in gateway:
+  - `GET /v1/models`
+  - `GET /v1/models/{id}`
+  - fixes Cursor "No models available" for custom OpenAI routing.
+- Updated docs/templates:
+  - `README.md` setup now documents one-command flow via `make start`.
+  - `.env.example` now explicitly states which values are auto-filled by bootstrap.
+
+## [0.1.5-chat-latency-fix-auto-mode] - 2026-04-15
+
+### Done
+- Fixed root cause of long latency for trivial chat prompts:
+  - Gateway now supports `CONSILIUM_RALPHEX_MODE=auto|tasks|execute|review`.
+  - New default mode is `auto` (instead of forced `review`).
+  - In `auto`, explicit review intents route to `--review`; other prompts route to execute mode.
+  - Added fast gateway probe path for short connectivity prompts (`ping`/`проверка связи`) so health checks return immediately without full ralphex loop.
+- Added chat-fast timeout controls for ralphex task mode:
+  - `CONSILIUM_RALPHEX_CHAT_SESSION_TIMEOUT_SEC` (default `180`)
+  - `CONSILIUM_RALPHEX_CHAT_IDLE_TIMEOUT_SEC` (default `120`)
+- Fixed plan generation for gateway requests:
+  - Gateway now writes a structured task plan (`Overview/Context/Task/Success criteria`) with actionable checkboxes instead of plain conversation dump.
+  - This aligns with `ralphex` task prompt contract and avoids expensive review loops on non-review chat prompts.
+- Updated docs/examples:
+  - `.env.example` now defaults to `CONSILIUM_RALPHEX_MODE=auto`.
+  - `README.md` updated with mode semantics.
+
 ## [0.1.4-gateway-stall-visibility-and-process-cleanup] - 2026-04-15
 
 ### Done

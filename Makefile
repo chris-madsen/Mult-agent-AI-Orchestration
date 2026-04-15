@@ -1,14 +1,15 @@
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -eu -o pipefail -c
 
-.PHONY: help check check-tools check-config check-auth check-runtime check-runtime-deep \
-	start start-gpu start-gpu-only start-safe start-gateway ensure-gateway stop-gateway
+.PHONY: help bootstrap-config check check-lite check-tools check-config check-auth check-runtime check-runtime-deep \
+	start start-gpu start-gpu-only start-safe start-gateway ensure-gateway stop-gateway cursor-provider-hint cursor-provider-sync
 
 PROJECT_ROOT := $(abspath .)
 MCP_FILE := .cursor/mcp.json
 RUNTIME_STAMP := .consilium/.runtime-check.sig
 GATEWAY_HOST ?= 127.0.0.1
 GATEWAY_PORT ?= 8000
+PUBLIC_MODEL ?= consilium-auto
 GATEWAY_PID_FILE := .consilium/gateway.pid
 GATEWAY_LOG_FILE := .consilium/logs/gateway.log
 CONSILIUM_AUTO_GIT_INIT ?= 1
@@ -24,6 +25,7 @@ endif
 help:
 	@echo "Targets:"
 	@echo "  make check  - run all preflight checks"
+	@echo "  make check-lite - run local checks without interactive auth checks"
 	@echo "  make check-runtime-deep - force full nix devShell runtime check"
 	@echo "  make start  - run checks, ensure gateway on :8000, then launch Cursor (GPU mode)"
 	@echo "  make start-gpu  - launch Cursor in GPU mode"
@@ -31,9 +33,17 @@ help:
 	@echo "  make start-gateway - launch OpenAI-compatible Consilium API gateway (foreground)"
 	@echo "  make ensure-gateway - ensure gateway is running in background"
 	@echo "  make stop-gateway - stop background gateway"
+	@echo "  make cursor-provider-hint - write Cursor custom OpenAI values to .consilium/cursor-provider.txt"
+	@echo "  make cursor-provider-sync - sync Cursor local state DB with Consilium provider values"
 
-check: check-tools check-config check-auth check-runtime
+bootstrap-config:
+	@./scripts/bootstrap-local-config.sh
+
+check: bootstrap-config check-tools check-config check-auth check-runtime
 	@echo "[ok] all preflight checks passed"
+
+check-lite: bootstrap-config check-tools check-config check-runtime
+	@echo "[ok] local runtime checks passed (auth checks skipped)"
 
 check-tools:
 	@echo "[check] required CLI tools"
@@ -75,8 +85,6 @@ check-config:
 		echo "[fail] missing .consilium/policies/model_config.yaml"; exit 1; }
 	@rg -q '^\s*adapter:\s*ralphex\s*$$' .consilium/policies/model_config.yaml || { \
 		echo "[fail] execution.adapter must be 'ralphex'"; exit 1; }
-	@rg -q '^\s*model:\s*gpt-5\.3-codex\s*$$' .consilium/policies/model_config.yaml || { \
-		echo "[fail] roles.implementer.model must be 'gpt-5.3-codex'"; exit 1; }
 	@echo "[ok] model policy is valid"
 	@rg -q 'TransformMessages\(' consilium_core.py || { \
 		echo "[fail] context compression is not enabled in consilium_core.py"; exit 1; }
@@ -119,17 +127,52 @@ check-runtime-deep:
 	printf '%s' "$$sig" > "$(RUNTIME_STAMP)" ; \
 	echo "[ok] runtime deep-check stamp updated"
 
-start: check ensure-gateway start-gpu-only
+start:
+	@$(MAKE) --no-print-directory check-lite
+	@$(MAKE) --no-print-directory ensure-gateway
+	@$(MAKE) --no-print-directory cursor-provider-hint
+	@$(MAKE) --no-print-directory cursor-provider-sync
+	@$(MAKE) --no-print-directory start-gpu-only
 
-start-gpu: check start-gpu-only
+start-gpu:
+	@$(MAKE) --no-print-directory check-lite
+	@$(MAKE) --no-print-directory ensure-gateway
+	@$(MAKE) --no-print-directory cursor-provider-hint
+	@$(MAKE) --no-print-directory cursor-provider-sync
+	@$(MAKE) --no-print-directory start-gpu-only
 
 start-gpu-only:
 	@echo "[run] launching Cursor"
 	@CURSOR_RENDER_MODE=gpu ./scripts/start-cursor-safe.sh "$(PROJECT_ROOT)"
 
-start-safe: check
+start-safe:
+	@$(MAKE) --no-print-directory check-lite
+	@$(MAKE) --no-print-directory ensure-gateway
+	@$(MAKE) --no-print-directory cursor-provider-hint
+	@$(MAKE) --no-print-directory cursor-provider-sync
 	@echo "[run] launching Cursor (safe software mode)"
 	@CURSOR_RENDER_MODE=safe ./scripts/start-cursor-safe.sh "$(PROJECT_ROOT)"
+
+cursor-provider-hint:
+	@mkdir -p .consilium
+	@api_key="$$(awk -F= '/^\s*(export[[:space:]]+)?CONSILIUM_API_KEY\s*=/{gsub(/^[[:space:]]+|[[:space:]]+$$/, "", $$2); print $$2; exit}' .env)"; \
+	test -n "$$api_key" || { echo "[fail] CONSILIUM_API_KEY is empty in .env"; exit 1; }; \
+	printf '%s\n' \
+		'Cursor custom OpenAI provider' \
+		'Base URL: http://$(GATEWAY_HOST):$(GATEWAY_PORT)/v1' \
+		"API key: $$api_key" \
+		'Model: $(PUBLIC_MODEL)' > .consilium/cursor-provider.txt
+	@chmod 600 .consilium/cursor-provider.txt || true
+	@echo "[ok] provider values written to .consilium/cursor-provider.txt"
+
+cursor-provider-sync:
+	@api_key="$$(awk -F= '/^\s*(export[[:space:]]+)?CONSILIUM_API_KEY\s*=/{gsub(/^[[:space:]]+|[[:space:]]+$$/, "", $$2); print $$2; exit}' .env)"; \
+	test -n "$$api_key" || { echo "[fail] CONSILIUM_API_KEY is empty in .env"; exit 1; }; \
+	python3 ./scripts/sync-cursor-provider-state.py \
+		--base-url "http://$(GATEWAY_HOST):$(GATEWAY_PORT)/v1" \
+		--api-key "$$api_key" \
+		--model "$(PUBLIC_MODEL)" \
+		--legacy-model "ralphex-mcp"
 
 start-gateway: check-runtime
 	@echo "[run] launching Consilium OpenAI gateway on 127.0.0.1:8000"
@@ -161,7 +204,8 @@ ensure-gateway: check-runtime
 	fi
 	@bash -lc 'set -a; source .env; set +a; ./.venv/bin/python -c "import fastapi, uvicorn, autogen"' >/dev/null || { \
 		echo "[fail] missing gateway dependencies in .venv. Run: ./.venv/bin/pip install -r requirements.txt"; exit 1; }
-	@./.venv/bin/python -c 'import socket,sys; s=socket.socket(); s.settimeout(0.3); rc=s.connect_ex(("$(GATEWAY_HOST)", int("$(GATEWAY_PORT)"))); s.close(); sys.exit(0 if rc==0 else 1)' && { \
+	@already_running=0; \
+	if ./.venv/bin/python -c 'import socket,sys; s=socket.socket(); s.settimeout(0.3); rc=s.connect_ex(("$(GATEWAY_HOST)", int("$(GATEWAY_PORT)"))); s.close(); sys.exit(0 if rc==0 else 1)'; then \
 		expected_pid=""; \
 		if [[ -f "$(GATEWAY_PID_FILE)" ]]; then expected_pid="$$(cat "$(GATEWAY_PID_FILE)")"; fi; \
 		listener_pid="$$(./.venv/bin/python "$(PROJECT_ROOT)/scripts/tcp_listener_pid.py" "$(GATEWAY_HOST)" "$(GATEWAY_PORT)" 2>/dev/null || true)"; \
@@ -174,10 +218,15 @@ ensure-gateway: check-runtime
 		elif [[ -n "$$listener_pid" && -z "$$expected_pid" ]]; then \
 			echo "[warn] port $(GATEWAY_PORT) is listening (pid=$$listener_pid) but pid file is missing; adopting listener"; \
 			echo "$$listener_pid" > "$(GATEWAY_PID_FILE)"; \
+			already_running=1; \
+		elif [[ -n "$$listener_pid" ]]; then \
+			already_running=1; \
 		fi; \
-		./.venv/bin/python -c 'import socket,sys; s=socket.socket(); s.settimeout(0.3); rc=s.connect_ex(("$(GATEWAY_HOST)", int("$(GATEWAY_PORT)"))); s.close(); sys.exit(0 if rc==0 else 1)' && { \
-			echo "[ok] gateway already listening on $(GATEWAY_HOST):$(GATEWAY_PORT)"; exit 0; }; \
-	} || true
+		if [[ "$$already_running" -eq 1 ]]; then \
+			echo "[ok] gateway already listening on $(GATEWAY_HOST):$(GATEWAY_PORT)"; \
+			exit 0; \
+		fi; \
+	fi
 	@echo "[run] starting gateway in background on $(GATEWAY_HOST):$(GATEWAY_PORT)"
 	@nohup bash -lc 'set -a; source .env; set +a; exec ./.venv/bin/python -m uvicorn consilium_gateway:app --host "$(GATEWAY_HOST)" --port "$(GATEWAY_PORT)"' >"$(GATEWAY_LOG_FILE)" 2>&1 & echo $$! >"$(GATEWAY_PID_FILE)"
 	@for i in $$(seq 1 40); do \

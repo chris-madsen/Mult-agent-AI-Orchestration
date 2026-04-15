@@ -112,6 +112,20 @@ class GatewayRuntimeSafetyTests(unittest.TestCase):
         self.assertNotIn(api_key, rendered)
         self.assertNotIn(bad_token, rendered)
 
+    def test_invalid_x_api_key_without_authorization_returns_invalid_api_key(self) -> None:
+        with patch.dict(os.environ, {"CONSILIUM_API_KEY": "test-key"}, clear=False):
+            with self.assertRaises(HTTPException) as ctx:
+                gateway._check_bearer_token(None, x_api_key="wrong-key")
+        self.assertEqual(ctx.exception.status_code, 401)
+        self.assertEqual(ctx.exception.detail, "Invalid API key")
+
+    def test_missing_authorization_without_x_api_key_returns_missing_header(self) -> None:
+        with patch.dict(os.environ, {"CONSILIUM_API_KEY": "test-key"}, clear=False):
+            with self.assertRaises(HTTPException) as ctx:
+                gateway._check_bearer_token(None, x_api_key=None)
+        self.assertEqual(ctx.exception.status_code, 401)
+        self.assertEqual(ctx.exception.detail, "Missing Authorization header")
+
     def test_format_chat_response_integration_health_for_progress_log(self) -> None:
         raw = """
 starting task execution phase
@@ -326,6 +340,25 @@ branch: feature/internal-ticket-123
         self.assertEqual(body["choices"][0]["message"]["content"], "probe")
         probe_mock.assert_called_once()
         complete_mock.assert_not_called()
+
+    def test_chat_completion_integration_alive_uses_full_pipeline(self) -> None:
+        request = gateway.ChatCompletionsRequest(
+            model="gpt-4.1",
+            messages=[gateway.ChatMessage(role="user", content="integration alive?")],
+            stream=False,
+        )
+        with patch.dict(os.environ, {"CONSILIUM_API_KEY": "test-key"}, clear=False):
+            with patch.object(gateway._transport, "quick_probe", return_value="probe") as probe_mock:
+                with patch.object(gateway._pipe, "complete", return_value="ok") as complete_mock:
+                    response = gateway.chat_completions(
+                        request,
+                        authorization="Bearer test-key",
+                        x_session_id=None,
+                    )
+        body = json.loads(response.body.decode("utf-8"))
+        self.assertEqual(body["choices"][0]["message"]["content"], "ok")
+        complete_mock.assert_called_once()
+        probe_mock.assert_not_called()
 
 
 if __name__ == "__main__":

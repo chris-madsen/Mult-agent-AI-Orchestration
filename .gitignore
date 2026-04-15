@@ -52,6 +52,7 @@ tfplan-*
 .consilium/logs/
 .consilium/gateway/plans/
 .consilium/gateway/active/
+.consilium/cursor-provider.txt
 .consilium/plans/
 .consilium/reviews/
 .consilium/state/

@@ -790,11 +790,7 @@ class RalphexTransport:
         terminal_signal = positive_terminal_signal or task_failed
         success = positive_terminal_signal and not task_failed
 
-        normalized_user = (user_prompt or "").strip().lower()
-        integration_health_probe = ("интеграци" in normalized_user and "жив" in normalized_user) or (
-            "integration" in normalized_user
-            and ("alive" in normalized_user or "working" in normalized_user or "live" in normalized_user)
-        )
+        integration_health_probe = _is_integration_health_probe(user_prompt)
         has_execution_signal = terminal_signal
 
         # Targeted integration-status answer for direct health checks.
@@ -1064,6 +1060,15 @@ def _latest_user_text(messages: list[dict[str, str]]) -> str:
     return ""
 
 
+def _is_integration_health_probe(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+    return ("интеграци" in normalized and "жив" in normalized) or (
+        "integration" in normalized and ("alive" in normalized or "working" in normalized or "live" in normalized)
+    )
+
+
 def _is_connectivity_probe(text: str) -> bool:
     normalized = (text or "").strip().lower()
     if not normalized:
@@ -1121,6 +1126,8 @@ def _is_connectivity_probe(text: str) -> bool:
     )
     if any(marker in normalized for marker in coding_markers):
         return False
+    if _is_integration_health_probe(normalized):
+        return False
     if probe_candidate in exact_probe_markers:
         return True
     if any(marker in normalized for marker in phrase_probe_markers):
@@ -1136,7 +1143,16 @@ def _check_bearer_token(auth_header: str | None, x_api_key: str | None = None) -
     header_api_key = x_api_key if isinstance(x_api_key, str) else None
     if header_api_key and header_api_key.strip() == api_key:
         return
-    if not auth_header:
+    has_bearer = isinstance(auth_header, str) and bool(auth_header.strip())
+    if header_api_key and header_api_key.strip() != api_key and not has_bearer:
+        LOGGER.warning(
+            "auth_failed scheme=%r token_present=%s token_len=%d",
+            "x-api-key",
+            "true",
+            len(header_api_key.strip()),
+        )
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    if not has_bearer:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
     scheme, _, token = auth_header.partition(" ")
     token = token.strip()

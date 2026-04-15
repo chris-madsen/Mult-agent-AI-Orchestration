@@ -14,7 +14,9 @@ _RUNS_DIR = pathlib.Path(".consilium/runs")
 _RALPHEX_CONFIG_DIR = pathlib.Path(".consilium/ralphex")
 _RALPHEX_CONFIG_FILE = _RALPHEX_CONFIG_DIR / "config"
 _RALPHEX_WRAPPER = _RALPHEX_CONFIG_DIR / "scripts" / "codex-as-claude.sh"
+_VERTEX_GEMINI_WRAPPER = _RALPHEX_CONFIG_DIR / "scripts" / "vertex-gemini-as-claude.sh"
 _CODEX_SANDBOX = os.getenv("CONSILIUM_CODEX_SANDBOX", "danger-full-access")
+_LOCAL_TMP_DIR = pathlib.Path(".consilium/tmp")
 
 _CODEX_AS_CLAUDE_SCRIPT = """#!/usr/bin/env bash
 set -euo pipefail
@@ -91,8 +93,11 @@ class ExecutionPort(Protocol):
 
 
 class RalphexAdapter:
-    def __init__(self, model: str):
-        self.model = model
+    def __init__(self, provider: str, model: str):
+        self.provider = (provider or "").strip().lower()
+        self.model = (model or "").strip()
+        if not self.model:
+            raise ValueError("RalphexAdapter requires non-empty model")
 
     def execute(self, task_id: str, plan_path: pathlib.Path) -> ExecutionResult:
         run_dir = _RUNS_DIR / task_id / datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S")
@@ -117,13 +122,24 @@ class RalphexAdapter:
             metrics_path.write_text(json.dumps(asdict(result), indent=2), encoding="utf-8")
             return result
 
-        self._ensure_ralphex_codex_bridge()
+        self._ensure_ralphex_bridge()
 
         env = os.environ.copy()
         env["RALPHEX_CONFIG_DIR"] = str(_RALPHEX_CONFIG_DIR.resolve())
-        env["CODEX_MODEL"] = self.model
-        env["CODEX_SANDBOX"] = _CODEX_SANDBOX
-        env.setdefault("CODEX_VERBOSE", "0")
+        if self.provider == "codex-cli":
+            env["CODEX_MODEL"] = self.model
+            env["CODEX_SANDBOX"] = _CODEX_SANDBOX
+            env.setdefault("CODEX_VERBOSE", "0")
+        elif self.provider == "google":
+            env["GEMINI_MODEL"] = self.model
+            env["VERTEX_PROJECT"] = env.get("GOOGLE_CLOUD_PROJECT", "")
+            env["VERTEX_LOCATION"] = env.get("GOOGLE_CLOUD_LOCATION", "global")
+        else:
+            raise ValueError(f"Unsupported implementer provider for ralphex: {self.provider}")
+        local_tmp = self._ensure_local_tmp_dir()
+        env["TMPDIR"] = str(local_tmp)
+        env["TMP"] = str(local_tmp)
+        env["TEMP"] = str(local_tmp)
 
         proc = subprocess.run(
             ["ralphex", str(plan_path)],
@@ -147,34 +163,51 @@ class RalphexAdapter:
             metadata={
                 "codex_sandbox": _CODEX_SANDBOX,
                 "ralphex_config_dir": str(_RALPHEX_CONFIG_DIR.resolve()),
+                "implementer_provider": self.provider,
             },
         )
         metrics_path.write_text(json.dumps(asdict(result), indent=2), encoding="utf-8")
         return result
 
-    def _ensure_ralphex_codex_bridge(self) -> None:
+    def _ensure_ralphex_bridge(self) -> None:
         _RALPHEX_WRAPPER.parent.mkdir(parents=True, exist_ok=True)
         _RALPHEX_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
-        _RALPHEX_WRAPPER.write_text(_CODEX_AS_CLAUDE_SCRIPT, encoding="utf-8")
-        _RALPHEX_WRAPPER.chmod(0o755)
-
-        cfg = (
-            f"claude_command = {_RALPHEX_WRAPPER.resolve()}\n"
-            "claude_args =\n"
-            "external_review_tool = codex\n"
-            "codex_enabled = true\n"
-            "codex_command = codex\n"
-            f"codex_model = {self.model}\n"
-            "codex_reasoning_effort = xhigh\n"
-            "codex_timeout_ms = 3600000\n"
-        )
+        if self.provider == "codex-cli":
+            _RALPHEX_WRAPPER.write_text(_CODEX_AS_CLAUDE_SCRIPT, encoding="utf-8")
+            _RALPHEX_WRAPPER.chmod(0o755)
+            cfg = (
+                f"claude_command = {_RALPHEX_WRAPPER.resolve()}\n"
+                "claude_args =\n"
+                "external_review_tool = codex\n"
+                "codex_enabled = true\n"
+                "codex_command = codex\n"
+                f"codex_model = {self.model}\n"
+                "codex_reasoning_effort = xhigh\n"
+                "codex_timeout_ms = 3600000\n"
+            )
+        elif self.provider == "google":
+            _VERTEX_GEMINI_WRAPPER.chmod(0o755)
+            cfg = (
+                f"claude_command = {_VERTEX_GEMINI_WRAPPER.resolve()}\n"
+                "claude_args =\n"
+            )
+        else:
+            raise ValueError(f"Unsupported implementer provider for ralphex: {self.provider}")
         _RALPHEX_CONFIG_FILE.write_text(cfg, encoding="utf-8")
+
+    def _ensure_local_tmp_dir(self) -> pathlib.Path:
+        _LOCAL_TMP_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            _LOCAL_TMP_DIR.chmod(0o700)
+        except OSError:
+            pass
+        return _LOCAL_TMP_DIR.resolve()
 
 
 def make_execution_port(config: RuntimeConfig) -> ExecutionPort:
     adapter = config.execution_adapter
     if adapter == "ralphex":
-        return RalphexAdapter(model=config.model_for("implementer").model)
+        impl = config.model_for("implementer")
+        return RalphexAdapter(provider=impl.provider, model=impl.model)
     raise ValueError(f"Unsupported execution adapter: {adapter}")
-
