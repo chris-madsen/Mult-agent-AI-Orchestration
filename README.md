@@ -10,7 +10,7 @@ Connected to Cursor via MCP. Zero manual handoffs.
 | Layer | Tool | Model |
 |---|---|---|
 | Frontend | Cursor (MCP Client) | — |
-| API Gateway (optional) | FastAPI OpenAI `/v1/chat/completions` | `ralphex-mcp` |
+| API Gateway (optional) | FastAPI OpenAI `/v1/chat/completions` | `consilium-auto` (public alias) |
 | Orchestrator | AutoGen GroupChat + FSM | — |
 | Architect | `agents/architect.py` | Configured in `.consilium/policies/model_config.yaml` |
 | Critic | `agents/critic.py` | Configured in `.consilium/policies/model_config.yaml` |
@@ -76,36 +76,20 @@ INTAKE ──task_received──▶ PROPOSAL (Architect)
 
 ---
 
-## Setup (Canonical MVP Flow)
+## Setup (One-command start)
 
 ```bash
-# 1) Create local env
-cp .env.example .env
-# Edit .env and set:
-# - GOOGLE_CLOUD_PROJECT
-# - GOOGLE_CLOUD_LOCATION
-# - CONSILIUM_API_KEY (non-default in strict mode)
-# - CONSILIUM_RALPHEX_CMD (optional override)
-# - CONSILIUM_RALPHEX_MODE=review (default) or execute
-# - CONSILIUM_AUTO_GIT_INIT=1 (auto `git init` for ralphex compatibility)
-
-# 2) Prepare runtime and verify
-make check
-
-# 3) Start gateway + Cursor
+# Single entrypoint:
+# - bootstraps .env (and generates CONSILIUM_API_KEY if placeholder/default)
+# - runs local checks
+# - ensures gateway is running on 127.0.0.1:8000
+# - writes Cursor provider values to .consilium/cursor-provider.txt
+# - syncs Cursor local state DB (base URL, API key, API-key model list)
+# - launches Cursor
 make start
 ```
 
-```json
-{
-  "mcpServers": {
-    "consilium": {
-      "command": "python",
-      "args": ["/absolute/path/to/consilium/mcp_server.py"]
-    }
-  }
-}
-```
+MCP config is already committed in `.cursor/mcp.json` and points to `scripts/start-mcp.sh`.
 
 ---
 
@@ -113,14 +97,26 @@ make start
 
 ### Primary chat path (Gateway-first)
 
-Configure Cursor custom OpenAI provider:
+Configure Cursor custom OpenAI provider once (manual UI step):
 
 - Base URL: `http://127.0.0.1:8000/v1`
 - API key: value of `CONSILIUM_API_KEY`
-- Model: `ralphex-mcp`
+- Model: `consilium-auto`
+
+`make start` writes these exact values to:
+`.consilium/cursor-provider.txt`
+
+`make start` also syncs Cursor local state DB automatically:
+- `openAIBaseUrl`
+- `cursorAuth/openAIKey`
+- API-key model entries (`consilium-auto`, `ralphex-mcp`)
 
 After this, normal chat send uses:
 `Cursor -> Consilium Gateway -> Ralphex`.
+
+Model semantics:
+- Cursor model name is only a public gateway alias (`CONSILIUM_PUBLIC_MODEL`, default `consilium-auto`).
+- Internal Consilium model routing remains dynamic; Cursor does not control or pin internal role models.
 
 ### Structured orchestration path (MCP tools)
 
@@ -135,13 +131,23 @@ Path:
 ### Gateway operational notes
 
 - Endpoint: `POST /v1/chat/completions` (OpenAI-compatible)
+- Models API: `GET /v1/models`, `GET /v1/models/{id}` (for Cursor model discovery)
 - Health/ops: `GET /healthz` (includes active transport runs, phase, elapsed/idle seconds)
 - Auth: `Authorization: Bearer <CONSILIUM_API_KEY>`
 - Session: `user` field or `X-Session-Id` header
 - Ralphex command: `CONSILIUM_RALPHEX_CMD` (optional explicit override)
-- Auto command mode: `CONSILIUM_RALPHEX_MODE=review|execute` (default `review`)
-  - review mode default command: `ralphex --review "$CONSILIUM_PLAN_FILE"` (works on dirty trees)
-  - execute mode default command: `ralphex "$CONSILIUM_PLAN_FILE"` (requires clean branch workflow)
+- Auto command mode: `CONSILIUM_RALPHEX_MODE=auto|tasks|execute|review` (default `auto`)
+  - `auto`: review-like prompts -> `--review`, other prompts -> default execute mode
+  - `tasks`: force `--tasks-only --max-iterations=1`
+  - `review`: force `--review`
+  - `execute`: force default ralphex full execute mode
+- Fast connectivity probes:
+  - short ping/health prompts (for example `привет, проверка связи`) are answered via a lightweight gateway probe path (`ralphex --version`) to avoid expensive full pipeline latency.
+- Gateway response normalization:
+  - when ralphex output looks like execution/progress logs, gateway returns a compact status summary and hides raw technical logs by default.
+  - if output contains an explicit `Final answer:`/`Result:`/`Ответ:` line, that final answer is returned as the user-facing response.
+- Integration health probe shortcut:
+  - prompts like `интеграция живая?` or `integration alive?` can return a one-line liveness answer when execution completion/failure signals are present.
 - Hard timeout: `CONSILIUM_RALPHEX_TIMEOUT_SEC` (default `1200`)
 - Idle timeout (no subprocess output): `CONSILIUM_RALPHEX_IDLE_TIMEOUT_SEC` (default `300`, `0` disables)
 - Heartbeat telemetry cadence: `CONSILIUM_RALPHEX_HEARTBEAT_SEC` (default `15`)
