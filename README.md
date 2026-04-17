@@ -30,8 +30,8 @@ consilium/
 ├── model_config.py      Runtime role-model policy loader
 ├── execution_port.py    Execution engine interface + Ralphex adapter
 ├── agents/
-│   ├── architect.py     Gemini 3.1 Pro — writes .consilium/plans/
-│   ├── critic.py        Gemini Flash   — writes .consilium/reviews/
+│   ├── architect.py     Policy-driven role model (see .consilium/policies/model_config.yaml)
+│   ├── critic.py        Policy-driven role model (see .consilium/policies/model_config.yaml)
 │   └── implementer.py   ExecutionPort-backed implementer
 ├── requirements.txt
 └── .consilium/          Runtime state (mostly gitignored)
@@ -78,6 +78,8 @@ INTAKE ──task_received──▶ PROPOSAL (Architect)
 
 ## Setup (One-command start)
 
+Required local tools for full gateway runtime: `python3`, `jq`, `gcloud`, `curl`.
+
 ```bash
 # Single entrypoint:
 # - bootstraps .env (and generates CONSILIUM_API_KEY if placeholder/default)
@@ -90,6 +92,16 @@ make start
 ```
 
 MCP config is already committed in `.cursor/mcp.json` and points to `scripts/start-mcp.sh`.
+
+Before trusting chat runtime after changes, run:
+
+```bash
+make smoke-chat-runtime
+make verify-runtime
+```
+
+This checks the same local gateway path (`/v1/responses`) and fails on unstable markers like `ralphex stalled` or missing `Final answer`.
+`make verify-runtime` additionally prints runtime fingerprint (branch, commit, binary paths/versions, key timeout flags) before smoke.
 
 ---
 
@@ -109,13 +121,15 @@ Configure Cursor custom OpenAI provider once (manual UI step):
 `make start` also syncs Cursor local state DB automatically:
 - `openAIBaseUrl`
 - `cursorAuth/openAIKey`
-- API-key model entries (`consilium-auto`, `ralphex-mcp`)
+- API-key model entries (`consilium-auto`, `gpt-5.3-codex`, `ralphex-mcp`)
 
 After this, normal chat send uses:
 `Cursor -> Consilium Gateway -> Ralphex`.
 
 Model semantics:
 - Cursor model name is only a public gateway alias (`CONSILIUM_PUBLIC_MODEL`, default `consilium-auto`).
+- Additional UI-safe aliases can be exposed via `CONSILIUM_PUBLIC_MODEL_ALIASES` (default includes `gpt-5.3-codex`).
+- If Cursor sends a known alias, gateway echoes the same alias in response `model` field (prevents UI fallback/repaint glitches).
 - Internal Consilium model routing remains dynamic; Cursor does not control or pin internal role models.
 
 ### Structured orchestration path (MCP tools)
@@ -136,23 +150,27 @@ Path:
 - Auth: `Authorization: Bearer <CONSILIUM_API_KEY>` or `X-API-Key: <CONSILIUM_API_KEY>` for chat; model discovery may be called without auth (optional auth still accepted)
 - Session: `user` field or `X-Session-Id` header
 - Ralphex command: `CONSILIUM_RALPHEX_CMD` (optional explicit override)
-- Auto command mode: `CONSILIUM_RALPHEX_MODE=auto|tasks|execute|review` (default `auto`)
-  - `auto`: review-like prompts -> `--review`, other prompts -> default execute mode
-  - `tasks`: force `--tasks-only --max-iterations=1`
-  - `review`: force `--review`
-  - `execute`: force default ralphex full execute mode
-- Fast connectivity probes:
-  - short ping/health prompts (for example `привет, проверка связи`) are answered via a lightweight gateway probe path (`ralphex --version`) to avoid expensive full pipeline latency.
+- Request profile routing:
+  - Codex `Plan` mode: gateway runs Ralphex in `--tasks-only` profile with architect model and `CONSILIUM_RALPHEX_PLAN_MAX_ITERATIONS` (default `2`).
+  - non-Plan mode: gateway runs standard Ralphex execute pipeline with `CONSILIUM_RALPHEX_STANDARD_MAX_ITERATIONS` (default `24`).
+  - all routes stay on Ralphex transport; no direct model bypass.
 - Gateway response normalization:
-  - when ralphex output looks like execution/progress logs, gateway returns a compact status summary and hides raw technical logs by default.
   - if output contains an explicit `Final answer:`/`Result:`/`Ответ:` line, that final answer is returned as the user-facing response.
-- Integration health probe shortcut:
-  - prompts like `интеграция живая?` or `integration alive?` can return a one-line liveness answer when execution completion/failure signals are present.
-  - if logs are present but completion/failure signal is still inconclusive, gateway responds with `Статус интеграции неизвестен.`
+  - when ralphex output looks like execution/progress logs and no final answer was produced, gateway returns status + compact raw trace by default.
+  - trace visibility can be toggled via `CONSILIUM_GATEWAY_EXPOSE_PROGRESS_TRACE` (`1` by default).
+  - trace truncation limits: `CONSILIUM_GATEWAY_PROGRESS_TRACE_MAX_LINES`, `CONSILIUM_GATEWAY_PROGRESS_TRACE_MAX_CHARS`.
 - Hard timeout: `CONSILIUM_RALPHEX_TIMEOUT_SEC` (default `1200`)
 - Idle timeout (no subprocess output): `CONSILIUM_RALPHEX_IDLE_TIMEOUT_SEC` (default `300`, `0` disables)
+- Plan-profile session timeout: `CONSILIUM_RALPHEX_CHAT_SESSION_TIMEOUT_SEC` (default `60`)
+- Plan-profile idle timeout: `CONSILIUM_RALPHEX_CHAT_IDLE_TIMEOUT_SEC` (default `30`)
+- Execute-profile idle timeout override: `CONSILIUM_RALPHEX_EXECUTE_IDLE_TIMEOUT_SEC` (default `900`)
 - Heartbeat telemetry cadence: `CONSILIUM_RALPHEX_HEARTBEAT_SEC` (default `15`)
 - `running_no_output` phase threshold: `CONSILIUM_RALPHEX_IDLE_WARN_SEC` (default `45`)
+- Git mutation guard in gateway chat runtime: `CONSILIUM_GATEWAY_BLOCK_GIT_COMMITS` (default `1`)
+- Emergency direct-codex fallback: `CONSILIUM_GATEWAY_ENABLE_DIRECT_CODEX_FALLBACK` (default `0`, disabled)
+- Limit fallback to Gemini when Codex path hits quota/rate limits:
+  - `CONSILIUM_GATEWAY_ENABLE_LIMIT_FALLBACK_TO_GEMINI` (default `0`, disabled)
+  - `CONSILIUM_GATEWAY_LIMIT_FALLBACK_MODEL` (default `gemini-2.5-pro`)
 - Strict API key mode: set `CONSILIUM_STRICT_API_KEY=1` to fail startup when default key is used
 - If `CONSILIUM_RALPHEX_CMD` is not set, gateway auto-detects `ralphex` from:
   - `PATH`

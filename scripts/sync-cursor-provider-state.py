@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 from pathlib import Path
 
@@ -13,6 +14,7 @@ REACTIVE_KEY = (
     "reactiveStorageServiceImpl.persistentStorage.applicationUser"
 )
 OPENAI_KEY_ROW = "cursorAuth/openAIKey"
+DEFAULT_EXTRA_API_MODELS = ("gpt-5.3-codex",)
 
 
 def _dedupe(items: list[str]) -> list[str]:
@@ -73,6 +75,13 @@ def _make_model_card(model_id: str, display_name: str) -> dict:
         "supportsCmdK": True,
         "namedModelSectionIndex": 1,
     }
+
+
+def _env_public_model_aliases() -> list[str]:
+    raw = (os.getenv("CONSILIUM_PUBLIC_MODEL_ALIASES") or "").strip()
+    if not raw:
+        return []
+    return [part for part in re.split(r"[\s,]+", raw) if part.strip()]
 
 
 def _update_json_payload(raw: str, base_url: str, api_models: list[str]) -> str:
@@ -150,6 +159,7 @@ def main() -> int:
     parser.add_argument("--api-key", required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--legacy-model", default="ralphex-mcp")
+    parser.add_argument("--extra-model", action="append", default=[])
     parser.add_argument(
         "--db-path",
         default=os.path.expanduser("~/.config/Cursor/User/globalStorage/state.vscdb"),
@@ -161,20 +171,37 @@ def main() -> int:
         print(f"[warn] Cursor state DB not found: {db_path}")
         return 0
 
-    api_models = _dedupe([args.model, args.legacy_model])
+    api_models = _dedupe(
+        [
+            args.model,
+            args.legacy_model,
+            *DEFAULT_EXTRA_API_MODELS,
+            *_env_public_model_aliases(),
+            *(args.extra_model or []),
+        ]
+    )
     if not api_models:
         print("[fail] no models provided")
         return 1
 
-    con = sqlite3.connect(str(db_path), timeout=10)
+    try:
+        con = sqlite3.connect(str(db_path), timeout=10)
+    except sqlite3.Error as exc:
+        print(f"[warn] Cursor state DB unavailable: {exc}")
+        return 0
     try:
         cur = con.cursor()
+        cur.execute("PRAGMA busy_timeout = 5000")
         row = cur.execute("select value from ItemTable where key = ?", (REACTIVE_KEY,)).fetchone()
         if not row or not isinstance(row[0], str) or not row[0].strip():
             print(f"[warn] Cursor reactive state key missing: {REACTIVE_KEY}")
             return 0
 
-        updated = _update_json_payload(row[0], args.base_url, api_models)
+        try:
+            updated = _update_json_payload(row[0], args.base_url, api_models)
+        except json.JSONDecodeError as exc:
+            print(f"[warn] Cursor reactive state payload is not valid JSON: {exc}")
+            return 0
         cur.execute("update ItemTable set value = ? where key = ?", (updated, REACTIVE_KEY))
         cur.execute(
             """
@@ -185,6 +212,9 @@ def main() -> int:
             (OPENAI_KEY_ROW, args.api_key),
         )
         con.commit()
+    except sqlite3.Error as exc:
+        print(f"[warn] Cursor state update skipped: {exc}")
+        return 0
     finally:
         con.close()
 

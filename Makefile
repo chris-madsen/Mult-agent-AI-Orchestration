@@ -2,7 +2,7 @@ SHELL := /usr/bin/env bash
 .SHELLFLAGS := -eu -o pipefail -c
 
 .PHONY: help bootstrap-config check check-lite check-tools check-config check-auth check-runtime check-runtime-deep \
-	start start-gpu start-gpu-only start-safe start-gateway ensure-gateway stop-gateway cursor-provider-hint cursor-provider-sync
+	start start-gpu start-gpu-only start-safe start-gateway ensure-gateway stop-gateway smoke-chat-runtime verify-runtime cursor-provider-hint cursor-provider-sync
 
 PROJECT_ROOT := $(abspath .)
 MCP_FILE := .cursor/mcp.json
@@ -33,6 +33,8 @@ help:
 	@echo "  make start-gateway - launch OpenAI-compatible Consilium API gateway (foreground)"
 	@echo "  make ensure-gateway - ensure gateway is running in background"
 	@echo "  make stop-gateway - stop background gateway"
+	@echo "  make smoke-chat-runtime - run end-to-end chat smoke test against local gateway"
+	@echo "  make verify-runtime - print runtime fingerprint and run smoke in same environment"
 	@echo "  make cursor-provider-hint - write Cursor custom OpenAI values to .consilium/cursor-provider.txt"
 	@echo "  make cursor-provider-sync - sync Cursor local state DB with Consilium provider values"
 
@@ -204,7 +206,7 @@ ensure-gateway: check-runtime
 	fi
 	@bash -lc 'set -a; source .env; set +a; ./.venv/bin/python -c "import fastapi, uvicorn, autogen"' >/dev/null || { \
 		echo "[fail] missing gateway dependencies in .venv. Run: ./.venv/bin/pip install -r requirements.txt"; exit 1; }
-	@already_running=0; \
+	@need_start=1; \
 	if ./.venv/bin/python -c 'import socket,sys; s=socket.socket(); s.settimeout(0.3); rc=s.connect_ex(("$(GATEWAY_HOST)", int("$(GATEWAY_PORT)"))); s.close(); sys.exit(0 if rc==0 else 1)'; then \
 		expected_pid=""; \
 		if [[ -f "$(GATEWAY_PID_FILE)" ]]; then expected_pid="$$(cat "$(GATEWAY_PID_FILE)")"; fi; \
@@ -218,19 +220,36 @@ ensure-gateway: check-runtime
 		elif [[ -n "$$listener_pid" && -z "$$expected_pid" ]]; then \
 			echo "[warn] port $(GATEWAY_PORT) is listening (pid=$$listener_pid) but pid file is missing; adopting listener"; \
 			echo "$$listener_pid" > "$(GATEWAY_PID_FILE)"; \
-			already_running=1; \
+			need_start=0; \
 		elif [[ -n "$$listener_pid" ]]; then \
-			already_running=1; \
+			echo "$$listener_pid" > "$(GATEWAY_PID_FILE)"; \
+			need_start=0; \
+		else \
+			if [[ -n "$$expected_pid" ]]; then \
+				if kill -0 "$$expected_pid" 2>/dev/null; then \
+					echo "[warn] port $(GATEWAY_PORT) is open but listener PID could not be resolved; keeping existing pid file ($$expected_pid)"; \
+				else \
+					echo "[warn] port $(GATEWAY_PORT) is open but listener PID could not be resolved; clearing stale pid file"; \
+					rm -f "$(GATEWAY_PID_FILE)"; \
+				fi; \
+			else \
+				echo "[warn] port $(GATEWAY_PORT) is open but listener PID could not be resolved; treating gateway as already running"; \
+			fi; \
+			need_start=0; \
 		fi; \
-		if [[ "$$already_running" -eq 1 ]]; then \
-			echo "[ok] gateway already listening on $(GATEWAY_HOST):$(GATEWAY_PORT)"; \
-			exit 0; \
-		fi; \
-	fi
-	@echo "[run] starting gateway in background on $(GATEWAY_HOST):$(GATEWAY_PORT)"
-	@nohup bash -lc 'set -a; source .env; set +a; exec ./.venv/bin/python -m uvicorn consilium_gateway:app --host "$(GATEWAY_HOST)" --port "$(GATEWAY_PORT)"' >"$(GATEWAY_LOG_FILE)" 2>&1 & echo $$! >"$(GATEWAY_PID_FILE)"
-	@for i in $$(seq 1 40); do \
+	fi; \
+	if [[ "$$need_start" -eq 0 ]]; then \
+		echo "[ok] gateway already listening on $(GATEWAY_HOST):$(GATEWAY_PORT)"; \
+		exit 0; \
+	fi; \
+	echo "[run] starting gateway in background on $(GATEWAY_HOST):$(GATEWAY_PORT)"; \
+	nohup bash -lc 'set -a; source .env; set +a; exec ./.venv/bin/python -m uvicorn consilium_gateway:app --host "$(GATEWAY_HOST)" --port "$(GATEWAY_PORT)"' >"$(GATEWAY_LOG_FILE)" 2>&1 & \
+	launch_pid=$$!; \
+	echo "$$launch_pid" >"$(GATEWAY_PID_FILE)"; \
+	for i in $$(seq 1 40); do \
 		./.venv/bin/python -c 'import socket,sys; s=socket.socket(); s.settimeout(0.3); rc=s.connect_ex(("$(GATEWAY_HOST)", int("$(GATEWAY_PORT)"))); s.close(); sys.exit(0 if rc==0 else 1)' && { \
+			listener_pid="$$(./.venv/bin/python "$(PROJECT_ROOT)/scripts/tcp_listener_pid.py" "$(GATEWAY_HOST)" "$(GATEWAY_PORT)" 2>/dev/null || true)"; \
+			if [[ -n "$$listener_pid" ]]; then echo "$$listener_pid" >"$(GATEWAY_PID_FILE)"; fi; \
 			echo "[ok] gateway is up on $(GATEWAY_HOST):$(GATEWAY_PORT)"; exit 0; }; \
 		sleep 0.2; \
 	done; \
@@ -277,3 +296,10 @@ stop-gateway:
 		fi; \
 	fi
 	@python3 ./scripts/kill_gateway_orphans.py "$(PROJECT_ROOT)"
+
+smoke-chat-runtime:
+	@$(MAKE) --no-print-directory ensure-gateway
+	@./scripts/smoke-chat-runtime.sh
+
+verify-runtime:
+	@./scripts/verify-runtime.sh
