@@ -48,15 +48,15 @@ _DEFAULT_CONFIG: dict[str, Any] = {
             "timeout_sec": 120,
         },
         "critic": {
-            "provider": "google",
-            "model": "gemini-2.5-flash",
+            "provider": "codex-cli",
+            "model": "gpt-5.3-codex",
             "temperature": 0.1,
             "max_tokens": 4096,
             "timeout_sec": 120,
         },
         "implementer": {
-            "provider": "codex-cli",
-            "model": "gpt-5.3-codex",
+            "provider": "google",
+            "model": "gemini-2.5-pro",
             "temperature": 0.1,
             "max_tokens": 65536,
             "timeout_sec": 1200,
@@ -116,4 +116,3 @@ def load_runtime_config() -> RuntimeConfig:
         execution_adapter=str(cfg["execution"]["adapter"]).strip().lower(),
         roles=roles,
     )
-

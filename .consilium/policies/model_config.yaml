@@ -4,17 +4,16 @@ execution:
 roles:
   architect:
     provider: google
-    # Vertex AI partner model (Anthropic on Vertex)
     model:
-      - claude-opus-4-6
+      - gemini-3.1-pro-preview
     temperature: 0.3
     max_tokens: 8192
     timeout_sec: 120
 
   critic:
-    provider: google
+    provider: codex-cli
     model:
-      - gemini-2.5-flash
+      - gpt-5.3-codex
     temperature: 0.1
     max_tokens: 4096
     timeout_sec: 120

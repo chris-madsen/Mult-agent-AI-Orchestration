@@ -15,6 +15,12 @@ Failure policy:
 - If gateway is unavailable or times out, report the failure explicitly and ask the user to retry after `make start` or `make ensure-gateway`.
 - If gateway auth fails, instruct to verify `CONSILIUM_API_KEY` in `.env` and Cursor provider settings.
 - Do not silently fallback to a non-Consilium answer.
+- Fallback is allowed only after an actual gateway call attempt to `POST /v1/chat/completions` has failed.
+- If fallback answer is unavoidable:
+  - Prefix with `[source:fallback]`.
+  - Include `fallback_reason:` with the exact raw error text (not a category code).
+  - Include one-line `gateway_attempt:` evidence (endpoint + timeout/HTTP status/transport error text).
+- Never emit `[source:fallback]` without a preceding failed gateway attempt in the same turn.
 
 Response policy:
 - Prefer the response returned by gateway/Consilium as the final answer body.

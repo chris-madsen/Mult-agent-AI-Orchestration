@@ -1,0 +1,11 @@
+execution_port.py:209:    adapter = config.execution_adapter
+execution_port.py:210:    if adapter == "ralphex":
+execution_port.py:213:    raise ValueError(f"Unsupported execution adapter: {adapter}")
+model_config.py:28:    execution_adapter: str
+model_config.py:40:        "adapter": "ralphex",
+model_config.py:82:            "adapter": (
+model_config.py:83:                cfg.get("execution", {}).get("adapter")
+model_config.py:84:                or _DEFAULT_CONFIG["execution"]["adapter"]
+model_config.py:116:        execution_adapter=str(cfg["execution"]["adapter"]).strip().lower(),
+consilium_gateway.py:295:        self._adapter_bootstrap = RalphexAdapter(model=self.model)
+consilium_gateway.py:431:        self._adapter_bootstrap._ensure_ralphex_codex_bridge()

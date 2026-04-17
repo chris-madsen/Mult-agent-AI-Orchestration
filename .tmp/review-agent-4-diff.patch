@@ -1,0 +1,2593 @@
+diff --git a/.consilium/gateway/plans/completed/gateway-20260415T001500Z-b61e4938.md b/.consilium/gateway/plans/completed/gateway-20260415T001500Z-b61e4938.md
+new file mode 100644
+index 0000000..136a879
+--- /dev/null
++++ b/.consilium/gateway/plans/completed/gateway-20260415T001500Z-b61e4938.md
+@@ -0,0 +1,26 @@
++# Consilium Gateway Plan
++
++## Overview
++- [x] Resolve latest user request: привет, проверка связи
++
++## Context
++
++Latest user request:
++
++```text
++привет, проверка связи
++```
++
++Recent conversation tail:
++
++- user: привет, проверка связи
++
++## Task 1: Deliver response for the latest request
++- [x] Understand latest user request and relevant local context.
++- [x] If coding changes are needed, implement minimal correct update and run relevant checks.
++- [x] If no code changes are needed, provide direct concise answer.
++- [x] Output final assistant answer text suitable for chat.
++
++## Success criteria
++- [x] Latest user request is addressed directly.
++- [x] Response is concise and actionable.
+diff --git a/.consilium/gateway/plans/completed/gateway-20260415T001722Z-b8ed66f8.md b/.consilium/gateway/plans/completed/gateway-20260415T001722Z-b8ed66f8.md
+new file mode 100644
+index 0000000..87bcf03
+--- /dev/null
++++ b/.consilium/gateway/plans/completed/gateway-20260415T001722Z-b8ed66f8.md
+@@ -0,0 +1,26 @@
++# Consilium Gateway Plan
++
++## Overview
++- [x] Resolve latest user request: Сформулируй короткий план из 3 шагов по фиксу бага в API авторизации
++
++## Context
++
++Latest user request:
++
++```text
++Сформулируй короткий план из 3 шагов по фиксу бага в API авторизации
++```
++
++Recent conversation tail:
++
++- user: Сформулируй короткий план из 3 шагов по фиксу бага в API авторизации
++
++## Task 1: Deliver response for the latest request
++- [x] Understand latest user request and relevant local context.
++- [x] If coding changes are needed, implement minimal correct update and run relevant checks.
++- [x] If no code changes are needed, provide direct concise answer.
++- [x] Output final assistant answer text suitable for chat.
++
++## Success criteria
++- [x] Latest user request is addressed directly.
++- [x] Response is concise and actionable.
+diff --git a/.consilium/gateway/plans/completed/gateway-20260415T001918Z-f6705f02.md b/.consilium/gateway/plans/completed/gateway-20260415T001918Z-f6705f02.md
+new file mode 100644
+index 0000000..ac835b1
+--- /dev/null
++++ b/.consilium/gateway/plans/completed/gateway-20260415T001918Z-f6705f02.md
+@@ -0,0 +1,27 @@
++# Consilium Gateway Plan
++
++## Overview
++- [x] Resolve latest user request: Сформулируй короткий план из 3 шагов по фиксу бага в API авторизации
++
++## Context
++
++Latest user request:
++
++```text
++Сформулируй короткий план из 3 шагов по фиксу бага в API авторизации
++```
++
++Recent conversation tail:
++
++- user: Сформулируй короткий план из 3 шагов по фиксу бага в API авторизации
++
++## Task 1: Deliver response for the latest request
++- [x] Understand latest user request and relevant local context.
++- [x] If coding changes are needed, implement minimal correct update and run relevant checks.
++- [x] If no code changes are needed, provide direct concise answer.
++- [x] Output final assistant answer text suitable for chat.
++- [x] End with exact line format: Final answer: <one concise response for user>.
++
++## Success criteria
++- [x] Latest user request is addressed directly.
++- [x] Response is concise and actionable.
+diff --git a/.consilium/gateway/plans/gateway-20260415T015731Z-e56ddf78.md b/.consilium/gateway/plans/gateway-20260415T015731Z-e56ddf78.md
+new file mode 100644
+index 0000000..8148fc2
+--- /dev/null
++++ b/.consilium/gateway/plans/gateway-20260415T015731Z-e56ddf78.md
+@@ -0,0 +1,29 @@
++# Consilium Gateway Plan
++
++## Overview
++- [x] Resolve latest user request: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++
++## Context
++
++Latest user request:
++
++```text
++Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++```
++
++Recent conversation tail:
++
++- user: Ответь очень коротко по-русски на сообщение: Привет, проверка связи!
++- assistant: Связь есть. ralphex v0.26.3-e1ea16f-20260408T225530
++- user: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++
++## Task 1: Deliver response for the latest request
++- [x] Understand latest user request and relevant local context.
++- [x] If coding changes are needed, implement minimal correct update and run relevant checks.
++- [x] If no code changes are needed, provide direct concise answer.
++- [x] Output final assistant answer text suitable for chat.
++- [x] End with exact line format: Final answer: <one concise response for user>.
++
++## Success criteria
++- [x] Latest user request is addressed directly.
++- [x] Response is concise and actionable.
+diff --git a/.consilium/gateway/plans/gateway-20260415T015853Z-64f0c84b.md b/.consilium/gateway/plans/gateway-20260415T015853Z-64f0c84b.md
+new file mode 100644
+index 0000000..7245931
+--- /dev/null
++++ b/.consilium/gateway/plans/gateway-20260415T015853Z-64f0c84b.md
+@@ -0,0 +1,30 @@
++# Consilium Gateway Plan
++
++## Overview
++- [x] Resolve latest user request: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++
++## Context
++
++Latest user request:
++
++```text
++Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++```
++
++Recent conversation tail:
++
++- user: Ответь очень коротко по-русски на сообщение: Привет, проверка связи!
++- assistant: Связь есть. ralphex v0.26.3-e1ea16f-20260408T225530
++- user: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++- user: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++
++## Task 1: Deliver response for the latest request
++- [x] Understand latest user request and relevant local context.
++- [x] If coding changes are needed, implement minimal correct update and run relevant checks.
++- [x] If no code changes are needed, provide direct concise answer.
++- [x] Output final assistant answer text suitable for chat.
++- [x] End with exact line format: Final answer: <one concise response for user>.
++
++## Success criteria
++- [x] Latest user request is addressed directly.
++- [x] Response is concise and actionable.
+diff --git a/.consilium/gateway/plans/gateway-20260415T020050Z-85a18bfc.md b/.consilium/gateway/plans/gateway-20260415T020050Z-85a18bfc.md
+new file mode 100644
+index 0000000..a1b6e07
+--- /dev/null
++++ b/.consilium/gateway/plans/gateway-20260415T020050Z-85a18bfc.md
+@@ -0,0 +1,31 @@
++# Consilium Gateway Plan
++
++## Overview
++- [x] Resolve latest user request: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++
++## Context
++
++Latest user request:
++
++```text
++Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++```
++
++Recent conversation tail:
++
++- user: Ответь очень коротко по-русски на сообщение: Привет, проверка связи!
++- assistant: Связь есть. ralphex v0.26.3-e1ea16f-20260408T225530
++- user: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++- user: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++- user: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++
++## Task 1: Deliver response for the latest request
++- [x] Understand latest user request and relevant local context.
++- [x] If coding changes are needed, implement minimal correct update and run relevant checks.
++- [x] If no code changes are needed, provide direct concise answer.
++- [x] Output final assistant answer text suitable for chat.
++- [x] End with exact line format: Final answer: <one concise response for user>.
++
++## Success criteria
++- [x] Latest user request is addressed directly.
++- [x] Response is concise and actionable.
+diff --git a/.consilium/gateway/plans/gateway-20260415T021224Z-249ed640.md b/.consilium/gateway/plans/gateway-20260415T021224Z-249ed640.md
+new file mode 100644
+index 0000000..fa6d3a7
+--- /dev/null
++++ b/.consilium/gateway/plans/gateway-20260415T021224Z-249ed640.md
+@@ -0,0 +1,30 @@
++# Consilium Gateway Plan
++
++## Overview
++- [x] Resolve latest user request: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++
++## Context
++
++Latest user request:
++
++```text
++Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++```
++
++Recent conversation tail:
++
++- user: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++- user: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++
++## Task 1: Deliver response for the latest request
++- [x] Understand latest user request and relevant local context.
++- [x] If coding changes are needed, implement minimal correct update and run relevant checks.
++- [x] If no code changes are needed, provide direct concise answer.
++- [x] Output final assistant answer text suitable for chat.
++- [x] End with exact line format: Final answer: <one concise response for user>.
++
++Final answer: - GPT-5: основной диалог и рассуждение; - GPT-5 (та же модель): планирование и кодовые задачи; - встроенные инструменты (терминал/поиск): это не отдельные LLM-роли.
++
++## Success criteria
++- [x] Latest user request is addressed directly.
++- [x] Response is concise and actionable.
+diff --git a/.consilium/gateway/plans/gateway-20260415T021741Z-9d78c178.md b/.consilium/gateway/plans/gateway-20260415T021741Z-9d78c178.md
+new file mode 100644
+index 0000000..4919318
+--- /dev/null
++++ b/.consilium/gateway/plans/gateway-20260415T021741Z-9d78c178.md
+@@ -0,0 +1,31 @@
++# Consilium Gateway Plan
++
++## Overview
++- [x] Resolve latest user request: Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++
++## Context
++
++Latest user request:
++
++```text
++Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++```
++
++Recent conversation tail:
++
++- user: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++- user: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++- user: ping
++- assistant: Связь есть. ralphex v0.26.3-e1ea16f-20260408T225530
++- user: Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++
++## Task 1: Deliver response for the latest request
++- [x] Understand latest user request and relevant local context.
++- [x] If coding changes are needed, implement minimal correct update and run relevant checks.
++- [x] If no code changes are needed, provide direct concise answer.
++- [x] Output final assistant answer text suitable for chat.
++- [x] End with exact line format: Final answer: <one concise response for user>.
++
++## Success criteria
++- [x] Latest user request is addressed directly.
++- [x] Response is concise and actionable.
+diff --git a/.consilium/gateway/plans/gateway-20260415T021956Z-a91830a0.md b/.consilium/gateway/plans/gateway-20260415T021956Z-a91830a0.md
+new file mode 100644
+index 0000000..290c198
+--- /dev/null
++++ b/.consilium/gateway/plans/gateway-20260415T021956Z-a91830a0.md
+@@ -0,0 +1,32 @@
++# Consilium Gateway Plan
++
++## Overview
++- [x] Resolve latest user request: Пользователь спрашивает: А ты понимаешь текущие файлы проекта? Ответь кратко по-русски, честно: ты видишь workspace, можешь читать файлы и разбираться в коде по запросу, но не знаешь весь проект заранее без просмотра конкретных файлов.
++
++## Context
++
++Latest user request:
++
++```text
++Пользователь спрашивает: А ты понимаешь текущие файлы проекта? Ответь кратко по-русски, честно: ты видишь workspace, можешь читать файлы и разбираться в коде по запросу, но не знаешь весь проект заранее без просмотра конкретных файлов.
++```
++
++Recent conversation tail:
++
++- user: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++- user: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++- user: ping
++- assistant: Связь есть. ralphex v0.26.3-e1ea16f-20260408T225530
++- user: Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++- user: Пользователь спрашивает: А ты понимаешь текущие файлы проекта? Ответь кратко по-русски, честно: ты видишь workspace, можешь читать файлы и разбираться в коде по запросу, но не знаешь весь проект заранее без просмотра конкретных файлов.
++
++## Task 1: Deliver response for the latest request
++- [x] Understand latest user request and relevant local context.
++- [x] If coding changes are needed, implement minimal correct update and run relevant checks.
++- [x] If no code changes are needed, provide direct concise answer.
++- [x] Output final assistant answer text suitable for chat.
++- [x] End with exact line format: Final answer: <one concise response for user>.
++
++## Success criteria
++- [x] Latest user request is addressed directly.
++- [x] Response is concise and actionable.
+diff --git a/.consilium/gateway/plans/gateway-20260415T030449Z-42cbf516.md b/.consilium/gateway/plans/gateway-20260415T030449Z-42cbf516.md
+new file mode 100644
+index 0000000..53530d4
+--- /dev/null
++++ b/.consilium/gateway/plans/gateway-20260415T030449Z-42cbf516.md
+@@ -0,0 +1,33 @@
++# Consilium Gateway Plan
++
++## Overview
++- [x] Resolve latest user request: Для стека Consilium+Ralphex+Vertex подскажи кратко готовые open-source/self-hosted решения для мониторинга LLM usage (tokens per role/model, latency, errors), без платных Google БД.
++
++## Context
++
++Latest user request:
++
++```text
++Для стека Consilium+Ralphex+Vertex подскажи кратко готовые open-source/self-hosted решения для мониторинга LLM usage (tokens per role/model, latency, errors), без платных Google БД.
++```
++
++Recent conversation tail:
++
++- user: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++- user: Салют, Ральф! Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++- user: ping
++- assistant: Связь есть. ralphex v0.26.3-e1ea16f-20260408T225530
++- user: Какие модели у тебя используются сейчас? На каких ролях? Ответь кратко списком.
++- user: Пользователь спрашивает: А ты понимаешь текущие файлы проекта? Ответь кратко по-русски, честно: ты видишь workspace, можешь читать файлы и разбираться в коде по запросу, но не знаешь весь проект заранее без просмотра конкретных файлов.
++- user: Для стека Consilium+Ralphex+Vertex подскажи кратко готовые open-source/self-hosted решения для мониторинга LLM usage (tokens per role/model, latency, errors), без платных Google БД.
++
++## Task 1: Deliver response for the latest request
++- [x] Understand latest user request and relevant local context.
++- [x] If coding changes are needed, implement minimal correct update and run relevant checks.
++- [x] If no code changes are needed, provide direct concise answer.
++- [x] Output final assistant answer text suitable for chat.
++- [x] End with exact line format: Final answer: <one concise response for user>.
++
++## Success criteria
++- [x] Latest user request is addressed directly.
++- [x] Response is concise and actionable.
+diff --git a/.consilium/policies/model_config.yaml b/.consilium/policies/model_config.yaml
+index 4a5eac5..c9005fe 100644
+--- a/.consilium/policies/model_config.yaml
++++ b/.consilium/policies/model_config.yaml
+@@ -4,21 +4,25 @@ execution:
+ roles:
+   architect:
+     provider: google
+-    model: gemini-3.1-pro-preview
++    # Vertex AI partner model (Anthropic on Vertex)
++    model:
++      - claude-opus-4-6
+     temperature: 0.3
+     max_tokens: 8192
+     timeout_sec: 120
+ 
+   critic:
+-    provider: google
+-    model: gemini-2.5-flash
++    provider: codex-cli
++    model:
++      - gpt-5.3-codex
+     temperature: 0.1
+     max_tokens: 4096
+     timeout_sec: 120
+ 
+   implementer:
+-    provider: codex-cli
+-    model: gpt-5.3-codex
++    provider: google
++    model:
++      - gemini-2.5-pro
+     temperature: 0.1
+     max_tokens: 65536
+     timeout_sec: 1200
+diff --git a/.consilium/ralphex/scripts/vertex-gemini-as-claude.sh b/.consilium/ralphex/scripts/vertex-gemini-as-claude.sh
+new file mode 100644
+index 0000000..7e2b284
+--- /dev/null
++++ b/.consilium/ralphex/scripts/vertex-gemini-as-claude.sh
+@@ -0,0 +1,71 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++command -v jq >/dev/null 2>&1 || { echo "error: jq is required but not found" >&2; exit 1; }
++command -v curl >/dev/null 2>&1 || { echo "error: curl is required but not found" >&2; exit 1; }
++command -v gcloud >/dev/null 2>&1 || { echo "error: gcloud is required but not found" >&2; exit 1; }
++
++prompt=""
++while [[ $# -gt 0 ]]; do
++  case "$1" in
++    -p)
++      prompt="${2:-}"
++      shift 2
++      ;;
++    *)
++      shift
++      ;;
++  esac
++done
++
++if [[ -z "$prompt" && ! -t 0 ]]; then
++  prompt=$(cat)
++fi
++if [[ -z "$prompt" ]]; then
++  echo "error: no prompt provided" >&2
++  exit 1
++fi
++
++VERTEX_PROJECT="${VERTEX_PROJECT:-${GOOGLE_CLOUD_PROJECT:-}}"
++VERTEX_LOCATION="${VERTEX_LOCATION:-${GOOGLE_CLOUD_LOCATION:-global}}"
++GEMINI_MODEL="${GEMINI_MODEL:-gemini-2.5-pro}"
++
++if [[ -z "$VERTEX_PROJECT" ]]; then
++  echo "error: VERTEX_PROJECT/GOOGLE_CLOUD_PROJECT is required" >&2
++  exit 1
++fi
++
++token="$(gcloud auth application-default print-access-token 2>/dev/null || true)"
++if [[ -z "$token" ]]; then
++  echo "error: failed to obtain ADC access token (run: gcloud auth application-default login)" >&2
++  exit 1
++fi
++
++endpoint="https://${VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJECT}/locations/${VERTEX_LOCATION}/publishers/google/models/${GEMINI_MODEL}:generateContent"
++
++payload="$(jq -cn --arg text "$prompt" '{
++  contents: [{ role: "user", parts: [{ text: $text }] }]
++}')"
++
++response="$(curl -sS --connect-timeout 10 --max-time 600 \
++  -H "Authorization: Bearer '"$token"'" \
++  -H "Content-Type: application/json" \
++  -d "$payload" \
++  "$endpoint" || true)"
++
++text="$(printf '%s' "$response" | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null || true)"
++if [[ -z "$text" ]]; then
++  err="$(printf '%s' "$response" | jq -c '.error // empty' 2>/dev/null || true)"
++  if [[ -n "$err" ]]; then
++    jq -cn --arg text "vertex error: $err" '{type:"content_block_delta",delta:{type:"text_delta",text:($text+"\n")}}'
++    echo '{"type":"result","result":""}'
++    exit 0
++  fi
++  jq -cn --arg text "vertex error: empty response" '{type:"content_block_delta",delta:{type:"text_delta",text:($text+"\n")}}'
++  echo '{"type":"result","result":""}'
++  exit 0
++fi
++
++jq -cn --arg text "$text" '{type:"content_block_delta",delta:{type:"text_delta",text:($text+"\n")}}'
++echo '{"type":"result","result":""}'
++
+diff --git a/.env.example b/.env.example
+index 6a0dbd1..4d3bfb3 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,23 +1,31 @@
+ # Google Vertex AI project used by Architect/Critic agents
++# `make start` tries to auto-fill this from `gcloud config get-value project`
+ GOOGLE_CLOUD_PROJECT=your-gcp-project-id
+ 
+ # Optional, defaults to global if omitted
+ GOOGLE_CLOUD_LOCATION=global
+ 
+ # Consilium OpenAI-compatible gateway auth key (used by Cursor custom OpenAI provider)
++# `make start` auto-generates a strong key if placeholder/default is still set
+ CONSILIUM_API_KEY=replace-with-strong-key
+ 
+ # Optional strict mode: fail startup if default gateway API key is used
+ CONSILIUM_STRICT_API_KEY=1
+ 
++# Public model alias exposed via OpenAI `/v1/models` to Cursor.
++# Internal Consilium routing remains dynamic and model-agnostic.
++CONSILIUM_PUBLIC_MODEL=consilium-auto
++
+ # Optional Ralphex command override for gateway transport
+ # Default is auto-detected binary in plan-file mode:
+ #   review mode:  /abs/path/to/ralphex --review "$CONSILIUM_PLAN_FILE"
+ #   execute mode: /abs/path/to/ralphex "$CONSILIUM_PLAN_FILE"
+ CONSILIUM_RALPHEX_CMD=
+ 
+-# Gateway default transport mode for auto command: review | execute
+-CONSILIUM_RALPHEX_MODE=review
++# Gateway transport mode: auto | tasks | execute | review
++# - auto: review-like prompts -> review mode, otherwise execute mode
++# - connectivity probes (ping/health) are handled by fast gateway probe path
++CONSILIUM_RALPHEX_MODE=auto
+ 
+ # Optional gateway transport timeout (seconds)
+ CONSILIUM_RALPHEX_TIMEOUT_SEC=1200
+diff --git a/.gitignore b/.gitignore
+index da224e2..1db6907 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -52,6 +52,7 @@ tfplan-*
+ .consilium/logs/
+ .consilium/gateway/plans/
+ .consilium/gateway/active/
++.consilium/cursor-provider.txt
+ .consilium/plans/
+ .consilium/reviews/
+ .consilium/state/
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index b29e9ec..bfc4d25 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,6 +2,102 @@
+ 
+ All notable changes and delivery notes for Consilium MVP are documented here.
+ 
++## [0.1.9-ralphex-tempdir-permission-fix] - 2026-04-15
++
++### Done
++- Fixed `here-document` temp file permission failures in Cursor-triggered Ralphex runs:
++  - Gateway transport now forces local writable temp env:
++    - `TMPDIR=.consilium/tmp`
++    - `TMP=.consilium/tmp`
++    - `TEMP=.consilium/tmp`
++  - `ExecutionPort` path uses the same temp-dir override for non-gateway runs.
++  - `.consilium/tmp` is auto-created with restricted permissions.
++
++## [0.1.8-cursor-state-db-provider-sync] - 2026-04-15
++
++### Done
++- Added direct Cursor local state sync for OpenAI provider wiring:
++  - New script: `scripts/sync-cursor-provider-state.py`.
++  - Updates Cursor global storage DB (`~/.config/Cursor/User/globalStorage/state.vscdb`) to set:
++    - `openAIBaseUrl`
++    - `cursorAuth/openAIKey`
++    - `availableAPIKeyModels`
++    - `aiSettings.userAddedModels`
++    - `aiSettings.modelOverrideEnabled`
++- Added `make cursor-provider-sync` target and included it into:
++  - `make start`
++  - `make start-gpu`
++  - `make start-safe`
++- This removes manual model addition in Cursor UI for Consilium aliases.
++- Improved OpenAI compatibility for model discovery:
++  - `GET /v1/models` and `GET /v1/models/{id}` now allow unauthenticated discovery (or `x-api-key`) to match Cursor behavior.
++  - `/v1/chat/completions` now accepts `x-api-key` in addition to `Authorization: Bearer`.
++- Extended Cursor DB sync with explicit model cards and defaults:
++  - Injects Consilium model cards into `availableDefaultModels2` (`consilium-auto`, `ralphex-mcp`).
++  - Forces Cursor model defaults (`aiSettings.modelConfig.*` and `featureModelConfigs.*.defaultModel`) to `consilium-auto`.
++
++## [0.1.7-public-model-alias-and-dynamic-routing] - 2026-04-15
++
++### Done
++- Switched Cursor-facing model contract to public alias:
++  - New default public alias: `consilium-auto` (`CONSILIUM_PUBLIC_MODEL`).
++  - Gateway model discovery (`/v1/models`) now returns public alias + legacy `ralphex-mcp` for compatibility.
++- Clarified dynamic routing boundary:
++  - Cursor `model` field is now treated as a hint only.
++  - Chat completion responses always return the public alias model id.
++  - Internal Consilium role routing remains dynamic and independent from Cursor model selection.
++- Updated local bootstrap and provider hint output:
++  - `scripts/bootstrap-local-config.sh` now ensures `CONSILIUM_PUBLIC_MODEL`.
++  - `make cursor-provider-hint` now writes `Model: consilium-auto`.
++- Added regression tests:
++  - model list excludes internal implementation model ids.
++  - chat completion response model always maps to public alias.
++
++## [0.1.6-one-command-start-and-config-bootstrap] - 2026-04-15
++
++### Done
++- Added single-command startup flow:
++  - `make start` now runs deterministic sequence:
++    - `check-lite` (local checks, auth checks skipped)
++    - `ensure-gateway`
++    - `cursor-provider-hint`
++    - `start-gpu-only`
++  - `make start-gpu` and `make start-safe` now use the same preflight/bootstrap path.
++- Added local config bootstrap automation:
++  - New script: `scripts/bootstrap-local-config.sh`.
++  - Auto-creates `.env` from `.env.example` when missing.
++  - Auto-generates strong `CONSILIUM_API_KEY` when value is empty/default/placeholder.
++  - Auto-fills missing defaults for core gateway vars (strict key mode, timeouts, auto git init, mode).
++  - Tries to auto-fill `GOOGLE_CLOUD_PROJECT` from `gcloud config get-value project`.
++- Added Cursor provider handoff file:
++  - New Make target: `make cursor-provider-hint`.
++  - Writes exact provider values to `.consilium/cursor-provider.txt` (gitignored, chmod 600).
++- Added OpenAI model discovery endpoints in gateway:
++  - `GET /v1/models`
++  - `GET /v1/models/{id}`
++  - fixes Cursor "No models available" for custom OpenAI routing.
++- Updated docs/templates:
++  - `README.md` setup now documents one-command flow via `make start`.
++  - `.env.example` now explicitly states which values are auto-filled by bootstrap.
++
++## [0.1.5-chat-latency-fix-auto-mode] - 2026-04-15
++
++### Done
++- Fixed root cause of long latency for trivial chat prompts:
++  - Gateway now supports `CONSILIUM_RALPHEX_MODE=auto|tasks|execute|review`.
++  - New default mode is `auto` (instead of forced `review`).
++  - In `auto`, explicit review intents route to `--review`; other prompts route to execute mode.
++  - Added fast gateway probe path for short connectivity prompts (`ping`/`проверка связи`) so health checks return immediately without full ralphex loop.
++- Added chat-fast timeout controls for ralphex task mode:
++  - `CONSILIUM_RALPHEX_CHAT_SESSION_TIMEOUT_SEC` (default `180`)
++  - `CONSILIUM_RALPHEX_CHAT_IDLE_TIMEOUT_SEC` (default `120`)
++- Fixed plan generation for gateway requests:
++  - Gateway now writes a structured task plan (`Overview/Context/Task/Success criteria`) with actionable checkboxes instead of plain conversation dump.
++  - This aligns with `ralphex` task prompt contract and avoids expensive review loops on non-review chat prompts.
++- Updated docs/examples:
++  - `.env.example` now defaults to `CONSILIUM_RALPHEX_MODE=auto`.
++  - `README.md` updated with mode semantics.
++
+ ## [0.1.4-gateway-stall-visibility-and-process-cleanup] - 2026-04-15
+ 
+ ### Done
+diff --git a/Makefile b/Makefile
+index 7762873..df7219b 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,14 +1,15 @@
+ SHELL := /usr/bin/env bash
+ .SHELLFLAGS := -eu -o pipefail -c
+ 
+-.PHONY: help check check-tools check-config check-auth check-runtime check-runtime-deep \
+-	start start-gpu start-gpu-only start-safe start-gateway ensure-gateway stop-gateway
++.PHONY: help bootstrap-config check check-lite check-tools check-config check-auth check-runtime check-runtime-deep \
++	start start-gpu start-gpu-only start-safe start-gateway ensure-gateway stop-gateway cursor-provider-hint cursor-provider-sync
+ 
+ PROJECT_ROOT := $(abspath .)
+ MCP_FILE := .cursor/mcp.json
+ RUNTIME_STAMP := .consilium/.runtime-check.sig
+ GATEWAY_HOST ?= 127.0.0.1
+ GATEWAY_PORT ?= 8000
++PUBLIC_MODEL ?= consilium-auto
+ GATEWAY_PID_FILE := .consilium/gateway.pid
+ GATEWAY_LOG_FILE := .consilium/logs/gateway.log
+ CONSILIUM_AUTO_GIT_INIT ?= 1
+@@ -24,6 +25,7 @@ endif
+ help:
+ 	@echo "Targets:"
+ 	@echo "  make check  - run all preflight checks"
++	@echo "  make check-lite - run local checks without interactive auth checks"
+ 	@echo "  make check-runtime-deep - force full nix devShell runtime check"
+ 	@echo "  make start  - run checks, ensure gateway on :8000, then launch Cursor (GPU mode)"
+ 	@echo "  make start-gpu  - launch Cursor in GPU mode"
+@@ -31,10 +33,18 @@ help:
+ 	@echo "  make start-gateway - launch OpenAI-compatible Consilium API gateway (foreground)"
+ 	@echo "  make ensure-gateway - ensure gateway is running in background"
+ 	@echo "  make stop-gateway - stop background gateway"
++	@echo "  make cursor-provider-hint - write Cursor custom OpenAI values to .consilium/cursor-provider.txt"
++	@echo "  make cursor-provider-sync - sync Cursor local state DB with Consilium provider values"
+ 
+-check: check-tools check-config check-auth check-runtime
++bootstrap-config:
++	@./scripts/bootstrap-local-config.sh
++
++check: bootstrap-config check-tools check-config check-auth check-runtime
+ 	@echo "[ok] all preflight checks passed"
+ 
++check-lite: bootstrap-config check-tools check-config check-runtime
++	@echo "[ok] local runtime checks passed (auth checks skipped)"
++
+ check-tools:
+ 	@echo "[check] required CLI tools"
+ 	@for bin in nix python3 jq gcloud; do \
+@@ -75,8 +85,6 @@ check-config:
+ 		echo "[fail] missing .consilium/policies/model_config.yaml"; exit 1; }
+ 	@rg -q '^\s*adapter:\s*ralphex\s*$$' .consilium/policies/model_config.yaml || { \
+ 		echo "[fail] execution.adapter must be 'ralphex'"; exit 1; }
+-	@rg -q '^\s*model:\s*gpt-5\.3-codex\s*$$' .consilium/policies/model_config.yaml || { \
+-		echo "[fail] roles.implementer.model must be 'gpt-5.3-codex'"; exit 1; }
+ 	@echo "[ok] model policy is valid"
+ 	@rg -q 'TransformMessages\(' consilium_core.py || { \
+ 		echo "[fail] context compression is not enabled in consilium_core.py"; exit 1; }
+@@ -119,18 +127,53 @@ check-runtime-deep:
+ 	printf '%s' "$$sig" > "$(RUNTIME_STAMP)" ; \
+ 	echo "[ok] runtime deep-check stamp updated"
+ 
+-start: check ensure-gateway start-gpu-only
++start:
++	@$(MAKE) --no-print-directory check-lite
++	@$(MAKE) --no-print-directory ensure-gateway
++	@$(MAKE) --no-print-directory cursor-provider-hint
++	@$(MAKE) --no-print-directory cursor-provider-sync
++	@$(MAKE) --no-print-directory start-gpu-only
+ 
+-start-gpu: check start-gpu-only
++start-gpu:
++	@$(MAKE) --no-print-directory check-lite
++	@$(MAKE) --no-print-directory ensure-gateway
++	@$(MAKE) --no-print-directory cursor-provider-hint
++	@$(MAKE) --no-print-directory cursor-provider-sync
++	@$(MAKE) --no-print-directory start-gpu-only
+ 
+ start-gpu-only:
+ 	@echo "[run] launching Cursor"
+ 	@CURSOR_RENDER_MODE=gpu ./scripts/start-cursor-safe.sh "$(PROJECT_ROOT)"
+ 
+-start-safe: check
++start-safe:
++	@$(MAKE) --no-print-directory check-lite
++	@$(MAKE) --no-print-directory ensure-gateway
++	@$(MAKE) --no-print-directory cursor-provider-hint
++	@$(MAKE) --no-print-directory cursor-provider-sync
+ 	@echo "[run] launching Cursor (safe software mode)"
+ 	@CURSOR_RENDER_MODE=safe ./scripts/start-cursor-safe.sh "$(PROJECT_ROOT)"
+ 
++cursor-provider-hint:
++	@mkdir -p .consilium
++	@api_key="$$(awk -F= '/^\s*(export[[:space:]]+)?CONSILIUM_API_KEY\s*=/{gsub(/^[[:space:]]+|[[:space:]]+$$/, "", $$2); print $$2; exit}' .env)"; \
++	test -n "$$api_key" || { echo "[fail] CONSILIUM_API_KEY is empty in .env"; exit 1; }; \
++	printf '%s\n' \
++		'Cursor custom OpenAI provider' \
++		'Base URL: http://$(GATEWAY_HOST):$(GATEWAY_PORT)/v1' \
++		"API key: $$api_key" \
++		'Model: $(PUBLIC_MODEL)' > .consilium/cursor-provider.txt
++	@chmod 600 .consilium/cursor-provider.txt || true
++	@echo "[ok] provider values written to .consilium/cursor-provider.txt"
++
++cursor-provider-sync:
++	@api_key="$$(awk -F= '/^\s*(export[[:space:]]+)?CONSILIUM_API_KEY\s*=/{gsub(/^[[:space:]]+|[[:space:]]+$$/, "", $$2); print $$2; exit}' .env)"; \
++	test -n "$$api_key" || { echo "[fail] CONSILIUM_API_KEY is empty in .env"; exit 1; }; \
++	python3 ./scripts/sync-cursor-provider-state.py \
++		--base-url "http://$(GATEWAY_HOST):$(GATEWAY_PORT)/v1" \
++		--api-key "$$api_key" \
++		--model "$(PUBLIC_MODEL)" \
++		--legacy-model "ralphex-mcp"
++
+ start-gateway: check-runtime
+ 	@echo "[run] launching Consilium OpenAI gateway on 127.0.0.1:8000"
+ 	@bash -lc 'set -a; source .env; set +a; ./.venv/bin/python -c "import fastapi, uvicorn, autogen"' >/dev/null || { \
+@@ -161,7 +204,8 @@ ensure-gateway: check-runtime
+ 	fi
+ 	@bash -lc 'set -a; source .env; set +a; ./.venv/bin/python -c "import fastapi, uvicorn, autogen"' >/dev/null || { \
+ 		echo "[fail] missing gateway dependencies in .venv. Run: ./.venv/bin/pip install -r requirements.txt"; exit 1; }
+-	@./.venv/bin/python -c 'import socket,sys; s=socket.socket(); s.settimeout(0.3); rc=s.connect_ex(("$(GATEWAY_HOST)", int("$(GATEWAY_PORT)"))); s.close(); sys.exit(0 if rc==0 else 1)' && { \
++	@already_running=0; \
++	if ./.venv/bin/python -c 'import socket,sys; s=socket.socket(); s.settimeout(0.3); rc=s.connect_ex(("$(GATEWAY_HOST)", int("$(GATEWAY_PORT)"))); s.close(); sys.exit(0 if rc==0 else 1)'; then \
+ 		expected_pid=""; \
+ 		if [[ -f "$(GATEWAY_PID_FILE)" ]]; then expected_pid="$$(cat "$(GATEWAY_PID_FILE)")"; fi; \
+ 		listener_pid="$$(./.venv/bin/python "$(PROJECT_ROOT)/scripts/tcp_listener_pid.py" "$(GATEWAY_HOST)" "$(GATEWAY_PORT)" 2>/dev/null || true)"; \
+@@ -174,10 +218,15 @@ ensure-gateway: check-runtime
+ 		elif [[ -n "$$listener_pid" && -z "$$expected_pid" ]]; then \
+ 			echo "[warn] port $(GATEWAY_PORT) is listening (pid=$$listener_pid) but pid file is missing; adopting listener"; \
+ 			echo "$$listener_pid" > "$(GATEWAY_PID_FILE)"; \
++			already_running=1; \
++		elif [[ -n "$$listener_pid" ]]; then \
++			already_running=1; \
+ 		fi; \
+-		./.venv/bin/python -c 'import socket,sys; s=socket.socket(); s.settimeout(0.3); rc=s.connect_ex(("$(GATEWAY_HOST)", int("$(GATEWAY_PORT)"))); s.close(); sys.exit(0 if rc==0 else 1)' && { \
+-			echo "[ok] gateway already listening on $(GATEWAY_HOST):$(GATEWAY_PORT)"; exit 0; }; \
+-	} || true
++		if [[ "$$already_running" -eq 1 ]]; then \
++			echo "[ok] gateway already listening on $(GATEWAY_HOST):$(GATEWAY_PORT)"; \
++			exit 0; \
++		fi; \
++	fi
+ 	@echo "[run] starting gateway in background on $(GATEWAY_HOST):$(GATEWAY_PORT)"
+ 	@nohup bash -lc 'set -a; source .env; set +a; exec ./.venv/bin/python -m uvicorn consilium_gateway:app --host "$(GATEWAY_HOST)" --port "$(GATEWAY_PORT)"' >"$(GATEWAY_LOG_FILE)" 2>&1 & echo $$! >"$(GATEWAY_PID_FILE)"
+ 	@for i in $$(seq 1 40); do \
+diff --git a/README.md b/README.md
+index d3e4f67..9054384 100644
+--- a/README.md
++++ b/README.md
+@@ -10,7 +10,7 @@ Connected to Cursor via MCP. Zero manual handoffs.
+ | Layer | Tool | Model |
+ |---|---|---|
+ | Frontend | Cursor (MCP Client) | — |
+-| API Gateway (optional) | FastAPI OpenAI `/v1/chat/completions` | `ralphex-mcp` |
++| API Gateway (optional) | FastAPI OpenAI `/v1/chat/completions` | `consilium-auto` (public alias) |
+ | Orchestrator | AutoGen GroupChat + FSM | — |
+ | Architect | `agents/architect.py` | Configured in `.consilium/policies/model_config.yaml` |
+ | Critic | `agents/critic.py` | Configured in `.consilium/policies/model_config.yaml` |
+@@ -76,36 +76,20 @@ INTAKE ──task_received──▶ PROPOSAL (Architect)
+ 
+ ---
+ 
+-## Setup (Canonical MVP Flow)
++## Setup (One-command start)
+ 
+ ```bash
+-# 1) Create local env
+-cp .env.example .env
+-# Edit .env and set:
+-# - GOOGLE_CLOUD_PROJECT
+-# - GOOGLE_CLOUD_LOCATION
+-# - CONSILIUM_API_KEY (non-default in strict mode)
+-# - CONSILIUM_RALPHEX_CMD (optional override)
+-# - CONSILIUM_RALPHEX_MODE=review (default) or execute
+-# - CONSILIUM_AUTO_GIT_INIT=1 (auto `git init` for ralphex compatibility)
+-
+-# 2) Prepare runtime and verify
+-make check
+-
+-# 3) Start gateway + Cursor
++# Single entrypoint:
++# - bootstraps .env (and generates CONSILIUM_API_KEY if placeholder/default)
++# - runs local checks
++# - ensures gateway is running on 127.0.0.1:8000
++# - writes Cursor provider values to .consilium/cursor-provider.txt
++# - syncs Cursor local state DB (base URL, API key, API-key model list)
++# - launches Cursor
+ make start
+ ```
+ 
+-```json
+-{
+-  "mcpServers": {
+-    "consilium": {
+-      "command": "python",
+-      "args": ["/absolute/path/to/consilium/mcp_server.py"]
+-    }
+-  }
+-}
+-```
++MCP config is already committed in `.cursor/mcp.json` and points to `scripts/start-mcp.sh`.
+ 
+ ---
+ 
+@@ -113,15 +97,27 @@ make start
+ 
+ ### Primary chat path (Gateway-first)
+ 
+-Configure Cursor custom OpenAI provider:
++Configure Cursor custom OpenAI provider once (manual UI step):
+ 
+ - Base URL: `http://127.0.0.1:8000/v1`
+ - API key: value of `CONSILIUM_API_KEY`
+-- Model: `ralphex-mcp`
++- Model: `consilium-auto`
++
++`make start` writes these exact values to:
++`.consilium/cursor-provider.txt`
++
++`make start` also syncs Cursor local state DB automatically:
++- `openAIBaseUrl`
++- `cursorAuth/openAIKey`
++- API-key model entries (`consilium-auto`, `ralphex-mcp`)
+ 
+ After this, normal chat send uses:
+ `Cursor -> Consilium Gateway -> Ralphex`.
+ 
++Model semantics:
++- Cursor model name is only a public gateway alias (`CONSILIUM_PUBLIC_MODEL`, default `consilium-auto`).
++- Internal Consilium model routing remains dynamic; Cursor does not control or pin internal role models.
++
+ ### Structured orchestration path (MCP tools)
+ 
+ MCP stays enabled in parallel for structured task operations:
+@@ -135,13 +131,24 @@ Path:
+ ### Gateway operational notes
+ 
+ - Endpoint: `POST /v1/chat/completions` (OpenAI-compatible)
++- Models API: `GET /v1/models`, `GET /v1/models/{id}` (for Cursor model discovery)
+ - Health/ops: `GET /healthz` (includes active transport runs, phase, elapsed/idle seconds)
+-- Auth: `Authorization: Bearer <CONSILIUM_API_KEY>`
++- Auth: `Authorization: Bearer <CONSILIUM_API_KEY>` or `X-API-Key: <CONSILIUM_API_KEY>` for chat; model discovery may be called without auth (optional auth still accepted)
+ - Session: `user` field or `X-Session-Id` header
+ - Ralphex command: `CONSILIUM_RALPHEX_CMD` (optional explicit override)
+-- Auto command mode: `CONSILIUM_RALPHEX_MODE=review|execute` (default `review`)
+-  - review mode default command: `ralphex --review "$CONSILIUM_PLAN_FILE"` (works on dirty trees)
+-  - execute mode default command: `ralphex "$CONSILIUM_PLAN_FILE"` (requires clean branch workflow)
++- Auto command mode: `CONSILIUM_RALPHEX_MODE=auto|tasks|execute|review` (default `auto`)
++  - `auto`: review-like prompts -> `--review`, other prompts -> default execute mode
++  - `tasks`: force `--tasks-only --max-iterations=1`
++  - `review`: force `--review`
++  - `execute`: force default ralphex full execute mode
++- Fast connectivity probes:
++  - short ping/health prompts (for example `привет, проверка связи`) are answered via a lightweight gateway probe path (`ralphex --version`) to avoid expensive full pipeline latency.
++- Gateway response normalization:
++  - when ralphex output looks like execution/progress logs, gateway returns a compact status summary and hides raw technical logs by default.
++  - if output contains an explicit `Final answer:`/`Result:`/`Ответ:` line, that final answer is returned as the user-facing response.
++- Integration health probe shortcut:
++  - prompts like `интеграция живая?` or `integration alive?` can return a one-line liveness answer when execution completion/failure signals are present.
++  - if logs are present but completion/failure signal is still inconclusive, gateway responds with `Статус интеграции неизвестен.`
+ - Hard timeout: `CONSILIUM_RALPHEX_TIMEOUT_SEC` (default `1200`)
+ - Idle timeout (no subprocess output): `CONSILIUM_RALPHEX_IDLE_TIMEOUT_SEC` (default `300`, `0` disables)
+ - Heartbeat telemetry cadence: `CONSILIUM_RALPHEX_HEARTBEAT_SEC` (default `15`)
+diff --git a/agents/architect.py b/agents/architect.py
+index b82245e..06208e8 100644
+--- a/agents/architect.py
++++ b/agents/architect.py
+@@ -13,14 +13,19 @@ GOOGLE_CLOUD_PROJECT = get_google_cloud_project()
+ GOOGLE_CLOUD_LOCATION = get_google_cloud_location()
+ _ROLE_CFG = load_runtime_config().model_for("architect")
+ 
+-LLM_CONFIG = {
+-    "config_list": [{
+-        "model":    _ROLE_CFG.model,
++_CONFIG_LIST = []
++for model in _ROLE_CFG.models:
++    entry = {
++        "model": model,
+         "api_type": _ROLE_CFG.provider,
+-        # TODO: set GOOGLE_CLOUD_PROJECT in .env (or env var) for Vertex AI calls.
+-        "project":  GOOGLE_CLOUD_PROJECT,
+-        "location": GOOGLE_CLOUD_LOCATION,
+-    }],
++    }
++    if _ROLE_CFG.provider == "google":
++        entry["project"] = GOOGLE_CLOUD_PROJECT
++        entry["location"] = GOOGLE_CLOUD_LOCATION
++    _CONFIG_LIST.append(entry)
++
++LLM_CONFIG = {
++    "config_list": _CONFIG_LIST,
+     "temperature": _ROLE_CFG.temperature,
+ }
+ 
+diff --git a/agents/critic.py b/agents/critic.py
+index 3b49b86..6f67398 100644
+--- a/agents/critic.py
++++ b/agents/critic.py
+@@ -13,14 +13,19 @@ GOOGLE_CLOUD_PROJECT = get_google_cloud_project()
+ GOOGLE_CLOUD_LOCATION = get_google_cloud_location()
+ _ROLE_CFG = load_runtime_config().model_for("critic")
+ 
+-LLM_CONFIG = {
+-    "config_list": [{
+-        "model":    _ROLE_CFG.model,
++_CONFIG_LIST = []
++for model in _ROLE_CFG.models:
++    entry = {
++        "model": model,
+         "api_type": _ROLE_CFG.provider,
+-        # TODO: set GOOGLE_CLOUD_PROJECT in .env (or env var) for Vertex AI calls.
+-        "project":  GOOGLE_CLOUD_PROJECT,
+-        "location": GOOGLE_CLOUD_LOCATION,
+-    }],
++    }
++    if _ROLE_CFG.provider == "google":
++        entry["project"] = GOOGLE_CLOUD_PROJECT
++        entry["location"] = GOOGLE_CLOUD_LOCATION
++    _CONFIG_LIST.append(entry)
++
++LLM_CONFIG = {
++    "config_list": _CONFIG_LIST,
+     "temperature": _ROLE_CFG.temperature,
+ }
+ 
+diff --git a/consilium_core.py b/consilium_core.py
+index 0076564..06a7c8d 100644
+--- a/consilium_core.py
++++ b/consilium_core.py
+@@ -12,7 +12,7 @@ from autogen.agentchat.contrib.capabilities.transforms import (
+     MessageTokenLimiter,
+ )
+ 
+-from fsm import ConsiliumFSM, State
++from fsm import ConsiliumFSM
+ from agents.architect import make_architect, LLM_CONFIG as ARCHITECT_LLM
+ from agents.critic import make_critic
+ from agents.implementer import ImplementerAgent
+diff --git a/consilium_gateway.py b/consilium_gateway.py
+index a3d7b6a..7063669 100644
+--- a/consilium_gateway.py
++++ b/consilium_gateway.py
+@@ -25,19 +25,30 @@ from pydantic import BaseModel, Field
+ from execution_port import RalphexAdapter
+ from model_config import load_runtime_config
+ 
++
++def _resolve_public_model_name() -> str:
++    raw = os.getenv("CONSILIUM_PUBLIC_MODEL", "consilium-auto")
++    normalized = (raw or "").strip()
++    return normalized or "consilium-auto"
++
++
+ DEFAULT_API_KEY = "consilium-mvp-key"
+-DEFAULT_MODEL = "ralphex-mcp"
++DEFAULT_MODEL = _resolve_public_model_name()
++LEGACY_MODEL_ALIAS = "ralphex-mcp"
+ MAX_SESSION_MESSAGES = 80
+ DEFAULT_TIMEOUT_SEC = 1200
+ DEFAULT_IDLE_TIMEOUT_SEC = 300
+ DEFAULT_HEARTBEAT_SEC = 15
+ DEFAULT_IDLE_WARN_SEC = 45
++DEFAULT_CHAT_SESSION_TIMEOUT_SEC = 180
++DEFAULT_CHAT_IDLE_TIMEOUT_SEC = 120
+ LOGGER = logging.getLogger("consilium.gateway")
+ logging.basicConfig(level=os.getenv("CONSILIUM_GATEWAY_LOG_LEVEL", "INFO"))
+ _GATEWAY_PLANS_DIR = pathlib.Path(".consilium/gateway/plans")
+ _RALPHEX_CONFIG_DIR = pathlib.Path(".consilium/ralphex")
+ _CODEX_SANDBOX = os.getenv("CONSILIUM_CODEX_SANDBOX", "danger-full-access")
+ _ACTIVE_RUNS_DIR = pathlib.Path(".consilium/gateway/active")
++_LOCAL_TMP_DIR = pathlib.Path(".consilium/tmp")
+ 
+ 
+ def _resolve_ralphex_binary() -> str | None:
+@@ -83,6 +94,53 @@ def _env_int(name: str, default: int, minimum: int = 0) -> int:
+     return max(minimum, value)
+ 
+ 
++def _is_env_assignment(token: str) -> bool:
++    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*$", token or ""))
++
++
++def _extract_command_binary(command_template: str) -> str | None:
++    try:
++        parts = shlex.split(command_template or "")
++    except ValueError:
++        return None
++    if not parts:
++        return None
++
++    idx = 0
++    while idx < len(parts) and _is_env_assignment(parts[idx]):
++        idx += 1
++
++    if idx < len(parts) and parts[idx] == "env":
++        idx += 1
++        while idx < len(parts):
++            token = parts[idx]
++            if token.startswith("-") or _is_env_assignment(token):
++                idx += 1
++                continue
++            return token
++        return "env"
++
++    if idx < len(parts):
++        return parts[idx]
++    return None
++
++
++def _redacted_command_for_log(command_template: str) -> str:
++    binary = _extract_command_binary(command_template)
++    if not binary:
++        return "<redacted>"
++    return f"{binary} <args redacted>"
++
++
++def _ensure_local_tmp_dir() -> pathlib.Path:
++    _LOCAL_TMP_DIR.mkdir(parents=True, exist_ok=True)
++    try:
++        _LOCAL_TMP_DIR.chmod(0o700)
++    except OSError:
++        pass
++    return _LOCAL_TMP_DIR.resolve()
++
++
+ def _active_run_path(request_id: str) -> pathlib.Path:
+     return _ACTIVE_RUNS_DIR / f"{request_id}.json"
+ 
+@@ -235,37 +293,130 @@ class RalphexTransport:
+         runtime = load_runtime_config()
+         self.model = runtime.model_for("implementer").model
+         self._adapter_bootstrap = RalphexAdapter(model=self.model)
+-        self.mode = (os.getenv("CONSILIUM_RALPHEX_MODE", "review") or "review").strip().lower()
+-        if self.mode not in {"review", "execute"}:
+-            self.mode = "review"
++        self.mode = (os.getenv("CONSILIUM_RALPHEX_MODE", "auto") or "auto").strip().lower()
++        if self.mode not in {"auto", "review", "execute", "tasks"}:
++            self.mode = "auto"
+         configured = os.getenv("CONSILIUM_RALPHEX_CMD", "").strip()
+         self.command_source = "env" if configured else "auto"
+         self.binary_path: str | None = None
+         if configured:
+-            self.command = configured
++            self.command_template = configured
+         else:
+             binary = _resolve_ralphex_binary()
+             if binary:
+                 self.binary_path = binary
+-                base = shlex.quote(binary)
+-                if self.mode == "review":
+-                    self.command = f'{base} --review "$CONSILIUM_PLAN_FILE"'
+-                else:
+-                    self.command = f'{base} "$CONSILIUM_PLAN_FILE"'
++                self.command_template = shlex.quote(binary)
+             else:
+                 self.command_source = "default"
+-                if self.mode == "review":
+-                    self.command = 'ralphex --review "$CONSILIUM_PLAN_FILE"'
+-                else:
+-                    self.command = 'ralphex "$CONSILIUM_PLAN_FILE"'
++                self.command_template = "ralphex"
+         self.timeout_sec = _env_int("CONSILIUM_RALPHEX_TIMEOUT_SEC", DEFAULT_TIMEOUT_SEC, minimum=1)
+         self.idle_timeout_sec = _env_int("CONSILIUM_RALPHEX_IDLE_TIMEOUT_SEC", DEFAULT_IDLE_TIMEOUT_SEC, minimum=0)
+         self.heartbeat_sec = _env_int("CONSILIUM_RALPHEX_HEARTBEAT_SEC", DEFAULT_HEARTBEAT_SEC, minimum=1)
+         self.idle_warn_sec = _env_int("CONSILIUM_RALPHEX_IDLE_WARN_SEC", DEFAULT_IDLE_WARN_SEC, minimum=1)
++        self.chat_session_timeout_sec = _env_int(
++            "CONSILIUM_RALPHEX_CHAT_SESSION_TIMEOUT_SEC",
++            DEFAULT_CHAT_SESSION_TIMEOUT_SEC,
++            minimum=30,
++        )
++        self.chat_idle_timeout_sec = _env_int(
++            "CONSILIUM_RALPHEX_CHAT_IDLE_TIMEOUT_SEC",
++            DEFAULT_CHAT_IDLE_TIMEOUT_SEC,
++            minimum=15,
++        )
++
++    @staticmethod
++    def _latest_user_prompt(messages: list[dict[str, str]]) -> str:
++        for item in reversed(messages):
++            if (item.get("role") or "").strip().lower() == "user":
++                return (item.get("content") or "").strip()
++        return ""
++
++    @staticmethod
++    def _is_review_intent(user_prompt: str) -> bool:
++        text = (user_prompt or "").lower()
++        review_phrases = (
++            "code review",
++            "security review",
++        )
++        if any(marker in text for marker in review_phrases):
++            return True
++
++        review_word_patterns = (
++            r"(?<!\w)review(?:s|ed|ing)?(?!\w)",
++            r"(?<!\w)audit(?:s|ed|ing)?(?!\w)",
++            r"(?<!\w)провер\w*(?!\w)",
++            r"(?<!\w)ревью(?!\w)",
++            r"(?<!\w)аудит\w*(?!\w)",
++        )
++        return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in review_word_patterns)
++
++    def _review_command(self) -> str:
++        return f'{self.command_template} --review "$CONSILIUM_PLAN_FILE"'
++
++    def _execute_command(self) -> str:
++        return f'{self.command_template} "$CONSILIUM_PLAN_FILE"'
++
++    def _tasks_command(self) -> str:
++        return (
++            f'{self.command_template} --tasks-only --max-iterations=1 '
++            f'--session-timeout={self.chat_session_timeout_sec}s '
++            f'--idle-timeout={self.chat_idle_timeout_sec}s '
++            '"$CONSILIUM_PLAN_FILE"'
++        )
++
++    def _resolve_command(self, messages: list[dict[str, str]]) -> str:
++        if self.command_source == "env":
++            return self.command_template
++        if self.mode == "review":
++            return self._review_command()
++        if self.mode == "execute":
++            return self._execute_command()
++        if self.mode == "tasks":
++            return self._tasks_command()
++        latest_user = self._latest_user_prompt(messages)
++        if self._is_review_intent(latest_user):
++            return self._review_command()
++        return self._execute_command()
++
++    def quick_probe(self) -> str:
++        version_cmd = self._probe_version_command()
++        env = os.environ.copy()
++        local_tmp = _ensure_local_tmp_dir()
++        env["TMPDIR"] = str(local_tmp)
++        env["TMP"] = str(local_tmp)
++        env["TEMP"] = str(local_tmp)
++        try:
++            proc = subprocess.run(
++                ["bash", "-lc", version_cmd],
++                capture_output=True,
++                text=True,
++                timeout=10,
++                env=env,
++            )
++        except subprocess.TimeoutExpired:
++            return "Связь с gateway есть, но быстрый probe ralphex не ответил за 10с."
++
++        if proc.returncode != 0:
++            details = (proc.stderr or proc.stdout or f"exit code {proc.returncode}").strip()
++            return f"Gateway доступен, но ralphex probe завершился ошибкой: {details}"
++
++        text = (proc.stdout or "").strip() or "ralphex available"
++        return f"Связь есть. {text}"
++
++    def _probe_version_command(self) -> str:
++        if self.binary_path:
++            return f"{shlex.quote(self.binary_path)} --version"
++        binary = _extract_command_binary(self.command_template)
++        if not binary:
++            binary = self.command_template.strip()
++        if not binary:
++            binary = "ralphex"
++        return f"{shlex.quote(binary)} --version"
+ 
+     def execute(self, messages: list[dict[str, str]], session_id: str, request_id: str) -> str:
+         plan_path = self._write_plan_file(messages)
+         task_json = json.dumps(messages, ensure_ascii=False)
++        command = self._resolve_command(messages)
+         env = os.environ.copy()
+         env["CONSILIUM_TASK_JSON"] = task_json
+         env["CONSILIUM_PLAN_FILE"] = str(plan_path.resolve())
+@@ -273,10 +424,14 @@ class RalphexTransport:
+         env["CODEX_MODEL"] = self.model
+         env["CODEX_SANDBOX"] = _CODEX_SANDBOX
+         env.setdefault("CODEX_VERBOSE", "0")
++        local_tmp = _ensure_local_tmp_dir()
++        env["TMPDIR"] = str(local_tmp)
++        env["TMP"] = str(local_tmp)
++        env["TEMP"] = str(local_tmp)
+         self._adapter_bootstrap._ensure_ralphex_codex_bridge()
+ 
+         proc = subprocess.Popen(
+-            ["bash", "-lc", self.command],
++            ["bash", "-lc", command],
+             stdout=subprocess.PIPE,
+             stderr=subprocess.PIPE,
+             stdin=subprocess.DEVNULL,
+@@ -311,7 +466,7 @@ class RalphexTransport:
+             request_id=request_id,
+             session_id=session_id,
+             plan_path=str(plan_path.resolve()),
+-            command=self.command,
++            command=command,
+             pid=proc.pid,
+             pgid=pgid,
+             started_monotonic=now,
+@@ -359,7 +514,7 @@ class RalphexTransport:
+                 idle = now - state.last_activity_monotonic
+                 if elapsed >= self.timeout_sec:
+                     _terminate_process_group(pgid)
+-                    raise subprocess.TimeoutExpired(cmd=self.command, timeout=self.timeout_sec)
++                    raise subprocess.TimeoutExpired(cmd=command, timeout=self.timeout_sec)
+                 if self.idle_timeout_sec > 0 and idle >= self.idle_timeout_sec:
+                     _terminate_process_group(pgid)
+                     raise RuntimeError(
+@@ -449,7 +604,12 @@ class RalphexTransport:
+             text = stdout_text.strip()
+         if not text.strip():
+             raise RuntimeError("ralphex returned empty response")
+-        return text.strip()
++        user_prompt = ""
++        for item in reversed(messages):
++            if (item.get("role") or "").strip().lower() == "user":
++                user_prompt = (item.get("content") or "").strip()
++                break
++        return self._format_chat_response(text.strip(), user_prompt=user_prompt)
+ 
+     @staticmethod
+     def _write_plan_file(messages: list[dict[str, str]]) -> pathlib.Path:
+@@ -457,30 +617,77 @@ class RalphexTransport:
+         ts = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+         plan_path = _GATEWAY_PLANS_DIR / f"gateway-{ts}-{uuid.uuid4().hex[:8]}.md"
+ 
+-        # Keep recent context compact so Ralphex gets stable input and bounded size.
++        latest_user = ""
++        for item in reversed(messages):
++            if (item.get("role") or "").strip().lower() == "user":
++                latest_user = (item.get("content") or "").strip()
++                break
++        if not latest_user:
++            latest_user = "No explicit user request was provided."
++
++        latest_user_compact = re.sub(r"\s+", " ", latest_user).strip()[:500]
+         tail = messages[-20:]
+-        lines = ["# Consilium Gateway Task", "", "## Conversation Context", ""]
++        lines = [
++            "# Consilium Gateway Plan",
++            "",
++            "## Overview",
++            f"- [ ] Resolve latest user request: {latest_user_compact}",
++            "",
++            "## Context",
++            "",
++            "Latest user request:",
++            "",
++            "```text",
++            latest_user,
++            "```",
++            "",
++            "Recent conversation tail:",
++            "",
++        ]
+         for item in tail:
+             role = (item.get("role") or "user").strip().lower()
+             content = (item.get("content") or "").strip()
+             if not content:
+                 continue
+-            lines.append(f"### {role}")
+-            lines.append(content)
+-            lines.append("")
++            compact = re.sub(r"\s+", " ", content).strip()
++            lines.append(f"- {role}: {compact[:800]}")
+         lines.extend(
+             [
+-                "## Instruction",
+-                "Use full Ralphex pipeline and provide final assistant response for the latest user request.",
++                "",
++                "## Task 1: Deliver response for the latest request",
++                "- [ ] Understand latest user request and relevant local context.",
++                "- [ ] If coding changes are needed, implement minimal correct update and run relevant checks.",
++                "- [ ] If no code changes are needed, provide direct concise answer.",
++                "- [ ] Output final assistant answer text suitable for chat.",
++                "- [ ] End with exact line format: Final answer: <one concise response for user>.",
++                "",
++                "## Success criteria",
++                "- [ ] Latest user request is addressed directly.",
++                "- [ ] Response is concise and actionable.",
+                 "",
+             ]
+         )
+         plan_path.write_text("\n".join(lines), encoding="utf-8")
+         return plan_path
+ 
++    @staticmethod
++    def _extract_latest_user_answer(raw_text: str) -> str:
++        if not raw_text:
++            return ""
++
++        summary_markers = ("final answer:", "result:", "итог:", "ответ:")
++        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
++        for line in reversed(lines):
++            low = line.lower()
++            if any(low.startswith(marker) for marker in summary_markers):
++                return line.split(":", 1)[-1].strip() or line
++        return ""
++
+     @staticmethod
+     def _extract_text(stdout: str) -> str:
+         chunks: list[str] = []
++        saw_delta = False
++        saw_raw = False
+         for raw_line in stdout.splitlines():
+             line = raw_line.strip()
+             if not line:
+@@ -492,16 +699,19 @@ class RalphexTransport:
+                     continue
+             if not (line.startswith("{") and line.endswith("}")):
+                 chunks.append(raw_line)
++                saw_raw = True
+                 continue
+             try:
+                 payload = json.loads(line)
+             except json.JSONDecodeError:
+                 chunks.append(raw_line)
++                saw_raw = True
+                 continue
+             if isinstance(payload, dict):
+                 delta = payload.get("delta") or {}
+                 if isinstance(delta, dict) and isinstance(delta.get("text"), str):
+                     chunks.append(delta["text"])
++                    saw_delta = True
+                     continue
+                 choices = payload.get("choices")
+                 if isinstance(choices, list):
+@@ -511,7 +721,117 @@ class RalphexTransport:
+                         delta_obj = choice.get("delta") or {}
+                         if isinstance(delta_obj, dict) and isinstance(delta_obj.get("content"), str):
+                             chunks.append(delta_obj["content"])
+-        return "".join(chunks)
++                            saw_delta = True
++        if saw_delta and not saw_raw:
++            return "".join(chunks)
++        return "\n".join(chunks)
++
++    @staticmethod
++    def _looks_like_ralphex_log(raw_text: str) -> bool:
++        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
++        if not lines:
++            return False
++
++        normalized = raw_text.lower()
++        structural_markers = (
++            "starting ralphex loop",
++            "starting task execution phase",
++            "--- task iteration",
++            "--- claude review",
++        )
++        if any(marker in normalized for marker in structural_markers):
++            return True
++
++        weak_markers = (
++            "starting code review",
++            "all tasks completed, starting code review",
++            "task execution completed successfully",
++            "review phases completed successfully",
++            "all phases completed successfully",
++        )
++        weak_hits = sum(1 for marker in weak_markers if marker in normalized)
++
++        # Treat Ralphex signals as log output only when they appear as standalone
++        # signal lines and are accompanied by additional log structure.
++        signal_line = re.compile(r"^(?:\[[^\]\n]+\]\s*)?<<<ralphex:[^>\n]+>>>\s*$", flags=re.IGNORECASE)
++        timestamp_line = re.compile(r"^\[[^\]\n]+\]")
++        signal_hits = sum(1 for line in lines if signal_line.match(line))
++        timestamp_hits = sum(1 for line in lines if timestamp_line.match(line))
++        if signal_hits and (weak_hits > 0 or timestamp_hits > 0):
++            return True
++
++        return weak_hits >= 2 and ("\n" in raw_text or "[" in raw_text)
++
++    @staticmethod
++    def _format_chat_response(raw_text: str, user_prompt: str) -> str:
++        if not raw_text:
++            return raw_text
++
++        duration_match = re.search(r"completed in ([^\n]+)", raw_text, flags=re.IGNORECASE)
++        duration = duration_match.group(1).strip() if duration_match else None
++
++        raw_upper = raw_text.upper()
++        raw_lower = raw_text.lower()
++        no_issues = "NO ISSUES FOUND" in raw_upper
++        all_done = re.search(r"\bALL_TASKS_DONE\b", raw_upper) is not None
++        review_done = re.search(r"\bREVIEW_DONE\b", raw_upper) is not None
++        codex_done = re.search(r"\bCODEX_REVIEW_DONE\b", raw_upper) is not None
++        task_failed = re.search(r"\bTASK_FAILED\b", raw_upper) is not None
++        positive_terminal_signal = (
++            "all phases completed successfully" in raw_lower
++            or "review phases completed successfully" in raw_lower
++            or "task execution completed successfully" in raw_lower
++            or "all tasks completed" in raw_lower
++            or all_done
++            or review_done
++            or codex_done
++            or no_issues
++        )
++        terminal_signal = positive_terminal_signal or task_failed
++        success = positive_terminal_signal and not task_failed
++
++        integration_health_probe = _is_integration_health_probe(user_prompt)
++        has_execution_signal = terminal_signal
++
++        # Targeted integration-status answer for direct health checks.
++        if integration_health_probe and has_execution_signal:
++            return "Да, интеграция живая." if success else "Нет, интеграция не живая."
++
++        extracted_answer = RalphexTransport._extract_latest_user_answer(raw_text)
++        if extracted_answer:
++            return extracted_answer
++
++        looks_like_log = RalphexTransport._looks_like_ralphex_log(raw_text)
++        if integration_health_probe and looks_like_log:
++            return "Статус интеграции неизвестен."
++
++        # If output is already concise/non-ralphex logs, keep as is.
++        if not looks_like_log:
++            return raw_text
++
++        lines: list[str] = []
++        if terminal_signal:
++            status = "успешно" if success else "с ошибками"
++        else:
++            status = "без финального статуса"
++        lines.append(f"Ralphex завершил прогон {status}.")
++        if duration:
++            lines.append(f"Длительность: {duration}.")
++        signals: list[str] = []
++        if all_done:
++            signals.append("ALL_TASKS_DONE")
++        if review_done:
++            signals.append("REVIEW_DONE")
++        if codex_done:
++            signals.append("CODEX_REVIEW_DONE")
++        if task_failed:
++            signals.append("TASK_FAILED")
++        if signals:
++            lines.append(f"Сигналы: {', '.join(signals)}.")
++        if no_issues:
++            lines.append("Внешний Codex review: `NO ISSUES FOUND`.")
++        lines.append("Технический лог скрыт; при необходимости включу полный вывод.")
++        return " ".join(lines)
+ 
+ 
+ class RalphexProxyAgent(autogen.ConversableAgent):
+@@ -688,6 +1008,25 @@ def _build_stream_generator(model: str, completion_id: str, text: str):
+     return _iter()
+ 
+ 
++def _available_model_ids() -> list[str]:
++    ids = [DEFAULT_MODEL]
++    if LEGACY_MODEL_ALIAS not in ids:
++        ids.append(LEGACY_MODEL_ALIAS)
++    return ids
++
++
++def _model_cards() -> list[dict]:
++    return [
++        {
++            "id": model_id,
++            "object": "model",
++            "created": 0,
++            "owned_by": "consilium",
++        }
++        for model_id in _available_model_ids()
++    ]
++
++
+ def _upsert_session_messages(session_id: str, incoming: list[dict[str, str]]) -> list[dict[str, str]]:
+     with _SESSION_LOCK:
+         state = _SESSIONS.setdefault(session_id, SessionState())
+@@ -714,9 +1053,106 @@ def _extract_session_id(req: ChatCompletionsRequest, x_session_id: str | None) -
+     return "default"
+ 
+ 
+-def _check_bearer_token(auth_header: str | None) -> None:
++def _latest_user_text(messages: list[dict[str, str]]) -> str:
++    for item in reversed(messages):
++        if (item.get("role") or "").strip().lower() == "user":
++            return (item.get("content") or "").strip()
++    return ""
++
++
++def _is_integration_health_probe(text: str) -> bool:
++    normalized = (text or "").strip().lower()
++    if not normalized:
++        return False
++    return ("интеграци" in normalized and "жив" in normalized) or (
++        "integration" in normalized and ("alive" in normalized or "working" in normalized or "live" in normalized)
++    )
++
++
++def _is_connectivity_probe(text: str) -> bool:
++    normalized = (text or "").strip().lower()
++    if not normalized:
++        return False
++    if len(normalized) > 120:
++        return False
++
++    normalized_compact = re.sub(r"\s+", " ", normalized).strip()
++    probe_candidate = normalized_compact.strip(" \t\r\n.,!?;:\"'`()[]{}")
++    exact_probe_markers = {
++        "ping",
++        "пинг",
++    }
++    phrase_probe_markers = (
++        "проверка связи",
++        "check connection",
++        "ты тут",
++        "ты здесь",
++        "живой",
++        "живая",
++        "integration alive",
++        "интеграция живая",
++    )
++    greeting_markers = ("привет", "hello")
++    coding_markers = (
++        "add",
++        "create",
++        "write",
++        "code",
++        "fix",
++        "implement",
++        "refactor",
++        "review",
++        "audit",
++        "endpoint",
++        "api",
++        "route",
++        "handler",
++        "service",
++        "function",
++        "test",
++        "tests",
++        "bug",
++        "issue",
++        "добав",
++        "создай",
++        "напиши",
++        "код",
++        "файл",
++        "эндпоинт",
++        "маршрут",
++        "роут",
++        "terraform",
++        "tofu",
++    )
++    if any(marker in normalized for marker in coding_markers):
++        return False
++    if _is_integration_health_probe(normalized):
++        return False
++    if probe_candidate in exact_probe_markers:
++        return True
++    if any(marker in normalized for marker in phrase_probe_markers):
++        return True
++    # A plain greeting should not bypass the full execution path.
++    return any(marker in normalized for marker in greeting_markers) and (
++        "связ" in normalized or "connection" in normalized
++    )
++
++
++def _check_bearer_token(auth_header: str | None, x_api_key: str | None = None) -> None:
+     api_key = os.getenv("CONSILIUM_API_KEY", DEFAULT_API_KEY)
+-    if not auth_header:
++    header_api_key = x_api_key if isinstance(x_api_key, str) else None
++    if header_api_key and header_api_key.strip() == api_key:
++        return
++    has_bearer = isinstance(auth_header, str) and bool(auth_header.strip())
++    if header_api_key and header_api_key.strip() != api_key and not has_bearer:
++        LOGGER.warning(
++            "auth_failed scheme=%r token_present=%s token_len=%d",
++            "x-api-key",
++            "true",
++            len(header_api_key.strip()),
++        )
++        raise HTTPException(status_code=401, detail="Invalid API key")
++    if not has_bearer:
+         raise HTTPException(status_code=401, detail="Missing Authorization header")
+     scheme, _, token = auth_header.partition(" ")
+     token = token.strip()
+@@ -730,6 +1166,15 @@ def _check_bearer_token(auth_header: str | None) -> None:
+         raise HTTPException(status_code=401, detail="Invalid API key")
+ 
+ 
++def _check_optional_discovery_auth(auth_header: str | None, x_api_key: str | None = None) -> None:
++    has_bearer = isinstance(auth_header, str) and bool(auth_header.strip())
++    has_x_api_key = isinstance(x_api_key, str) and bool(x_api_key.strip())
++    if has_bearer or has_x_api_key:
++        _check_bearer_token(auth_header, x_api_key=x_api_key)
++        return
++    LOGGER.info("models_discovery_without_auth accepted=true")
++
++
+ app = FastAPI(title="Consilium Gateway", version="0.1.0-mvp")
+ _transport = RalphexTransport()
+ _pipe = AutoGenPipe(transport=_transport)
+@@ -750,21 +1195,21 @@ def _startup_checks() -> None:
+             "Set a strong non-default key before starting gateway."
+         )
+     LOGGER.info(
+-        "gateway_startup strict_api_key=%s transport_timeout_sec=%s transport_idle_timeout_sec=%s transport_heartbeat_sec=%s transport_mode=%s transport_source=%s transport_cmd=%s",
++        "gateway_startup strict_api_key=%s transport_timeout_sec=%s transport_idle_timeout_sec=%s transport_heartbeat_sec=%s transport_mode=%s transport_source=%s transport_cmd_template=%s",
+         str(strict).lower(),
+         str(_transport.timeout_sec),
+         str(_transport.idle_timeout_sec),
+         str(_transport.heartbeat_sec),
+         _transport.mode,
+         _transport.command_source,
+-        _transport.command,
++        _redacted_command_for_log(_transport.command_template),
+     )
+     if _transport.command_source == "default":
+         raise RuntimeError(
+             "ralphex binary not found at startup. "
+             "Install ralphex in user profile or set CONSILIUM_RALPHEX_CMD in .env."
+         )
+-    if "--task" in _transport.command:
++    if _transport.command_source == "env" and "--task" in _transport.command_template:
+         raise RuntimeError(
+             "Detected unsupported '--task' in CONSILIUM_RALPHEX_CMD for current ralphex CLI. "
+             "Use plan-file mode, e.g. '/abs/path/to/ralphex \"$CONSILIUM_PLAN_FILE\"'."
+@@ -777,30 +1222,69 @@ def healthz() -> dict:
+     return {"status": "ok", "active_count": len(active), "active": active}
+ 
+ 
++@app.get("/v1/models")
++def list_models(
++    authorization: str | None = Header(default=None),
++    x_api_key: str | None = Header(default=None),
++) -> dict:
++    _check_optional_discovery_auth(authorization, x_api_key=x_api_key)
++    return {"object": "list", "data": _model_cards()}
++
++
++@app.get("/v1/models/{model_id}")
++def get_model(
++    model_id: str,
++    authorization: str | None = Header(default=None),
++    x_api_key: str | None = Header(default=None),
++) -> dict:
++    _check_optional_discovery_auth(authorization, x_api_key=x_api_key)
++    for card in _model_cards():
++        if card["id"] == model_id:
++            return card
++    raise HTTPException(status_code=404, detail="Model not found")
++
++
+ @app.post("/v1/chat/completions")
+ def chat_completions(
+     payload: ChatCompletionsRequest,
+     authorization: str | None = Header(default=None),
+     x_session_id: str | None = Header(default=None),
++    x_api_key: str | None = Header(default=None),
+ ):
+-    _check_bearer_token(authorization)
++    _check_bearer_token(authorization, x_api_key=x_api_key)
+     if not payload.messages:
+         raise HTTPException(status_code=400, detail="messages must not be empty")
+ 
+     session_id = _extract_session_id(payload, x_session_id)
+     LOGGER.info(
+-        "chat_request session_id=%s model=%s stream=%s messages=%d",
++        "chat_request session_id=%s requested_model=%s effective_model=%s stream=%s messages=%d",
+         session_id,
+         payload.model or DEFAULT_MODEL,
++        DEFAULT_MODEL,
+         str(payload.stream).lower(),
+         len(payload.messages),
+     )
+     incoming = _to_internal_messages(payload.messages)
+     history = _upsert_session_messages(session_id, incoming)
+     completion_id = _make_completion_id()
+-    model = payload.model or DEFAULT_MODEL
++    # Cursor-provided model is treated as a routing hint only.
++    # Consilium always responds with the public gateway model alias.
++    model = DEFAULT_MODEL
+     LOGGER.info("chat_request_dispatch completion_id=%s session_id=%s", completion_id, session_id)
+ 
++    latest_user = _latest_user_text(history)
++    if _is_connectivity_probe(latest_user):
++        LOGGER.info("chat_request_probe completion_id=%s session_id=%s", completion_id, session_id)
++        answer = _transport.quick_probe()
++        _append_assistant_message(session_id, answer)
++        if payload.stream:
++            return StreamingResponse(
++                _build_stream_generator(model=model, completion_id=completion_id, text=answer),
++                media_type="text/event-stream",
++                headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
++            )
++        return JSONResponse(_build_non_stream_response(model=model, completion_id=completion_id, text=answer))
++
+     try:
+         answer = _pipe.complete(session_id=session_id, messages=history, request_id=completion_id)
+     except subprocess.TimeoutExpired:
+diff --git a/execution_port.py b/execution_port.py
+index 6225083..85f63e3 100644
+--- a/execution_port.py
++++ b/execution_port.py
+@@ -14,7 +14,9 @@ _RUNS_DIR = pathlib.Path(".consilium/runs")
+ _RALPHEX_CONFIG_DIR = pathlib.Path(".consilium/ralphex")
+ _RALPHEX_CONFIG_FILE = _RALPHEX_CONFIG_DIR / "config"
+ _RALPHEX_WRAPPER = _RALPHEX_CONFIG_DIR / "scripts" / "codex-as-claude.sh"
++_VERTEX_GEMINI_WRAPPER = _RALPHEX_CONFIG_DIR / "scripts" / "vertex-gemini-as-claude.sh"
+ _CODEX_SANDBOX = os.getenv("CONSILIUM_CODEX_SANDBOX", "danger-full-access")
++_LOCAL_TMP_DIR = pathlib.Path(".consilium/tmp")
+ 
+ _CODEX_AS_CLAUDE_SCRIPT = """#!/usr/bin/env bash
+ set -euo pipefail
+@@ -91,8 +93,11 @@ class ExecutionPort(Protocol):
+ 
+ 
+ class RalphexAdapter:
+-    def __init__(self, model: str):
+-        self.model = model
++    def __init__(self, provider: str, model: str):
++        self.provider = (provider or "").strip().lower()
++        self.model = (model or "").strip()
++        if not self.model:
++            raise ValueError("RalphexAdapter requires non-empty model")
+ 
+     def execute(self, task_id: str, plan_path: pathlib.Path) -> ExecutionResult:
+         run_dir = _RUNS_DIR / task_id / datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S")
+@@ -117,13 +122,24 @@ class RalphexAdapter:
+             metrics_path.write_text(json.dumps(asdict(result), indent=2), encoding="utf-8")
+             return result
+ 
+-        self._ensure_ralphex_codex_bridge()
++        self._ensure_ralphex_bridge()
+ 
+         env = os.environ.copy()
+         env["RALPHEX_CONFIG_DIR"] = str(_RALPHEX_CONFIG_DIR.resolve())
+-        env["CODEX_MODEL"] = self.model
+-        env["CODEX_SANDBOX"] = _CODEX_SANDBOX
+-        env.setdefault("CODEX_VERBOSE", "0")
++        if self.provider == "codex-cli":
++            env["CODEX_MODEL"] = self.model
++            env["CODEX_SANDBOX"] = _CODEX_SANDBOX
++            env.setdefault("CODEX_VERBOSE", "0")
++        elif self.provider == "google":
++            env["GEMINI_MODEL"] = self.model
++            env["VERTEX_PROJECT"] = env.get("GOOGLE_CLOUD_PROJECT", "")
++            env["VERTEX_LOCATION"] = env.get("GOOGLE_CLOUD_LOCATION", "global")
++        else:
++            raise ValueError(f"Unsupported implementer provider for ralphex: {self.provider}")
++        local_tmp = self._ensure_local_tmp_dir()
++        env["TMPDIR"] = str(local_tmp)
++        env["TMP"] = str(local_tmp)
++        env["TEMP"] = str(local_tmp)
+ 
+         proc = subprocess.run(
+             ["ralphex", str(plan_path)],
+@@ -147,34 +163,51 @@ class RalphexAdapter:
+             metadata={
+                 "codex_sandbox": _CODEX_SANDBOX,
+                 "ralphex_config_dir": str(_RALPHEX_CONFIG_DIR.resolve()),
++                "implementer_provider": self.provider,
+             },
+         )
+         metrics_path.write_text(json.dumps(asdict(result), indent=2), encoding="utf-8")
+         return result
+ 
+-    def _ensure_ralphex_codex_bridge(self) -> None:
++    def _ensure_ralphex_bridge(self) -> None:
+         _RALPHEX_WRAPPER.parent.mkdir(parents=True, exist_ok=True)
+         _RALPHEX_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+ 
+-        _RALPHEX_WRAPPER.write_text(_CODEX_AS_CLAUDE_SCRIPT, encoding="utf-8")
+-        _RALPHEX_WRAPPER.chmod(0o755)
+-
+-        cfg = (
+-            f"claude_command = {_RALPHEX_WRAPPER.resolve()}\n"
+-            "claude_args =\n"
+-            "external_review_tool = codex\n"
+-            "codex_enabled = true\n"
+-            "codex_command = codex\n"
+-            f"codex_model = {self.model}\n"
+-            "codex_reasoning_effort = xhigh\n"
+-            "codex_timeout_ms = 3600000\n"
+-        )
++        if self.provider == "codex-cli":
++            _RALPHEX_WRAPPER.write_text(_CODEX_AS_CLAUDE_SCRIPT, encoding="utf-8")
++            _RALPHEX_WRAPPER.chmod(0o755)
++            cfg = (
++                f"claude_command = {_RALPHEX_WRAPPER.resolve()}\n"
++                "claude_args =\n"
++                "external_review_tool = codex\n"
++                "codex_enabled = true\n"
++                "codex_command = codex\n"
++                f"codex_model = {self.model}\n"
++                "codex_reasoning_effort = xhigh\n"
++                "codex_timeout_ms = 3600000\n"
++            )
++        elif self.provider == "google":
++            _VERTEX_GEMINI_WRAPPER.chmod(0o755)
++            cfg = (
++                f"claude_command = {_VERTEX_GEMINI_WRAPPER.resolve()}\n"
++                "claude_args =\n"
++            )
++        else:
++            raise ValueError(f"Unsupported implementer provider for ralphex: {self.provider}")
+         _RALPHEX_CONFIG_FILE.write_text(cfg, encoding="utf-8")
+ 
++    def _ensure_local_tmp_dir(self) -> pathlib.Path:
++        _LOCAL_TMP_DIR.mkdir(parents=True, exist_ok=True)
++        try:
++            _LOCAL_TMP_DIR.chmod(0o700)
++        except OSError:
++            pass
++        return _LOCAL_TMP_DIR.resolve()
++
+ 
+ def make_execution_port(config: RuntimeConfig) -> ExecutionPort:
+     adapter = config.execution_adapter
+     if adapter == "ralphex":
+-        return RalphexAdapter(model=config.model_for("implementer").model)
++        impl = config.model_for("implementer")
++        return RalphexAdapter(provider=impl.provider, model=impl.model)
+     raise ValueError(f"Unsupported execution adapter: {adapter}")
+-
+diff --git a/infra/tofu/scripts/ensure_q_pro.py b/infra/tofu/scripts/ensure_q_pro.py
+index e4ffef7..cb093f8 100644
+--- a/infra/tofu/scripts/ensure_q_pro.py
++++ b/infra/tofu/scripts/ensure_q_pro.py
+@@ -12,7 +12,6 @@ from __future__ import annotations
+ 
+ import argparse
+ import json
+-import os
+ import subprocess
+ import sys
+ import time
+diff --git a/mcp_server.py b/mcp_server.py
+index 9edebfb..434008e 100644
+--- a/mcp_server.py
++++ b/mcp_server.py
+@@ -14,8 +14,8 @@ warnings.filterwarnings(
+     message=r"flaml\.automl is not available\..*",
+ )
+ 
+-from mcp.server.fastmcp import FastMCP
+-from consilium_core import run_task
++from mcp.server.fastmcp import FastMCP  # noqa: E402
++from consilium_core import run_task  # noqa: E402
+ 
+ mcp = FastMCP(
+     name="Consilium",
+diff --git a/model_config.py b/model_config.py
+index a52750e..5769e93 100644
+--- a/model_config.py
++++ b/model_config.py
+@@ -12,11 +12,16 @@ _POLICY_PATH = Path(".consilium/policies/model_config.yaml")
+ @dataclass(frozen=True)
+ class ModelConfig:
+     provider: str
+-    model: str
++    models: list[str]
+     temperature: float
+     max_tokens: int
+     timeout_sec: int
+ 
++    @property
++    def model(self) -> str:
++        # Backward-compatible convenience: primary model is first in the list.
++        return self.models[0]
++
+ 
+ @dataclass(frozen=True)
+ class RuntimeConfig:
+@@ -59,6 +64,17 @@ _DEFAULT_CONFIG: dict[str, Any] = {
+     },
+ }
+ 
++def _normalize_models(value: Any) -> list[str]:
++    if isinstance(value, list):
++        models = [str(x).strip() for x in value if str(x).strip()]
++        if not models:
++            raise ValueError("model list must be non-empty")
++        return models
++    model = str(value or "").strip()
++    if not model:
++        raise ValueError("model must be a non-empty string")
++    return [model]
++
+ 
+ def _merge_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
+     merged = {
+@@ -74,9 +90,10 @@ def _merge_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
+     provided_roles = cfg.get("roles", {})
+     for role, role_default in _DEFAULT_CONFIG["roles"].items():
+         candidate = provided_roles.get(role, {})
++        model_value = candidate.get("model", role_default["model"])
+         merged["roles"][role] = {
+             "provider": candidate.get("provider", role_default["provider"]),
+-            "model": candidate.get("model", role_default["model"]),
++            "models": _normalize_models(model_value),
+             "temperature": float(candidate.get("temperature", role_default["temperature"])),
+             "max_tokens": int(candidate.get("max_tokens", role_default["max_tokens"])),
+             "timeout_sec": int(candidate.get("timeout_sec", role_default["timeout_sec"])),
+diff --git a/scripts/bootstrap-local-config.sh b/scripts/bootstrap-local-config.sh
+new file mode 100755
+index 0000000..48d8002
+--- /dev/null
++++ b/scripts/bootstrap-local-config.sh
+@@ -0,0 +1,127 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
++ENV_FILE="${ROOT_DIR}/.env"
++EXAMPLE_FILE="${ROOT_DIR}/.env.example"
++
++if [[ ! -f "${ENV_FILE}" ]]; then
++  if [[ ! -f "${EXAMPLE_FILE}" ]]; then
++    echo "[fail] Missing ${EXAMPLE_FILE}" >&2
++    exit 1
++  fi
++  cp "${EXAMPLE_FILE}" "${ENV_FILE}"
++  echo "[run] created .env from .env.example"
++fi
++
++read_env_value() {
++  local key="$1"
++  awk -v key="$key" '
++    $0 ~ "^[[:space:]]*(export[[:space:]]+)?" key "[[:space:]]*=" {
++      value = $0
++      sub(/^[[:space:]]*(export[[:space:]]+)?[^=]+=[[:space:]]*/, "", value)
++      sub(/[[:space:]]+#.*$/, "", value)
++      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
++      print value
++      exit
++    }
++  ' "${ENV_FILE}"
++}
++
++set_env_value() {
++  local key="$1"
++  local value="$2"
++  local tmp
++  tmp="$(mktemp "${ENV_FILE}.tmp.XXXXXX")"
++  awk -v key="$key" -v value="$value" '
++    BEGIN { updated = 0 }
++    {
++      if (!updated && $0 ~ "^[[:space:]]*(export[[:space:]]+)?" key "[[:space:]]*=") {
++        if ($0 ~ /^[[:space:]]*export[[:space:]]+/) {
++          print "export " key "=" value
++        } else {
++          print key "=" value
++        }
++        updated = 1
++        next
++      }
++      print $0
++    }
++    END {
++      if (!updated) {
++        print key "=" value
++      }
++    }
++  ' "${ENV_FILE}" > "${tmp}"
++  mv "${tmp}" "${ENV_FILE}"
++}
++
++ensure_env_value() {
++  local key="$1"
++  local desired="$2"
++  local current
++  current="$(read_env_value "$key")"
++  if [[ -z "$current" ]]; then
++    set_env_value "$key" "$desired"
++  fi
++}
++
++maybe_set_google_project() {
++  local current
++  current="$(read_env_value GOOGLE_CLOUD_PROJECT)"
++  if [[ -n "$current" && "$current" != "your-gcp-project-id" ]]; then
++    return 0
++  fi
++
++  if command -v gcloud >/dev/null 2>&1; then
++    local detected
++    detected="$(gcloud config get-value project 2>/dev/null || true)"
++    detected="${detected//$'\n'/}"
++    if [[ -n "$detected" && "$detected" != "(unset)" ]]; then
++      set_env_value GOOGLE_CLOUD_PROJECT "$detected"
++      echo "[ok] GOOGLE_CLOUD_PROJECT <- gcloud config"
++      return 0
++    fi
++  fi
++
++  if [[ -z "$current" ]]; then
++    set_env_value GOOGLE_CLOUD_PROJECT "your-gcp-project-id"
++  fi
++  echo "[warn] GOOGLE_CLOUD_PROJECT is not auto-detected; set it in .env if Architect/Critic are needed"
++}
++
++generate_api_key() {
++  local hex
++  hex="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
++  printf 'consilium-%s\n' "$hex"
++}
++
++maybe_set_api_key() {
++  local current
++  current="$(read_env_value CONSILIUM_API_KEY)"
++  case "$current" in
++    ""|"replace-with-strong-key"|"consilium-mvp-key")
++      local generated
++      generated="$(generate_api_key)"
++      set_env_value CONSILIUM_API_KEY "$generated"
++      echo "[ok] generated strong CONSILIUM_API_KEY"
++      ;;
++  esac
++}
++
++ensure_env_value GOOGLE_CLOUD_LOCATION global
++ensure_env_value CONSILIUM_STRICT_API_KEY 1
++ensure_env_value CONSILIUM_PUBLIC_MODEL consilium-auto
++ensure_env_value CONSILIUM_RALPHEX_MODE auto
++ensure_env_value CONSILIUM_RALPHEX_TIMEOUT_SEC 1200
++ensure_env_value CONSILIUM_RALPHEX_IDLE_TIMEOUT_SEC 300
++ensure_env_value CONSILIUM_RALPHEX_HEARTBEAT_SEC 15
++ensure_env_value CONSILIUM_RALPHEX_IDLE_WARN_SEC 45
++ensure_env_value CONSILIUM_AUTO_GIT_INIT 1
++
++maybe_set_google_project
++maybe_set_api_key
++
++chmod 600 "${ENV_FILE}" 2>/dev/null || true
++
++echo "[ok] local config bootstrap complete"
+diff --git a/scripts/sync-cursor-provider-state.py b/scripts/sync-cursor-provider-state.py
+new file mode 100755
+index 0000000..2f5de8e
+--- /dev/null
++++ b/scripts/sync-cursor-provider-state.py
+@@ -0,0 +1,199 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import sqlite3
++from pathlib import Path
++
++
++REACTIVE_KEY = (
++    "src.vs.platform.reactivestorage.browser."
++    "reactiveStorageServiceImpl.persistentStorage.applicationUser"
++)
++OPENAI_KEY_ROW = "cursorAuth/openAIKey"
++
++
++def _dedupe(items: list[str]) -> list[str]:
++    result: list[str] = []
++    seen: set[str] = set()
++    for item in items:
++        value = (item or "").strip()
++        if not value or value in seen:
++            continue
++        seen.add(value)
++        result.append(value)
++    return result
++
++
++def _make_model_card(model_id: str, display_name: str) -> dict:
++    variant = {
++        "parameterValues": [],
++        "displayName": display_name,
++        "isMaxMode": False,
++        "isDefaultMaxConfig": True,
++        "isDefaultNonMaxConfig": True,
++        "displayNameOutsidePicker": display_name,
++        "variantStringRepresentation": f"{model_id}[]",
++    }
++    tooltip = {
++        "primaryText": "",
++        "secondaryText": "",
++        "secondaryWarningText": False,
++        "icon": "",
++        "tertiaryText": "",
++        "tertiaryTextUrl": "",
++        "markdownContent": (
++            f"**{display_name}**<br />Consilium gateway public alias. "
++            "Internal routing is dynamic."
++        ),
++    }
++    return {
++        "name": model_id,
++        "defaultOn": False,
++        "parameterDefinitions": [],
++        "variants": [variant],
++        "legacySlugs": [],
++        "idAliases": [],
++        "supportsAgent": True,
++        "degradationStatus": 0,
++        "tooltipData": tooltip,
++        "supportsThinking": True,
++        "supportsImages": True,
++        "supportsMaxMode": True,
++        "clientDisplayName": display_name,
++        "serverModelName": model_id,
++        "supportsNonMaxMode": True,
++        "tooltipDataForMaxMode": tooltip,
++        "isRecommendedForBackgroundComposer": False,
++        "supportsPlanMode": True,
++        "inputboxShortModelName": display_name,
++        "supportsSandboxing": True,
++        "supportsCmdK": True,
++        "namedModelSectionIndex": 1,
++    }
++
++
++def _update_json_payload(raw: str, base_url: str, api_models: list[str]) -> str:
++    payload = json.loads(raw)
++    payload["openAIBaseUrl"] = base_url
++    payload["useOpenAIKey"] = True
++
++    existing_api_models = payload.get("availableAPIKeyModels")
++    if not isinstance(existing_api_models, list):
++        existing_api_models = []
++    payload["availableAPIKeyModels"] = _dedupe(
++        [*(str(x) for x in existing_api_models), *api_models]
++    )
++
++    default_models = payload.get("availableDefaultModels2")
++    if not isinstance(default_models, list):
++        default_models = []
++    known_server_names = {
++        str(item.get("serverModelName"))
++        for item in default_models
++        if isinstance(item, dict) and item.get("serverModelName")
++    }
++    custom_cards = []
++    for model_id in api_models:
++        if model_id in known_server_names:
++            continue
++        display_name = "Consilium Auto" if model_id == api_models[0] else model_id
++        custom_cards.append(_make_model_card(model_id=model_id, display_name=display_name))
++    if custom_cards:
++        default_models.extend(custom_cards)
++    payload["availableDefaultModels2"] = default_models
++
++    ai_settings = payload.get("aiSettings")
++    if not isinstance(ai_settings, dict):
++        ai_settings = {}
++    payload["aiSettings"] = ai_settings
++
++    user_added = ai_settings.get("userAddedModels")
++    if not isinstance(user_added, list):
++        user_added = []
++    ai_settings["userAddedModels"] = _dedupe([*(str(x) for x in user_added), *api_models])
++
++    model_override_enabled = ai_settings.get("modelOverrideEnabled")
++    if not isinstance(model_override_enabled, list):
++        model_override_enabled = []
++    ai_settings["modelOverrideEnabled"] = _dedupe(
++        [*(str(x) for x in model_override_enabled), *api_models]
++    )
++
++    model_config = ai_settings.get("modelConfig")
++    if isinstance(model_config, dict):
++        for feature_cfg in model_config.values():
++            if isinstance(feature_cfg, dict):
++                feature_cfg["modelName"] = api_models[0]
++                feature_cfg["maxMode"] = False
++                feature_cfg["selectedModels"] = None
++
++    feature_model_configs = payload.get("featureModelConfigs")
++    if isinstance(feature_model_configs, dict):
++        for feature_cfg in feature_model_configs.values():
++            if isinstance(feature_cfg, dict):
++                feature_cfg["defaultModel"] = api_models[0]
++                fallback = feature_cfg.get("fallbackModels")
++                if isinstance(fallback, list):
++                    feature_cfg["fallbackModels"] = _dedupe(
++                        [api_models[0], *(str(x) for x in fallback)]
++                    )
++
++    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description="Sync Cursor OpenAI provider state for Consilium.")
++    parser.add_argument("--base-url", required=True)
++    parser.add_argument("--api-key", required=True)
++    parser.add_argument("--model", required=True)
++    parser.add_argument("--legacy-model", default="ralphex-mcp")
++    parser.add_argument(
++        "--db-path",
++        default=os.path.expanduser("~/.config/Cursor/User/globalStorage/state.vscdb"),
++    )
++    args = parser.parse_args()
++
++    db_path = Path(args.db_path).expanduser()
++    if not db_path.exists():
++        print(f"[warn] Cursor state DB not found: {db_path}")
++        return 0
++
++    api_models = _dedupe([args.model, args.legacy_model])
++    if not api_models:
++        print("[fail] no models provided")
++        return 1
++
++    con = sqlite3.connect(str(db_path), timeout=10)
++    try:
++        cur = con.cursor()
++        row = cur.execute("select value from ItemTable where key = ?", (REACTIVE_KEY,)).fetchone()
++        if not row or not isinstance(row[0], str) or not row[0].strip():
++            print(f"[warn] Cursor reactive state key missing: {REACTIVE_KEY}")
++            return 0
++
++        updated = _update_json_payload(row[0], args.base_url, api_models)
++        cur.execute("update ItemTable set value = ? where key = ?", (updated, REACTIVE_KEY))
++        cur.execute(
++            """
++            insert into ItemTable(key, value)
++            values(?, ?)
++            on conflict(key) do update set value = excluded.value
++            """,
++            (OPENAI_KEY_ROW, args.api_key),
++        )
++        con.commit()
++    finally:
++        con.close()
++
++    print(
++        "[ok] Cursor provider state synced "
++        f"(base_url={args.base_url}, models={','.join(api_models)})"
++    )
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/test_gateway_runtime_safety.py b/tests/test_gateway_runtime_safety.py
+index a5f4d57..b61ea29 100644
+--- a/tests/test_gateway_runtime_safety.py
++++ b/tests/test_gateway_runtime_safety.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import os
++import json
+ import tempfile
+ import time
+ import unittest
+@@ -13,6 +14,66 @@ import consilium_gateway as gateway
+ 
+ 
+ class GatewayRuntimeSafetyTests(unittest.TestCase):
++    def test_resolve_public_model_name_falls_back_for_blank_env(self) -> None:
++        with patch.dict(os.environ, {"CONSILIUM_PUBLIC_MODEL": "   "}, clear=False):
++            name = gateway._resolve_public_model_name()
++        self.assertEqual(name, "consilium-auto")
++
++    def test_extract_text_keeps_stream_token_chunks_contiguous(self) -> None:
++        stdout = "\n".join(
++            [
++                'data: {"choices":[{"delta":{"content":"Hel"}}]}',
++                'data: {"choices":[{"delta":{"content":"lo"}}]}',
++                'data: {"choices":[{"delta":{"content":" world"}}]}',
++            ]
++        )
++        text = gateway.RalphexTransport._extract_text(stdout)
++        self.assertEqual(text, "Hello world")
++
++    def test_extract_text_keeps_line_breaks_for_plain_logs(self) -> None:
++        stdout = "starting task execution phase\n--- task iteration 1 ---"
++        text = gateway.RalphexTransport._extract_text(stdout)
++        self.assertEqual(text, "starting task execution phase\n--- task iteration 1 ---")
++
++    def test_probe_version_command_uses_binary_only_for_env_template(self) -> None:
++        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
++        transport.binary_path = None
++        transport.command_template = 'ralphex --review "$CONSILIUM_PLAN_FILE"'
++        self.assertEqual(transport._probe_version_command(), "ralphex --version")
++
++    def test_probe_version_command_handles_env_assignment_prefix(self) -> None:
++        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
++        transport.binary_path = None
++        transport.command_template = 'RUST_LOG=debug ralphex --review "$CONSILIUM_PLAN_FILE"'
++        self.assertEqual(transport._probe_version_command(), "ralphex --version")
++
++    def test_probe_version_command_handles_env_wrapper(self) -> None:
++        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
++        transport.binary_path = None
++        transport.command_template = 'env RUST_LOG=debug /usr/local/bin/ralphex "$CONSILIUM_PLAN_FILE"'
++        self.assertEqual(transport._probe_version_command(), "/usr/local/bin/ralphex --version")
++
++    def test_redacted_command_for_log_hides_assignment_values(self) -> None:
++        rendered = gateway._redacted_command_for_log(
++            'CONSILIUM_TOKEN=super-secret env RUST_LOG=debug /usr/local/bin/ralphex "$CONSILIUM_PLAN_FILE"'
++        )
++        self.assertEqual(rendered, "/usr/local/bin/ralphex <args redacted>")
++        self.assertNotIn("super-secret", rendered)
++
++    def test_is_review_intent_matches_review_request(self) -> None:
++        self.assertTrue(gateway.RalphexTransport._is_review_intent("Please review this patch."))
++
++    def test_is_review_intent_ignores_preview_word(self) -> None:
++        self.assertFalse(gateway.RalphexTransport._is_review_intent("Please preview this patch."))
++
++    def test_auto_mode_preview_prompt_keeps_execute_command(self) -> None:
++        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
++        transport.command_source = "auto"
++        transport.mode = "auto"
++        transport.command_template = "ralphex"
++        cmd = transport._resolve_command([{"role": "user", "content": "Please preview this patch."}])
++        self.assertEqual(cmd, 'ralphex "$CONSILIUM_PLAN_FILE"')
++
+     def test_env_int_parses_and_clamps(self) -> None:
+         with patch.dict(os.environ, {"CONSILIUM_TEST_INT": "-5"}, clear=False):
+             value = gateway._env_int("CONSILIUM_TEST_INT", default=10, minimum=0)
+@@ -51,6 +112,254 @@ class GatewayRuntimeSafetyTests(unittest.TestCase):
+         self.assertNotIn(api_key, rendered)
+         self.assertNotIn(bad_token, rendered)
+ 
++    def test_invalid_x_api_key_without_authorization_returns_invalid_api_key(self) -> None:
++        with patch.dict(os.environ, {"CONSILIUM_API_KEY": "test-key"}, clear=False):
++            with self.assertRaises(HTTPException) as ctx:
++                gateway._check_bearer_token(None, x_api_key="wrong-key")
++        self.assertEqual(ctx.exception.status_code, 401)
++        self.assertEqual(ctx.exception.detail, "Invalid API key")
++
++    def test_missing_authorization_without_x_api_key_returns_missing_header(self) -> None:
++        with patch.dict(os.environ, {"CONSILIUM_API_KEY": "test-key"}, clear=False):
++            with self.assertRaises(HTTPException) as ctx:
++                gateway._check_bearer_token(None, x_api_key=None)
++        self.assertEqual(ctx.exception.status_code, 401)
++        self.assertEqual(ctx.exception.detail, "Missing Authorization header")
++
++    def test_format_chat_response_integration_health_for_progress_log(self) -> None:
++        raw = """
++starting task execution phase
++--- task iteration 1 ---
++[26-04-15 02:45:05] <<<RALPHEX:ALL_TASKS_DONE>>>
++all tasks completed, starting code review...
++[26-04-15 02:45:05] task execution completed successfully
++"""
++        text = gateway.RalphexTransport._format_chat_response(
++            raw_text=raw,
++            user_prompt="Ответь одной строкой: интеграция живая?",
++        )
++        self.assertEqual(text, "Да, интеграция живая.")
++
++    def test_format_chat_response_integration_health_with_failed_signal(self) -> None:
++        raw = """
++starting task execution phase
++--- task iteration 1 ---
++[26-04-15 02:45:05] <<<RALPHEX:TASK_FAILED>>>
++"""
++        text = gateway.RalphexTransport._format_chat_response(
++            raw_text=raw,
++            user_prompt="Ответь одной строкой: интеграция живая?",
++        )
++        self.assertEqual(text, "Нет, интеграция не живая.")
++
++    def test_format_chat_response_passthrough_for_non_logs(self) -> None:
++        raw = "Да, интеграция живая."
++        text = gateway.RalphexTransport._format_chat_response(
++            raw_text=raw,
++            user_prompt="Ответь одной строкой: интеграция живая?",
++        )
++        self.assertEqual(text, raw)
++
++    def test_format_chat_response_does_not_rewrite_plain_text_with_log_phrase(self) -> None:
++        raw = "Starting code review is useful for teams."
++        text = gateway.RalphexTransport._format_chat_response(
++            raw_text=raw,
++            user_prompt="Explain why code review helps",
++        )
++        self.assertEqual(text, raw)
++
++    def test_format_chat_response_does_not_rewrite_inline_signal_explanation(self) -> None:
++        raw = "Token <<<RALPHEX:ALL_TASKS_DONE>>> is a completion signal in logs."
++        text = gateway.RalphexTransport._format_chat_response(
++            raw_text=raw,
++            user_prompt="Explain this marker",
++        )
++        self.assertEqual(text, raw)
++
++    def test_format_chat_response_health_check_for_signal_only_output(self) -> None:
++        raw = "<<<RALPHEX:ALL_TASKS_DONE>>>"
++        text = gateway.RalphexTransport._format_chat_response(
++            raw_text=raw,
++            user_prompt="Ответь одной строкой: интеграция живая?",
++        )
++        self.assertEqual(text, "Да, интеграция живая.")
++
++    def test_format_chat_response_health_check_for_inconclusive_log(self) -> None:
++        raw = """
++starting task execution phase
++--- task iteration 1 ---
++"""
++        text = gateway.RalphexTransport._format_chat_response(
++            raw_text=raw,
++            user_prompt="Ответь одной строкой: интеграция живая?",
++        )
++        self.assertEqual(text, "Статус интеграции неизвестен.")
++
++    def test_format_chat_response_health_check_with_duration_but_no_terminal_signal(self) -> None:
++        raw = """
++starting task execution phase
++completed in 3.1s
++"""
++        text = gateway.RalphexTransport._format_chat_response(
++            raw_text=raw,
++            user_prompt="Ответь одной строкой: интеграция живая?",
++        )
++        self.assertEqual(text, "Статус интеграции неизвестен.")
++
++    def test_format_chat_response_extracts_final_answer_from_mixed_log(self) -> None:
++        raw = """
++starting task execution phase
++--- task iteration 1 ---
++[26-04-15 02:45:05] <<<RALPHEX:ALL_TASKS_DONE>>>
++Final answer: Короткий ответ пользователю.
++"""
++        text = gateway.RalphexTransport._format_chat_response(
++            raw_text=raw,
++            user_prompt="Дай короткий ответ",
++        )
++        self.assertEqual(text, "Короткий ответ пользователю.")
++
++    def test_format_chat_response_summary_does_not_expose_branch_name(self) -> None:
++        raw = """
++starting task execution phase
++completed in 9.2s
++branch: feature/internal-ticket-123
++[26-04-15 02:45:05] <<<RALPHEX:ALL_TASKS_DONE>>>
++"""
++        text = gateway.RalphexTransport._format_chat_response(
++            raw_text=raw,
++            user_prompt="Что по прогону?",
++        )
++        self.assertIn("Ralphex завершил прогон успешно.", text)
++        self.assertIn("Длительность: 9.2s.", text)
++        self.assertNotIn("feature/internal-ticket-123", text)
++        self.assertNotIn("Branch:", text)
++
++    def test_list_models_includes_default_model(self) -> None:
++        with patch.dict(os.environ, {"CONSILIUM_API_KEY": "test-key"}, clear=False):
++            payload = gateway.list_models(authorization="Bearer test-key")
++        self.assertEqual(payload.get("object"), "list")
++        ids = {item.get("id") for item in payload.get("data", [])}
++        self.assertIn(gateway.DEFAULT_MODEL, ids)
++        self.assertNotIn("gpt-5.3-codex", ids)
++
++    def test_get_model_returns_404_for_unknown_id(self) -> None:
++        with patch.dict(os.environ, {"CONSILIUM_API_KEY": "test-key"}, clear=False):
++            with self.assertRaises(HTTPException) as ctx:
++                gateway.get_model("missing-model", authorization="Bearer test-key")
++        self.assertEqual(ctx.exception.status_code, 404)
++
++    def test_list_models_allows_discovery_without_auth(self) -> None:
++        payload = gateway.list_models(authorization=None, x_api_key=None)
++        self.assertEqual(payload.get("object"), "list")
++        ids = {item.get("id") for item in payload.get("data", [])}
++        self.assertIn(gateway.DEFAULT_MODEL, ids)
++
++    def test_chat_completion_accepts_x_api_key_header(self) -> None:
++        request = gateway.ChatCompletionsRequest(
++            model="gpt-4.1",
++            messages=[gateway.ChatMessage(role="user", content="hello")],
++            stream=False,
++        )
++        with patch.dict(os.environ, {"CONSILIUM_API_KEY": "test-key"}, clear=False):
++            with patch.object(gateway._pipe, "complete", return_value="ok"):
++                response = gateway.chat_completions(
++                    request,
++                    authorization=None,
++                    x_session_id=None,
++                    x_api_key="test-key",
++                )
++        body = json.loads(response.body.decode("utf-8"))
++        self.assertEqual(body["model"], gateway.DEFAULT_MODEL)
++
++    def test_chat_completion_response_model_is_public_alias(self) -> None:
++        request = gateway.ChatCompletionsRequest(
++            model="gpt-4.1",
++            messages=[gateway.ChatMessage(role="user", content="hello")],
++            stream=False,
++        )
++        with patch.dict(os.environ, {"CONSILIUM_API_KEY": "test-key"}, clear=False):
++            with patch.object(gateway._pipe, "complete", return_value="ok"):
++                response = gateway.chat_completions(request, authorization="Bearer test-key", x_session_id=None)
++        body = json.loads(response.body.decode("utf-8"))
++        self.assertEqual(body["model"], gateway.DEFAULT_MODEL)
++
++    def test_chat_completion_plain_hello_uses_full_pipeline(self) -> None:
++        request = gateway.ChatCompletionsRequest(
++            model="gpt-4.1",
++            messages=[gateway.ChatMessage(role="user", content="hello")],
++            stream=False,
++        )
++        with patch.dict(os.environ, {"CONSILIUM_API_KEY": "test-key"}, clear=False):
++            with patch.object(gateway._transport, "quick_probe", return_value="probe") as probe_mock:
++                with patch.object(gateway._pipe, "complete", return_value="ok") as complete_mock:
++                    response = gateway.chat_completions(
++                        request,
++                        authorization="Bearer test-key",
++                        x_session_id=None,
++                    )
++        body = json.loads(response.body.decode("utf-8"))
++        self.assertEqual(body["choices"][0]["message"]["content"], "ok")
++        complete_mock.assert_called_once()
++        probe_mock.assert_not_called()
++
++    def test_chat_completion_ping_endpoint_request_uses_full_pipeline(self) -> None:
++        request = gateway.ChatCompletionsRequest(
++            model="gpt-4.1",
++            messages=[gateway.ChatMessage(role="user", content="Add ping endpoint to API")],
++            stream=False,
++        )
++        with patch.dict(os.environ, {"CONSILIUM_API_KEY": "test-key"}, clear=False):
++            with patch.object(gateway._transport, "quick_probe", return_value="probe") as probe_mock:
++                with patch.object(gateway._pipe, "complete", return_value="ok") as complete_mock:
++                    response = gateway.chat_completions(
++                        request,
++                        authorization="Bearer test-key",
++                        x_session_id=None,
++                    )
++        body = json.loads(response.body.decode("utf-8"))
++        self.assertEqual(body["choices"][0]["message"]["content"], "ok")
++        complete_mock.assert_called_once()
++        probe_mock.assert_not_called()
++
++    def test_chat_completion_plain_ping_uses_probe_path(self) -> None:
++        request = gateway.ChatCompletionsRequest(
++            model="gpt-4.1",
++            messages=[gateway.ChatMessage(role="user", content="ping")],
++            stream=False,
++        )
++        with patch.dict(os.environ, {"CONSILIUM_API_KEY": "test-key"}, clear=False):
++            with patch.object(gateway._transport, "quick_probe", return_value="probe") as probe_mock:
++                with patch.object(gateway._pipe, "complete", return_value="ok") as complete_mock:
++                    response = gateway.chat_completions(
++                        request,
++                        authorization="Bearer test-key",
++                        x_session_id=None,
++                    )
++        body = json.loads(response.body.decode("utf-8"))
++        self.assertEqual(body["choices"][0]["message"]["content"], "probe")
++        probe_mock.assert_called_once()
++        complete_mock.assert_not_called()
++
++    def test_chat_completion_integration_alive_uses_full_pipeline(self) -> None:
++        request = gateway.ChatCompletionsRequest(
++            model="gpt-4.1",
++            messages=[gateway.ChatMessage(role="user", content="integration alive?")],
++            stream=False,
++        )
++        with patch.dict(os.environ, {"CONSILIUM_API_KEY": "test-key"}, clear=False):
++            with patch.object(gateway._transport, "quick_probe", return_value="probe") as probe_mock:
++                with patch.object(gateway._pipe, "complete", return_value="ok") as complete_mock:
++                    response = gateway.chat_completions(
++                        request,
++                        authorization="Bearer test-key",
++                        x_session_id=None,
++                    )
++        body = json.loads(response.body.decode("utf-8"))
++        self.assertEqual(body["choices"][0]["message"]["content"], "ok")
++        complete_mock.assert_called_once()
++        probe_mock.assert_not_called()
++
+ 
+ if __name__ == "__main__":
+     unittest.main()

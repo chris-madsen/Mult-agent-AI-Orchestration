@@ -105,7 +105,7 @@ Stable across all stages. The backbone of the domain model.
 
 ### What Stage 1 achieves
 
-- Developer types a task description in Cursor IDE
+- Developer types a task description in Codex/VS Code IDE
 - Consilium (via MCP) orchestrates Architect → Critic → Implementer agents
 - Architect writes a plan; Critic approves or rejects; Implementer calls the Execution Engine
 - Execution engine writes code, runs tests, commits to a branch
@@ -135,7 +135,7 @@ Stable across all stages. The backbone of the domain model.
 | **OS** | PopOS (Linux, developer laptop) | NixOS (declarative, reproducible) on Oracle Cloud worker nodes with ZFS |
 | **Environment** | Nix Flakes (`nix develop`) | NixOS system configuration + Kubernetes managed node pool |
 | **Primary language** | Python | Python + Rust (FSM core, policy engine, hot path) |
-| **Agent framework** | AutoGen (ag2) | AutoGen + custom Rust orchestrator (Stage 3+) |
+| **Agent framework** | AutoGen (ag2) | AutoGen + custom Rust orchestrator + Ralphex(optional) (Stage 3+) |
 | **LLM binding** | Per-role `ModelConfig` — configurable, not hardcoded | Per-role `ModelConfig` — hot-reloadable, A/B testable |
 | **Execution engine** | `ExecutionPort` → `RalphexAdapter` (default) | `ExecutionPort` → pluggable adapters (Ralphex, Q CLI, Codex CLI, Gemini API, ...) |
 | **MCP server** | FastMCP | FastMCP → REST/gRPC gateway (Stage 3+) |
@@ -226,21 +226,21 @@ Switching execution engine = swap the adapter in `model_config.yaml`. No code ch
 C4Context
     title Consilium — System Context (Stage 1)
 
-    Person(dev, "Developer", "Uses Cursor IDE to submit tasks and review results")
+    Person(dev, "Developer", "Uses Codex/VS Code IDE to submit tasks and review results")
 
     System(consilium, "Consilium", "Multi-agent orchestration system. Architects, reviews, and implements code changes via AI agents.")
 
-    System_Ext(cursor, "Cursor IDE", "MCP client. Source of tasks and human veto.")
+    System_Ext(Codex/VS Code, "Codex/VS Code IDE", "MCP client. Source of tasks and human veto.")
     System_Ext(vertex, "Vertex AI", "LLM provider for Architect, Critic, Supervisor roles.")
     System_Ext(exec_engine, "Execution Engine", "Pluggable adapter (Ralphex/Q CLI/Codex CLI/etc). Writes code, runs tests, commits.")
     System_Ext(git, "Git Repository", "Version control. Execution engine commits to branches. Rollback targets are checkpoints.")
 
-    Rel(dev, cursor, "Types task description")
-    Rel(cursor, consilium, "MCP protocol", "task commands, status queries")
+    Rel(dev, Codex/VS Code, "Types task description")
+    Rel(Codex/VS Code, consilium, "MCP protocol", "task commands, status queries")
     Rel(consilium, vertex, "HTTPS REST", "LLM inference for planning & review")
     Rel(consilium, exec_engine, "subprocess / IPC", "plan + constraints → ExecutionResult")
     Rel(exec_engine, git, "git CLI", "commits, branches, diffs")
-    Rel(consilium, dev, "Returns result/status via Cursor")
+    Rel(consilium, dev, "Returns result/status via Codex/VS Code")
 ```
 
 ---
@@ -273,7 +273,7 @@ C4Container
     Person(dev, "Developer")
 
     Container_Boundary(consilium_proc, "Consilium Process (nix develop)") {
-        Container(mcp, "MCP Server", "FastMCP / Python", "Inbound port. Translates Cursor commands into domain calls.")
+        Container(mcp, "MCP Server", "FastMCP / Python", "Inbound port. Translates Codex/VS Code commands into domain calls.")
         Container(orchestrator, "Orchestrator", "Python", "FSM Engine + AutoGen GroupChat with custom FSM-driven speaker selector.")
         Container(architect, "Architect Agent", "Python + Vertex AI", "Reads spec, writes Plan. Emits PLAN_READY signal.")
         Container(critic, "Critic Agent", "Python + Vertex AI", "Reads plan, writes Review. Emits APPROVED or REJECTED.")
@@ -306,7 +306,7 @@ C4Container
 
 | Module | Responsibility |
 |---|---|
-| **MCP Server** | Inbound port. Translates Cursor commands into domain calls. Returns status/results. |
+| **MCP Server** | Inbound port. Translates Codex/VS Code commands into domain calls. Returns status/results. |
 | **FSM Engine** | Owns state transitions. Dispatch table. Persists to `.consilium/state/`. Fires domain events. |
 | **AutoGen GroupChat** | Manages agent turn-taking. Custom selector closes over FSM. Applies `TransformMessages` compression. |
 | **Architect** | Reads task spec + canonical memory. Produces Plan. Writes to `.consilium/plans/`. |
@@ -344,7 +344,7 @@ C4Container
 
 ```mermaid
 sequenceDiagram
-    participant C as Cursor
+    participant C as Codex/VS Code
     participant M as MCP Server
     participant F as FSM
     participant A as Architect
@@ -430,7 +430,7 @@ sequenceDiagram
 ```
 Developer Machine (PopOS, nix develop)
 │
-├── Cursor IDE  ──MCP──►  consilium/mcp_server.py  (Python process)
+├── Codex/VS Code IDE  ──MCP──►  consilium/mcp_server.py  (Python process)
 │                                  │
 │                                  ├── spawns ──► Execution Engine (subprocess)
 │                                  │                 └── e.g. Ralphex → q chat
@@ -455,7 +455,7 @@ Developer Machine (PopOS, nix develop)
 /media/ilja/DATA/soft/consillium/
 │
 ├── flake.nix                         ← single source of environment truth
-├── mcp_server.py                     ← Cursor entry point (FastMCP)
+├── mcp_server.py                     ← Codex/VS Code entry point (FastMCP)
 │
 ├── consilium/
 │   ├── fsm.py                        ← FSM engine (dispatch table)
@@ -537,7 +537,7 @@ Two independent hash streams per task:
 |---|---|
 | `ExecutionPort` ACL | Translates raw execution engine output (CLI stdout/stderr) into typed `ExecutionResult`. Isolates domain from engine-specific formats. |
 | `VertexAIAdapter` ACL | Translates Vertex API response schema into generic `LLMResponse`. Swap provider = swap adapter, not domain code. |
-| `MCPAdapter` ACL | Translates Cursor MCP messages into `TaskCommand` domain objects. |
+| `MCPAdapter` ACL | Translates Codex/VS Code MCP messages into `TaskCommand` domain objects. |
 
 ---
 

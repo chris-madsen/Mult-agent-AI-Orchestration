@@ -3,31 +3,12 @@ from __future__ import annotations
 import pathlib
 import autogen
 
-from agents.env_config import get_google_cloud_location, get_google_cloud_project
-from model_config import load_runtime_config
+from agents.role_llm import build_role_llm
 
 _REVIEWS_DIR = pathlib.Path(".consilium/reviews")
 _REVIEWS_DIR.mkdir(parents=True, exist_ok=True)
 
-GOOGLE_CLOUD_PROJECT = get_google_cloud_project()
-GOOGLE_CLOUD_LOCATION = get_google_cloud_location()
-_ROLE_CFG = load_runtime_config().model_for("critic")
-
-_CONFIG_LIST = []
-for model in _ROLE_CFG.models:
-    entry = {
-        "model": model,
-        "api_type": _ROLE_CFG.provider,
-    }
-    if _ROLE_CFG.provider == "google":
-        entry["project"] = GOOGLE_CLOUD_PROJECT
-        entry["location"] = GOOGLE_CLOUD_LOCATION
-    _CONFIG_LIST.append(entry)
-
-LLM_CONFIG = {
-    "config_list": _CONFIG_LIST,
-    "temperature": _ROLE_CFG.temperature,
-}
+LLM_CONFIG, _REGISTER = build_role_llm("critic")
 
 SYSTEM_MESSAGE = """\
 You are the Critic in the Consilium multi-agent system.
@@ -67,8 +48,11 @@ Rules:
 
 
 def make_critic() -> autogen.AssistantAgent:
-    return autogen.AssistantAgent(
+    agent = autogen.AssistantAgent(
         name="Critic",
         system_message=SYSTEM_MESSAGE,
         llm_config=LLM_CONFIG,
     )
+    if _REGISTER is not None:
+        _REGISTER(agent)
+    return agent

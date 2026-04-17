@@ -96,6 +96,7 @@ _VERTEX_GEMINI_WRAPPER = pathlib.Path(".consilium/ralphex/scripts/vertex-gemini-
 _VERTEX_ANTHROPIC_WRAPPER = pathlib.Path(".consilium/ralphex/scripts/vertex-anthropic-as-claude.sh")
 _RALPHEX_CONFIG_FILE = _RALPHEX_CONFIG_DIR / "config"
 _RALPHEX_CHAT_CONFIG_DIR = pathlib.Path(".consilium/ralphex-chat")
+_RALPHEX_LIMIT_FALLBACK_CONFIG_DIR = pathlib.Path(".consilium/ralphex-limit-fallback")
 _GATEWAY_GIT_SHIM_DIR = _LOCAL_TMP_DIR / "gateway-git-shim"
 _GATEWAY_GIT_SHIM_FILE = _GATEWAY_GIT_SHIM_DIR / "git"
 DEFAULT_DIRECT_QA_TIMEOUT_SEC = 300
@@ -118,19 +119,24 @@ def _resolve_public_model_aliases() -> list[str]:
         aliases.append(model_id)
     return aliases
 
-_RALPHEX_CHAT_TASK_PROMPT = """# task execution prompt (gateway execution mode)
-# this prompt is optimized for repository-aware execution via ralphex.
+_RALPHEX_CHAT_TASK_PROMPT = """# task execution prompt (gateway chat/repo-read mode)
+# this prompt is optimized for non-coding gateway chat traffic.
 #
 # available variables:
 #   {{PLAN_FILE}} - path to the plan file being executed
 #   {{PROGRESS_FILE}} - path to the progress log file
 #   {{GOAL}} - human-readable goal description
 #
-# Read {{PLAN_FILE}} and execute the latest user request against the current project.
+# Read {{PLAN_FILE}} and execute the latest user request.
 #
 # HARD CONSTRAINTS:
-# - You MAY run shell commands when needed.
-# - You MAY read and edit project files when needed.
+# - NEVER create/scaffold new projects or services unless user explicitly asked for that.
+# - NEVER run git commit/push/rebase/merge/cherry-pick.
+# - NEVER claim actions that were not actually executed.
+# - If plan task is "Answer User Request In Chat Mode": do NOT run shell commands.
+# - If plan task is "Read Repository Context For User": run only lightweight READ-ONLY commands
+#   (for example: pwd, ls, rg --files, sed -n, cat, git status, git diff). Do NOT edit files.
+# - Do NOT run heavy builds/tests in chat or repo-read modes unless explicitly requested.
 # - Do NOT invent results: report only actions you actually performed.
 # - Keep scope limited to the user's request.
 # - Prefer concise, factual status updates.
@@ -389,7 +395,11 @@ def _active_runs_snapshot() -> list[dict]:
     return result
 
 
-def _cleanup_stale_active_runs(max_elapsed_sec: float, reason: str) -> int:
+def _cleanup_stale_active_runs(
+    max_elapsed_sec: float,
+    reason: str,
+    max_no_output_idle_sec: float | None = None,
+) -> int:
     """Terminate and unregister stale active ralphex runs.
 
     This protects chat responsiveness when an old execution keeps streaming
@@ -400,7 +410,14 @@ def _cleanup_stale_active_runs(max_elapsed_sec: float, reason: str) -> int:
     with _ACTIVE_LOCK:
         for request_id, state in list(_ACTIVE_EXECUTIONS.items()):
             elapsed = now - state.started_monotonic
-            if elapsed >= max_elapsed_sec:
+            idle = now - state.last_activity_monotonic
+            no_output_stale = (
+                max_no_output_idle_sec is not None
+                and max_no_output_idle_sec > 0
+                and state.phase == "running_no_output"
+                and idle >= max_no_output_idle_sec
+            )
+            if elapsed >= max_elapsed_sec or no_output_stale:
                 stale.append((request_id, state, elapsed))
 
     for request_id, state, elapsed in stale:
@@ -553,6 +570,16 @@ class RalphexTransport:
             DEFAULT_PLAN_MODE_MAX_ITERATIONS,
             minimum=1,
         )
+        self.chat_mode_max_iterations = _env_int(
+            "CONSILIUM_RALPHEX_CHAT_MAX_ITERATIONS",
+            default=1,
+            minimum=1,
+        )
+        self.repo_read_max_iterations = _env_int(
+            "CONSILIUM_RALPHEX_REPO_READ_MAX_ITERATIONS",
+            default=2,
+            minimum=1,
+        )
         self.standard_max_iterations = _env_int(
             "CONSILIUM_RALPHEX_STANDARD_MAX_ITERATIONS",
             DEFAULT_STANDARD_MAX_ITERATIONS,
@@ -564,11 +591,24 @@ class RalphexTransport:
         )
         self.enable_limit_fallback_to_gemini = _env_bool(
             "CONSILIUM_GATEWAY_ENABLE_LIMIT_FALLBACK_TO_GEMINI",
-            default=False,
+            default=True,
         )
         self.limit_fallback_model = (
             os.getenv("CONSILIUM_GATEWAY_LIMIT_FALLBACK_MODEL", "gemini-2.5-pro") or ""
         ).strip() or "gemini-2.5-pro"
+        self.limit_fallback_route = (
+            os.getenv("CONSILIUM_GATEWAY_LIMIT_FALLBACK_ROUTE", "ralphex") or "ralphex"
+        ).strip().lower()
+        if self.limit_fallback_route not in {"ralphex", "direct"}:
+            self.limit_fallback_route = "ralphex"
+        self.limit_fallback_allow_direct_recovery = _env_bool(
+            "CONSILIUM_GATEWAY_LIMIT_FALLBACK_ALLOW_DIRECT_RECOVERY",
+            default=False,
+        )
+        self.strict_ralphex_only = _env_bool(
+            "CONSILIUM_GATEWAY_STRICT_RALPHEX_ONLY",
+            default=True,
+        )
 
     @staticmethod
     def _latest_user_prompt(messages: list[dict[str, str]]) -> str:
@@ -648,17 +688,38 @@ class RalphexTransport:
             '"$CONSILIUM_PLAN_FILE"'
         )
 
-    def _tasks_command(self, command_template: str | None = None, max_iterations: int | None = None) -> str:
+    def _tasks_command(
+        self,
+        command_template: str | None = None,
+        max_iterations: int | None = None,
+        session_timeout_sec: int | None = None,
+        idle_timeout_sec: int | None = None,
+    ) -> str:
         base = (command_template or self.command_template).strip()
         iterations = max_iterations if max_iterations is not None else self.plan_mode_max_iterations
+        session_timeout = (
+            int(session_timeout_sec)
+            if session_timeout_sec is not None
+            else int(self.chat_session_timeout_sec)
+        )
+        idle_timeout = (
+            int(idle_timeout_sec)
+            if idle_timeout_sec is not None
+            else int(self.chat_idle_timeout_sec)
+        )
         return (
             f'{base} --config-dir="$RALPHEX_CONFIG_DIR" --tasks-only --max-iterations={iterations} '
-            f'--session-timeout={self.chat_session_timeout_sec}s '
-            f'--idle-timeout={self.chat_idle_timeout_sec}s '
+            f'--session-timeout={session_timeout}s '
+            f'--idle-timeout={idle_timeout}s '
             '"$CONSILIUM_PLAN_FILE"'
         )
 
-    def _resolve_command(self, plan_mode: bool) -> str:
+    def _resolve_command(
+        self,
+        plan_mode: bool,
+        chat_mode: bool = False,
+        repo_read_mode: bool = False,
+    ) -> str:
         if self.command_source == "env":
             template = (self.command_template or "").strip()
             if not template:
@@ -674,6 +735,12 @@ class RalphexTransport:
                     command_template=template,
                     max_iterations=self.plan_mode_max_iterations,
                 )
+            if chat_mode:
+                chat_iterations = self.repo_read_max_iterations if repo_read_mode else self.chat_mode_max_iterations
+                return self._tasks_command(
+                    command_template=template,
+                    max_iterations=chat_iterations,
+                )
             return self._execute_command(
                 command_template=template,
                 max_iterations=self.standard_max_iterations,
@@ -685,6 +752,9 @@ class RalphexTransport:
             return self._execute_command(max_iterations=self.standard_max_iterations)
         if plan_mode:
             return self._tasks_command(max_iterations=self.plan_mode_max_iterations)
+        if chat_mode:
+            chat_iterations = self.repo_read_max_iterations if repo_read_mode else self.chat_mode_max_iterations
+            return self._tasks_command(max_iterations=chat_iterations)
         return self._execute_command(max_iterations=self.standard_max_iterations)
 
     def quick_probe(self) -> str:
@@ -725,9 +795,15 @@ class RalphexTransport:
     def execute(self, messages: list[dict[str, str]], session_id: str, request_id: str) -> str:
         plan_mode = self._is_plan_mode_request(messages)
         latest_user_prompt = self._latest_user_prompt(messages)
+        repo_read_mode = (not plan_mode) and _is_repo_read_request(latest_user_prompt)
+        chat_mode = (not plan_mode) and (not _is_coding_request(latest_user_prompt))
         plan_path = self._write_plan_file(messages, plan_mode=plan_mode)
         task_json = json.dumps(messages, ensure_ascii=False)
-        command = self._resolve_command(plan_mode=plan_mode)
+        command = self._resolve_command(
+            plan_mode=plan_mode,
+            chat_mode=chat_mode,
+            repo_read_mode=repo_read_mode,
+        )
         env = os.environ.copy()
         env["CONSILIUM_TASK_JSON"] = task_json
         env["CONSILIUM_PLAN_FILE"] = str(plan_path.resolve())
@@ -738,6 +814,9 @@ class RalphexTransport:
         if self._adapter_bootstrap.provider == "codex-cli":
             env["CODEX_MODEL"] = self.model
             env["CODEX_SANDBOX"] = _CODEX_SANDBOX
+            env["CONSILIUM_CODEX_MODEL_PROVIDER"] = self._adapter_bootstrap._resolve_codex_provider()
+            env["CONSILIUM_CODEX_REASONING_EFFORT"] = self._adapter_bootstrap._resolve_codex_reasoning_effort()
+            env["CODEX_HOME"] = str(self._adapter_bootstrap._prepare_local_codex_home(self.model))
             # For gateway chat, we prefer reliability over silence: some codex runs may emit
             # only tool/command events. If we drop those, ralphex may fail to detect progress.
             env.setdefault("CODEX_VERBOSE", "1")
@@ -794,8 +873,9 @@ class RalphexTransport:
         env["TEMP"] = str(local_tmp)
         env = _prepare_gateway_git_shim_env(env)
         self._adapter_bootstrap._ensure_ralphex_bridge()
-        # Keep chat-optimized prompt set for all gateway chat traffic.
-        env["RALPHEX_CONFIG_DIR"] = str(self._ensure_chat_config_dir())
+        # Use chat-optimized prompts only for non-coding chat/repo-read traffic.
+        if chat_mode:
+            env["RALPHEX_CONFIG_DIR"] = str(self._ensure_chat_config_dir())
 
         proc = subprocess.Popen(
             ["bash", "-lc", command],
@@ -834,8 +914,11 @@ class RalphexTransport:
         if "--tasks-only" in command:
             # Task-mode can stay silent for a while while ralphex/codex are still
             # doing work. Use a wider envelope to avoid false stalled errors.
-            effective_timeout_sec = max(180, min(self.timeout_sec, self.chat_session_timeout_sec * 4))
-            effective_idle_timeout_sec = self.idle_timeout_sec
+            effective_timeout_sec = max(90, min(self.timeout_sec, self.chat_session_timeout_sec * 2))
+            effective_idle_timeout_sec = max(
+                15,
+                min(self.idle_timeout_sec, self.chat_idle_timeout_sec + 15),
+            )
         else:
             # Execute profile can include long review/tool phases without frequent
             # subprocess writes. Keep idle timeout wider than task-mode defaults.
@@ -866,7 +949,11 @@ class RalphexTransport:
             str(effective_idle_timeout_sec),
             self.mode,
             str(plan_mode).lower(),
-            "plan_tasks" if plan_mode else "standard_tasks",
+            (
+                "plan_tasks"
+                if plan_mode
+                else ("repo_read_tasks" if repo_read_mode else ("chat_tasks" if chat_mode else "standard_tasks"))
+            ),
         )
         heartbeat_deadline = now + self.heartbeat_sec
         stdout_chunks: list[bytes] = []
@@ -982,7 +1069,11 @@ class RalphexTransport:
                 if stderr_text.strip():
                     combined = f"{combined}\n{stderr_text.strip()}"
                 formatted = self._format_chat_response(combined, user_prompt=user_prompt)
-                fallback = self._maybe_direct_codex_fallback(formatted, user_prompt)
+                fallback = self._maybe_direct_codex_fallback(
+                    formatted,
+                    user_prompt,
+                    trace_raw=combined,
+                )
                 if fallback:
                     return fallback
                 return formatted
@@ -1003,7 +1094,18 @@ class RalphexTransport:
             raise RuntimeError("ralphex returned empty response")
         user_prompt = self._latest_user_prompt(messages)
         formatted = self._format_chat_response(text.strip(), user_prompt=user_prompt)
-        fallback = self._maybe_direct_codex_fallback(formatted, user_prompt)
+        raw_for_trace = stdout_text.strip()
+        if stderr_text.strip():
+            raw_for_trace = f"{raw_for_trace}\n{stderr_text.strip()}" if raw_for_trace else stderr_text.strip()
+        if _env_bool("CONSILIUM_GATEWAY_EXPOSE_PROGRESS_TRACE_SUCCESS", default=True):
+            if "Технический трейс выполнения:" not in formatted:
+                if raw_for_trace:
+                    formatted = self._with_progress_trace(formatted, raw_for_trace)
+        fallback = self._maybe_direct_codex_fallback(
+            formatted,
+            user_prompt,
+            trace_raw=raw_for_trace,
+        )
         if fallback:
             return fallback
         return formatted
@@ -1059,6 +1161,22 @@ class RalphexTransport:
                     "",
                 ]
             )
+        include_context_excerpts = plan_mode or _is_coding_request(latest_user)
+        incremental_context = _build_incremental_git_context(
+            include_diff_excerpt=include_context_excerpts,
+            include_untracked_excerpt=include_context_excerpts,
+        )
+        if incremental_context:
+            lines.extend(
+                [
+                    "Incremental repository context (git-based):",
+                    "",
+                    "```text",
+                    incremental_context,
+                    "```",
+                    "",
+                ]
+            )
         if plan_mode:
             lines.extend(
                 [
@@ -1094,6 +1212,25 @@ class RalphexTransport:
                     "## Success criteria",
                     "- [ ] The latest user request is addressed using real project context.",
                     "- [ ] Reported actions/checks reflect what was actually done.",
+                    "",
+                ]
+            )
+        elif _is_repo_read_request(latest_user):
+            lines.extend(
+                [
+                    "",
+                    "### Task 1: Read Repository Context For User",
+                    "- [ ] Understand latest user request.",
+                    "- [ ] Use shell commands as needed to inspect project structure/files.",
+                    "- [ ] Do NOT edit files or claim edits were made.",
+                    "- [ ] Do NOT run heavy test suites; keep commands lightweight.",
+                    "- [ ] Mark all remaining [ ] checkboxes in this plan as [x].",
+                    "- [ ] End with exact line: Final answer: <one concise response for user>.",
+                    "- [ ] Emit exact signal line: <<<RALPHEX:ALL_TASKS_DONE>>>.",
+                    "",
+                    "## Success criteria",
+                    "- [ ] The latest user request is answered using real repository context.",
+                    "- [ ] Reported shell observations match actual command output.",
                     "",
                 ]
             )
@@ -1244,6 +1381,10 @@ class RalphexTransport:
         return _env_bool("CONSILIUM_GATEWAY_EXPOSE_PROGRESS_TRACE", default=True)
 
     @staticmethod
+    def _progress_trace_success_enabled() -> bool:
+        return _env_bool("CONSILIUM_GATEWAY_EXPOSE_PROGRESS_TRACE_SUCCESS", default=True)
+
+    @staticmethod
     def _render_progress_trace(raw_text: str) -> str:
         lines = [line.rstrip() for line in raw_text.splitlines() if line.strip()]
         if not lines:
@@ -1278,6 +1419,8 @@ class RalphexTransport:
 
         extracted_answer = RalphexTransport._extract_latest_user_answer(raw_text)
         if extracted_answer:
+            if RalphexTransport._progress_trace_success_enabled():
+                return RalphexTransport._with_progress_trace(extracted_answer, raw_text)
             return extracted_answer
 
         lines = raw_text.splitlines()
@@ -1366,6 +1509,7 @@ class RalphexTransport:
             "вернул только технический лог",
             "вернул технический лог без пользовательского ответа",
             "ошибка выполнения через ralphex:",
+            "codex exec failed:",
             "ralphex command failed:",
             "context canceled",
         )
@@ -1392,17 +1536,67 @@ class RalphexTransport:
         )
         return any(marker in normalized for marker in markers)
 
-    def _maybe_direct_codex_fallback(self, formatted_text: str, user_prompt: str) -> str | None:
+    @staticmethod
+    def _looks_like_provider_stall_error(text: str) -> bool:
+        normalized = (text or "").strip().lower()
+        if not normalized:
+            return False
+        markers = (
+            "max iterations",
+            "without completion",
+            "idle timed out",
+            "no output activity detected",
+            "running_no_output",
+            "runner: task phase: max iterations",
+        )
+        return any(marker in normalized for marker in markers)
+
+    @staticmethod
+    def _attach_success_trace_if_needed(text: str, trace_raw: str, formatted_text: str) -> str:
+        marker = "Технический трейс выполнения:"
+        if not RalphexTransport._progress_trace_success_enabled():
+            return text
+        if marker in (text or ""):
+            return text
+
+        raw = (trace_raw or "").strip()
+        if raw:
+            return RalphexTransport._with_progress_trace(text, raw)
+
+        formatted = (formatted_text or "").strip()
+        if marker not in formatted:
+            return text
+        _, trace_tail = formatted.split(marker, 1)
+        trace_tail = trace_tail.strip()
+        if not trace_tail:
+            return text
+        return f"{text}\n\n{marker}\n{trace_tail}"
+
+    def _maybe_direct_codex_fallback(
+        self,
+        formatted_text: str,
+        user_prompt: str,
+        trace_raw: str = "",
+    ) -> str | None:
         if not self._needs_direct_codex_fallback(formatted_text):
             return None
         if self.enable_direct_codex_fallback:
             direct = self._complete_with_direct_codex(user_prompt)
             if direct:
-                return direct
+                return self._attach_success_trace_if_needed(direct, trace_raw, formatted_text)
         else:
             LOGGER.warning("gateway_direct_codex_fallback_needed_but_disabled")
-        if self.enable_limit_fallback_to_gemini and self._looks_like_provider_limit_error(formatted_text):
-            return self._complete_with_vertex_limit_fallback(user_prompt)
+        local_repo_read = _build_repo_read_local_answer(user_prompt)
+        if local_repo_read:
+            LOGGER.warning("gateway_repo_read_local_recovery_used=true")
+            return self._attach_success_trace_if_needed(local_repo_read, trace_raw, formatted_text)
+        if self.enable_limit_fallback_to_gemini and (
+            self._looks_like_provider_limit_error(formatted_text)
+            or self._looks_like_provider_stall_error(formatted_text)
+        ):
+            vertex = self._complete_with_vertex_limit_fallback(user_prompt)
+            if vertex:
+                return self._attach_success_trace_if_needed(vertex, trace_raw, formatted_text)
         return None
 
     def _complete_with_vertex_limit_fallback(self, user_prompt: str) -> str | None:
@@ -1410,20 +1604,176 @@ class RalphexTransport:
         if not prompt:
             return None
         model = (self.limit_fallback_model or "").strip() or "gemini-2.5-pro"
+        should_try_direct = False
+        direct_prompt = prompt
+        text = self._complete_with_vertex_limit_fallback_via_ralphex(
+            prompt=prompt,
+            model=model,
+        )
+        if text and text.strip():
+            normalized = text.strip()
+            if not self._needs_direct_codex_fallback(normalized):
+                LOGGER.info("gateway_vertex_limit_fallback_ok model=%s route=ralphex", model)
+                return normalized
+            LOGGER.warning(
+                "gateway_vertex_limit_fallback_ralphex_technical_only model=%s strict_ralphex_only=%s direct_recovery_enabled=%s",
+                model,
+                str(self.strict_ralphex_only).lower(),
+                str(self.limit_fallback_allow_direct_recovery).lower(),
+            )
+            if self.strict_ralphex_only or not self.limit_fallback_allow_direct_recovery:
+                return normalized
+            should_try_direct = True
+            if _is_repo_read_request(prompt):
+                direct_prompt = _build_repo_read_direct_prompt(prompt)
+        elif self.limit_fallback_route == "direct":
+            should_try_direct = True
+
+        if not should_try_direct:
+            return None
+
+        if self.strict_ralphex_only:
+            LOGGER.warning("gateway_vertex_limit_fallback_direct_blocked strict_ralphex_only=true")
+            return None
+
         try:
-            text = _run_direct_vertex_qa(prompt, requested_model=model)
+            direct = _run_direct_vertex_qa(direct_prompt, requested_model=model)
         except Exception as exc:
             LOGGER.warning(
-                "gateway_vertex_limit_fallback_failed model=%s error=%s",
+                "gateway_vertex_limit_fallback_failed model=%s route=direct error=%s",
                 model,
                 _truncate_text(_compact_spaces(str(exc)), 400),
             )
             return None
-        if not text or not text.strip():
-            LOGGER.warning("gateway_vertex_limit_fallback_empty_output model=%s", model)
+        if direct and direct.strip():
+            LOGGER.info("gateway_vertex_limit_fallback_ok model=%s route=direct", model)
+            return direct.strip()
+        return None
+
+    def _complete_with_vertex_limit_fallback_via_ralphex(self, prompt: str, model: str) -> str | None:
+        clean_prompt = (prompt or "").strip()
+        if not clean_prompt:
             return None
-        LOGGER.info("gateway_vertex_limit_fallback_ok model=%s", model)
-        return text.strip()
+
+        try:
+            config_dir = self._ensure_vertex_limit_fallback_config_dir()
+        except Exception as exc:
+            LOGGER.warning(
+                "gateway_vertex_limit_fallback_config_failed error=%s",
+                _truncate_text(_compact_spaces(str(exc)), 300),
+            )
+            return None
+
+        plan_path = self._write_plan_file([{"role": "user", "content": clean_prompt}], plan_mode=False)
+        fallback_session_timeout_sec = _env_int(
+            "CONSILIUM_GATEWAY_LIMIT_FALLBACK_CHAT_SESSION_TIMEOUT_SEC",
+            default=max(90, self.chat_session_timeout_sec),
+            minimum=30,
+        )
+        fallback_idle_timeout_sec = _env_int(
+            "CONSILIUM_GATEWAY_LIMIT_FALLBACK_CHAT_IDLE_TIMEOUT_SEC",
+            default=max(60, self.chat_idle_timeout_sec),
+            minimum=20,
+        )
+        fallback_iterations = max(1, self.repo_read_max_iterations)
+        command = self._tasks_command(
+            max_iterations=fallback_iterations,
+            session_timeout_sec=fallback_session_timeout_sec,
+            idle_timeout_sec=fallback_idle_timeout_sec,
+        )
+        env = os.environ.copy()
+        env["CONSILIUM_TASK_JSON"] = json.dumps([{"role": "user", "content": clean_prompt}], ensure_ascii=False)
+        env["CONSILIUM_PLAN_FILE"] = str(plan_path.resolve())
+        env["RALPHEX_CONFIG_DIR"] = str(config_dir)
+        env["CONSILIUM_PLAN_MODE"] = "0"
+        env["GEMINI_MODEL"] = model
+        # Disable chat-shortcut here: it can degrade to plain QA phrasing and lose toolful behavior.
+        env["CONSILIUM_VERTEX_CHAT_SHORTCUT"] = "0"
+        local_tmp = _ensure_local_tmp_dir()
+        env["TMPDIR"] = str(local_tmp)
+        env["TMP"] = str(local_tmp)
+        env["TEMP"] = str(local_tmp)
+
+        timeout_sec = max(90, min(self.timeout_sec, fallback_session_timeout_sec + 60))
+        try:
+            proc = subprocess.run(
+                ["bash", "-lc", command],
+                capture_output=True,
+                text=True,
+                timeout=timeout_sec,
+                env=env,
+            )
+        except subprocess.TimeoutExpired:
+            LOGGER.warning("gateway_vertex_limit_fallback_timeout route=ralphex timeout_sec=%s", str(timeout_sec))
+            return None
+        except Exception as exc:  # pragma: no cover - defensive runtime path
+            LOGGER.warning("gateway_vertex_limit_fallback_error route=ralphex error=%s", str(exc))
+            return None
+
+        stdout_text = (proc.stdout or "").strip()
+        stderr_text = (proc.stderr or "").strip()
+        if proc.returncode != 0 and not stdout_text:
+            details = stderr_text or f"exit code {proc.returncode}"
+            LOGGER.warning(
+                "gateway_vertex_limit_fallback_failed route=ralphex returncode=%s details=%s",
+                str(proc.returncode),
+                _truncate_text(_compact_spaces(details), 300),
+            )
+            return None
+
+        extracted = self._extract_text(stdout_text).strip() if stdout_text else ""
+        raw_text = extracted or stdout_text
+        if not raw_text:
+            return None
+        formatted = self._format_chat_response(raw_text, user_prompt=clean_prompt).strip()
+        if not formatted:
+            return None
+        if _env_bool("CONSILIUM_GATEWAY_EXPOSE_PROGRESS_TRACE_SUCCESS", default=True):
+            if "Технический трейс выполнения:" not in formatted and stdout_text:
+                formatted = self._with_progress_trace(formatted, stdout_text)
+        return formatted
+
+    @staticmethod
+    def _ensure_vertex_limit_fallback_config_dir() -> pathlib.Path:
+        source_dir = RalphexTransport._ensure_chat_config_dir()
+        fallback_dir = _RALPHEX_LIMIT_FALLBACK_CONFIG_DIR
+        prompts_dir = fallback_dir / "prompts"
+        prompts_dir.mkdir(parents=True, exist_ok=True)
+
+        source_prompts = source_dir / "prompts"
+        if source_prompts.exists():
+            for src in source_prompts.glob("*.txt"):
+                (prompts_dir / src.name).write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+        # Force gateway chat prompts for limit-fallback route as well.
+        # This avoids inheriting generic task-loop prompts from base ralphex config.
+        (prompts_dir / "task.txt").write_text(_RALPHEX_CHAT_TASK_PROMPT, encoding="utf-8")
+        (prompts_dir / "review_first.txt").write_text(_RALPHEX_CHAT_REVIEW_PROMPT, encoding="utf-8")
+        (prompts_dir / "review_second.txt").write_text(_RALPHEX_CHAT_REVIEW_PROMPT, encoding="utf-8")
+
+        source_config = source_dir / "config"
+        if source_config.exists():
+            cfg_text = source_config.read_text(encoding="utf-8")
+        elif _RALPHEX_CONFIG_FILE.exists():
+            cfg_text = _RALPHEX_CONFIG_FILE.read_text(encoding="utf-8")
+        else:
+            cfg_text = ""
+
+        vertex_wrapper = str(_VERTEX_GEMINI_WRAPPER.resolve())
+        lines = cfg_text.splitlines()
+        updated: list[str] = []
+        replaced = False
+        for raw_line in lines:
+            stripped = raw_line.strip()
+            if stripped.startswith("claude_command"):
+                updated.append(f"claude_command = {vertex_wrapper}")
+                replaced = True
+                continue
+            updated.append(raw_line)
+        if not replaced:
+            updated.insert(0, f"claude_command = {vertex_wrapper}")
+
+        (fallback_dir / "config").write_text("\n".join(updated).strip() + "\n", encoding="utf-8")
+        return fallback_dir.resolve()
 
     def _complete_with_direct_codex(self, user_prompt: str) -> str | None:
         prompt = (user_prompt or "").strip()
@@ -1512,21 +1862,46 @@ class RalphexTransport:
 
         if proc.returncode != 0:
             details = error_text or (proc.stderr or "").strip() or f"exit code {proc.returncode}"
+            failure_blob = "\n".join(
+                part for part in [error_text, proc.stderr or "", proc.stdout or ""] if isinstance(part, str) and part.strip()
+            )
             LOGGER.warning(
                 "gateway_direct_codex_fallback_failed returncode=%s details=%s",
                 str(proc.returncode),
                 _truncate_text(_compact_spaces(details), 400),
             )
-            if self.enable_limit_fallback_to_gemini and self._looks_like_provider_limit_error(details):
+            if self.enable_limit_fallback_to_gemini and self._looks_like_provider_limit_error(
+                failure_blob or details
+            ):
                 LOGGER.warning("gateway_direct_codex_limit_detected switching_to_vertex_fallback=true")
                 fallback = self._complete_with_vertex_limit_fallback(prompt)
                 if fallback:
                     return fallback
             return None
 
+        if self.enable_limit_fallback_to_gemini and self._looks_like_provider_limit_error(message_text):
+            LOGGER.warning("gateway_direct_codex_limit_in_message switching_to_vertex_fallback=true")
+            fallback = self._complete_with_vertex_limit_fallback(prompt)
+            if fallback:
+                return fallback
+
         if not message_text:
             LOGGER.warning("gateway_direct_codex_fallback_empty_output")
+            if self.enable_limit_fallback_to_gemini and self._looks_like_provider_limit_error(
+                "\n".join(part for part in [error_text, proc.stderr or "", proc.stdout or ""] if isinstance(part, str))
+            ):
+                LOGGER.warning("gateway_direct_codex_limit_without_message switching_to_vertex_fallback=true")
+                fallback = self._complete_with_vertex_limit_fallback(prompt)
+                if fallback:
+                    return fallback
             return None
+
+        if _env_bool("CONSILIUM_GATEWAY_EXPOSE_PROGRESS_TRACE_SUCCESS", default=True):
+            trace_blob = "\n".join(
+                part for part in [proc.stdout or "", proc.stderr or ""] if isinstance(part, str) and part.strip()
+            )
+            if trace_blob:
+                message_text = self._with_progress_trace(message_text, trace_blob)
 
         LOGGER.info("gateway_direct_codex_fallback_ok")
         return message_text
@@ -1623,6 +1998,93 @@ def _truncate_text(text: str, limit: int) -> str:
     if limit <= 3:
         return normalized[:limit]
     return f"{normalized[: limit - 3]}..."
+
+
+def _run_git_capture(args: list[str], timeout_sec: int = 4) -> str:
+    try:
+        proc = subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+            check=False,
+        )
+    except Exception:
+        return ""
+    if proc.returncode != 0:
+        return ""
+    return (proc.stdout or "").strip()
+
+
+def _build_incremental_git_context(
+    max_files: int = 24,
+    max_diff_chars: int = 10000,
+    max_untracked_chars: int = 2000,
+    include_diff_excerpt: bool = True,
+    include_untracked_excerpt: bool = True,
+) -> str:
+    if not pathlib.Path(".git").exists():
+        return ""
+
+    head = _run_git_capture(["rev-parse", "--short", "HEAD"]) or "unknown"
+    status = _run_git_capture(["status", "--porcelain=v1"])
+    if not status:
+        return f"head={head}; local_changes=none"
+
+    changed_files: list[tuple[str, str]] = []
+    untracked_files: list[str] = []
+    for raw in status.splitlines():
+        if len(raw) < 4:
+            continue
+        code = raw[:2]
+        path_raw = raw[3:]
+        path = path_raw.split(" -> ")[-1].strip()
+        if not path:
+            continue
+        if code == "??":
+            untracked_files.append(path)
+        else:
+            changed_files.append((code.strip() or "M", path))
+
+    lines: list[str] = [f"head={head}"]
+    if changed_files:
+        lines.append("tracked_changes:")
+        for code, path in changed_files[:max_files]:
+            lines.append(f"- {code} {path}")
+
+        if include_diff_excerpt:
+            diff_targets = [path for _, path in changed_files[:max_files]]
+            diff_text = _run_git_capture(["diff", "--no-color", "--unified=0", "HEAD", "--", *diff_targets], timeout_sec=8)
+            if diff_text:
+                clipped = _truncate_text(diff_text, max_diff_chars)
+                lines.append("tracked_diff_excerpt:")
+                lines.append(clipped)
+
+    if untracked_files:
+        lines.append("untracked_files:")
+        for path in untracked_files[:max_files]:
+            lines.append(f"- ?? {path}")
+        if include_untracked_excerpt:
+            preview_chunks: list[str] = []
+            budget = max_untracked_chars
+            for path in untracked_files[:4]:
+                if budget <= 0:
+                    break
+                p = pathlib.Path(path)
+                if not p.exists() or not p.is_file():
+                    continue
+                try:
+                    snippet = p.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                snippet = _truncate_text(snippet, min(600, budget))
+                preview_chunks.append(f"# {path}\n{snippet}")
+                budget -= len(snippet)
+            if preview_chunks:
+                lines.append("untracked_excerpt:")
+                lines.append("\n\n".join(preview_chunks))
+
+    return "\n".join(lines).strip()
 
 
 def _extract_effective_user_prompt(text: str) -> str:
@@ -2309,6 +2771,86 @@ def _is_coding_request(text: str) -> bool:
     )
 
 
+def _is_repo_read_request(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+    if _is_coding_request(normalized):
+        return False
+    meta_or_capability_markers = (
+        "видишь файлы",
+        "видишь файл",
+        "не видишь файлы",
+        "помнишь историю",
+    )
+    if any(marker in normalized for marker in meta_or_capability_markers):
+        return False
+    repo_read_markers = (
+        "структуру проекта",
+        "структура проекта",
+        "структуру репозитория",
+        "структура репозитория",
+        "посмотри структуру",
+        "покажи структуру",
+        "проанализируй структуру",
+        "проанализировать структуру",
+        "анализ структуры",
+        "текущую директорию",
+        "текущий каталог",
+        "рабочую директорию",
+        "рабочий каталог",
+        "какие файлы",
+        "покажи файлы",
+        "список файлов",
+        "файлы проекта",
+        "файлы в проекте",
+        "назови файлы",
+        "назови 3 файла",
+        "назови три файла",
+        "key directories",
+        "project structure",
+        "repo structure",
+        "repository structure",
+        "working directory",
+        "current directory",
+        "current working directory",
+        "list files",
+        "project files",
+        "files in project",
+        "name 3 project files",
+        "three project files",
+        "pwd",
+    )
+    if any(marker in normalized for marker in repo_read_markers):
+        return True
+
+    list_request_markers = (
+        "назови",
+        "покажи",
+        "выведи",
+        "list",
+        "show",
+        "print",
+        "name",
+    )
+    repo_context_markers = (
+        "файл",
+        "files",
+        "директор",
+        "каталог",
+        "directory",
+        "project",
+        "repo",
+        "repository",
+    )
+    if any(marker in normalized for marker in list_request_markers) and any(
+        marker in normalized for marker in repo_context_markers
+    ):
+        return True
+
+    return False
+
+
 def _is_connectivity_probe(text: str) -> bool:
     normalized = (text or "").strip().lower()
     if not normalized:
@@ -2378,6 +2920,138 @@ def _looks_like_ralphex_stall_error(text: str) -> bool:
     if not normalized:
         return False
     return "ralphex stalled:" in normalized and "idle timeout" in normalized
+
+
+def _build_repo_read_direct_prompt(user_prompt: str) -> str:
+    prompt = (user_prompt or "").strip()
+    if not prompt:
+        return prompt
+
+    root = pathlib.Path.cwd().resolve()
+    root_entries: list[str] = []
+    try:
+        for entry in sorted(root.iterdir(), key=lambda item: item.name.lower()):
+            name = entry.name
+            if name in {".git", ".venv", ".cache", "__pycache__", ".ruff_cache", ".pytest_cache"}:
+                continue
+            root_entries.append(f"{name}/" if entry.is_dir() else name)
+            if len(root_entries) >= 24:
+                break
+    except OSError:
+        root_entries = []
+
+    sample_files: list[str] = []
+    skip_dirs = {
+        ".git",
+        ".venv",
+        ".cache",
+        "__pycache__",
+        ".ruff_cache",
+        ".pytest_cache",
+        "node_modules",
+    }
+    try:
+        for dirpath, dirnames, filenames in os.walk(root):
+            rel_dir = pathlib.Path(dirpath).resolve().relative_to(root)
+            depth = len(rel_dir.parts)
+            dirnames[:] = [d for d in dirnames if d not in skip_dirs and not d.startswith(".")]
+            if depth >= 3:
+                dirnames[:] = []
+            for filename in sorted(filenames):
+                if filename.startswith("."):
+                    continue
+                full = pathlib.Path(dirpath) / filename
+                try:
+                    rel = full.resolve().relative_to(root)
+                except Exception:
+                    continue
+                sample_files.append(str(rel))
+                if len(sample_files) >= 24:
+                    break
+            if len(sample_files) >= 24:
+                break
+    except OSError:
+        sample_files = []
+
+    snapshot_lines = [f"- cwd: {root}"]
+    if root_entries:
+        snapshot_lines.append(f"- top_level: {', '.join(root_entries)}")
+    if sample_files:
+        snapshot_lines.append(f"- sample_files: {', '.join(sample_files)}")
+
+    snapshot_block = "\n".join(snapshot_lines)
+    return (
+        "You are answering a repository-read request. Use ONLY the trusted snapshot below.\n"
+        "Do not claim you cannot access files. If info is insufficient, say exactly what is missing.\n\n"
+        f"User request:\n{prompt}\n\n"
+        f"Trusted repository snapshot:\n{snapshot_block}\n\n"
+        "Return a concise user-facing answer in the same language as the user."
+    )
+
+
+def _build_repo_read_local_answer(user_prompt: str, max_files: int = 3) -> str | None:
+    if not _is_repo_read_request(user_prompt):
+        return None
+
+    root = pathlib.Path.cwd().resolve()
+    sample_files: list[str] = []
+    tracked = _run_git_capture(["ls-files"])
+    if tracked:
+        for raw in tracked.splitlines():
+            path = raw.strip()
+            if not path or path.startswith("."):
+                continue
+            sample_files.append(path)
+            if len(sample_files) >= max_files:
+                break
+
+    if sample_files:
+        files_block = "\n".join(f"- `{path}`" for path in sample_files[:max_files])
+        return (
+            f"Текущая директория: `{root}`\n"
+            f"Примеры файлов проекта:\n{files_block}"
+        )
+
+    skip_dirs = {
+        ".git",
+        ".venv",
+        ".cache",
+        "__pycache__",
+        ".ruff_cache",
+        ".pytest_cache",
+        "node_modules",
+    }
+    try:
+        for dirpath, dirnames, filenames in os.walk(root):
+            rel_dir = pathlib.Path(dirpath).resolve().relative_to(root)
+            depth = len(rel_dir.parts)
+            dirnames[:] = [d for d in sorted(dirnames) if d not in skip_dirs and not d.startswith(".")]
+            if depth >= 3:
+                dirnames[:] = []
+            for filename in sorted(filenames):
+                if filename.startswith("."):
+                    continue
+                full = pathlib.Path(dirpath) / filename
+                try:
+                    rel = full.resolve().relative_to(root)
+                except Exception:
+                    continue
+                sample_files.append(str(rel))
+                if len(sample_files) >= max_files:
+                    break
+            if len(sample_files) >= max_files:
+                break
+    except OSError:
+        return None
+
+    if not sample_files:
+        return f"Текущая директория: {root}\nФайлы в проекте не найдены."
+
+    files_block = "\n".join(f"- `{path}`" for path in sample_files[:max_files])
+    return (
+        f"Текущая директория: `{root}`\n"
+        f"Примеры файлов проекта:\n{files_block}"
+    )
 
 
 def _should_retry_ralphex_chat_failure(text: str) -> bool:
@@ -2723,9 +3397,15 @@ def chat_completions(
         default=max(_transport.chat_session_timeout_sec + 60, 300),
         minimum=60,
     )
+    stale_no_output_idle_sec = _env_int(
+        "CONSILIUM_RALPHEX_NO_OUTPUT_STALE_MAX_SEC",
+        default=max(_transport.chat_idle_timeout_sec + 10, 45),
+        minimum=15,
+    )
     _cleanup_stale_active_runs(
         max_elapsed_sec=stale_global_limit_sec,
         reason="preflight_global",
+        max_no_output_idle_sec=stale_no_output_idle_sec,
     )
     primary_messages = ralphex_messages
     LOGGER.info(

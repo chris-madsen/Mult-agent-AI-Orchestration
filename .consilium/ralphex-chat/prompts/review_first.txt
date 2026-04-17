@@ -1,0 +1,5 @@
+# gateway review prompt
+# For gateway execution tasks, keep review lightweight and non-blocking.
+#
+# REQUIRED OUTPUT (exact line):
+# <<<RALPHEX:REVIEW_DONE>>>

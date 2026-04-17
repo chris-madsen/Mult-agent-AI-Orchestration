@@ -153,6 +153,48 @@ class GatewayRuntimeSafetyTests(unittest.TestCase):
             ),
         )
 
+    def test_auto_mode_non_plan_chat_uses_tasks_profile(self) -> None:
+        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
+        transport.command_source = "auto"
+        transport.mode = "auto"
+        transport.command_template = "ralphex"
+        transport.plan_mode_max_iterations = gateway.DEFAULT_PLAN_MODE_MAX_ITERATIONS
+        transport.chat_mode_max_iterations = 2
+        transport.repo_read_max_iterations = 1
+        transport.standard_max_iterations = gateway.DEFAULT_STANDARD_MAX_ITERATIONS
+        transport.chat_session_timeout_sec = gateway.DEFAULT_CHAT_SESSION_TIMEOUT_SEC
+        transport.chat_idle_timeout_sec = gateway.DEFAULT_CHAT_IDLE_TIMEOUT_SEC
+        cmd = transport._resolve_command(plan_mode=False, chat_mode=True)
+        self.assertEqual(
+            cmd,
+            (
+                'ralphex --config-dir="$RALPHEX_CONFIG_DIR" --tasks-only --max-iterations=2 '
+                "--session-timeout=60s --idle-timeout=30s "
+                '"$CONSILIUM_PLAN_FILE"'
+            ),
+        )
+
+    def test_auto_mode_non_plan_repo_read_uses_repo_read_iterations(self) -> None:
+        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
+        transport.command_source = "auto"
+        transport.mode = "auto"
+        transport.command_template = "ralphex"
+        transport.plan_mode_max_iterations = gateway.DEFAULT_PLAN_MODE_MAX_ITERATIONS
+        transport.chat_mode_max_iterations = 2
+        transport.repo_read_max_iterations = 1
+        transport.standard_max_iterations = gateway.DEFAULT_STANDARD_MAX_ITERATIONS
+        transport.chat_session_timeout_sec = gateway.DEFAULT_CHAT_SESSION_TIMEOUT_SEC
+        transport.chat_idle_timeout_sec = gateway.DEFAULT_CHAT_IDLE_TIMEOUT_SEC
+        cmd = transport._resolve_command(plan_mode=False, chat_mode=True, repo_read_mode=True)
+        self.assertEqual(
+            cmd,
+            (
+                'ralphex --config-dir="$RALPHEX_CONFIG_DIR" --tasks-only --max-iterations=1 '
+                "--session-timeout=60s --idle-timeout=30s "
+                '"$CONSILIUM_PLAN_FILE"'
+            ),
+        )
+
     def test_extract_collaboration_mode_marker(self) -> None:
         self.assertEqual(
             gateway._extract_collaboration_mode_marker("<collaboration_mode># Collaboration Mode: Plan"),
@@ -208,6 +250,19 @@ class GatewayRuntimeSafetyTests(unittest.TestCase):
         self.assertIn("# Consilium Gateway Chat Plan", text)
         self.assertIn("Recent compact context:", text)
 
+    def test_write_plan_file_repo_read_mode_allows_shell_without_edits(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plans_dir = Path(tmp)
+            with patch.object(gateway, "_GATEWAY_PLANS_DIR", plans_dir):
+                plan_path = gateway.RalphexTransport._write_plan_file(
+                    [{"role": "user", "content": "Проанализируй структуру проекта"}],
+                    plan_mode=False,
+                )
+                text = plan_path.read_text(encoding="utf-8")
+        self.assertIn("Read Repository Context For User", text)
+        self.assertIn("Use shell commands as needed", text)
+        self.assertIn("Do NOT edit files", text)
+
     def test_env_int_parses_and_clamps(self) -> None:
         with patch.dict(os.environ, {"CONSILIUM_TEST_INT": "-5"}, clear=False):
             value = gateway._env_int("CONSILIUM_TEST_INT", default=10, minimum=0)
@@ -235,6 +290,260 @@ class GatewayRuntimeSafetyTests(unittest.TestCase):
                 "Ошибка выполнения через ralphex: rate limit exceeded",
                 "ping",
             )
+        self.assertEqual(text, "gemini-fallback-ok")
+        fallback_mock.assert_called_once_with("ping")
+
+    def test_maybe_direct_codex_fallback_uses_vertex_limit_fallback_for_stall_error(self) -> None:
+        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
+        transport.enable_direct_codex_fallback = False
+        transport.enable_limit_fallback_to_gemini = True
+        with patch.object(
+            gateway.RalphexTransport,
+            "_complete_with_vertex_limit_fallback",
+            return_value="gemini-fallback-ok",
+        ) as fallback_mock:
+            text = transport._maybe_direct_codex_fallback(
+                "Ошибка выполнения через ralphex: runner: task phase: max iterations (2) reached without completion",
+                "ping",
+            )
+        self.assertEqual(text, "gemini-fallback-ok")
+        fallback_mock.assert_called_once_with("ping")
+
+    def test_maybe_direct_codex_fallback_uses_local_repo_read_recovery(self) -> None:
+        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
+        transport.enable_direct_codex_fallback = False
+        transport.enable_limit_fallback_to_gemini = True
+        prompt = "Name the current working directory and 3 project files."
+        with patch.object(gateway, "_build_repo_read_local_answer", return_value="local-repo-ok") as local_mock:
+            with patch.object(
+                gateway.RalphexTransport,
+                "_complete_with_vertex_limit_fallback",
+                return_value="gemini-fallback-ok",
+            ) as fallback_mock:
+                text = transport._maybe_direct_codex_fallback(
+                    "Ralphex вернул только технический лог.",
+                    prompt,
+                )
+        self.assertEqual(text, "local-repo-ok")
+        local_mock.assert_called_once_with(prompt)
+        fallback_mock.assert_not_called()
+
+    def test_maybe_direct_codex_fallback_appends_trace_to_vertex_result_when_enabled(self) -> None:
+        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
+        transport.enable_direct_codex_fallback = False
+        transport.enable_limit_fallback_to_gemini = True
+        with patch.dict(
+            os.environ,
+            {
+                "CONSILIUM_GATEWAY_EXPOSE_PROGRESS_TRACE_SUCCESS": "1",
+                "CONSILIUM_GATEWAY_EXPOSE_PROGRESS_TRACE": "1",
+            },
+            clear=False,
+        ):
+            with patch.object(
+                gateway.RalphexTransport,
+                "_complete_with_vertex_limit_fallback",
+                return_value="gemini-fallback-ok",
+            ):
+                text = transport._maybe_direct_codex_fallback(
+                    "Ошибка выполнения через ralphex: rate limit exceeded",
+                    "ping",
+                    trace_raw="step-1\nstep-2",
+                )
+        self.assertIn("gemini-fallback-ok", text)
+        self.assertIn("Технический трейс выполнения:", text)
+        self.assertIn("step-1", text)
+
+    def test_complete_with_direct_codex_uses_vertex_fallback_when_limit_only_in_stdout(self) -> None:
+        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
+        transport.enable_limit_fallback_to_gemini = True
+        transport.model = "gpt-5.3-codex"
+
+        class _Bootstrap:
+            @staticmethod
+            def _prepare_local_codex_home(model: str) -> Path:
+                return Path("/tmp")
+
+        transport._adapter_bootstrap = _Bootstrap()
+        proc = subprocess.CompletedProcess(
+            args=["codex", "exec"],
+            returncode=1,
+            stdout="You've hit your usage limit.\n",
+            stderr="",
+        )
+        with patch.dict(os.environ, {"CONSILIUM_CODEX_COMMAND": "/usr/bin/codex", "CONSILIUM_CODEX_MODEL_PROVIDER": "openai"}, clear=False):
+            with patch.object(subprocess, "run", return_value=proc):
+                with patch.object(
+                    gateway.RalphexTransport,
+                    "_complete_with_vertex_limit_fallback",
+                    return_value="gemini-fallback-ok",
+                ) as fallback_mock:
+                    text = transport._complete_with_direct_codex("ping")
+        self.assertEqual(text, "gemini-fallback-ok")
+        fallback_mock.assert_called_once_with("ping")
+
+    def test_complete_with_vertex_limit_fallback_prefers_ralphex_route_by_default(self) -> None:
+        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
+        transport.limit_fallback_model = "gemini-2.5-pro"
+        transport.limit_fallback_route = "ralphex"
+        transport.limit_fallback_allow_direct_recovery = True
+        transport.strict_ralphex_only = True
+        prompt = "Проанализируй структуру проекта"
+        with patch.object(
+            gateway.RalphexTransport,
+            "_complete_with_vertex_limit_fallback_via_ralphex",
+            return_value="ralphex-fallback-ok",
+        ) as ralphex_mock:
+            text = transport._complete_with_vertex_limit_fallback(prompt)
+        self.assertEqual(text, "ralphex-fallback-ok")
+        ralphex_mock.assert_called_once_with(prompt=prompt, model="gemini-2.5-pro")
+
+    def test_complete_with_vertex_limit_fallback_keeps_ralphex_for_simple_chat_in_strict_mode(self) -> None:
+        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
+        transport.limit_fallback_model = "gemini-2.5-pro"
+        transport.limit_fallback_route = "ralphex"
+        transport.limit_fallback_allow_direct_recovery = True
+        transport.strict_ralphex_only = True
+        with patch.object(
+            gateway.RalphexTransport,
+            "_complete_with_vertex_limit_fallback_via_ralphex",
+            return_value="ralphex-fallback-ok",
+        ) as ralphex_mock:
+            with patch.object(gateway, "_run_direct_vertex_qa", return_value="direct-vertex-ok") as direct_mock:
+                text = transport._complete_with_vertex_limit_fallback("Скажи одно слово: ок")
+        self.assertEqual(text, "ralphex-fallback-ok")
+        ralphex_mock.assert_called_once_with(prompt="Скажи одно слово: ок", model="gemini-2.5-pro")
+        direct_mock.assert_not_called()
+
+    def test_complete_with_vertex_limit_fallback_uses_direct_route_when_configured(self) -> None:
+        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
+        transport.limit_fallback_model = "gemini-2.5-pro"
+        transport.limit_fallback_route = "direct"
+        transport.limit_fallback_allow_direct_recovery = True
+        transport.strict_ralphex_only = False
+        with patch.object(
+            gateway.RalphexTransport,
+            "_complete_with_vertex_limit_fallback_via_ralphex",
+            return_value=None,
+        ) as ralphex_mock:
+            with patch.object(gateway, "_run_direct_vertex_qa", return_value="direct-vertex-ok") as direct_mock:
+                text = transport._complete_with_vertex_limit_fallback("ping")
+        self.assertEqual(text, "direct-vertex-ok")
+        ralphex_mock.assert_called_once_with(prompt="ping", model="gemini-2.5-pro")
+        direct_mock.assert_called_once_with("ping", requested_model="gemini-2.5-pro")
+
+    def test_complete_with_vertex_limit_fallback_recovers_direct_when_ralphex_returns_technical_log(self) -> None:
+        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
+        transport.limit_fallback_model = "gemini-2.5-pro"
+        transport.limit_fallback_route = "ralphex"
+        transport.limit_fallback_allow_direct_recovery = True
+        transport.strict_ralphex_only = False
+        prompt = "Name the current working directory and 3 project files. Keep it short."
+        with patch.object(
+            gateway.RalphexTransport,
+            "_complete_with_vertex_limit_fallback_via_ralphex",
+            return_value="Ralphex вернул только технический лог.",
+        ) as ralphex_mock:
+            with patch.object(gateway, "_run_direct_vertex_qa", return_value="direct-vertex-ok") as direct_mock:
+                text = transport._complete_with_vertex_limit_fallback(prompt)
+        self.assertEqual(text, "direct-vertex-ok")
+        ralphex_mock.assert_called_once_with(prompt=prompt, model="gemini-2.5-pro")
+        direct_mock.assert_called_once()
+
+    def test_complete_with_vertex_limit_fallback_keeps_technical_log_when_direct_recovery_disabled(self) -> None:
+        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
+        transport.limit_fallback_model = "gemini-2.5-pro"
+        transport.limit_fallback_route = "ralphex"
+        transport.limit_fallback_allow_direct_recovery = False
+        transport.strict_ralphex_only = False
+        prompt = "Name the current working directory and 3 project files. Keep it short."
+        with patch.object(
+            gateway.RalphexTransport,
+            "_complete_with_vertex_limit_fallback_via_ralphex",
+            return_value="Ralphex вернул только технический лог.",
+        ) as ralphex_mock:
+            with patch.object(gateway, "_run_direct_vertex_qa", return_value="direct-vertex-ok") as direct_mock:
+                text = transport._complete_with_vertex_limit_fallback(prompt)
+        self.assertEqual(text, "Ralphex вернул только технический лог.")
+        ralphex_mock.assert_called_once_with(prompt=prompt, model="gemini-2.5-pro")
+        direct_mock.assert_not_called()
+
+    def test_complete_with_vertex_limit_fallback_direct_recovery_enriches_repo_read_prompt(self) -> None:
+        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
+        transport.limit_fallback_model = "gemini-2.5-pro"
+        transport.limit_fallback_route = "ralphex"
+        transport.limit_fallback_allow_direct_recovery = True
+        transport.strict_ralphex_only = False
+        prompt = "Name the current working directory and 3 project files. Keep it short."
+        with patch.object(
+            gateway.RalphexTransport,
+            "_complete_with_vertex_limit_fallback_via_ralphex",
+            return_value="Ralphex вернул только технический лог.",
+        ):
+            with patch.object(gateway, "_run_direct_vertex_qa", return_value="direct-vertex-ok") as direct_mock:
+                text = transport._complete_with_vertex_limit_fallback(prompt)
+        self.assertEqual(text, "direct-vertex-ok")
+        called_prompt = direct_mock.call_args.args[0]
+        self.assertIn("Trusted repository snapshot", called_prompt)
+        self.assertIn("User request:", called_prompt)
+
+    def test_vertex_limit_fallback_config_forces_gateway_chat_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            base_dir = tmp_root / "base"
+            base_prompts = base_dir / "prompts"
+            base_prompts.mkdir(parents=True, exist_ok=True)
+            (base_prompts / "task.txt").write_text("# legacy base task prompt", encoding="utf-8")
+            (base_dir / "config").write_text("claude_command = /tmp/base-wrapper\n", encoding="utf-8")
+
+            chat_dir = tmp_root / "chat"
+            fallback_dir = tmp_root / "fallback"
+            with patch.object(gateway, "_RALPHEX_CONFIG_DIR", base_dir):
+                with patch.object(gateway, "_RALPHEX_CONFIG_FILE", base_dir / "config"):
+                    with patch.object(gateway, "_RALPHEX_CHAT_CONFIG_DIR", chat_dir):
+                        with patch.object(gateway, "_RALPHEX_LIMIT_FALLBACK_CONFIG_DIR", fallback_dir):
+                            out_dir = gateway.RalphexTransport._ensure_vertex_limit_fallback_config_dir()
+
+            task_prompt = (out_dir / "prompts" / "task.txt").read_text(encoding="utf-8")
+            self.assertIn("gateway chat/repo-read mode", task_prompt)
+
+    def test_build_repo_read_direct_prompt_contains_snapshot(self) -> None:
+        prompt = gateway._build_repo_read_direct_prompt("Покажи структуру проекта")
+        self.assertIn("Trusted repository snapshot", prompt)
+        self.assertIn("User request:", prompt)
+        self.assertIn("cwd:", prompt)
+
+    def test_complete_with_direct_codex_uses_vertex_fallback_when_limit_in_message(self) -> None:
+        transport = gateway.RalphexTransport.__new__(gateway.RalphexTransport)
+        transport.enable_limit_fallback_to_gemini = True
+        transport.model = "gpt-5.3-codex"
+
+        class _Bootstrap:
+            @staticmethod
+            def _prepare_local_codex_home(model: str) -> Path:
+                return Path("/tmp")
+
+        transport._adapter_bootstrap = _Bootstrap()
+        stdout = json.dumps(
+            {
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": "You've hit your usage limit. Try again later."},
+            }
+        )
+        proc = subprocess.CompletedProcess(
+            args=["codex", "exec"],
+            returncode=0,
+            stdout=stdout + "\n",
+            stderr="",
+        )
+        with patch.dict(os.environ, {"CONSILIUM_CODEX_COMMAND": "/usr/bin/codex", "CONSILIUM_CODEX_MODEL_PROVIDER": "openai"}, clear=False):
+            with patch.object(subprocess, "run", return_value=proc):
+                with patch.object(
+                    gateway.RalphexTransport,
+                    "_complete_with_vertex_limit_fallback",
+                    return_value="gemini-fallback-ok",
+                ) as fallback_mock:
+                    text = transport._complete_with_direct_codex("ping")
         self.assertEqual(text, "gemini-fallback-ok")
         fallback_mock.assert_called_once_with("ping")
 
@@ -285,6 +594,38 @@ class GatewayRuntimeSafetyTests(unittest.TestCase):
             )
             with patch.object(gateway, "_ACTIVE_RUNS_DIR", bad_active_dir):
                 gateway._persist_active_run(state)
+
+    def test_cleanup_stale_active_runs_terminates_running_no_output_by_idle_time(self) -> None:
+        state = gateway.ActiveExecution(
+            request_id="req-no-output",
+            session_id="sess-no-output",
+            plan_path="/tmp/plan.md",
+            command="ralphex plan.md",
+            pid=321,
+            pgid=321,
+            started_monotonic=time.monotonic() - 30.0,
+            last_activity_monotonic=time.monotonic() - 25.0,
+            phase="running_no_output",
+        )
+        with gateway._ACTIVE_LOCK:
+            snapshot = dict(gateway._ACTIVE_EXECUTIONS)
+            gateway._ACTIVE_EXECUTIONS.clear()
+            gateway._ACTIVE_EXECUTIONS[state.request_id] = state
+        try:
+            with patch.object(gateway, "_terminate_process_group") as terminate_mock:
+                with patch.object(gateway, "_clear_active_run") as clear_mock:
+                    removed = gateway._cleanup_stale_active_runs(
+                        max_elapsed_sec=300.0,
+                        reason="unit_test",
+                        max_no_output_idle_sec=10.0,
+                    )
+            self.assertEqual(removed, 1)
+            terminate_mock.assert_called_once_with(state.pgid, grace_sec=1.0)
+            clear_mock.assert_called_once_with(state.request_id)
+        finally:
+            with gateway._ACTIVE_LOCK:
+                gateway._ACTIVE_EXECUTIONS.clear()
+                gateway._ACTIVE_EXECUTIONS.update(snapshot)
 
     def test_auth_failure_log_does_not_expose_secrets(self) -> None:
         api_key = "super-secret-api-key"
@@ -399,11 +740,27 @@ starting task execution phase
 [26-04-15 02:45:05] <<<RALPHEX:ALL_TASKS_DONE>>>
 Final answer: Короткий ответ пользователю.
 """
-        text = gateway.RalphexTransport._format_chat_response(
-            raw_text=raw,
-            user_prompt="Дай короткий ответ",
-        )
+        with patch.dict(os.environ, {"CONSILIUM_GATEWAY_EXPOSE_PROGRESS_TRACE_SUCCESS": "0"}, clear=False):
+            text = gateway.RalphexTransport._format_chat_response(
+                raw_text=raw,
+                user_prompt="Дай короткий ответ",
+            )
         self.assertEqual(text, "Короткий ответ пользователю.")
+
+    def test_format_chat_response_extracts_final_answer_with_trace_when_enabled(self) -> None:
+        raw = """
+starting task execution phase
+--- task iteration 1 ---
+[26-04-15 02:45:05] <<<RALPHEX:ALL_TASKS_DONE>>>
+Final answer: Короткий ответ пользователю.
+"""
+        with patch.dict(os.environ, {"CONSILIUM_GATEWAY_EXPOSE_PROGRESS_TRACE_SUCCESS": "1"}, clear=False):
+            text = gateway.RalphexTransport._format_chat_response(
+                raw_text=raw,
+                user_prompt="Дай короткий ответ",
+            )
+        self.assertIn("Короткий ответ пользователю.", text)
+        self.assertIn("Технический трейс выполнения:", text)
 
     def test_format_chat_response_summary_does_not_expose_branch_name(self) -> None:
         raw = """
@@ -592,6 +949,21 @@ branch: feature/internal-ticket-123
     def test_is_coding_request_true_for_weak_context_with_intent(self) -> None:
         phrase = "Нужно добавить api endpoint для health-check"
         self.assertTrue(gateway._is_coding_request(phrase))
+
+    def test_is_coding_request_false_for_project_structure_analysis(self) -> None:
+        phrase = "Проанализируй структуру проекта /media/ilja/DATA/soft/consillium"
+        self.assertFalse(gateway._is_coding_request(phrase))
+        self.assertTrue(gateway._is_repo_read_request(phrase))
+
+    def test_is_repo_read_request_true_for_working_directory_and_files(self) -> None:
+        phrase = "Name the current working directory and 3 project files. Keep it short."
+        self.assertFalse(gateway._is_coding_request(phrase))
+        self.assertTrue(gateway._is_repo_read_request(phrase))
+
+    def test_is_repo_read_request_true_for_russian_infinitive_structure_phrase(self) -> None:
+        phrase = "Проанализировать структуру проекта /media/ilja/DATA/soft/consillium"
+        self.assertFalse(gateway._is_coding_request(phrase))
+        self.assertTrue(gateway._is_repo_read_request(phrase))
 
     def test_to_internal_messages_extracts_effective_user_prompt(self) -> None:
         messages = [

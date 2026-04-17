@@ -102,6 +102,7 @@ make verify-runtime
 
 This checks the same local gateway path (`/v1/responses`) and fails on unstable markers like `ralphex stalled` or missing `Final answer`.
 `make verify-runtime` additionally prints runtime fingerprint (branch, commit, binary paths/versions, key timeout flags) before smoke.
+If gateway is deployed as systemd unit, use `make ensure-gateway-managed` (or `USE_SYSTEMD_GATEWAY=1`) to skip local gateway restarts.
 
 ---
 
@@ -152,25 +153,39 @@ Path:
 - Ralphex command: `CONSILIUM_RALPHEX_CMD` (optional explicit override)
 - Request profile routing:
   - Codex `Plan` mode: gateway runs Ralphex in `--tasks-only` profile with architect model and `CONSILIUM_RALPHEX_PLAN_MAX_ITERATIONS` (default `2`).
-  - non-Plan mode: gateway runs standard Ralphex execute pipeline with `CONSILIUM_RALPHEX_STANDARD_MAX_ITERATIONS` (default `24`).
-  - all routes stay on Ralphex transport; no direct model bypass.
+  - non-Plan coding mode: gateway runs standard Ralphex execute pipeline with `CONSILIUM_RALPHEX_STANDARD_MAX_ITERATIONS` (default `24`).
+  - non-Plan non-coding mode: gateway runs chat tasks profile with `CONSILIUM_RALPHEX_CHAT_MAX_ITERATIONS` (default `1`).
+  - repo-read chat mode (e.g. "show working directory/files"): gateway uses `CONSILIUM_RALPHEX_REPO_READ_MAX_ITERATIONS` (default `2`).
+  - primary and fallback routes stay on Ralphex by default (`CONSILIUM_GATEWAY_STRICT_RALPHEX_ONLY=1`).
+  - role-level fallback is handled inside Ralphex wrappers (Codex rate-limit -> Vertex Gemini) without bypassing orchestration.
+  - Vertex chat-shortcut is applied only for pure Q/A chat mode; repo-read/coding plans keep full tool/file execution path.
+  - Gateway chat-specific prompts are used only for non-coding chat/repo-read requests; coding requests keep base execution prompts.
+  - chat plan auto-includes incremental repository context using git-based delta (changed files + diff excerpt), so model context can stay incremental.
 - Gateway response normalization:
   - if output contains an explicit `Final answer:`/`Result:`/`Ответ:` line, that final answer is returned as the user-facing response.
   - when ralphex output looks like execution/progress logs and no final answer was produced, gateway returns status + compact raw trace by default.
   - trace visibility can be toggled via `CONSILIUM_GATEWAY_EXPOSE_PROGRESS_TRACE` (`1` by default).
+  - optional success-trace mode appends compact trace even with `Final answer:`: `CONSILIUM_GATEWAY_EXPOSE_PROGRESS_TRACE_SUCCESS` (default `1`).
   - trace truncation limits: `CONSILIUM_GATEWAY_PROGRESS_TRACE_MAX_LINES`, `CONSILIUM_GATEWAY_PROGRESS_TRACE_MAX_CHARS`.
 - Hard timeout: `CONSILIUM_RALPHEX_TIMEOUT_SEC` (default `1200`)
 - Idle timeout (no subprocess output): `CONSILIUM_RALPHEX_IDLE_TIMEOUT_SEC` (default `300`, `0` disables)
-- Plan-profile session timeout: `CONSILIUM_RALPHEX_CHAT_SESSION_TIMEOUT_SEC` (default `60`)
-- Plan-profile idle timeout: `CONSILIUM_RALPHEX_CHAT_IDLE_TIMEOUT_SEC` (default `30`)
+- Plan/chat tasks session timeout: `CONSILIUM_RALPHEX_CHAT_SESSION_TIMEOUT_SEC` (default `60`)
+- Plan/chat tasks idle timeout: `CONSILIUM_RALPHEX_CHAT_IDLE_TIMEOUT_SEC` (default `30`)
+- Chat tasks max iterations: `CONSILIUM_RALPHEX_CHAT_MAX_ITERATIONS` (default `1`)
+- Repo-read chat max iterations: `CONSILIUM_RALPHEX_REPO_READ_MAX_ITERATIONS` (default `2`)
 - Execute-profile idle timeout override: `CONSILIUM_RALPHEX_EXECUTE_IDLE_TIMEOUT_SEC` (default `900`)
 - Heartbeat telemetry cadence: `CONSILIUM_RALPHEX_HEARTBEAT_SEC` (default `15`)
 - `running_no_output` phase threshold: `CONSILIUM_RALPHEX_IDLE_WARN_SEC` (default `45`)
+- Preflight cleanup threshold for stale `running_no_output`: `CONSILIUM_RALPHEX_NO_OUTPUT_STALE_MAX_SEC` (default `45`)
 - Git mutation guard in gateway chat runtime: `CONSILIUM_GATEWAY_BLOCK_GIT_COMMITS` (default `1`)
 - Emergency direct-codex fallback: `CONSILIUM_GATEWAY_ENABLE_DIRECT_CODEX_FALLBACK` (default `0`, disabled)
 - Limit fallback to Gemini when Codex path hits quota/rate limits:
-  - `CONSILIUM_GATEWAY_ENABLE_LIMIT_FALLBACK_TO_GEMINI` (default `0`, disabled)
+  - `CONSILIUM_GATEWAY_ENABLE_LIMIT_FALLBACK_TO_GEMINI` (default `1`, enabled)
   - `CONSILIUM_GATEWAY_LIMIT_FALLBACK_MODEL` (default `gemini-2.5-pro`)
+  - `CONSILIUM_GATEWAY_LIMIT_FALLBACK_ROUTE` (`ralphex` by default)
+  - `CONSILIUM_GATEWAY_STRICT_RALPHEX_ONLY` (default `1`): blocks direct model bypass in gateway fallback path.
+  - `CONSILIUM_GATEWAY_LIMIT_FALLBACK_ALLOW_DIRECT_RECOVERY` (default `0`): optional emergency escape hatch when strict mode is disabled.
+  - `CONSILIUM_GATEWAY_LIMIT_FALLBACK_CHAT_SESSION_TIMEOUT_SEC` (default `90`) and `CONSILIUM_GATEWAY_LIMIT_FALLBACK_CHAT_IDLE_TIMEOUT_SEC` (default `60`) tune the ralphex fallback envelope for slower Gemini first-token latency.
 - Strict API key mode: set `CONSILIUM_STRICT_API_KEY=1` to fail startup when default key is used
 - If `CONSILIUM_RALPHEX_CMD` is not set, gateway auto-detects `ralphex` from:
   - `PATH`

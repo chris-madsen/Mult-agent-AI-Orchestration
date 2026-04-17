@@ -57,6 +57,8 @@ tfplan-*
 .consilium/reviews/
 .consilium/state/
 .consilium/runs/
+.consilium/codex-home/
+.consilium/tmp/
 
 # Infra local runtime/deps
 infra/tofu/.consilium/

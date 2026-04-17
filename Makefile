@@ -2,7 +2,7 @@ SHELL := /usr/bin/env bash
 .SHELLFLAGS := -eu -o pipefail -c
 
 .PHONY: help bootstrap-config check check-lite check-tools check-config check-auth check-runtime check-runtime-deep \
-	start start-gpu start-gpu-only start-safe start-gateway ensure-gateway stop-gateway smoke-chat-runtime verify-runtime cursor-provider-hint cursor-provider-sync
+	start start-gpu start-gpu-only start-safe start-gateway ensure-gateway ensure-gateway-managed stop-gateway smoke-chat-runtime verify-runtime cursor-provider-hint cursor-provider-sync
 
 PROJECT_ROOT := $(abspath .)
 MCP_FILE := .cursor/mcp.json
@@ -13,6 +13,8 @@ PUBLIC_MODEL ?= consilium-auto
 GATEWAY_PID_FILE := .consilium/gateway.pid
 GATEWAY_LOG_FILE := .consilium/logs/gateway.log
 CONSILIUM_AUTO_GIT_INIT ?= 1
+SYSTEMD_GATEWAY_UNIT ?= consilium-gateway.service
+USE_SYSTEMD_GATEWAY ?= auto
 CODEX_BIN ?= $(shell command -v codex 2>/dev/null)
 ifeq ($(strip $(CODEX_BIN)),)
 CODEX_BIN := $(firstword $(wildcard /home/$(USER)/.vscode-oss/extensions/openai.chatgpt-*/bin/linux-x86_64/codex))
@@ -32,6 +34,7 @@ help:
 	@echo "  make start-safe - launch Cursor with software rendering"
 	@echo "  make start-gateway - launch OpenAI-compatible Consilium API gateway (foreground)"
 	@echo "  make ensure-gateway - ensure gateway is running in background"
+	@echo "  make ensure-gateway-managed - like ensure-gateway, but skips local gateway when systemd unit is active"
 	@echo "  make stop-gateway - stop background gateway"
 	@echo "  make smoke-chat-runtime - run end-to-end chat smoke test against local gateway"
 	@echo "  make verify-runtime - print runtime fingerprint and run smoke in same environment"
@@ -131,14 +134,14 @@ check-runtime-deep:
 
 start:
 	@$(MAKE) --no-print-directory check-lite
-	@$(MAKE) --no-print-directory ensure-gateway
+	@$(MAKE) --no-print-directory ensure-gateway-managed
 	@$(MAKE) --no-print-directory cursor-provider-hint
 	@$(MAKE) --no-print-directory cursor-provider-sync
 	@$(MAKE) --no-print-directory start-gpu-only
 
 start-gpu:
 	@$(MAKE) --no-print-directory check-lite
-	@$(MAKE) --no-print-directory ensure-gateway
+	@$(MAKE) --no-print-directory ensure-gateway-managed
 	@$(MAKE) --no-print-directory cursor-provider-hint
 	@$(MAKE) --no-print-directory cursor-provider-sync
 	@$(MAKE) --no-print-directory start-gpu-only
@@ -149,11 +152,32 @@ start-gpu-only:
 
 start-safe:
 	@$(MAKE) --no-print-directory check-lite
-	@$(MAKE) --no-print-directory ensure-gateway
+	@$(MAKE) --no-print-directory ensure-gateway-managed
 	@$(MAKE) --no-print-directory cursor-provider-hint
 	@$(MAKE) --no-print-directory cursor-provider-sync
 	@echo "[run] launching Cursor (safe software mode)"
 	@CURSOR_RENDER_MODE=safe ./scripts/start-cursor-safe.sh "$(PROJECT_ROOT)"
+
+ensure-gateway-managed:
+	@use_systemd="$(USE_SYSTEMD_GATEWAY)"; \
+	unit="$(SYSTEMD_GATEWAY_UNIT)"; \
+	if [[ "$$use_systemd" == "1" ]]; then \
+		if command -v systemctl >/dev/null 2>&1; then \
+			if systemctl --user is-active --quiet "$$unit" || systemctl is-active --quiet "$$unit"; then \
+				echo "[ok] gateway is managed by systemd unit '$$unit'"; \
+				exit 0; \
+			fi; \
+		fi; \
+		echo "[fail] USE_SYSTEMD_GATEWAY=1 but systemd unit '$$unit' is not active"; \
+		exit 1; \
+	fi; \
+	if [[ "$$use_systemd" == "auto" ]] && command -v systemctl >/dev/null 2>&1; then \
+		if systemctl --user is-active --quiet "$$unit" || systemctl is-active --quiet "$$unit"; then \
+			echo "[ok] detected active systemd gateway unit '$$unit'; skipping local ensure-gateway"; \
+			exit 0; \
+		fi; \
+	fi; \
+	$(MAKE) --no-print-directory ensure-gateway
 
 cursor-provider-hint:
 	@mkdir -p .consilium
@@ -298,7 +322,7 @@ stop-gateway:
 	@python3 ./scripts/kill_gateway_orphans.py "$(PROJECT_ROOT)"
 
 smoke-chat-runtime:
-	@$(MAKE) --no-print-directory ensure-gateway
+	@$(MAKE) --no-print-directory ensure-gateway-managed
 	@./scripts/smoke-chat-runtime.sh
 
 verify-runtime:
