@@ -7,6 +7,7 @@ import { makeFileArtifactStore } from '../adapters/file-artifact-store.js';
 import { buildLocalCodeIndex } from '../adapters/local-code-index.js';
 import { makeLocalContextProvider } from '../adapters/local-context-provider.js';
 import { makeNodeWorkspacePort } from '../adapters/node-workspace-port.js';
+import { makeTreeSitterStructuralPort } from '../adapters/tree-sitter-structural.js';
 import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
 import { observeWorkspace, registerWorkspace } from '../application/workspace-service.js';
 import { makeMcpGateway } from '../gateway/mcp-gateway.js';
@@ -44,24 +45,38 @@ const main = async (): Promise<void> => {
   if (registered._tag === 'Err') throw new Error(`${registered.error.code}: ${registered.error.message}`);
   const observed = await Effect.runPromise(observeWorkspace(ports, registered.value.workspaceId));
   if (observed._tag === 'Err') throw new Error(`${observed.error.code}: ${observed.error.message}`);
-  const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, { generation: 1 }));
-  if (built._tag === 'Err') throw new Error(`${built.error.code}: ${built.error.message}`);
-  for (const warning of built.value.warnings) process.stderr.write(`ace warning: ${warning}\n`);
-  process.stderr.write(`ace-mcp ready workspace_id=${registered.value.workspaceId} indexed_paths=${built.value.indexedPaths.length}\n`);
-  const context = makeLocalContextProvider({
-    workspaceId: registered.value.workspaceId,
-    rootPath: registered.value.rootPath,
-    index: built.value.index,
-    files,
-    newRequestId: () => randomUUID(),
-  });
+  // No pretend success: the local lexical provider is a consciously enabled
+  // degraded fallback, NOT the selected Qdrant/embeddings/AST/LSP production path.
+  const allowLocalFallback = process.env.ACE_ALLOW_LOCAL_FALLBACK === 'true';
+  const structuralHelper = process.env.ACE_TREE_SITTER_HELPER?.trim();
+  let context: ReturnType<typeof makeLocalContextProvider> | undefined;
+  if (allowLocalFallback) {
+    const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
+      generation: 1,
+      ...(structuralHelper === undefined || structuralHelper === ''
+        ? {}
+        : { structural: makeTreeSitterStructuralPort({ helperPath: resolve(structuralHelper) }) }),
+    }));
+    if (built._tag === 'Err') throw new Error(`${built.error.code}: ${built.error.message}`);
+    for (const warning of built.value.warnings) process.stderr.write(`ace fallback warning: ${warning}\n`);
+    process.stderr.write(`ace-mcp degraded local fallback workspace_id=${registered.value.workspaceId} indexed_paths=${built.value.indexedPaths.length}\n`);
+    context = makeLocalContextProvider({
+      workspaceId: registered.value.workspaceId,
+      rootPath: registered.value.rootPath,
+      index: built.value.index,
+      files,
+      newRequestId: () => randomUUID(),
+    });
+  } else {
+    process.stderr.write('ace-mcp context NOT_READY: real Qdrant + embeddings + AST + LSP composition not configured; set ACE_ALLOW_LOCAL_FALLBACK=true only for explicit degraded lexical search\n');
+  }
   const gateway = makeMcpGateway({
     clock: ports.clock,
     ids: ports.ids,
     files,
     store,
     artifacts: makeFileArtifactStore(artifactDirectory),
-    context,
+    ...(context === undefined ? {} : { context }),
   });
   await runMcpStdio(gateway);
 };

@@ -96,7 +96,7 @@ export const makeTypeScriptLanguageServicePort = (options: TypeScriptLanguageSer
     const references = service.getReferencesAtPosition(fileName, position) ?? [];
     return ok(references.flatMap((item): SemanticReference[] => {
       const location = locationFromSpan(options.rootPath, files, item.fileName, item.textSpan);
-      return location === undefined ? [] : [{ location, isDefinition: item.isWriteAccess }];
+      return location === undefined ? [] : [{ location, isDefinition: item.isDefinition === true }];
     }));
   }),
   typeInfo: (query) => withQuery(options, query, (service, fileName, position) => {

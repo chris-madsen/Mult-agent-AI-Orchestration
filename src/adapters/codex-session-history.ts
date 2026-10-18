@@ -50,17 +50,18 @@ export const exportCodexHistory = async (
   }
   const sourceDigest = digestOf(bytes);
   const text = Buffer.from(bytes).toString('utf8');
+  const lines = text.split('\n');
   const episodes: SessionEpisode[] = [];
   const cursors: CodexHistoryCursor[] = [];
   let byteStart = 0;
-  for (const [index, line] of text.split('\n').entries()) {
-    const hasNewline = index < text.split('\n').length - 1;
+  for (const [index, line] of lines.entries()) {
+    const hasNewline = index < lines.length - 1;
     const byteEnd = byteStart + Buffer.byteLength(line, 'utf8') + (hasNewline ? 1 : 0);
     if (line.trim().length > 0) {
       const parsed = parseRecord(line, index + 1);
       if (parsed._tag === 'Err') return parsed;
       const raw = bytes.slice(byteStart, byteEnd);
-      const episodeId = makeEpisodeId(createHash('sha256').update(`${sourceDigest}:${byteStart}:${byteEnd}`).digest('hex'));
+      const episodeId = makeEpisodeId(createHash('sha256').update(`${workspaceId}:${sourcePath}:${byteStart}:${digestOf(raw)}`).digest('hex'));
       if (episodeId._tag === 'Err') return episodeId;
       const episode = makeEpisode({
         episodeId: episodeId.value,
