@@ -77,8 +77,11 @@ const main = async (): Promise<void> => {
       helperPath,
       ...(process.env.ACE_PYTHON_COMMAND === undefined ? {} : { pythonCommand: process.env.ACE_PYTHON_COMMAND }),
     });
+    // Every startup has a new searchable generation. Old or removed symbols
+    // cannot leak into new retrieval even while an older Qdrant point exists.
+    const generation = Date.now();
     const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
-      generation: 1, structural, extensions: ['.ts', '.tsx', '.js', '.jsx'],
+      generation, structural, extensions: ['.ts', '.tsx', '.js', '.jsx'],
     }));
     if (built._tag === 'Err') throw new Error(built.error.code + ': ' + built.error.message);
     if (built.value.index.candidates.length === 0) throw new Error('Structural index has no verified symbols; Qdrant not ready');
@@ -107,7 +110,7 @@ const main = async (): Promise<void> => {
     context = makeQdrantContextProvider({
       workspaceId: registered.value.workspaceId,
       rootPath: registered.value.rootPath,
-      files, qdrant, embeddings, semantics, artifacts,
+      files, qdrant, embeddings, semantics, artifacts, generation,
       newRequestId: () => randomUUID(),
     });
     process.stderr.write('ace-mcp EXPERIMENTAL real Qdrant/Ollama/Tree-sitter/TypeScript-LS pipeline indexed symbols=' + populated.value + '\n');

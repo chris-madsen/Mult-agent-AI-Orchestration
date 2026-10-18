@@ -75,24 +75,29 @@ const locationFromSpan = (rootPath: string, files: ReadonlyMap<string, string>, 
 
 const withQuery = <Value>(
   options: TypeScriptLanguageServiceOptions,
+  runtime: ReturnType<typeof makeService>,
   query: SemanticQuery,
   operation: (service: ts.LanguageService, fileName: string, position: number, files: ReadonlyMap<string, string>) => Result<Value, DomainError>,
 ): Effect.Effect<Result<Value, DomainError>> => Effect.sync(() => {
-    const { service, files } = makeService(options);
+    const { service, files } = runtime;
     const valid = validateQuery(query, files, options.rootPath);
     if (valid._tag === 'Err') return valid;
     return operation(service, valid.value.fileName, valid.value.position, files);
   });
 
-export const makeTypeScriptLanguageServicePort = (options: TypeScriptLanguageServiceOptions): SemanticAnalysisPort => ({
-  definition: (query) => withQuery(options, query, (service, fileName, position, files) => {
+export const makeTypeScriptLanguageServicePort = (options: TypeScriptLanguageServiceOptions): SemanticAnalysisPort => {
+  // TypeScript LS creation is nontrivial; reuse the same immutable snapshot
+  // for all semantic calls in one verified index generation.
+  const runtime = makeService(options);
+  return {
+  definition: (query) => withQuery(options, runtime, query, (service, fileName, position, files) => {
     const definitions = service.getDefinitionAtPosition(fileName, position) ?? [];
     return ok(definitions.flatMap((item): SemanticDefinition[] => {
       const location = locationFromSpan(options.rootPath, files, item.fileName, item.textSpan);
       return location === undefined ? [] : [{ location, name: item.name, kind: item.kind }];
     }));
   }),
-  references: (query) => withQuery(options, query, (service, fileName, position, files) => {
+  references: (query) => withQuery(options, runtime, query, (service, fileName, position, files) => {
     const references = service.getReferencesAtPosition(fileName, position) ?? [];
     const definitions = service.getDefinitionAtPosition(fileName, position) ?? [];
     const declarationSpans = new Set(definitions.map((item) =>
@@ -102,7 +107,7 @@ export const makeTypeScriptLanguageServicePort = (options: TypeScriptLanguageSer
       return location === undefined ? [] : [{ location, isDefinition: declarationSpans.has([path.resolve(item.fileName), item.textSpan.start, item.textSpan.length].join(':')) }];
     }));
   }),
-  typeInfo: (query) => withQuery(options, query, (service, fileName, position) => {
+  typeInfo: (query) => withQuery(options, runtime, query, (service, fileName, position) => {
     const info = service.getQuickInfoAtPosition(fileName, position);
     if (info === undefined) return ok(undefined);
     const display = ts.displayPartsToString(info.displayParts);
@@ -110,7 +115,7 @@ export const makeTypeScriptLanguageServicePort = (options: TypeScriptLanguageSer
     return ok(documentation.length === 0 ? { display } : { display, documentation });
   }),
   diagnostics: ({ repoPath }) => Effect.sync(() => {
-    const { service, files } = makeService(options);
+    const { service, files } = runtime;
     const fileName = path.resolve(options.rootPath, repoPath);
     if (!files.has(fileName)) return failure('repo_path', 'source file is not included in the language-service project');
     const diagnostics = [...service.getSyntacticDiagnostics(fileName), ...service.getSemanticDiagnostics(fileName)];
@@ -126,4 +131,5 @@ export const makeTypeScriptLanguageServicePort = (options: TypeScriptLanguageSer
       };
     }));
   }),
-});
+  };
+};

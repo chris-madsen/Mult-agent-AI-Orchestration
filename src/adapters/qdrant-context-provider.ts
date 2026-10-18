@@ -30,6 +30,7 @@ export interface QdrantContextConfig {
   readonly artifacts: ArtifactStore;
   readonly semantics: SemanticAnalysisPort;
   readonly newRequestId: () => string;
+  readonly generation?: number;
 }
 
 export const populateQdrantFromStructuralIndex = (
@@ -95,6 +96,26 @@ export const ensureQdrantCollection = (
     : err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not create dedicated collection'));
 });
 
+/** Tree-sitter uses one-based line/column coordinates here, but columns count UTF-8 bytes.
+ * Re-slice authoritative workspace bytes and compare them with the Qdrant payload.
+ * Qdrant ranking never confers source-of-truth status. */
+export const exactUtf8Span = (
+  bytes: Uint8Array,
+  range: { readonly startLine: number; readonly endLine: number; readonly startColumn?: number; readonly endColumn?: number },
+): string | undefined => {
+  if (range.startColumn === undefined || range.endColumn === undefined) return undefined;
+  const raw = Buffer.from(bytes);
+  const lineOffsets = [0];
+  for (let i = 0; i < raw.length; i += 1) if (raw[i] === 10) lineOffsets.push(i + 1);
+  const a = lineOffsets[range.startLine - 1];
+  const b = lineOffsets[range.endLine - 1];
+  if (a === undefined || b === undefined) return undefined;
+  const from = a + range.startColumn - 1;
+  const until = b + range.endColumn - 1;
+  if (from < 0 || until <= from || until > raw.length) return undefined;
+  return raw.subarray(from, until).toString('utf8');
+};
+
 export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
   search: (input: {
     readonly workspaceId: WorkspaceId;
@@ -111,7 +132,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
     if (vectors._tag === 'Err') return vectors;
     const vector = vectors.value[0];
     if (vector === undefined) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'empty query vector'));
-    const result = yield* config.qdrant.search({ workspaceId: input.workspaceId, vector, limit: 12 });
+    const result = yield* config.qdrant.search({ workspaceId: input.workspaceId, vector, limit: 12, ...(config.generation === undefined ? {} : { generation: config.generation }) });
     if (result._tag === 'Err') return result;
 
     const evidence: RetrievalEvidence[] = [];
@@ -134,42 +155,50 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
         full = { bytes: read.value.bytes, digest: read.value.digest, handle: stored.value.handle };
         fullSources.set(candidate.repoPath, full);
       }
-      // Qdrant payload is not authoritative even when its vector score is high.
-      const freshness = full.digest === candidate.sourceDigest ? 'current' : 'stale';
-      if (freshness !== 'current') {
-        warnings.push(candidate.repoPath + ': indexed digest is stale');
+      // Both the digest AND the byte-exact AST slice must match. Never deliver
+      // unverified Qdrant payload as if it were the workspace's current source.
+      const current = full.digest === candidate.sourceDigest;
+      const verifiedText = exactUtf8Span(full.bytes, candidate.range);
+      const verified = current && verifiedText !== undefined && verifiedText === candidate.text;
+      const freshness = current ? (verified ? 'current' : 'unknown') : 'stale';
+      if (!verified) {
+        warnings.push(candidate.repoPath + ': stale index or AST slice disagrees with current original bytes');
         failed.push('code');
       }
       const evidenceId = makeEvidenceId('qdrant-code-' + (i + 1));
       if (evidenceId._tag === 'Err') return evidenceId;
+      // Even a partial response must never present an unverified indexed snippet as direct evidence.
+      if (!verified || verifiedText === undefined) continue;
+      const symbolLocationLine = Buffer.from(full.bytes).toString('utf8').split('\n')[candidate.range.startLine - 1] ?? '';
+      const symbolOffset = candidate.symbolName === undefined ? -1 : symbolLocationLine.indexOf(candidate.symbolName);
+      if (symbolOffset < 0) {
+        warnings.push(candidate.repoPath + ': symbol identifier was not found at the syntax node start');
+        failed.push('lsp');
+      } else {
+        const definitions = yield* config.semantics.definition({
+          repoPath: candidate.repoPath,
+          line: candidate.range.startLine,
+          column: symbolOffset + 1,
+        });
+        if (definitions._tag === 'Err') {
+          warnings.push(candidate.repoPath + ': language service unavailable (' + definitions.error.code + ')');
+          failed.push('lsp');
+        } else {
+          const matchingDefinition = definitions.value.some((entry) =>
+            entry.location.repoPath === candidate.repoPath
+            && entry.location.startLine >= candidate.range.startLine
+            && entry.location.endLine <= candidate.range.endLine);
+          if (!matchingDefinition) {
+            warnings.push(candidate.repoPath + ': LSP definition does not agree with the selected structural node');
+            failed.push('lsp');
+          }
+        }
+      }
       evidence.push({
         ...evidenceFromCandidate({ ...ranked, freshness }, evidenceId.value),
+        content: verifiedText,
         expansionHandle: full.handle,
       });
-
-      if (freshness !== 'current' || candidate.symbolName === undefined) continue;
-      const sourceLines = Buffer.from(full.bytes).toString('utf8').split('\n');
-      const line = sourceLines[candidate.range.startLine - 1] ?? '';
-      const nameColumn = line.indexOf(candidate.symbolName);
-      if (nameColumn < 0) {
-        warnings.push(candidate.repoPath + ': symbol identity unresolved at candidate range');
-        failed.push('lsp');
-        continue;
-      }
-      const definitions = yield* config.semantics.definition({
-        repoPath: candidate.repoPath,
-        line: candidate.range.startLine,
-        column: nameColumn + 1,
-      });
-      if (definitions._tag === 'Err') {
-        warnings.push(candidate.repoPath + ': language service unavailable (' + definitions.error.code + ')');
-        failed.push('lsp');
-        continue;
-      }
-      if (definitions.value.length === 0) {
-        warnings.push(candidate.repoPath + ': language service could not establish definition');
-        failed.push('lsp');
-      }
     }
 
     // A second exact read guards against edits during the multi-provider call.

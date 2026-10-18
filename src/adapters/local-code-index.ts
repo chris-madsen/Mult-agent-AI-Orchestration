@@ -118,6 +118,12 @@ export const buildLocalCodeIndex = (
       warnings.push('Local TypeScript compiler parser fallback; approved Tree-sitter provider not configured');
     }
     for (const observation of snapshot.value.files) {
+      // Explicitly enforce the default local source exclusions before source text
+      // can reach an embedding provider. Filtering just on extension is unsafe.
+      if (
+        observation.repoPath.split('/').some((part) => part === '.git' || part === 'secrets' || part === '.env'
+          || part.startsWith('.env.') || part.endsWith('.secret') || part.endsWith('.pem'))
+      ) continue;
       const extension = observation.repoPath.slice(observation.repoPath.lastIndexOf('.')).toLocaleLowerCase();
       if (!extensions.has(extension)) continue;
       const exact = yield* files.readExact(rootPath, observation.repoPath);
@@ -138,9 +144,12 @@ export const buildLocalCodeIndex = (
           warnings.push(observation.repoPath + ': structural provider unavailable (' + analyzed.error.code + ')');
           continue;
         }
-        if (analyzed.value.sourceDigest !== exact.value.digest || analyzed.value.hasSyntaxErrors) {
-          warnings.push(observation.repoPath + ': structural verification failed or has syntax errors');
+        if (analyzed.value.sourceDigest !== exact.value.digest) {
+          warnings.push(observation.repoPath + ': structural source digest mismatch');
           continue;
+        }
+        if (analyzed.value.hasSyntaxErrors) {
+          warnings.push(observation.repoPath + ': Tree-sitter reports syntax errors; parseable symbols are partial evidence');
         }
         spans = treeSitterSpans(exact.value.bytes, analyzed.value.symbols);
       } else if (tsExtensions.has(extension)) {

@@ -47,6 +47,8 @@ export interface CodeCandidatePort {
     readonly workspaceId: WorkspaceId;
     readonly vector: readonly number[];
     readonly limit: number;
+    /** Current build epoch, preventing deleted/renamed sources from reappearing. */
+    readonly generation?: number;
   }) => Effect.Effect<Result<readonly RankedCandidate[], DomainError>>;
   readonly upsert: (points: readonly CodePoint[]) => Effect.Effect<Result<void, DomainError>>;
 }
