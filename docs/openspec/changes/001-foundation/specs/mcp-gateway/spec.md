@@ -42,3 +42,14 @@ The system SHALL preserve exact source and generated artifacts and permit comple
 
 - **WHEN** a source is too large for one transport response
 - **THEN** exact pagination or a retrieval handle is returned and no bytes are lost
+
+---
+
+### Requirement: Official SDK and boundary contract
+
+The production MCP transport SHALL use an official, maintained TypeScript MCP SDK and SHALL pass actual installed Codex/client protocol conformance. A custom JSON-RPC implementation SHALL NOT be the production default without a separately approved ADR and conformance proof.
+
+#### Scenario: DBC-09 SDK conformance
+
+- **WHEN** the Codex client initializes, lists and invokes tools, sends malformed arguments, cancels, or invokes concurrent calls
+- **THEN** the real SDK transport behaves compatibly and preserves typed failures without mutating source

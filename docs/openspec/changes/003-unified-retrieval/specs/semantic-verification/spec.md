@@ -46,3 +46,14 @@ The system SHALL compare indexed digests with current source digests before mark
 
 - **WHEN** Qdrant returns digest D1 and current file is D2
 - **THEN** the resolver reads current D2 or reports stale/changed_during_request without marking D1 current
+
+---
+
+### Requirement: Definition/reference correctness on live semantic provider
+
+The system SHALL distinguish declaration identity, reference sites, write accesses and dynamic uncertainty via approved live language-service semantics.
+
+#### Scenario: DBC-04 two same-named methods
+
+- **WHEN** two distinct classes contain methods of the same name and one write access is not a declaration
+- **THEN** resolution preserves the correct declaration identity and SHALL NOT map `isWriteAccess` to `isDefinition`

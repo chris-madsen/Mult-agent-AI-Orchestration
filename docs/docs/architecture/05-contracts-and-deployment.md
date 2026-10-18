@@ -162,3 +162,15 @@ CPU/memory-heavy code-intelligence операций; Python остаётся в�
 5. `SPIKE-GRAPHITI`: подходящий local-first extraction/model backend, storage durability, privacy.
 6. `SPIKE-HARBOR`: installed CLI/task schemas, Codex agent adapter, provider-reported usage correctness.
 7. `SPIKE-JEV`: только сравнительный routing эксперимент с deterministic rule baseline.
+
+
+---
+
+## Implementation correction — executable composition and proof (proposed, 2026-10-18)
+
+1. **Production bootstrap contract:** `ace_context` must be exposed by a standards-compliant **official MCP TypeScript SDK**, then use an explicit effect/runtime wiring graph with chosen, configured Qdrant, measured genuine embedding provider, Tree-sitter structural analysis, and approved LSP when relevant. Vertex and Graphiti are routed only on appropriate authorized requests; an unavailable unapproved provider cannot be reported ready. An adapter existing on disk does **not** satisfy this clause.
+2. **Provider truth:** attach `provider_id`, `version`, `status`, `source_digest`, `range`, `evidence_method`, and internal trace/call receipts to every claimed real-provider integration. Runtime receipts may be logged in a secret-safe test channel rather than exposed as user text. Do not silently substitute regex/whole-file candidates for AST spans or hash vectors for embeddings.
+3. **Completeness:** compute `complete` from the **required** retrieval plan (covered/failed/skipped-by-policy per source) and source verification; a missing required backend makes the bundle partial even when other evidence is current.
+4. **Relevance vs losslessness:** first response provides accurate minimal relevant spans without arbitrary mandatory token ceilings; exact full file/2000-line artifact remains retrievable with an authorized handle. Returning every entire file per lexical symbol is a retrieval-quality failure, not compliance with ADR-006.
+5. **Failure isolation:** technical outage can use labelled local fallback with partial provenance; security denial is fail-closed and audited. Preserve cancellation, concurrency, SDK protocol compliance and immutable user worktree.
+6. **Stage gates:** component tests → real-provider integration → Codex/MCP E2E → Harbor attribution/quality/cost tests → owner acceptance. Unpassed gates are **not ready**; do not mark them `[x]` via a controlled exception. See `07-architecture-fitness-contracts.md` and OpenSpec `006-production-retrieval-vertical-slice`.

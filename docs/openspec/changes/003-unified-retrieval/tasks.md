@@ -42,3 +42,11 @@ approved LSP and Vertex production adapters remain controlled exceptions; see
 - [x] Provider/security failure boundaries avoid fabricated current source or success status.
 - [x] Domain and adapter dependencies comply with module boundaries and accepted ADRs.
 - [ ] Review the change with the owner; do not archive until external provider decisions are approved.
+
+---
+
+## Mandatory outstanding production gates (2026-10-18)
+
+**Architecture correction:** the production `ace_context` currently wires lexical/regex whole-file retrieval; disconnected Qdrant, Tree-sitter and LSP adapters are not a completed unified retrieval pipeline. Previous [x] statuses denote component contracts, not production coverage. See proposed 006.
+- [ ] Integrate real Qdrant/approved embeddings/Tree-sitter/approved LSP into MCP bootstrap and satisfy DBC-01/02/03/04/05/06/07/13/14.
+- [ ] Prove source precision with 2000-line file containing 25-line function; return exact 25-line initial AST span and lossless expansion.

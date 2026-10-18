@@ -70,3 +70,19 @@ The system SHALL permit authorized deletion of archived data and corresponding d
 
 - **WHEN** a permitted user requests deletion of an archived session
 - **THEN** the system deletes/tombstones originals and derived indexes per policy and records a safe audit result
+
+---
+
+### Requirement: Stable session identity and safe content-addressed deletion
+
+Codex episode identity SHALL survive append-only changes and retries; deleting one episode SHALL not remove original bytes shared by another live episode. Derived graph deletion SHALL respect tombstones.
+
+#### Scenario: DBC-10 appended JSONL
+
+- **WHEN** a new JSONL episode is appended after initial import
+- **THEN** original episode IDs remain unchanged and replay is idempotent
+
+#### Scenario: DBC-11 shared blob
+
+- **WHEN** two episodes reference the same content digest and one is deleted
+- **THEN** the survivor is readable exactly and only the deleted episode becomes inaccessible with derived projections purged

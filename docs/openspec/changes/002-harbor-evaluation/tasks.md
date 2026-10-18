@@ -32,3 +32,10 @@ remain open and are documented in `docs/docs/spikes/SPIKE-HARBOR.md`.
 - [x] Provider-independent failure tests pass; no fabricated usage, quality success or external provider success is produced.
 - [x] Domain and adapter dependencies comply with module boundaries and accepted ADRs.
 - [ ] Review the change with the owner; do not archive until completed and verified.
+
+---
+
+## Mandatory outstanding production gates (2026-10-18)
+
+**Architecture correction:** existing successful smoke results establish only test harness mechanics. They cannot establish ACE retrieval savings when no ACE calls occur or when forced calls address a trivial replacement task.
+- [ ] Retrieval-demanding paired Codex trials with traced ACE calls and real-provider attribution (DBC-12); keep all failed runs and external costs.

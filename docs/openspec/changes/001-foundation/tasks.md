@@ -32,3 +32,10 @@ production Kubernetes worktree access and owner review remain open.
 - [x] Foundation provider/security failure tests pass; no fabricated current source or success status.
 - [x] Domain and adapter dependencies comply with module boundaries and accepted ADRs.
 - [ ] Review the change with the owner; do not archive until completed and verified.
+
+---
+
+## Mandatory outstanding production gates (2026-10-18)
+
+**Architecture correction:** real MCP SDK conformance and runtime wiring are mandatory for production-readiness, regardless of foundation JSON-RPC test success. See DBC-09 and 006. Existing [x] entries mean isolated implementation only, not production gate.
+- [ ] Production Codex+official SDK MCP conformance and owner acceptance (DBC-09).

@@ -61,3 +61,14 @@ The system SHALL deliver partial evidence with explicit source failures for tech
 
 - **WHEN** a route tries to disclose a protected key
 - **THEN** that operation is denied and audited without fallback to another cloud endpoint
+
+---
+
+### Requirement: Required-source coverage drives completeness
+
+The `ContextBundle.complete` flag SHALL be true only if every source required by the authorized retrieval plan succeeded with valid evidence or an explicitly valid empty result. `warnings` alone and the freshness of surviving evidence SHALL NOT determine completeness.
+
+#### Scenario: DBC-06 unavailable required Qdrant
+
+- **WHEN** Qdrant is required but fails and local AST yields current evidence
+- **THEN** the bundle remains partial, names Qdrant as failed, preserves available evidence and does not fabricate `complete=true`
