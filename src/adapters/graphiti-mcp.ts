@@ -22,9 +22,11 @@ const uuidFor = (id: string): string => {
 };
 const errorResult = (message: string): Result<never, DomainError> =>
   err(domainError('EXTERNAL_UNAVAILABLE', 'graphiti', message));
-const validateReply = (reply: { isError?: boolean; content?: readonly unknown[] }): Result<void, DomainError> => {
-  if (reply.isError === true) return errorResult('Graphiti returned an MCP tool failure');
-  for (const block of reply.content ?? []) {
+const validateReply = (reply: unknown): Result<void, DomainError> => {
+  if (typeof reply !== 'object' || reply === null) return errorResult('invalid Graphiti MCP tool result');
+  const parsedReply = reply as { isError?: boolean; content?: readonly unknown[] };
+  if (parsedReply.isError === true) return errorResult('Graphiti returned an MCP tool failure');
+  for (const block of parsedReply.content ?? []) {
     if (typeof block === 'object' && block !== null && 'text' in block && typeof block.text === 'string') {
       try {
         const parsed: unknown = JSON.parse(block.text);
