@@ -28,19 +28,30 @@ test('DBC-01 missing selected providers returns NOT_READY from the actual MCP ex
       const timeout = setTimeout(() => reject(new Error('MCP timeout')), 10000);
       const onData = (chunk: Buffer): void => {
         output += chunk.toString('utf8');
-        const newline = output.indexOf('\n');
-        if (newline < 0) return;
-        clearTimeout(timeout);
-        child.stdout.off('data', onData);
-        try { resolve(JSON.parse(output.slice(0, newline)) as unknown); } catch (error) { reject(error); }
+        while (output.includes('\n')) {
+          const newline = output.indexOf('\n');
+          const line = output.slice(0, newline);
+          output = output.slice(newline + 1);
+          try {
+            const message = JSON.parse(line) as { id?: number };
+            if (message.id !== 2) continue;
+            clearTimeout(timeout);
+            child.stdout.off('data', onData);
+            resolve(message);
+            return;
+          } catch (error) { reject(error); return; }
+        }
       };
       child.once('error', reject);
       child.once('exit', (code) => reject(new Error('MCP exited prematurely: ' + code)));
       child.stdout.on('data', onData);
-      child.stdin.write(JSON.stringify({
-        jsonrpc: '2.0', id: 1, method: 'tools/call',
-        params: { name: 'ace_context', arguments: { workspace_id: 'dbc01-test-workspace', query: 'reconnect' } },
-      }) + '\n');
+      child.stdin.write([
+        JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize',
+          params: { protocolVersion: '2026-07-28', capabilities: {}, clientInfo: { name: 'ace-test', version: '1' } } }),
+        JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+        JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call',
+          params: { name: 'ace_context', arguments: { workspace_id: 'dbc01-test-workspace', query: 'reconnect' } } }),
+      ].join('\n') + '\n');
     });
     const body = response as { result?: { isError?: boolean; structuredContent?: { status?: string; capability?: string } } };
     assert.equal(body.result?.isError, true);

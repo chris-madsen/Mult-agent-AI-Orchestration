@@ -3,12 +3,35 @@ name: ACE typecheck and contracts
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, fix/ace-contract-correctness]
 
 permissions:
   contents: read
 
 jobs:
+  sdk-lockfile:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/ace-contract-correctness'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ace-contract-correctness
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generate pinned npm lockfile (temporary migration job)
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          if ! git diff --quiet -- package-lock.json; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add package-lock.json
+            git commit -m 'build: lock official MCP server SDK v2 dependencies'
+            git push origin HEAD:fix/ace-contract-correctness
+          fi
   contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 15

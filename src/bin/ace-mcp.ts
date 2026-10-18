@@ -11,7 +11,7 @@ import { makeTreeSitterStructuralPort } from '../adapters/tree-sitter-structural
 import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
 import { observeWorkspace, registerWorkspace } from '../application/workspace-service.js';
 import { makeMcpGateway } from '../gateway/mcp-gateway.js';
-import { runMcpStdio } from '../transport/mcp-stdio.js';
+import { runMcpSdkStdio } from '../transport/mcp-sdk-stdio.js';
 
 const required = (name: string): string => {
   const value = process.env[name];
@@ -78,7 +78,7 @@ const main = async (): Promise<void> => {
     artifacts: makeFileArtifactStore(artifactDirectory),
     ...(context === undefined ? {} : { context }),
   });
-  await runMcpStdio(gateway);
+  await runMcpSdkStdio(gateway);
 };
 
 try {
