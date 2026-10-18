@@ -33,6 +33,7 @@ export const makeAsyncFileMemoryArchive = async (rootPath: string): Promise<Asyn
     return current;
   };
   const lockPath = join(rootPath, '.archive-write.lock');
+  const sleep = async (milliseconds: number): Promise<void> => new Promise((resolve) => { setTimeout(resolve, milliseconds); });
   const withProcessLock = async <T>(operation: () => Promise<T>): Promise<T> => {
     const deadline = Date.now() + 20_000;
     while (true) {
@@ -42,7 +43,7 @@ export const makeAsyncFileMemoryArchive = async (rootPath: string): Promise<Asyn
       } catch (cause) {
         if ((cause as NodeJS.ErrnoException).code !== 'EEXIST') throw cause;
         if (Date.now() >= deadline) throw new Error('archive lock contention: operator must inspect stale lock');
-        await new Promise<void>((resolve) => setTimeout(resolve, 30));
+        await sleep(30);
       }
     }
     try {
