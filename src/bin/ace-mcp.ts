@@ -8,6 +8,8 @@ import { makeFetchHttpPort, makeQdrantCodeCandidatePort } from '../adapters/http
 import { makeOllamaEmbeddingPort } from '../adapters/ollama-embedding.js';
 import { ensureQdrantCollection, makeQdrantContextProvider, populateQdrantFromStructuralIndex } from '../adapters/qdrant-context-provider.js';
 import { makeTypeScriptLanguageServicePort } from '../adapters/typescript-language-service.js';
+import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
+import { defaultLocalPolicy } from '../domain/policy.js';
 import { buildLocalCodeIndex } from '../adapters/local-code-index.js';
 import { makeLocalContextProvider } from '../adapters/local-context-provider.js';
 import { makeNodeWorkspacePort } from '../adapters/node-workspace-port.js';
@@ -107,10 +109,24 @@ const main = async (): Promise<void> => {
       }
     }
     const semantics = makeTypeScriptLanguageServicePort({ rootPath: registered.value.rootPath, files: sourceMap });
+    const docsEnabled = process.env.ACE_ENABLE_VERTEX_RAG === 'true';
+    const documentation = docsEnabled ? makeVertexRagRetrievalPort({
+      project: required('ACE_VERTEX_PROJECT'),
+      location: required('ACE_VERTEX_LOCATION'),
+      corpusId: required('ACE_VERTEX_CORPUS_ID'),
+      accessToken: () => process.env.ACE_VERTEX_ACCESS_TOKEN,
+      policy: {
+        ...defaultLocalPolicy(registered.value.workspaceId),
+        cloudOptIn: process.env.ACE_CLOUD_DOCS_OPT_IN === 'true',
+        allowedCloudProviders: ['vertex'],
+      },
+      http,
+    }) : undefined;
     context = makeQdrantContextProvider({
       workspaceId: registered.value.workspaceId,
       rootPath: registered.value.rootPath,
       files, qdrant, embeddings, semantics, artifacts, generation,
+      ...(documentation === undefined ? {} : { documentation }),
       newRequestId: () => randomUUID(),
     });
     process.stderr.write('ace-mcp EXPERIMENTAL real Qdrant/Ollama/Tree-sitter/TypeScript-LS pipeline indexed symbols=' + populated.value + '\n');

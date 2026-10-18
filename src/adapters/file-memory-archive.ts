@@ -24,13 +24,32 @@ export const makeAsyncFileMemoryArchive = async (rootPath: string): Promise<Asyn
   const tombstonePath = (id: EpisodeId) => join(tombstonesPath, `${id}.json`);
   const missing = (path: string) => err(domainError('FILE_NOT_FOUND', path, 'archive episode not found'));
   const isMissing = (error: unknown): boolean => (error as NodeJS.ErrnoException).code === 'ENOENT';
-  // Single-writer coordination for this archive instance. Cross-process writers still need
-  // an external lock or transactional store before this adapter can be production-grade.
+  // Cross-process mkdir mutex: never steal an ambiguous stale lock (fail closed).
+  // For distributed/multi-host operation use a transactional DB or leader lease.
   let tail: Promise<void> = Promise.resolve();
   const exclusive = <T>(operation: () => Promise<T>): Promise<T> => {
-    const current = tail.then(operation, operation);
+    const current = tail.then(() => withProcessLock(operation), () => withProcessLock(operation));
     tail = current.then(() => undefined, () => undefined);
     return current;
+  };
+  const lockPath = join(rootPath, '.archive-write.lock');
+  const withProcessLock = async <T>(operation: () => Promise<T>): Promise<T> => {
+    const deadline = Date.now() + 20_000;
+    while (true) {
+      try {
+        await mkdir(lockPath);
+        break;
+      } catch (cause) {
+        if ((cause as NodeJS.ErrnoException).code !== 'EEXIST') throw cause;
+        if (Date.now() >= deadline) throw new Error('archive lock contention: operator must inspect stale lock');
+        await new Promise<void>((resolve) => setTimeout(resolve, 30));
+      }
+    }
+    try {
+      return await operation();
+    } finally {
+      await rm(lockPath, { recursive: true, force: true });
+    }
   };
   const hasOtherReference = async (digest: ContentDigest): Promise<boolean> => {
     const entries = await readdir(episodesPath);

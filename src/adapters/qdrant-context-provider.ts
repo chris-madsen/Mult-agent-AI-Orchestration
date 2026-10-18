@@ -14,6 +14,7 @@ import type {
   ArtifactStore,
   CodeCandidatePort,
   CodePoint,
+  DocumentationPort,
   HttpPort,
   SemanticAnalysisPort,
   WorkspaceFilePort,
@@ -31,6 +32,7 @@ export interface QdrantContextConfig {
   readonly semantics: SemanticAnalysisPort;
   readonly newRequestId: () => string;
   readonly generation?: number;
+  readonly documentation?: DocumentationPort;
 }
 
 export const populateQdrantFromStructuralIndex = (
@@ -215,7 +217,21 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
         }
       }
     }
-    if (input.includeDocs) { warnings.push('documentation provider not configured'); failed.push('documentation'); }
+    if (input.includeDocs) {
+      if (config.documentation === undefined) {
+        warnings.push('documentation provider not configured'); failed.push('documentation');
+      } else {
+        const documents = yield* config.documentation.search({ workspaceId: input.workspaceId, query: input.query, topK: 5 });
+        if (documents._tag === 'Err') {
+          warnings.push('Vertex documentation unavailable: ' + documents.error.code);
+          failed.push('documentation');
+        } else {
+          evidence.push(...documents.value);
+          // Vertex cloud RAG chunks are not verified against current workspace documents.
+          if (documents.value.some((item) => item.freshness !== 'current')) failed.push('documentation');
+        }
+      }
+    }
     if (input.includeMemory) { warnings.push('memory provider not configured'); failed.push('memory'); }
     return ok(mergeEvidence(requestId.value, input.query, evidence, warnings, failed));
   }),

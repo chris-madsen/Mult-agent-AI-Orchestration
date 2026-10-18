@@ -16,13 +16,16 @@
     "recall:codex-history": "tsx scripts/recall-codex-history.ts",
     "probe:vertex": "bash scripts/vertex-rag-readonly-probe.sh",
     "probe:jev": "bash scripts/jev-readonly-probe.sh",
-    "test": "npm run check && tsx --test test/*.test.ts"
+    "test": "npm run check && tsx --test test/*.test.ts",
+    "memory:sync": "npm run build && node dist/bin/ace-memory.js",
+    "gate:harbor": "tsx scripts/harbor-retrieval-gate.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",
     "effect": "3.22.3",
     "typescript": "5.9.3",
-    "zod": "4.6.7"
+    "zod": "4.6.7",
+    "@modelcontextprotocol/client": "2.3.1"
   },
   "devDependencies": {
     "@types/node": "24.10.0",
