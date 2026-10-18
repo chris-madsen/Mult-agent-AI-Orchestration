@@ -3,12 +3,35 @@ name: ACE typecheck and contracts
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, fix/ace-contract-correctness]
 
 permissions:
   contents: read
 
 jobs:
+  format-code:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/ace-contract-correctness'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ace-contract-correctness
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - name: Apply existing ESLint fixable style rules
+        run: |
+          npx eslint src test --ext .ts --fix || true
+          if ! git diff --quiet -- src test; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add src test
+            git commit -m 'style: apply existing ESLint auto fixes'
+            git push origin HEAD:fix/ace-contract-correctness
+          fi
   contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 15
