@@ -1,0 +1,30 @@
+schema_version = "1.4"
+artifacts = []
+
+[task]
+name = "ace/ace-local-smoke-paired"
+version = "1.0.0"
+description = "Deterministic paired native-vs-ACE smoke task with optional context use"
+authors = []
+keywords = ["typescript", "devops", "smoke", "paired"]
+
+[metadata]
+
+[verifier]
+timeout_sec = 120.0
+collect = []
+
+[verifier.env]
+
+[agent]
+timeout_sec = 180.0
+
+[environment]
+network_mode = "public"
+build_timeout_sec = 300.0
+os = "linux"
+mcp_servers = []
+
+[environment.env]
+
+[solution.env]

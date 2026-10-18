@@ -1,0 +1,9 @@
+node_modules/
+.venv/
+.venv-system/
+dist/
+rust/target/
+.ace/
+coverage/
+artifacts/
+docs/docs/conversations/

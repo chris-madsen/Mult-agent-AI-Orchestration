@@ -1,0 +1,35 @@
+{
+  "name": "ace-harness",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Adaptive Context Engine foundation",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "mcp:stdio": "npm run build && node dist/bin/ace-mcp.js",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src test --ext .ts --max-warnings=0",
+    "probe:providers": "node scripts/provider-capability-probe.mjs",
+    "report:harbor-smoke": "tsx scripts/render-harbor-smoke-report.ts",
+    "report:harbor-paired": "tsx scripts/render-harbor-paired-report.ts",
+    "spike:embeddings": "tsx scripts/embedding-spike.ts",
+    "recall:codex-history": "tsx scripts/recall-codex-history.ts",
+    "probe:vertex": "bash scripts/vertex-rag-readonly-probe.sh",
+    "probe:jev": "bash scripts/jev-readonly-probe.sh",
+    "test": "npm run check && tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "effect": "3.22.3",
+    "typescript": "5.9.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.0",
+    "@typescript-eslint/eslint-plugin": "7.18.0",
+    "@typescript-eslint/parser": "7.18.0",
+    "eslint": "8.57.1",
+    "eslint-config-airbnb-typescript": "18.0.0",
+    "eslint-import-resolver-typescript": "3.7.0",
+    "eslint-plugin-import": "2.31.0",
+    "tsx": "4.23.15"
+  }
+}

@@ -1,0 +1,14 @@
+[mcp_servers.ace]
+command = "node"
+args = ["/ace/dist/bin/ace-mcp.js"]
+cwd = "/workspace"
+required = true
+startup_timeout_sec = 30
+tool_timeout_sec = 90
+default_tools_approval_mode = "auto"
+enabled_tools = ["ace_context"]
+
+[mcp_servers.ace.env]
+ACE_WORKSPACE_ROOT = "/workspace"
+ACE_ALLOWED_ROOTS = "/workspace"
+ACE_WORKSPACE_ID = "00000000-0000-4000-8000-000000000001"

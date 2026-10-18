@@ -1,0 +1,1 @@
+Open `/workspace/fixture.txt`. Replace the exact token `TODO` with `DONE` and leave every other byte unchanged. Do not use or expect ACE, MCP, or any external context tool. Do not edit any other file.

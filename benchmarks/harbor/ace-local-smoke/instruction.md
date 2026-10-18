@@ -1,0 +1,1 @@
+Before editing, use the configured native `ace` MCP tool and call `ace_context` with `workspace_id` `00000000-0000-4000-8000-000000000001`, query `fixture TODO`, and inspect the returned source-attributed context. Then open `/workspace/fixture.txt`. Replace the exact token `TODO` with `DONE` and leave every other byte unchanged. Do not edit any other file.

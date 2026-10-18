@@ -1,0 +1,17 @@
+{
+  "suite_id": "ace-harness-local-holdout",
+  "suite_version": 1,
+  "holdout": true,
+  "quality_rubric": "The requested file edit is exact, all other bytes/files remain unchanged, and the verifier passes.",
+  "tasks": [
+    {
+      "task_id": "ace-local-smoke",
+      "task_path": "benchmarks/harbor/ace-local-smoke-paired",
+      "task_version": "1.0.0",
+      "repo_base_commit": "fixture-only",
+      "input_digest": "e2ff728211719f1b6de78ddea92c738ea501d2db97641d4982aa5aabf77fa1eb",
+      "quality_commands": ["test -f /workspace/fixture.txt", "test \"$(cat /workspace/fixture.txt)\" = \"ACE smoke fixture: DONE\""]
+    }
+  ],
+  "private_solution": "not included in manifest"
+}

@@ -1,0 +1,55 @@
+{
+  "report_id": "ace-local-smoke-paired-repeat5",
+  "suite_id": "ace-harness-local-paired",
+  "holdout": true,
+  "task_count": 1,
+  "configurations": [
+    {
+      "configuration": "native-codex",
+      "aggregatePath": "artifacts/harbor-native-repeat5-valid4/ace-local-smoke-native-repeat5/result.json",
+      "aggregateSha256": "524e1294a19383be4e247b6928493be570452b78609229bfc3045e4d1622b78b",
+      "trials": 5,
+      "completed": 5,
+      "errors": 0,
+      "qualityMean": 1,
+      "passAt5": 1,
+      "inputTokens": 261125,
+      "cachedInputTokens": 242816,
+      "outputTokens": 2316,
+      "totalTokens": 263441,
+      "costUsd": 0.01129732,
+      "trialsWithRewardOne": 5,
+      "successfulAceContextCalls": 0
+    },
+    {
+      "configuration": "codex-plus-ace",
+      "aggregatePath": "artifacts/harbor-ace-repeat5-valid/ace-local-smoke-ace-repeat5/result.json",
+      "aggregateSha256": "6fef95669db4179d6af8febeccbb08e2ccf5a107e51e1e80b9b617888fbee7dc",
+      "trials": 5,
+      "completed": 5,
+      "errors": 0,
+      "qualityMean": 1,
+      "passAt5": 1,
+      "inputTokens": 649389,
+      "cachedInputTokens": 581504,
+      "outputTokens": 5530,
+      "totalTokens": 654919,
+      "costUsd": 0.03184308,
+      "trialsWithRewardOne": 5,
+      "successfulAceContextCalls": 10
+    }
+  ],
+  "deltas": {
+    "quality_mean": 0,
+    "total_tokens": 391478,
+    "cost_usd": 0.020545760000000003,
+    "cost_ratio_ace_over_native": 2.818640173067595
+  },
+  "limitations": [
+    "This is one deterministic fixture task repeated five times, not a general coding benchmark.",
+    "Both configurations achieved the same quality outcome; no quality advantage is established.",
+    "Serena, independent MCP and long-horizon memory extraction are not included in this comparison.",
+    "The measured ACE overhead is provider-reported Codex usage/cost only; no external provider cost was present.",
+    "No 5x improvement claim is permitted."
+  ]
+}

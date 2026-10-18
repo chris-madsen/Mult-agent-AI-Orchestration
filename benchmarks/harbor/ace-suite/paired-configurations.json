@@ -1,0 +1,35 @@
+{
+  "suite_id": "ace-harness-local-paired",
+  "suite_version": 1,
+  "holdout_manifest": "benchmarks/harbor/ace-suite/holdout.json",
+  "configurations": [
+    {
+      "id": "native-codex",
+      "description": "Native Codex tools with caching and compaction enabled; no ACE MCP server.",
+      "mcp_servers": []
+    },
+    {
+      "id": "codex-plus-ace",
+      "description": "The same Codex configuration with the ACE stdio MCP server injected.",
+      "mcp_servers": [
+        {
+          "name": "ace",
+          "transport": "stdio",
+          "command": "node",
+          "args": ["dist/bin/ace-mcp.js"],
+          "required_environment": ["ACE_WORKSPACE_ROOT"]
+        }
+      ]
+    }
+  ],
+  "comparison_rules": {
+    "same_model": true,
+    "same_reasoning_effort": true,
+    "same_holdout": true,
+    "quality_gate_before_usage_comparison": true,
+    "failed_runs_retained": true,
+    "five_x_claim_allowed": false,
+    "verified_report": "benchmarks/reports/ace-local-smoke-natural-paired-repeat5.{md,json,csv}",
+    "forced_mcp_integration_report": "benchmarks/reports/ace-local-smoke-paired-repeat5.{md,json,csv}"
+  }
+}

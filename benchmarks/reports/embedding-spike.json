@@ -1,0 +1,68 @@
+{
+  "provider": "local_sha256_projection_v1",
+  "dimensions": 64,
+  "labeledCases": [
+    {
+      "query": "persist a user record",
+      "relevant": "save-user",
+      "top1": "save-user",
+      "scores": [
+        {
+          "id": "save-user",
+          "score": 0.1656049848312611
+        },
+        {
+          "id": "delete-user",
+          "score": 0.1593697143525875
+        },
+        {
+          "id": "parse-user",
+          "score": -0.04233227309678384
+        }
+      ]
+    },
+    {
+      "query": "read current workspace file bytes",
+      "relevant": "read-exact",
+      "top1": "write-exact",
+      "scores": [
+        {
+          "id": "write-exact",
+          "score": 0.2130139977004238
+        },
+        {
+          "id": "hash-content",
+          "score": 0.04531845377307828
+        },
+        {
+          "id": "read-exact",
+          "score": -0.03569932561317114
+        }
+      ]
+    },
+    {
+      "query": "remove an old graph episode",
+      "relevant": "remove-episode",
+      "top1": "remove-episode",
+      "scores": [
+        {
+          "id": "remove-episode",
+          "score": 0.06135086860209983
+        },
+        {
+          "id": "add-episode",
+          "score": -0.052803896732634005
+        },
+        {
+          "id": "search-memory",
+          "score": -0.2023929716260255
+        }
+      ]
+    }
+  ],
+  "localTop1Accuracy": 0.6666666666666666,
+  "cloud": {
+    "status": "blocked",
+    "reason": "no approved project policy or cloud credentials; private code remains local"
+  }
+}

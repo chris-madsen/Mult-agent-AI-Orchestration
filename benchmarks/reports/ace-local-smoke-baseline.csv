@@ -1,0 +1,3 @@
+report_id,suite_id,suite_version,run_id,state,quality,total_tokens,total_tokens_status,cost_usd,cost_status
+"ace-local-smoke-baseline","ace-harness-local-smoke","1","harbor-oauth-success","Recorded","passed","60298","known","0.00367496","known"
+"ace-local-smoke-baseline","ace-harness-local-smoke","1","harbor-api-key-failure","RecordedIncomplete","unknown","","unknown","","unknown"

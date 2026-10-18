@@ -1,0 +1,29 @@
+[
+  {
+    "query": "persist a user record",
+    "relevant_candidate": "save-user",
+    "candidates": {
+      "save-user": "export function saveUser(record: User): void { repository.save(record); }",
+      "parse-user": "export function parseUser(input: string): User { return JSON.parse(input); }",
+      "delete-user": "export function deleteUser(id: string): void { repository.remove(id); }"
+    }
+  },
+  {
+    "query": "read current workspace file bytes",
+    "relevant_candidate": "read-exact",
+    "candidates": {
+      "read-exact": "async function readExact(path: string): Promise<Uint8Array> { return fs.readFile(path); }",
+      "write-exact": "async function writeExact(path: string, bytes: Uint8Array): Promise<void> { await fs.writeFile(path, bytes); }",
+      "hash-content": "function hashContent(bytes: Uint8Array): string { return sha256(bytes); }"
+    }
+  },
+  {
+    "query": "remove an old graph episode",
+    "relevant_candidate": "remove-episode",
+    "candidates": {
+      "remove-episode": "async function removeEpisode(id: string): Promise<void> { await graph.removeEpisode(id); }",
+      "add-episode": "async function addEpisode(text: string): Promise<void> { await graph.addEpisode(text); }",
+      "search-memory": "async function searchMemory(query: string): Promise<Result[]> { return graph.search(query); }"
+    }
+  }
+]

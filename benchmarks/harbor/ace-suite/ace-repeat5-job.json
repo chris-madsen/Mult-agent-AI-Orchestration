@@ -1,0 +1,35 @@
+{
+  "job_name": "ace-local-smoke-ace-repeat5",
+  "tasks": [
+    {"path": "benchmarks/harbor/ace-local-smoke-paired"},
+    {"path": "benchmarks/harbor/ace-local-smoke-paired"},
+    {"path": "benchmarks/harbor/ace-local-smoke-paired"},
+    {"path": "benchmarks/harbor/ace-local-smoke-paired"},
+    {"path": "benchmarks/harbor/ace-local-smoke-paired"}
+  ],
+  "agents": [{
+    "name": "codex",
+    "model_name": "gpt-5.6-luna",
+    "override_setup_timeout_sec": 600,
+    "kwargs": {"reasoning_effort": "high", "config": "benchmarks/harbor/ace-codex-config.toml"}
+  }],
+  "environment": {
+    "type": "docker",
+    "delete": true,
+    "env": {
+      "ACE_WORKSPACE_ROOT": "/workspace",
+      "ACE_ALLOWED_ROOTS": "/workspace",
+      "ACE_WORKSPACE_ID": "00000000-0000-4000-8000-000000000001"
+    },
+    "mounts": [{
+      "type": "bind",
+      "source": "/media/ilja/DATA/soft/consillium/harness",
+      "target": "/ace",
+      "read_only": true
+    }]
+  },
+  "n_concurrent_trials": 1,
+  "n_attempts": 1,
+  "jobs_dir": "artifacts/harbor-ace-natural-repeat5-serial",
+  "quiet": false
+}

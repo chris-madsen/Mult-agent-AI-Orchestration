@@ -1,0 +1,1 @@
+Open `/workspace/fixture.txt`. Replace the exact token `TODO` with `DONE` and leave every other byte unchanged. Use the available tools only when they reduce uncertainty, and do not edit any other file.

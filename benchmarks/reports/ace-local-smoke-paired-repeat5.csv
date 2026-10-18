@@ -1,0 +1,3 @@
+configuration,trials,completed,errors,quality_mean,pass_at_5,input_tokens,cached_input_tokens,output_tokens,total_tokens,cost_usd,successful_ace_context_calls,aggregate_sha256
+"native-codex","5","5","0","1","1","261125","242816","2316","263441","0.01129732","0","524e1294a19383be4e247b6928493be570452b78609229bfc3045e4d1622b78b"
+"codex-plus-ace","5","5","0","1","1","649389","581504","5530","654919","0.03184308","10","6fef95669db4179d6af8febeccbb08e2ccf5a107e51e1e80b9b617888fbee7dc"

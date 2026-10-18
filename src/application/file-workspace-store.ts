@@ -1,0 +1,143 @@
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import { Effect } from 'effect';
+import { domainError } from '../domain/errors.js';
+import { err, isErr, ok, type Result } from '../domain/result.js';
+import {
+  ingestRepoPath,
+  makeContentDigest,
+  makeWorkspaceId,
+  type FileObservation,
+  type RepoPath,
+  type WorkspaceId,
+  type WorkspaceRecord,
+} from '../domain/workspace.js';
+import type { WorkspaceStore } from './ports.js';
+import type { DomainError } from '../domain/errors.js';
+import { recoverResult } from './effect-result.js';
+
+interface PersistedState {
+  readonly schemaVersion: 1;
+  readonly workspaces: readonly WorkspaceRecord[];
+}
+
+const emptyState: PersistedState = { schemaVersion: 1, workspaces: [] };
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const nodeErrorCode = (cause: unknown): string | undefined => {
+  if (typeof cause !== 'object' || cause === null || !('code' in cause)) return undefined;
+  const code = cause.code;
+  return typeof code === 'string' ? code : undefined;
+};
+
+const parseWorkingTreeVersion = (value: unknown): NonNullable<WorkspaceRecord['lastObservation']> | undefined => {
+  if (!isRecord(value) || typeof value.headRevision !== 'string' || typeof value.observationEpoch !== 'number' || !Number.isSafeInteger(value.observationEpoch)) return undefined;
+  if (!Array.isArray(value.files) || !Array.isArray(value.removedPaths)) return undefined;
+  const files: FileObservation[] = [];
+  for (const item of value.files) {
+    if (!isRecord(item) || typeof item.repoPath !== 'string' || typeof item.digest !== 'string' || typeof item.sizeBytes !== 'number' || typeof item.observedAtMs !== 'number') return undefined;
+    const repoPath = ingestRepoPath(item.repoPath);
+    const digest = makeContentDigest(item.digest);
+    if (repoPath._tag === 'Err' || digest._tag === 'Err' || item.sizeBytes < 0 || !Number.isSafeInteger(item.sizeBytes)) return undefined;
+    const state = item.state;
+    if (state !== 'tracked' && state !== 'untracked' && state !== 'deleted' && state !== 'unknown') return undefined;
+    files.push({ repoPath: repoPath.value, digest: digest.value, sizeBytes: item.sizeBytes, state, observedAtMs: item.observedAtMs });
+  }
+  const removedPaths: RepoPath[] = [];
+  for (const item of value.removedPaths) {
+    if (typeof item !== 'string') return undefined;
+    const repoPath = ingestRepoPath(item);
+    if (repoPath._tag === 'Err') return undefined;
+    removedPaths.push(repoPath.value);
+  }
+  return { headRevision: value.headRevision, observationEpoch: value.observationEpoch, files, removedPaths };
+};
+
+const parseState = (value: unknown): Result<PersistedState, ReturnType<typeof domainError>> => {
+  if (!isRecord(value)) return err(domainError('PERSISTENCE_FAILED', 'state', 'state must be an object'));
+  const record = value;
+  if (record.schemaVersion !== 1 || !Array.isArray(record.workspaces)) {
+    return err(domainError('PERSISTENCE_FAILED', 'state', 'unsupported workspace state schema'));
+  }
+  const workspaces: WorkspaceRecord[] = [];
+  for (const item of record.workspaces) {
+    if (!isRecord(item)) return err(domainError('PERSISTENCE_FAILED', 'workspaces', 'invalid workspace record'));
+    const candidate = item;
+    const id = typeof candidate.workspaceId === 'string' ? makeWorkspaceId(candidate.workspaceId) : err(domainError('PERSISTENCE_FAILED', 'workspace_id', 'invalid workspace id'));
+    if (isErr(id) || typeof candidate.rootPath !== 'string' || typeof candidate.observationEpoch !== 'number' || typeof candidate.createdAtMs !== 'number') {
+      return err(domainError('PERSISTENCE_FAILED', 'workspaces', 'invalid workspace record'));
+    }
+    const lastObservation = candidate.lastObservation === undefined ? undefined : parseWorkingTreeVersion(candidate.lastObservation);
+    if (candidate.lastObservation !== undefined && lastObservation === undefined) {
+      return err(domainError('PERSISTENCE_FAILED', 'last_observation', 'invalid workspace observation'));
+    }
+    const workspace: WorkspaceRecord = {
+      workspaceId: id.value,
+      rootPath: candidate.rootPath,
+      observationEpoch: candidate.observationEpoch,
+      createdAtMs: candidate.createdAtMs,
+    };
+    workspaces.push(
+      lastObservation === undefined
+        ? workspace
+        : { ...workspace, lastObservation },
+    );
+  }
+  return ok({ schemaVersion: 1, workspaces });
+};
+
+export const makeFileWorkspaceStore = (statePath: string): WorkspaceStore => {
+  const load = (): Effect.Effect<Result<PersistedState, ReturnType<typeof domainError>>> =>
+    recoverResult(Effect.tryPromise<Result<PersistedState, DomainError>, DomainError>({
+      try: async () => {
+        try {
+          const raw = await readFile(statePath, 'utf8');
+          return parseState(JSON.parse(raw));
+        } catch (cause) {
+          return nodeErrorCode(cause) === 'ENOENT'
+            ? ok(emptyState)
+            : err(domainError('PERSISTENCE_FAILED', 'state', 'could not read workspace state'));
+        }
+      },
+      catch: () => domainError('PERSISTENCE_FAILED', 'state', 'workspace state read failed'),
+    }));
+
+  const saveState = (state: PersistedState): Effect.Effect<Result<void, ReturnType<typeof domainError>>> =>
+    recoverResult(Effect.tryPromise<Result<void, DomainError>, DomainError>({
+      try: async () => {
+        await mkdir(dirname(statePath), { recursive: true });
+        const temporary = `${statePath}.tmp`;
+        await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+        await rename(temporary, statePath);
+        return ok<void>(undefined);
+      },
+      catch: () => domainError('PERSISTENCE_FAILED', 'state', 'workspace state write failed'),
+    }));
+
+  return {
+    get: (workspaceId: WorkspaceId) =>
+      Effect.gen(function* () {
+        const state = yield* load();
+        if (isErr(state)) return state;
+        const record = state.value.workspaces.find((item) => item.workspaceId === workspaceId);
+        return record === undefined
+          ? err(domainError('WORKSPACE_NOT_FOUND', 'workspace_id', 'workspace is not registered'))
+          : ok(record);
+      }),
+    findByRoot: (rootPath: string) =>
+      Effect.gen(function* () {
+        const state = yield* load();
+        if (isErr(state)) return state;
+        return ok(state.value.workspaces.find((item) => item.rootPath === rootPath));
+      }),
+    save: (record: WorkspaceRecord) =>
+      Effect.gen(function* () {
+        const state = yield* load();
+        if (isErr(state)) return state;
+        const workspaces = state.value.workspaces.filter((item) => item.workspaceId !== record.workspaceId);
+        return yield* saveState({ schemaVersion: 1, workspaces: [...workspaces, record] });
+      }),
+  };
+};

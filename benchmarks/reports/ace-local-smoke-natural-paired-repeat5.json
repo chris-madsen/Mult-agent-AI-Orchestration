@@ -1,0 +1,57 @@
+{
+  "report_id": "ace-local-smoke-natural-paired-repeat5",
+  "suite_id": "ace-harness-local-paired",
+  "holdout": true,
+  "task_count": 1,
+  "mcp_mode": "optional",
+  "configurations": [
+    {
+      "configuration": "native-codex",
+      "aggregatePath": "artifacts/harbor-native-natural-repeat5-serial/ace-local-smoke-native-natural-repeat5-serial/result.json",
+      "aggregateSha256": "586f7b1ade51e50ffa2f551b746295238383171c350dd7c13d47747e94046928",
+      "trials": 5,
+      "completed": 5,
+      "errors": 0,
+      "qualityMean": 1,
+      "passAt5": 1,
+      "inputTokens": 359072,
+      "cachedInputTokens": 334720,
+      "outputTokens": 3080,
+      "totalTokens": 362152,
+      "costUsd": 0.0152608,
+      "trialsWithRewardOne": 5,
+      "successfulAceContextCalls": 0
+    },
+    {
+      "configuration": "codex-plus-ace",
+      "aggregatePath": "artifacts/harbor-ace-natural-repeat5-serial/ace-local-smoke-ace-natural-repeat5-serial/result.json",
+      "aggregateSha256": "066819cd357e3ffd3ce80053f3779b5dbe0ddfafe4d47ef700051748cdd51d3f",
+      "trials": 5,
+      "completed": 5,
+      "errors": 0,
+      "qualityMean": 1,
+      "passAt5": 1,
+      "inputTokens": 297813,
+      "cachedInputTokens": 279040,
+      "outputTokens": 2619,
+      "totalTokens": 300432,
+      "costUsd": 0.012478199999999998,
+      "trialsWithRewardOne": 5,
+      "successfulAceContextCalls": 0
+    }
+  ],
+  "deltas": {
+    "quality_mean": 0,
+    "total_tokens": -61720,
+    "cost_usd": -0.0027826000000000014,
+    "cost_ratio_ace_over_native": 0.8176635563011112
+  },
+  "limitations": [
+    "This is one deterministic fixture task repeated five times, not a general coding benchmark.",
+    "Both configurations achieved the same quality outcome; no quality advantage is established.",
+    "The natural paired task made no ACE MCP calls in either arm; retrieval efficiency remains unmeasured.",
+    "Serena, independent MCP and long-horizon memory extraction are not included in this comparison.",
+    "The measured ACE overhead is provider-reported Codex usage/cost only; no external provider cost was present.",
+    "No 5x improvement claim is permitted."
+  ]
+}
