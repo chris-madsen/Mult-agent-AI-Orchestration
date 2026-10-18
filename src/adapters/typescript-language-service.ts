@@ -94,9 +94,12 @@ export const makeTypeScriptLanguageServicePort = (options: TypeScriptLanguageSer
   }),
   references: (query) => withQuery(options, query, (service, fileName, position, files) => {
     const references = service.getReferencesAtPosition(fileName, position) ?? [];
+    const definitions = service.getDefinitionAtPosition(fileName, position) ?? [];
+    const declarationSpans = new Set(definitions.map((item) =>
+      [path.resolve(item.fileName), item.textSpan.start, item.textSpan.length].join(':')));
     return ok(references.flatMap((item): SemanticReference[] => {
       const location = locationFromSpan(options.rootPath, files, item.fileName, item.textSpan);
-      return location === undefined ? [] : [{ location, isDefinition: item.isDefinition === true }];
+      return location === undefined ? [] : [{ location, isDefinition: declarationSpans.has([path.resolve(item.fileName), item.textSpan.start, item.textSpan.length].join(':')) }];
     }));
   }),
   typeInfo: (query) => withQuery(options, query, (service, fileName, position) => {
