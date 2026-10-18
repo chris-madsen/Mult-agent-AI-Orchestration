@@ -32,7 +32,7 @@ Invocation **after running real paired Harbor jobs**:
 npm run gate:harbor -- /path/to/native-job /path/to/ace-job /path/to/report.json
 ```
 
-The existing Harbor smoke reports cannot establish causal benefit. **No paired real-service Harbor job was run in this assistant environment**: local Qdrant/Ollama/Graphiti/Vertex, Codex runtime, Docker and relevant credentials were not available through the GitHub connector. A frozen multi-task holdout, full agent/model/settings parity, total external provider costs and provenance tracing remain release gates.
+The existing Harbor smoke reports cannot establish causal benefit. **No paired real-service Harbor job was run in this assistant environment**: the required Qdrant service, approved embedding-provider configuration, Graphiti/Vertex services, Codex runtime, Docker and relevant credentials were not available through the GitHub connector. A frozen multi-task holdout, full agent/model/settings parity, total external provider costs and provenance tracing remain release gates.
 
 ## Verification matrix
 
