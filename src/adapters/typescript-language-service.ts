@@ -90,46 +90,46 @@ export const makeTypeScriptLanguageServicePort = (options: TypeScriptLanguageSer
   // for all semantic calls in one verified index generation.
   const runtime = makeService(options);
   return {
-  definition: (query) => withQuery(options, runtime, query, (service, fileName, position, files) => {
-    const definitions = service.getDefinitionAtPosition(fileName, position) ?? [];
-    return ok(definitions.flatMap((item): SemanticDefinition[] => {
-      const location = locationFromSpan(options.rootPath, files, item.fileName, item.textSpan);
-      return location === undefined ? [] : [{ location, name: item.name, kind: item.kind }];
-    }));
-  }),
-  references: (query) => withQuery(options, runtime, query, (service, fileName, position, files) => {
-    const references = service.getReferencesAtPosition(fileName, position) ?? [];
-    const definitions = service.getDefinitionAtPosition(fileName, position) ?? [];
-    const declarationSpans = new Set(definitions.map((item) =>
-      [path.resolve(item.fileName), item.textSpan.start, item.textSpan.length].join(':')));
-    return ok(references.flatMap((item): SemanticReference[] => {
-      const location = locationFromSpan(options.rootPath, files, item.fileName, item.textSpan);
-      return location === undefined ? [] : [{ location, isDefinition: declarationSpans.has([path.resolve(item.fileName), item.textSpan.start, item.textSpan.length].join(':')) }];
-    }));
-  }),
-  typeInfo: (query) => withQuery(options, runtime, query, (service, fileName, position) => {
-    const info = service.getQuickInfoAtPosition(fileName, position);
-    if (info === undefined) return ok(undefined);
-    const display = ts.displayPartsToString(info.displayParts);
-    const documentation = ts.displayPartsToString(info.documentation);
-    return ok(documentation.length === 0 ? { display } : { display, documentation });
-  }),
-  diagnostics: ({ repoPath }) => Effect.sync(() => {
-    const { service, files } = runtime;
-    const fileName = path.resolve(options.rootPath, repoPath);
-    if (!files.has(fileName)) return failure('repo_path', 'source file is not included in the language-service project');
-    const diagnostics = [...service.getSyntacticDiagnostics(fileName), ...service.getSemanticDiagnostics(fileName)];
-    return ok(diagnostics.map((diagnostic): SemanticDiagnostic => {
-      const location = diagnostic.start === undefined || diagnostic.length === undefined
-        ? undefined
-        : locationFromSpan(options.rootPath, files, fileName, { start: diagnostic.start, length: diagnostic.length });
-      return {
-        ...(location === undefined ? {} : { location }),
-        message: flattenMessage(diagnostic.messageText),
-        category: category(diagnostic.category),
-        code: diagnostic.code,
-      };
-    }));
-  }),
+    definition: (query) => withQuery(options, runtime, query, (service, fileName, position, files) => {
+      const definitions = service.getDefinitionAtPosition(fileName, position) ?? [];
+      return ok(definitions.flatMap((item): SemanticDefinition[] => {
+        const location = locationFromSpan(options.rootPath, files, item.fileName, item.textSpan);
+        return location === undefined ? [] : [{ location, name: item.name, kind: item.kind }];
+      }));
+    }),
+    references: (query) => withQuery(options, runtime, query, (service, fileName, position, files) => {
+      const references = service.getReferencesAtPosition(fileName, position) ?? [];
+      const definitions = service.getDefinitionAtPosition(fileName, position) ?? [];
+      const declarationSpans = new Set(definitions.map((item) =>
+        [path.resolve(item.fileName), item.textSpan.start, item.textSpan.length].join(':')));
+      return ok(references.flatMap((item): SemanticReference[] => {
+        const location = locationFromSpan(options.rootPath, files, item.fileName, item.textSpan);
+        return location === undefined ? [] : [{ location, isDefinition: declarationSpans.has([path.resolve(item.fileName), item.textSpan.start, item.textSpan.length].join(':')) }];
+      }));
+    }),
+    typeInfo: (query) => withQuery(options, runtime, query, (service, fileName, position) => {
+      const info = service.getQuickInfoAtPosition(fileName, position);
+      if (info === undefined) return ok(undefined);
+      const display = ts.displayPartsToString(info.displayParts);
+      const documentation = ts.displayPartsToString(info.documentation);
+      return ok(documentation.length === 0 ? { display } : { display, documentation });
+    }),
+    diagnostics: ({ repoPath }) => Effect.sync(() => {
+      const { service, files } = runtime;
+      const fileName = path.resolve(options.rootPath, repoPath);
+      if (!files.has(fileName)) return failure('repo_path', 'source file is not included in the language-service project');
+      const diagnostics = [...service.getSyntacticDiagnostics(fileName), ...service.getSemanticDiagnostics(fileName)];
+      return ok(diagnostics.map((diagnostic): SemanticDiagnostic => {
+        const location = diagnostic.start === undefined || diagnostic.length === undefined
+          ? undefined
+          : locationFromSpan(options.rootPath, files, fileName, { start: diagnostic.start, length: diagnostic.length });
+        return {
+          ...(location === undefined ? {} : { location }),
+          message: flattenMessage(diagnostic.messageText),
+          category: category(diagnostic.category),
+          code: diagnostic.code,
+        };
+      }));
+    }),
   };
 };

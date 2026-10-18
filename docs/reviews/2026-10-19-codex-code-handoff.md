@@ -12,7 +12,7 @@
 
 ## Reproducible execution
 
-Use Node 22+, TypeScript 5.9, `npm ci`. The official MCP server SDK v2 `2.3.1` requires compatible Zod 4.2+; `4.3.6` was selected. Ensure `package-lock.json` matches. Install pinned Python Tree-sitter and TypeScript grammars.
+Use Node 22+, TypeScript 5.9, `npm ci`. The official MCP server SDK v2 `2.3.1` requires compatible Zod 4.2+; this repository pins `zod@4.6.7` to match the SDK dependency. Ensure `package-lock.json` matches. Install pinned Python Tree-sitter and TypeScript grammars.
 
 Set `ACE_WORKSPACE_ROOT` to an allowed source repo, plus:
 

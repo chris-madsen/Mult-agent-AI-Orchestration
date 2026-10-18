@@ -15,7 +15,7 @@
 
 ### P0 — SHA-256 выдаёт deterministic projection, но не semantic embedding
 
-[`src/adapters/local-hash-embedding.ts#L17-L40`](https://github.com/chris-madsen/Mult-agent-AI-Orchestration/blob/ef2c7967ec6876a978800de01523146a8d077709/src/adapters/local-hash-embedding.ts#L17-L40) генерирует псевдовекторы из криптографического хэша. Семантическая близость текстов из этого **не следует**. В `SPIKE-RETRIEVAL-PROVIDERS.md` реализация названa `local_sha256_projection_v1`, то есть это не скрывается — и это смягчающее обстоятельство. Но измеренные `2/3` на трёх кейсах ничего не доказывают о качественных embeddings. **Blocking acceptance:** использовать измеренную настоящую embedding-модель, локальную по умолчанию; hash допускается только как fixture double.
+[`src/adapters/local-hash-embedding.ts#L17-L40`](https://github.com/chris-madsen/Mult-agent-AI-Orchestration/blob/ef2c7967ec6876a978800de01523146a8d077709/src/adapters/local-hash-embedding.ts#L17-L40) генерирует псевдовекторы из криптографического хэша. Семантическая близость текстов из этого **не следует**. В `SPIKE-RETRIEVAL-PROVIDERS.md` реализация названа `local_sha256_projection_v1`, то есть это не скрывается — и это смягчающее обстоятельство. Но измеренные `2/3` на трёх кейсах ничего не доказывают о качественных embeddings. **Blocking acceptance:** использовать измеренную настоящую embedding-модель, локальную по умолчанию; hash допускается только как fixture double.
 
 ### P1 — Собственный MCP transport без оправданного ADR
 
