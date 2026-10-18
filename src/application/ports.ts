@@ -37,6 +37,14 @@ export interface HttpPort {
   readonly request: (request: HttpRequest) => Effect.Effect<Result<HttpResponse, DomainError>>;
 }
 
+/**
+ * Embedding provider boundary. The concrete provider is intentionally not
+ * selected here; provider choice requires an approved, measured spike.
+ */
+export interface VectorEmbeddingPort {
+  readonly embedMany: (input: readonly string[]) => Effect.Effect<Result<readonly (readonly number[])[], DomainError>>;
+}
+
 export interface CodePoint {
   readonly candidate: CodeCandidate;
   readonly vector: readonly number[];

@@ -18,6 +18,7 @@ test('DBC-01 missing selected providers returns NOT_READY from the actual MCP ex
       ACE_ALLOWED_ROOTS: parent,
       ACE_STATE_DIR: join(parent, 'state'),
       ACE_WORKSPACE_ID: 'dbc01-test-workspace',
+      ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
       ACE_ALLOW_LOCAL_FALLBACK: 'false',
     },
     stdio: ['pipe', 'pipe', 'pipe'],

@@ -17,10 +17,10 @@ import type {
   DocumentationPort,
   HttpPort,
   SemanticAnalysisPort,
+  VectorEmbeddingPort,
   WorkspaceFilePort,
 } from '../application/ports.js';
 import type { RepoPath, WorkspaceId } from '../domain/workspace.js';
-import type { VectorEmbeddingPort } from './ollama-embedding.js';
 
 export interface QdrantContextConfig {
   readonly workspaceId: WorkspaceId;
@@ -63,7 +63,7 @@ export const populateQdrantFromStructuralIndex = (
 });
 
 // Index creation never deletes or silently replaces an existing collection.
-// The vector dimension must match the configured real embedding model.
+// The vector dimension must match the approved embedding provider.
 export const ensureQdrantCollection = (
   http: HttpPort,
   baseUrl: string,
@@ -82,7 +82,7 @@ export const ensureQdrantCollection = (
     const body = found.value.body as { result?: { config?: { params?: { vectors?: { size?: number } } } } };
     const configured = body?.result?.config?.params?.vectors?.size;
     if (configured !== dimension) {
-      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant', 'collection vector dimension does not match approved embedding model'));
+      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant', 'collection vector dimension does not match approved embedding provider'));
     }
     return ok(undefined);
   }

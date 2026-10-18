@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { Effect } from 'effect';
-import { makeOllamaEmbeddingPort } from '../src/adapters/ollama-embedding.js';
 import {
   ensureQdrantCollection,
   makeQdrantContextProvider,
@@ -39,22 +38,6 @@ const candidate = mustOk(makeCodeCandidate({
   generation: 1 as never,
   indexedAtMs: 1234,
 }));
-
-test('Real embedding boundary uses Ollama inference and validates output dimensions', async () => {
-  let calls = 0;
-  const http: HttpPort = {
-    request: (request) => {
-      calls += 1;
-      assert.equal(request.url, 'http://127.0.0.1:11434/api/embed');
-      assert.deepEqual(request.body, { model: 'nomic-embed-text', input: ['source a', 'source b'] });
-      return Effect.succeed(ok({ status: 200, body: { embeddings: [[0.2, 0.7], [0.1, 0.4]] } }));
-    },
-  };
-  const provider = makeOllamaEmbeddingPort({ endpoint: 'http://127.0.0.1:11434', model: 'nomic-embed-text', http });
-  const result = mustOk(await Effect.runPromise(provider.embedMany(['source a', 'source b'])));
-  assert.equal(result.length, 2);
-  assert.equal(calls, 1);
-});
 
 test('Qdrant collection bootstrap is additive and rejects mismatched dimensions', async () => {
   const requests: string[] = [];
