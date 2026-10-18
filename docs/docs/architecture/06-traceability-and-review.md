@@ -118,3 +118,18 @@ Implementer MAY mock unresolved provider integration for isolated tests, but MUS
 - Harbor performance/correctness report for affected capabilities; raw logs retained safely.
 - Updated ADR if material assumption changed, documentation reflects actual, not aspirational, behavior.
 - Owner has reviewed, and `openspec archive` run only after verification.
+
+
+---
+
+## 7. Correction traceability: no provider-complete claims without wiring proof
+
+| Architecture contract | PRD / ADR | Spec owner | Current observed gap (2026-10-18) |
+|---|---|---|---|
+| DBC-01/02/03 actual Qdrant→AST→LSP, precise spans | FR-01/02/03/05, ADR-003/004 | 003 + 006 | Runtime `ace-mcp` uses regex/full-file lexical index |
+| DBC-06 completeness | FR-05/15/28, ADR-006/007 | 003 + 006 | Warnings can coexist with `complete=true` |
+| DBC-09 MCP SDK | FR-24/27, ADR-001 | 001 + 006 | Hand-rolled JSON-RPC instead of official SDK |
+| DBC-10/11 archive identity/delete | FR-17/18/22, ADR-005 | 004 + 006 | append re-identifies episodes; shared digest delete risk |
+| DBC-12 Harbor attribution | FR-29/30/35, ADR-009 | 002 + 006 | trivial forced smoke and zero-call natural smoke cannot prove gains |
+
+**Implementation-status vocabulary:** `contract-designed` → `adapter-implemented` → `provider-tested` → `agent-E2E-tested` → `benchmarked` → `owner-approved/production-ready`. A prior checkbox means only its **narrowly worded task** was attempted; it must not be used to promote an entire capability. The quality gates in `07-architecture-fitness-contracts.md` and proposed ADR-012 supersede any informal inference of readiness; accepted ADRs remain authoritative until the owner approves changes.

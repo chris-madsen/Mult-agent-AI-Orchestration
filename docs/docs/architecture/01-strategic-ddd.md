@@ -132,3 +132,12 @@ BC **не** является Kubernetes Deployment. Предложение: од
 - `docs/references/PRD-v1.0.md`: цели, сценарии, quality gates.
 - `docs/references/ADR-001...010`: принятые ограничения; **ADR-006 превосходит старое PRD FR-06 о фиксированном `max_tokens`**. Контекст relevance-first, автоматическая обрезка созданного кода недопустима.
 - **Открыто:** Jev vs deterministic router; Serena vs tsserver; embeddings local/cloud; code graph extension; способ K8s-доступа к рабочему дереву; provider для Graphiti extraction и его приватность; детали импорта Codex sessions; точная версия/adapter Harbor.
+
+
+---
+
+## Architecture correction: Bounded Context is not a runnable provider (proposed, 2026-10-18)
+
+Context Orchestration is accountable for the **observable capability** of delivering current, symbol-specific context via the actual MCP entrypoint. Code Discovery owns candidate retrieval semantics, Semantic Intelligence owns AST spans / language-service facts, Workspace Truth owns local source freshness, and Evaluation owns **attribution** of agent-run token results to real ACE invocations. These ownership lines are useful only if runtime composition actually delegates to each provider when required. A port, value object or mock is an implementation artifact, not a delivered bounded-context capability.
+
+**Dependency direction:** Codex → unified MCP ACL → policy-gated orchestration → selected mature provider adapters → current source verification → ranked bundle. Each provider's native DTO belongs in its own adapter, not domain code. A deterministic fallback is explicitly marked fallback/degraded; it never silently becomes the selected Qdrant/AST/LSP implementation. No new microservice is implied by these boundaries. See proposed ADR-012 and `07-architecture-fitness-contracts.md` for proof requirements.

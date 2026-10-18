@@ -79,3 +79,19 @@ The system SHALL record the attributable cost of Vertex, embeddings, memory extr
 
 - **WHEN** a run used third-party model calls
 - **THEN** their provider usage/cost is included in the cost ledger rather than omitted
+
+---
+
+### Requirement: Agent-level causal attribution and realistic retrieval tasks
+
+The system SHALL separate measured token differences from demonstrated ACE-caused benefit and SHALL use retrieval-demanding paired tasks for any retrieval-efficiency claim.
+
+#### Scenario: DBC-12 zero ACE calls
+
+- **WHEN** ACE-enabled Codex uses fewer tokens than baseline but invokes zero ACE tools
+- **THEN** the report records the difference and SHALL explicitly deny attribution to ACE retrieval
+
+#### Scenario: Trivial forced tool smoke
+
+- **WHEN** the only paired task replaces a known TODO token and ACE invocation is forced by instruction
+- **THEN** the result may validate protocol integration but SHALL NOT pass the code-retrieval benefit acceptance gate

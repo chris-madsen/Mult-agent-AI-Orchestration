@@ -34,3 +34,11 @@ Codex session-export and Graphiti adapters remain controlled exceptions; see
 - [x] Provider/security failure tests pass; no fabricated historical messages or accepted decisions.
 - [x] Domain and adapter dependencies comply with module boundaries and accepted ADRs.
 - [ ] Review the change with the owner; do not archive until exporter/Graphiti decisions are approved.
+
+---
+
+## Mandatory outstanding production gates (2026-10-18)
+
+**Architecture correction:** archive and Graphiti readiness must not be claimed from source-independent tests alone; stable event IDs across JSONL append and shared-digest deletion are unfulfilled critical contracts.
+- [ ] Test DBC-10 JSONL append/replay identity and DBC-11 shared content deletion with real archive persistence and derived-index purge.
+- [ ] Verify supported full-session Codex transcript capture and approved Graphiti projection before declaring temporal memory production-ready.

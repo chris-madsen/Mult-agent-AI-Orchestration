@@ -42,3 +42,13 @@ The exact CLI version and options must be checked against `openspec --help`/`ope
 ## Exclusions
 
 No full observability stack, default code-to-cloud, multi-tenant enterprise IAM, agent-written patch manipulation, guaranteed dynamic callgraph, mandatory fixed output-token limits, or fresh microservices per BC.
+
+---
+
+## Architecture correction and sixth proposed acceptance change (2026-10-18)
+
+**Critical:** Existing 001–005 changes contain provider-independent implementations, but an adapter and a green isolated contract test **do not** mean the production MCP composition uses the chosen provider. `006-production-retrieval-vertical-slice` is the proposed end-to-end closure change, with Meyer contracts DBC-01 through DBC-14 and owner review gate.
+
+New normative readiness levels: `contract-designed`, `adapter-implemented`, `real-provider-tested`, `agent-E2E-passed`, `benchmark-evaluated`, `owner-approved`. Do not check mandatory capabilities off through a "controlled exception": open external provider decisions mean `not_ready`. Real agent retrieval benefit needs a retrieval-demanding holdout with **actual ACE MCP calls**; zero-call natural smoke or forced trivial TODO test is never proof of causal benefit.
+
+Read `docs/docs/architecture/07-architecture-fitness-contracts.md`, the proposed ADR-012 and `docs/reviews/2026-10-18-architecture-failure-review.md` before executing the next implementation task. Keep original accepted ADR status unchanged until explicit owner approval.
