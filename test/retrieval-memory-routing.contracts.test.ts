@@ -264,6 +264,7 @@ test('EXT-01 Qdrant boundary maps valid points but never claims freshness', asyn
             score: 0.91,
             payload: {
               candidate_id: 'qdrant-candidate',
+              workspace_id: workspaceId,
               repo_path: 'src/save.ts',
               source_digest: 'a'.repeat(64),
               text: 'export function save() {}',

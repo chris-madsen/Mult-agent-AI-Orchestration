@@ -77,6 +77,7 @@ const candidateFromPayload = (point: Record<string, unknown>, workspaceId: Works
   const repoPath = stringField(payload, 'repo_path');
   const digest = stringField(payload, 'source_digest');
   const text = stringField(payload, 'text');
+  const claimedWorkspace = stringField(payload, 'workspace_id');
   const startLine = integerField(payload, 'start_line');
   const endLine = integerField(payload, 'end_line');
   const generation = integerField(payload, 'generation');
@@ -84,6 +85,10 @@ const candidateFromPayload = (point: Record<string, unknown>, workspaceId: Works
   if (repoPath._tag === 'Err') return repoPath;
   if (digest._tag === 'Err') return digest;
   if (text._tag === 'Err') return text;
+  if (claimedWorkspace._tag === 'Err') return claimedWorkspace;
+  if (claimedWorkspace.value !== workspaceId) {
+    return err(domainError('INVALID_EXTERNAL_RESPONSE', 'workspace_id', 'Qdrant payload belongs to another workspace'));
+  }
   if (startLine._tag === 'Err') return startLine;
   if (endLine._tag === 'Err') return endLine;
   if (generation._tag === 'Err') return generation;
@@ -95,7 +100,13 @@ const candidateFromPayload = (point: Record<string, unknown>, workspaceId: Works
     candidateId: id.value as CodeCandidate['candidateId'],
     workspaceId,
     repoPath: safePath.value,
-    range: { startLine: startLine.value, endLine: endLine.value },
+    range: {
+      startLine: startLine.value, endLine: endLine.value,
+      ...(typeof payload.start_column === 'number' && Number.isSafeInteger(payload.start_column)
+        ? { startColumn: payload.start_column } : {}),
+      ...(typeof payload.end_column === 'number' && Number.isSafeInteger(payload.end_column)
+        ? { endColumn: payload.end_column } : {}),
+    },
     ...(typeof payload.symbol_name === 'string' ? { symbolName: payload.symbol_name } : {}),
     text: text.value,
     sourceDigest: safeDigest.value,
@@ -113,6 +124,8 @@ const qdrantPoint = (point: CodePoint): Readonly<Record<string, unknown>> => ({
     repo_path: point.candidate.repoPath,
     start_line: point.candidate.range.startLine,
     end_line: point.candidate.range.endLine,
+    ...(point.candidate.range.startColumn === undefined ? {} : { start_column: point.candidate.range.startColumn }),
+    ...(point.candidate.range.endColumn === undefined ? {} : { end_column: point.candidate.range.endColumn }),
     ...(point.candidate.symbolName === undefined ? {} : { symbol_name: point.candidate.symbolName }),
     text: point.candidate.text,
     source_digest: point.candidate.sourceDigest,
@@ -135,7 +148,11 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
       method: 'POST',
       url: `${config.baseUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(config.collection)}/points/query`,
       ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
-      body: { query: input.vector, limit: input.limit, with_payload: true, with_vector: false, filter: { must: [{ key: 'workspace_id', match: { value: input.workspaceId } }] } },
+      body: { query: input.vector, limit: input.limit, with_payload: true, with_vector: false,
+        filter: { must: [
+          { key: 'workspace_id', match: { value: input.workspaceId } },
+          ...(input.generation === undefined ? [] : [{ key: 'generation', match: { value: input.generation } }]),
+        ] } },
     });
     if (responseResult._tag === 'Err') return responseResult;
     const response = responseResult.value;

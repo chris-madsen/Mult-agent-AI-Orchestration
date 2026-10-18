@@ -53,6 +53,8 @@ export interface RetrievalEvidence {
   readonly sourceDigest?: ContentDigest;
   readonly proofClass: 'direct' | 'derived' | 'uncertain';
   readonly freshness: CandidateFreshness;
+  /** Handle for authorized, byte-exact full-source expansion via ace_expand. */
+  readonly expansionHandle?: string;
 }
 
 export interface ContextBundle {
@@ -161,13 +163,14 @@ export const mergeEvidence = (
   query: string,
   evidence: readonly RetrievalEvidence[],
   warnings: readonly string[] = [],
+  failedRequiredSources: readonly string[] = [],
 ): ContextBundle => {
   const byIdentity = new Map<string, RetrievalEvidence>();
   for (const item of evidence) {
     const key = `${item.source}|${item.citation}|${item.sourceDigest ?? ''}|${item.content}`;
     if (!byIdentity.has(key)) byIdentity.set(key, item);
   }
-  const partialSources = [...new Set(evidence.filter((item) => item.freshness !== 'current').map((item) => item.source))];
+  const partialSources = [...new Set([...evidence.filter((item) => item.freshness !== 'current').map((item) => item.source), ...failedRequiredSources])];
   const allWarnings = [...new Set([...warnings, ...evidence.flatMap((item) => item.freshness === 'current' ? [] : [`${item.source}: ${item.freshness}`])])];
   return {
     requestId,
@@ -175,7 +178,7 @@ export const mergeEvidence = (
     evidence: [...byIdentity.values()],
     warnings: allWarnings,
     partialSources,
-    complete: partialSources.length === 0,
+    complete: partialSources.length === 0 && warnings.length === 0,
   };
 };
 

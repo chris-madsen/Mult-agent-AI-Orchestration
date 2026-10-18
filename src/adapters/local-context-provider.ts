@@ -33,20 +33,38 @@ export const makeLocalContextProvider = (options: LocalContextProviderOptions) =
     }
     const requestId = makeRequestId(options.newRequestId());
     if (requestId._tag === 'Err') return requestId;
-    const snapshot = yield* options.files.snapshot(options.rootPath, Date.now());
-    if (snapshot._tag === 'Err') return snapshot;
-    const currentDigests = new Map(snapshot.value.files.map((file) => [file.repoPath, file.digest]));
+    // Rank from indexed, limited candidates first; never re-read and hash the
+    // entire repository for each MCP request. Verify selected paths with exact reads.
     const ranked = searchCode(options.index, options.workspaceId, input.query, {
-      digestFor: (_workspaceId, repoPath) => currentDigests.get(repoPath),
-    });
+      digestFor: () => undefined,
+    }).slice(0, 20);
+    const checked = new Map<string, { readonly digest?: string; readonly error?: string }>();
+    for (const item of ranked) {
+      if (checked.has(item.candidate.repoPath)) continue;
+      const current = yield* options.files.readExact(options.rootPath, item.candidate.repoPath);
+      checked.set(item.candidate.repoPath, current._tag === 'Ok'
+        ? { digest: current.value.digest }
+        : { error: current.error.code });
+    }
     const evidence = ranked.flatMap((item, index) => {
       const evidenceId = makeEvidenceId(`code-${index + 1}`);
-      return evidenceId._tag === 'Ok' ? [evidenceFromCandidate(item, evidenceId.value)] : [];
+      if (evidenceId._tag === 'Err') return [];
+      const checkedSource = checked.get(item.candidate.repoPath);
+      const freshness = checkedSource?.digest === undefined
+        ? (checkedSource?.error === 'WORKTREE_RACED' ? 'changed_during_request' : 'unknown')
+        : checkedSource.digest === item.candidate.sourceDigest ? 'current' : 'stale';
+      return [evidenceFromCandidate({ ...item, freshness }, evidenceId.value)];
     });
     const warnings = [
+      'Local lexical fallback is not a production Qdrant + semantic retrieval implementation',
+      ...[...checked.entries()].filter(([, result]) => result.error !== undefined).map(([path, result]) => path + ': ' + result.error),
       ...(input.includeDocs ? ['documentation provider unavailable'] : []),
       ...(input.includeMemory ? ['memory provider unavailable'] : []),
     ];
-    return ok(mergeEvidence(requestId.value, input.query, evidence, warnings));
+    const failedRequiredSources = [
+      ...(input.includeDocs ? ['documentation'] : []),
+      ...(input.includeMemory ? ['memory'] : []),
+    ];
+    return ok(mergeEvidence(requestId.value, input.query, evidence, warnings, ['code', ...failedRequiredSources]));
   }),
 });

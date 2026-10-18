@@ -37,6 +37,14 @@ export interface HttpPort {
   readonly request: (request: HttpRequest) => Effect.Effect<Result<HttpResponse, DomainError>>;
 }
 
+/**
+ * Embedding provider boundary. The concrete provider is intentionally not
+ * selected here; provider choice requires an approved, measured spike.
+ */
+export interface VectorEmbeddingPort {
+  readonly embedMany: (input: readonly string[]) => Effect.Effect<Result<readonly (readonly number[])[], DomainError>>;
+}
+
 export interface CodePoint {
   readonly candidate: CodeCandidate;
   readonly vector: readonly number[];
@@ -47,6 +55,8 @@ export interface CodeCandidatePort {
     readonly workspaceId: WorkspaceId;
     readonly vector: readonly number[];
     readonly limit: number;
+    /** Current build epoch, preventing deleted/renamed sources from reappearing. */
+    readonly generation?: number;
   }) => Effect.Effect<Result<readonly RankedCandidate[], DomainError>>;
   readonly upsert: (points: readonly CodePoint[]) => Effect.Effect<Result<void, DomainError>>;
 }
