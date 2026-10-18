@@ -53,6 +53,8 @@ export interface RetrievalEvidence {
   readonly sourceDigest?: ContentDigest;
   readonly proofClass: 'direct' | 'derived' | 'uncertain';
   readonly freshness: CandidateFreshness;
+  /** Handle for authorized, byte-exact full-source expansion via ace_expand. */
+  readonly expansionHandle?: string;
 }
 
 export interface ContextBundle {

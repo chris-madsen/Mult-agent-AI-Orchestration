@@ -38,37 +38,37 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
   };
   server.registerTool('ace_context', {
     description: 'Retrieve source-attributed workspace context when configured.',
-    inputSchema: z.object({
+    inputSchema: {
       workspace_id: z.string().min(1),
       query: z.string(),
       intent: z.string().optional(),
       include_docs: z.boolean().optional(),
       include_memory: z.boolean().optional(),
-    }).strict(),
+    },
   }, async (args) => run('ace_context', args));
 
   server.registerTool('ace_expand', {
     description: 'Read an exact stored artifact byte range without silent truncation.',
-    inputSchema: z.object({
+    inputSchema: {
       handle: z.string().min(1),
       cursor: z.string().optional(),
       max_bytes: z.number().int().positive().optional(),
-    }).strict(),
+    },
   }, async (args) => run('ace_expand', args));
 
   server.registerTool('ace_workspace_status', {
     description: 'Report the workspace observation and provider readiness status.',
-    inputSchema: z.object({ workspace_id: z.string().min(1) }).strict(),
+    inputSchema: { workspace_id: z.string().min(1) },
   }, async (args) => run('ace_workspace_status', args));
 
   server.registerTool('ace_memory_search', {
     description: 'Search source-attributed project memory when a memory provider is configured.',
-    inputSchema: z.object({
+    inputSchema: {
       workspace_id: z.string().min(1),
       query: z.string(),
       as_of: z.string().optional(),
       include_original: z.boolean().optional(),
-    }).strict(),
+    },
   }, async (args) => run('ace_memory_search', args));
 
   return server;
