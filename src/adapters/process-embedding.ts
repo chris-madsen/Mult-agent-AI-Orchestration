@@ -121,7 +121,7 @@ export const makeProcessEmbeddingPort = (options: ProcessEmbeddingOptions): Mana
     if (failure === undefined) failPending(domainError('UNSUPPORTED_PROVIDER', 'embedding', `embedding worker exited with code ${code ?? 'unknown'}`));
   });
 
-  const embedMany = (input: readonly string[]): Effect.Effect<Result<readonly (readonly number[])[], DomainError>> => {
+  const embedMany = (input: readonly string[], requestId?: string): Effect.Effect<Result<readonly (readonly number[])[], DomainError>> => {
     const startedAtMs = Date.now();
     const operation: Effect.Effect<Result<readonly (readonly number[])[], DomainError>> = Effect.async((resume) => {
       if (input.length === 0 || input.some((text) => text.trim().length === 0)) {
@@ -159,6 +159,7 @@ export const makeProcessEmbeddingPort = (options: ProcessEmbeddingOptions): Mana
         status: result._tag === 'Ok' ? 'success' : 'failure',
         durationMs: Math.max(0, Date.now() - startedAtMs),
         vectorDimension: options.dimension,
+        ...(requestId === undefined ? {} : { requestId }),
         ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
       });
       return result;
