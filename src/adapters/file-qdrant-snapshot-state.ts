@@ -26,6 +26,23 @@ export interface SnapshotLease {
   readonly close: () => Promise<void>;
 }
 
+export type SnapshotLeaseProcessStatus = 'alive' | 'dead' | 'unknown';
+
+export interface FileQdrantSnapshotStateOptions {
+  readonly processId?: number;
+  readonly nowMs?: () => number;
+  readonly processStatus?: (processId: number) => SnapshotLeaseProcessStatus;
+}
+
+interface StoredSnapshotLease {
+  readonly schemaVersion: 1;
+  readonly workspaceId: WorkspaceId;
+  readonly indexKey: string;
+  readonly leaseId: string;
+  readonly processId: number;
+  readonly acquiredAtMs: number;
+}
+
 export interface FileQdrantSnapshotState {
   readonly isPublished: (identity: SnapshotManifestIdentity) => Promise<Result<boolean, DomainError>>;
   readonly latestPublished: (
@@ -42,6 +59,19 @@ export interface FileQdrantSnapshotState {
 const validIndexKey = (value: string): boolean => /^[a-f0-9]{64}$/u.test(value);
 const workspaceKey = (workspaceId: WorkspaceId): string =>
   createHash('sha256').update(workspaceId).digest('hex').slice(0, 32);
+
+const defaultProcessStatus = (processId: number): SnapshotLeaseProcessStatus => {
+  if (!Number.isSafeInteger(processId) || processId <= 0) return 'unknown';
+  try {
+    process.kill(processId, 0);
+    return 'alive';
+  } catch (cause) {
+    const code = (cause as NodeJS.ErrnoException).code;
+    if (code === 'ESRCH') return 'dead';
+    if (code === 'EPERM') return 'alive';
+    return 'unknown';
+  }
+};
 
 const normalizedIdentity = (identity: SnapshotManifestIdentity): SnapshotManifestIdentity => ({
   ...identity,
@@ -64,7 +94,10 @@ const sameIdentity = (stored: StoredSnapshotManifest, expected: SnapshotManifest
     && JSON.stringify(stored.coverage) === JSON.stringify(normalized.coverage);
 };
 
-export const makeFileQdrantSnapshotState = async (rootPath: string): Promise<FileQdrantSnapshotState> => {
+export const makeFileQdrantSnapshotState = async (
+  rootPath: string,
+  options: FileQdrantSnapshotStateOptions = {},
+): Promise<FileQdrantSnapshotState> => {
   const manifestsRoot = join(rootPath, 'manifests');
   const leasesRoot = join(rootPath, 'leases');
   await mkdir(manifestsRoot, { recursive: true });
@@ -93,7 +126,7 @@ export const makeFileQdrantSnapshotState = async (rootPath: string): Promise<Fil
       ...checked.value,
       schemaVersion: 2,
       status,
-      updatedAtMs: Date.now(),
+      updatedAtMs: options.nowMs?.() ?? Date.now(),
     };
     try {
       await writeFile(temporary, JSON.stringify(stored), { flag: 'wx' });
@@ -160,14 +193,15 @@ export const makeFileQdrantSnapshotState = async (rootPath: string): Promise<Fil
       const leaseId = randomUUID();
       const path = join(directory, `${leaseId}.json`);
       try {
-        await writeFile(path, JSON.stringify({
+        const stored: StoredSnapshotLease = {
           schemaVersion: 1,
           workspaceId,
           indexKey,
           leaseId,
-          processId: process.pid,
-          acquiredAtMs: Date.now(),
-        }), { flag: 'wx' });
+          processId: options.processId ?? process.pid,
+          acquiredAtMs: options.nowMs?.() ?? Date.now(),
+        };
+        await writeFile(path, JSON.stringify(stored), { flag: 'wx' });
       } catch {
         return err(domainError('PERSISTENCE_FAILED', 'snapshot_lease', 'could not acquire Qdrant snapshot lease'));
       }
@@ -191,8 +225,50 @@ export const makeFileQdrantSnapshotState = async (rootPath: string): Promise<Fil
         const active = new Set<string>();
         for (const entry of keys) {
           if (!entry.isDirectory() || !validIndexKey(entry.name)) continue;
-          const leases = await readdir(join(root, entry.name)).catch(() => [] as string[]);
-          if (leases.some((name) => name.endsWith('.json'))) active.add(entry.name);
+          const directory = join(root, entry.name);
+          const leases = (await readdir(directory).catch(() => [] as string[]))
+            .filter((name) => name.endsWith('.json'));
+          let hasLiveOrUnknownLease = false;
+          for (const name of leases) {
+            const path = join(directory, name);
+            let stored: StoredSnapshotLease;
+            try {
+              stored = JSON.parse(await readFile(path, 'utf8')) as StoredSnapshotLease;
+            } catch {
+              return err(domainError(
+                'PERSISTENCE_FAILED',
+                'snapshot_lease',
+                'could not parse snapshot lease while deciding whether Qdrant data is safe to prune',
+              ));
+            }
+            if (stored.schemaVersion !== 1
+              || stored.workspaceId !== workspaceId
+              || stored.indexKey !== entry.name
+              || stored.leaseId.trim().length === 0
+              || !Number.isSafeInteger(stored.processId)
+              || stored.processId <= 0
+              || !Number.isSafeInteger(stored.acquiredAtMs)
+              || stored.acquiredAtMs < 0) {
+              return err(domainError(
+                'PERSISTENCE_FAILED',
+                'snapshot_lease',
+                'invalid snapshot lease identity; refusing unsafe garbage collection',
+              ));
+            }
+            const status = (options.processStatus ?? defaultProcessStatus)(stored.processId);
+            if (status === 'dead') {
+              await rm(path, { force: true });
+            } else {
+              // Unknown is intentionally retained. A false-positive live lease
+              // leaks storage; a false dead lease could delete data under a reader.
+              hasLiveOrUnknownLease = true;
+            }
+          }
+          if (hasLiveOrUnknownLease) {
+            active.add(entry.name);
+          } else {
+            await rm(directory, { recursive: true, force: true });
+          }
         }
         return ok(active);
       } catch (cause) {
