@@ -67,6 +67,6 @@ export const contextTransportText = (bundle: ContextCarrier): string => {
     `ACE source map: ${evidence.length} cited items, complete=${bundle.complete === true}.`,
     ...sources,
     ...(warnings.length === 0 ? [] : [`Warnings: ${warnings.map(String).join('; ')}`]),
-    'Use structuredContent for verified inlined snippets; call ace_expand(handle, cursor) for lossless original bytes when needed.',
+    'Use structuredContent for verified inlined snippets; call ace_expand(handle, format=utf8, cursor) for readable lossless code; base64 remains available for arbitrary bytes.',
   ].join('\n');
 };
