@@ -32,6 +32,7 @@ export interface LocalCodeIndexerOptions {
 interface Span {
   readonly name: string;
   readonly range: SourceRange;
+  readonly semanticAnchor?: { readonly line: number; readonly byteColumn: number };
   readonly content: string;
 }
 
@@ -40,7 +41,8 @@ const tsExtensions = new Set(defaultExtensions);
 
 const candidateId = (workspaceId: WorkspaceId, repoPath: RepoPath, digest: ContentDigest, span: Span): string =>
   createHash('sha256')
-    .update([workspaceId, repoPath, digest, span.name, span.range.startLine, span.range.startColumn, span.range.endLine, span.range.endColumn].join(':'))
+    .update([workspaceId, repoPath, digest, span.name, span.range.startLine, span.range.startColumn, span.range.endLine, span.range.endColumn,
+      span.semanticAnchor?.line ?? '', span.semanticAnchor?.byteColumn ?? ''].join(':'))
     .digest('hex');
 
 const compilerSpans = (repoPath: RepoPath, source: string): readonly Span[] => {
@@ -62,9 +64,14 @@ const compilerSpans = (repoPath: RepoPath, source: string): readonly Span[] => {
       if (end > start) {
         const a = file.getLineAndCharacterOfPosition(start);
         const b = file.getLineAndCharacterOfPosition(end);
+        const nameStart = declaration.name.getStart(file);
+        const namePoint = file.getLineAndCharacterOfPosition(nameStart);
+        const nameLineStart = file.getPositionOfLineAndCharacter(namePoint.line, 0);
+        const nameByteColumn = Buffer.byteLength(source.slice(nameLineStart, nameStart), 'utf8') + 1;
         spans.push({
           name: declaration.name.text,
           range: { startLine: a.line + 1, startColumn: a.character + 1, endLine: b.line + 1, endColumn: b.character + 1 },
+          semanticAnchor: { line: namePoint.line + 1, byteColumn: nameByteColumn },
           content: source.slice(start, end),
         });
       }
@@ -79,7 +86,15 @@ const compilerSpans = (repoPath: RepoPath, source: string): readonly Span[] => {
 // not JS string offsets, to preserve the exact symbol text including Unicode.
 const treeSitterSpans = (
   source: Uint8Array,
-  symbols: readonly { readonly name: string; readonly startLine: number; readonly startColumn: number; readonly endLine: number; readonly endColumn: number }[],
+  symbols: readonly {
+    readonly name: string;
+    readonly startLine: number;
+    readonly startColumn: number;
+    readonly endLine: number;
+    readonly endColumn: number;
+    readonly nameStartLine?: number;
+    readonly nameStartColumn?: number;
+  }[],
 ): readonly Span[] => {
   const bytes = Buffer.from(source);
   const lineStarts = [0];
@@ -93,6 +108,9 @@ const treeSitterSpans = (
     return [{
       name: symbol.name,
       range: { startLine: symbol.startLine, startColumn: symbol.startColumn, endLine: symbol.endLine, endColumn: symbol.endColumn },
+      ...(symbol.nameStartLine === undefined || symbol.nameStartColumn === undefined
+        ? {}
+        : { semanticAnchor: { line: symbol.nameStartLine, byteColumn: symbol.nameStartColumn } }),
       content: bytes.subarray(start, end).toString('utf8'),
     }];
   });
@@ -167,6 +185,7 @@ export const buildLocalCodeIndex = (
           repoPath: observation.repoPath,
           range: span.range,
           symbolName: span.name,
+          ...(span.semanticAnchor === undefined ? {} : { semanticAnchor: span.semanticAnchor }),
           text: span.content,
           sourceDigest: exact.value.digest,
           generation,
