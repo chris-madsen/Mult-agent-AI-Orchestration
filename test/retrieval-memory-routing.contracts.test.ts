@@ -187,12 +187,22 @@ test('MVC-02 decision promotion requires confirmation and preserves successor hi
     sourceEpisodeIds: ['episode-1' as never],
   }));
   assert.equal(record.state, 'Proposed');
-  const accepted = mustOk(transitionDecision(record, { type: 'confirm', atMs: 1_700_000_000_001 }));
-  const superseded = mustOk(transitionDecision(accepted, { type: 'supersede', atMs: 1_700_000_000_002, successorId: 'decision-b' as never }));
+  const accepted = mustOk(transitionDecision(record, {
+    type: 'confirm', atMs: 1_700_000_000_001, approvalIdentity: 'owner:alice', sourceEpisodeIds: ['episode-1' as never],
+  }));
+  const superseded = mustOk(transitionDecision(accepted, {
+    type: 'supersede', atMs: 1_700_000_000_002, successorId: 'decision-b' as never,
+    approvalIdentity: 'owner:alice', sourceEpisodeIds: ['episode-1' as never],
+  }));
   assert.equal(superseded.state, 'Superseded');
   assert.equal(superseded.successorId, 'decision-b');
+  assert.equal(accepted.transitions?.[0]?.approvalIdentity, 'owner:alice');
+  assert.deepEqual(accepted.transitions?.[0]?.sourceEpisodeIds, ['episode-1']);
   assert.equal(mustErr(makeDecisionRecord({ ...record, state: 'Accepted' })).code, 'INVALID_MEMORY');
-  assert.equal(mustErr(transitionDecision(accepted, { type: 'supersede', atMs: 1_700_000_000_002, successorId: accepted.decisionId })).code, 'INVALID_MEMORY');
+  assert.equal(mustErr(transitionDecision(accepted, {
+    type: 'supersede', atMs: 1_700_000_000_002, successorId: accepted.decisionId,
+    approvalIdentity: 'owner:alice', sourceEpisodeIds: ['episode-1' as never],
+  })).code, 'INVALID_MEMORY');
 });
 
 test('MVC-03 memory search is as-of and reports conflicting accepted claims', () => {
@@ -203,8 +213,12 @@ test('MVC-03 memory search is as-of and reports conflicting accepted claims', ()
   const second = { ...first, episodeId: 'episode-2' as never, occurredAtMs: 20, sourcePointer: 'codex://s1/2', searchText: 'local decision' };
   const a = mustOk(makeDecisionRecord({ decisionId: 'a' as never, workspaceId, subject: 'index', proposal: 'Qdrant', validFromMs: 1, sourceEpisodeIds: [first.episodeId] }));
   const b = mustOk(makeDecisionRecord({ decisionId: 'b' as never, workspaceId, subject: 'index', proposal: 'local', validFromMs: 1, sourceEpisodeIds: [second.episodeId] }));
-  const acceptedA = mustOk(transitionDecision(a, { type: 'confirm', atMs: 12 }));
-  const acceptedB = mustOk(transitionDecision(b, { type: 'confirm', atMs: 13 }));
+  const acceptedA = mustOk(transitionDecision(a, {
+    type: 'confirm', atMs: 12, approvalIdentity: 'owner:alice', sourceEpisodeIds: [first.episodeId],
+  }));
+  const acceptedB = mustOk(transitionDecision(b, {
+    type: 'confirm', atMs: 13, approvalIdentity: 'owner:alice', sourceEpisodeIds: [second.episodeId],
+  }));
   const result = searchMemory([first, second], 'decision', 15, [acceptedA, acceptedB]);
   assert.equal(result.hits.length, 1);
   assert.equal(result.hits[0]?.episode.episodeId, first.episodeId);
@@ -548,8 +562,13 @@ test('MVC-06 decision graph rejects missing successors and cycles', () => {
     validFromMs: 1,
     sourceEpisodeIds: ['episode-a' as never],
   }));
-  const accepted = mustOk(transitionDecision(base, { type: 'confirm', atMs: 2 }));
-  const missing = mustOk(transitionDecision(accepted, { type: 'supersede', atMs: 3, successorId: 'graph-b' as never }));
+  const accepted = mustOk(transitionDecision(base, {
+    type: 'confirm', atMs: 2, approvalIdentity: 'owner:alice', sourceEpisodeIds: ['episode-a' as never],
+  }));
+  const missing = mustOk(transitionDecision(accepted, {
+    type: 'supersede', atMs: 3, successorId: 'graph-b' as never,
+    approvalIdentity: 'owner:alice', sourceEpisodeIds: ['episode-a' as never],
+  }));
   assert.equal(validateDecisionGraph([missing])._tag, 'Err');
   const b = {
     ...base,
@@ -559,4 +578,54 @@ test('MVC-06 decision graph rejects missing successors and cycles', () => {
     state: 'Superseded' as const,
   };
   assert.equal(validateDecisionGraph([{ ...missing, successorId: 'graph-b' as never }, b])._tag, 'Err');
+});
+
+test('C-E rejects missing transition provenance and non-monotone decision history', () => {
+  const record = mustOk(makeDecisionRecord({
+    decisionId: 'event-order' as never, workspaceId, subject: 'index', proposal: 'use local',
+    validFromMs: 10, sourceEpisodeIds: ['episode-order' as never],
+  }));
+  assert.equal(mustErr(transitionDecision(record, {
+    type: 'confirm', atMs: 11, approvalIdentity: ' ', sourceEpisodeIds: [],
+  })).code, 'INVALID_MEMORY');
+  const accepted = mustOk(transitionDecision(record, {
+    type: 'confirm', atMs: 11, approvalIdentity: 'owner:alice', sourceEpisodeIds: ['episode-order' as never],
+  }));
+  assert.equal(mustErr(transitionDecision(accepted, {
+    type: 'supersede', atMs: 11, successorId: 'event-order-next' as never,
+    approvalIdentity: 'owner:alice', sourceEpisodeIds: ['episode-order' as never],
+  })).code, 'INVALID_MEMORY');
+  const malformed = { ...accepted, transitions: [...(accepted.transitions ?? []), {
+    type: 'supersede' as const, atMs: 10, successorId: 'event-order-next' as never,
+    approvalIdentity: 'owner:alice', sourceEpisodeIds: ['episode-order' as never],
+  }] };
+  assert.equal(decisionStateAt(malformed, 20).historicalUncertainty, true);
+});
+
+test('C-E keeps successors in one workspace/subject timeline and isolates cross-workspace evidence', () => {
+  const otherWorkspace = mustOk(makeWorkspaceId('memory-other-workspace'));
+  const base = mustOk(makeDecisionRecord({
+    decisionId: 'scope-a' as never, workspaceId, subject: 'scope', proposal: 'a', validFromMs: 1,
+    sourceEpisodeIds: ['scope-episode' as never],
+  }));
+  const accepted = mustOk(transitionDecision(base, {
+    type: 'confirm', atMs: 2, approvalIdentity: 'owner:alice', sourceEpisodeIds: ['scope-episode' as never],
+  }));
+  const superseded = mustOk(transitionDecision(accepted, {
+    type: 'supersede', atMs: 5, successorId: 'scope-b' as never,
+    approvalIdentity: 'owner:alice', sourceEpisodeIds: ['scope-episode' as never],
+  }));
+  const wrongScope = {
+    ...base, decisionId: 'scope-b' as never, workspaceId: otherWorkspace,
+    state: 'Proposed' as const, validFromMs: 5,
+  };
+  assert.equal(validateDecisionGraph([superseded, wrongScope])._tag, 'Err');
+  const episode: SessionEpisode = {
+    episodeId: 'scope-episode' as never, workspaceId, sessionId: 'scope-session', sourcePointer: 'codex://scope/1',
+    occurredAtMs: 1, importedAtMs: 100, contentDigest: digest('scope'), content: new Uint8Array([1]),
+    searchText: 'scope decision', tombstoned: false,
+  };
+  const foreignDecision = { ...base, workspaceId: otherWorkspace, state: 'Accepted' as const };
+  const result = searchMemory([episode], 'decision', 10, [foreignDecision]);
+  assert.equal(result.hits[0]?.decisionState, undefined);
 });
