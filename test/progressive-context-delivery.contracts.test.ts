@@ -71,6 +71,7 @@ test('MCP navigation text is not another full JSON copy and gives actionable exa
   assert.match(text, /src\/module-3\.ts:1-104/);
   assert.match(text, /ace_expand/);
   assert.doesNotMatch(text, /Uint8Array\(100\)/);
+  assert.doesNotMatch(text, /correctHandler/);
   assert.ok(Buffer.byteLength(text) < Buffer.byteLength(JSON.stringify(projected)));
 });
 
@@ -151,7 +152,11 @@ test('ace_expand format=utf8 returns exact readable source instead of expensive 
     assert.equal(output.total_bytes, source.length);
     assert.equal('content_base64' in output, false);
     assert.equal(result.content[0]?.type, 'text');
-    if (result.content[0]?.type === 'text') assert.equal(result.content[0].text, source.toString('utf8'));
+    if (result.content[0]?.type === 'text') {
+      assert.match(result.content[0].text, /structuredContent\.content_utf8/u);
+      assert.doesNotMatch(result.content[0].text, /Привет|世界/u);
+      assert.ok(Buffer.byteLength(result.content[0].text) < source.length * 2);
+    }
 
     const pages: string[] = [];
     let cursor: string | undefined;
