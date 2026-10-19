@@ -9,7 +9,9 @@ import type { MemoryArchivePort } from '../application/ports.js';
 
 const digestOf = (bytes: Uint8Array): ContentDigest => createHash('sha256').update(bytes).digest('hex') as ContentDigest;
 
-export type AsyncMemoryArchivePort = MemoryArchivePort;
+export interface AsyncMemoryArchivePort extends MemoryArchivePort {
+  readonly listEpisodes: () => Promise<import('../domain/result.js').Result<readonly SessionEpisode[], ReturnType<typeof domainError>>>;
+}
 
 export const makeAsyncFileMemoryArchive = async (rootPath: string): Promise<AsyncMemoryArchivePort> => {
   const episodesPath = join(rootPath, 'episodes');
@@ -60,6 +62,23 @@ export const makeAsyncFileMemoryArchive = async (rootPath: string): Promise<Asyn
   };
 
   return {
+    listEpisodes: async () => {
+      try {
+        const entries = (await readdir(episodesPath)).filter((entry) => entry.endsWith('.json')).sort();
+        const episodes: SessionEpisode[] = [];
+        for (const entry of entries) {
+          const metadata = JSON.parse(await readFile(join(episodesPath, entry), 'utf8')) as Omit<SessionEpisode, 'content'>;
+          const content = new Uint8Array(await readFile(contentPath(metadata.contentDigest)));
+          if (digestOf(content) !== metadata.contentDigest) {
+            return err(domainError('DIGEST_MISMATCH', 'episode', 'archive listing found original bytes with a bad digest'));
+          }
+          episodes.push({ ...metadata, content });
+        }
+        return ok(episodes);
+      } catch {
+        return err(domainError('PERSISTENCE_FAILED', 'archive', 'could not enumerate immutable archive episodes'));
+      }
+    },
     importEpisode: (episode) => exclusive(async () => {
       const checked = makeEpisode(episode);
       if (checked._tag === 'Err') return checked;
