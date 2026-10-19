@@ -202,16 +202,16 @@ test('MVC-03 memory search is as-of and reports conflicting accepted claims', ()
   const second = { ...first, episodeId: 'episode-2' as never, occurredAtMs: 20, sourcePointer: 'codex://s1/2', searchText: 'local decision' };
   const a = mustOk(makeDecisionRecord({ decisionId: 'a' as never, workspaceId, subject: 'index', proposal: 'Qdrant', validFromMs: 1, sourceEpisodeIds: [first.episodeId] }));
   const b = mustOk(makeDecisionRecord({ decisionId: 'b' as never, workspaceId, subject: 'index', proposal: 'local', validFromMs: 1, sourceEpisodeIds: [second.episodeId] }));
-  const acceptedA = mustOk(transitionDecision(a, { type: 'confirm', atMs: 2 }));
-  const acceptedB = mustOk(transitionDecision(b, { type: 'confirm', atMs: 3 }));
+  const acceptedA = mustOk(transitionDecision(a, { type: 'confirm', atMs: 12 }));
+  const acceptedB = mustOk(transitionDecision(b, { type: 'confirm', atMs: 13 }));
   const result = searchMemory([first, second], 'decision', 15, [acceptedA, acceptedB]);
   assert.equal(result.hits.length, 1);
   assert.equal(result.hits[0]?.episode.episodeId, first.episodeId);
   assert.equal(result.hits[0]?.decisionState, 'Accepted');
   assert.equal(result.conflicts.length, 2);
-  const beforeAcceptance = searchMemory([first], 'decision', 1, [acceptedA]);
+  const beforeAcceptance = searchMemory([first], 'decision', 11, [acceptedA]);
   assert.equal(beforeAcceptance.hits[0]?.decisionState, 'Proposed');
-  assert.equal(decisionStateAt(acceptedA, 1).state, 'Proposed');
+  assert.equal(decisionStateAt(acceptedA, 11).state, 'Proposed');
 });
 
 test('RTE-01 deterministic routing handles exact symbols and ambiguous memory questions', () => {
