@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { isSuccessfulAceContextJsonLine } from '../src/domain/harbor-mcp-evidence.js';
 
 type JsonObject = Readonly<Record<string, unknown>>;
 
@@ -46,19 +47,6 @@ const optionalNumber = (value: unknown, path: string): number | null =>
 const sha256 = (content: string): string => createHash('sha256').update(content, 'utf8').digest('hex');
 
 const readJson = async (path: string): Promise<JsonObject> => object(JSON.parse(await readFile(path, 'utf8')) as unknown, path);
-
-const successfulAceCall = (line: string): boolean => {
-  try {
-    const event = object(JSON.parse(line) as unknown, 'Codex event');
-    const item = object(event.item, 'Codex event.item');
-    return item.type === 'mcp_tool_call'
-      && item.server === 'ace'
-      && item.tool === 'ace_context'
-      && (item.error === undefined || item.error === null || item.error === '');
-  } catch {
-    return false;
-  }
-};
 
 const trialDirectories = async (aggregatePath: string): Promise<readonly string[]> => {
   const parent = dirname(resolve(aggregatePath));
@@ -107,7 +95,7 @@ const summarize = async (aggregatePath: string): Promise<JobSummary> => {
     }
     try {
       const trace = await readFile(join(directory, 'agent', 'codex.txt'), 'utf8');
-      aceCalls += trace.split('\n').filter(successfulAceCall).length;
+      aceCalls += trace.split('\n').filter(isSuccessfulAceContextJsonLine).length;
     } catch (error) {
       if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error;
     }

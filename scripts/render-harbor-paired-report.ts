@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { isSuccessfulAceContextJsonLine } from '../src/domain/harbor-mcp-evidence.js';
 
 interface HarborAggregateStats {
   readonly n_completed_trials: number;
@@ -131,9 +132,7 @@ const readTrials = async (aggregatePath: string): Promise<readonly { readonly tr
       const log = await readFile(join(directory, 'agent', 'codex.txt'), 'utf8');
       for (const line of log.split('\n')) {
         try {
-          const event = asRecord(JSON.parse(line) as unknown, 'codex event');
-          const item = asRecord(event.item, 'codex event.item');
-          if (item.type === 'mcp_tool_call' && item.server === 'ace' && item.tool === 'ace_context' && (item.error === null || item.error === undefined || item.error === '')) mcpCalls += 1;
+          if (isSuccessfulAceContextJsonLine(line)) mcpCalls += 1;
         } catch {
           // Non-JSON Codex stderr lines are retained but are not MCP evidence.
         }
