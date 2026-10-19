@@ -152,27 +152,30 @@ export const scheduleProjectionRetry = (
   }
   const attempts = receipt.attempts + 1;
   const totalAttempts = (receipt.totalAttempts ?? receipt.attempts) + 1;
+  const {
+    nextAttemptAtMs: _nextAttemptAtMs,
+    deadLetteredAtMs: _deadLetteredAtMs,
+    ...retryBase
+  } = receipt;
   if (attempts >= policy.maxAttempts) {
     return ok({
-      ...receipt,
+      ...retryBase,
       status: 'dead_letter',
       attempts,
       totalAttempts,
       lastErrorCode: errorCode,
       deadLetteredAtMs: nowMs,
-      nextAttemptAtMs: undefined,
     });
   }
   const exponent = Math.max(0, attempts - 1);
   const delay = Math.min(policy.maxDelayMs, policy.baseDelayMs * (2 ** exponent));
   return ok({
-    ...receipt,
+    ...retryBase,
     status: 'incomplete',
     attempts,
     totalAttempts,
     lastErrorCode: errorCode,
     nextAttemptAtMs: nowMs + delay,
-    deadLetteredAtMs: undefined,
   });
 };
 
@@ -196,14 +199,18 @@ export const recordProjectionEnqueue = (
   }
   const attempts = receipt.attempts + 1;
   const totalAttempts = (receipt.totalAttempts ?? receipt.attempts) + 1;
+  const {
+    nextAttemptAtMs: _nextAttemptAtMs,
+    deadLetteredAtMs: _deadLetteredAtMs,
+    lastErrorCode: _lastErrorCode,
+    ...enqueueBase
+  } = receipt;
   return ok({
-    ...receipt,
+    ...enqueueBase,
     status: providerReceipt.status,
     attempts,
     totalAttempts,
-    lastErrorCode: undefined,
-    deadLetteredAtMs: undefined,
-    nextAttemptAtMs: providerReceipt.status === 'pending' ? nowMs + verificationDelayMs : undefined,
+    ...(providerReceipt.status === 'pending' ? { nextAttemptAtMs: nowMs + verificationDelayMs } : {}),
   });
 };
 
@@ -218,12 +225,12 @@ export const deadLetterProjection = (
   if (receipt.status === 'projected' || receipt.status === 'tombstoned') {
     return err(domainError('INVALID_MEMORY', 'projection_dead_letter', 'successful/tombstoned projection cannot be dead-lettered'));
   }
+  const { nextAttemptAtMs: _nextAttemptAtMs, ...deadBase } = receipt;
   return ok({
-    ...receipt,
+    ...deadBase,
     status: 'dead_letter',
     lastErrorCode: errorCode,
     deadLetteredAtMs: nowMs,
-    nextAttemptAtMs: undefined,
   });
 };
 
@@ -233,12 +240,15 @@ export const repairProjection = (
   if (receipt.status !== 'dead_letter' && receipt.status !== 'incomplete') {
     return err(domainError('INVALID_MEMORY', 'projection_repair', 'only failed projection receipts may be manually repaired'));
   }
+  const {
+    nextAttemptAtMs: _nextAttemptAtMs,
+    deadLetteredAtMs: _deadLetteredAtMs,
+    ...repairBase
+  } = receipt;
   return ok({
-    ...receipt,
+    ...repairBase,
     status: 'pending',
     attempts: 0,
-    nextAttemptAtMs: undefined,
-    deadLetteredAtMs: undefined,
     manualRepairCount: (receipt.manualRepairCount ?? 0) + 1,
   });
 };
