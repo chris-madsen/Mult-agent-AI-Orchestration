@@ -547,3 +547,97 @@ test('index coverage failures make an otherwise current result incomplete', asyn
   assert.ok(bundle.partialSources.includes('code'));
   assert.equal(bundle.indexCoverage?.failedPaths, 1);
 });
+
+
+test('Qdrant context merges archive-provenance memory without treating healthy empty memory as an outage', async () => {
+  const provider = makeQdrantContextProvider({
+    workspaceId,
+    rootPath: '/repo',
+    files: {
+      canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+      snapshot: () => { throw new Error('not used'); },
+      readExact: () => Effect.succeed(ok({ bytes: source, digest: digest as never })),
+    },
+    qdrant: {
+      upsert: () => Effect.succeed(ok(undefined)),
+      search: () => Effect.succeed(ok([{ candidate, score: 1, freshness: 'unknown' as const }])),
+    },
+    embeddings: { embedMany: () => Effect.succeed(ok([[1, 0]])) },
+    artifacts: {
+      storeExact: () => Effect.succeed(ok({ handle: 'memory-context', digest: digest as never, sizeBytes: source.length })),
+      readRange: () => Effect.succeed(err(domainError('ARTIFACT_NOT_FOUND', 'handle', 'not used'))),
+    },
+    semantics: {
+      definition: () => Effect.succeed(ok([{
+        location: { repoPath: 'src/connection.ts', startLine: 1, startColumn: 17, endLine: 1, endColumn: 26 },
+        name: 'reconnect',
+      }])),
+      references: () => Effect.succeed(ok([])),
+      typeInfo: () => Effect.succeed(ok(undefined)),
+      diagnostics: () => Effect.succeed(ok([])),
+    },
+    memory: {
+      search: () => Effect.succeed(ok({
+        hits: [{
+          episode: {
+            episodeId: 'episode-memory' as never,
+            workspaceId,
+            sessionId: 'session-memory',
+            sourcePointer: 'codex://session-memory/1',
+            occurredAtMs: 10,
+            importedAtMs: 11,
+            contentDigest: 'c'.repeat(64) as never,
+            searchText: 'we selected local qdrant',
+            tombstoned: false,
+          },
+          matchingExcerpt: 'Local Qdrant was selected for private code retrieval.',
+        }],
+        conflicts: [],
+      })),
+    },
+    newRequestId: () => 'memory-context-request',
+  });
+  const bundle = mustOk(await Effect.runPromise(provider.search({
+    workspaceId, query: 'why local qdrant', includeDocs: false, includeMemory: true,
+  })));
+  assert.equal(bundle.complete, true);
+  const memoryEvidence = bundle.evidence.find((item) => item.source === 'memory');
+  assert.equal(memoryEvidence?.citation, 'codex://session-memory/1');
+  assert.equal(memoryEvidence?.proofClass, 'derived');
+  assert.equal(memoryEvidence?.sourceDigest, 'c'.repeat(64));
+
+  const emptyProvider = makeQdrantContextProvider({
+    workspaceId,
+    rootPath: '/repo',
+    files: {
+      canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+      snapshot: () => { throw new Error('not used'); },
+      readExact: () => Effect.succeed(ok({ bytes: source, digest: digest as never })),
+    },
+    qdrant: {
+      upsert: () => Effect.succeed(ok(undefined)),
+      search: () => Effect.succeed(ok([{ candidate, score: 1, freshness: 'unknown' as const }])),
+    },
+    embeddings: { embedMany: () => Effect.succeed(ok([[1, 0]])) },
+    artifacts: {
+      storeExact: () => Effect.succeed(ok({ handle: 'empty-memory', digest: digest as never, sizeBytes: source.length })),
+      readRange: () => Effect.succeed(err(domainError('ARTIFACT_NOT_FOUND', 'handle', 'not used'))),
+    },
+    semantics: {
+      definition: () => Effect.succeed(ok([{
+        location: { repoPath: 'src/connection.ts', startLine: 1, startColumn: 17, endLine: 1, endColumn: 26 },
+        name: 'reconnect',
+      }])),
+      references: () => Effect.succeed(ok([])),
+      typeInfo: () => Effect.succeed(ok(undefined)),
+      diagnostics: () => Effect.succeed(ok([])),
+    },
+    memory: { search: () => Effect.succeed(ok({ hits: [], conflicts: [] })) },
+    newRequestId: () => 'empty-memory-context',
+  });
+  const empty = mustOk(await Effect.runPromise(emptyProvider.search({
+    workspaceId, query: 'unknown historical thing', includeDocs: false, includeMemory: true,
+  })));
+  assert.equal(empty.complete, true);
+  assert.equal(empty.partialSources.includes('memory'), false);
+});
