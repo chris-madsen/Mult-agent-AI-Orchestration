@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { Effect } from 'effect';
 import { exportCodexHistory } from '../adapters/codex-session-history.js';
 import { makeAsyncFileMemoryArchive } from '../adapters/file-memory-archive.js';
+import { makeFileProjectionOutbox } from '../adapters/file-projection-outbox.js';
 import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
 import { defaultLocalPolicy } from '../domain/policy.js';
 import { makeWorkspaceId } from '../domain/workspace.js';
@@ -18,11 +19,15 @@ const required = (key: string): string => {
 };
 const run = async (): Promise<void> => {
   const [operation, subject] = process.argv.slice(2);
-  if (operation !== 'import' && operation !== 'delete') throw new Error('Usage: ace-memory import <codex-history.jsonl> | delete <episode-id>');
-  if (!subject) throw new Error('source path / episode ID required');
+  if (operation !== 'import' && operation !== 'delete' && operation !== 'reconcile') {
+    throw new Error('Usage: ace-memory import <codex-history.jsonl> | delete <episode-id> | reconcile');
+  }
+  if (operation !== 'reconcile' && !subject) throw new Error('source path / episode ID required');
   const workspace = makeWorkspaceId(required('ACE_WORKSPACE_ID'));
   if (workspace._tag === 'Err') throw new Error(workspace.error.message);
-  const archive = await makeAsyncFileMemoryArchive(resolve(required('ACE_MEMORY_ARCHIVE_ROOT')));
+  const archiveRoot = resolve(required('ACE_MEMORY_ARCHIVE_ROOT'));
+  const archive = await makeAsyncFileMemoryArchive(archiveRoot);
+  const outbox = await makeFileProjectionOutbox(join(archiveRoot, 'projection-outbox'));
   const createGraphiti = async () => makeGraphitiMcpPort({
     command: required('ACE_GRAPHITI_COMMAND'),
     args: JSON.parse(required('ACE_GRAPHITI_ARGS_JSON')) as string[],
@@ -41,9 +46,74 @@ const run = async (): Promise<void> => {
     } finally {
       await graphiti.close();
     }
+    const receipts = await outbox.list();
+    if (receipts._tag === 'Err') throw new Error(receipts.error.message);
+    for (const receipt of receipts.value.filter((item) => item.episodeId === episodeId.value)) {
+      const stored = await outbox.put({ ...receipt, status: 'tombstoned' });
+      if (stored._tag === 'Err') throw new Error(stored.error.message);
+    }
     return;
   }
-  const exported = await exportCodexHistory(resolve(subject), workspace.value, Date.now());
+  if (operation === 'reconcile') {
+    const graphiti = await createGraphiti();
+    try {
+      const receipts = await outbox.list();
+      if (receipts._tag === 'Err') throw new Error(receipts.error.message);
+      let projected = 0;
+      let retried = 0;
+      let missingOriginal = 0;
+      for (const receipt of receipts.value) {
+        if (receipt.status === 'projected' || receipt.status === 'tombstoned') continue;
+        const present = await Effect.runPromise(graphiti.projectionState.isPresent(receipt.episodeId));
+        if (present._tag === 'Err') throw new Error(present.error.message);
+        if (present.value) {
+          const stored = await outbox.put({ ...receipt, status: 'projected' });
+          if (stored._tag === 'Err') throw new Error(stored.error.message);
+          projected += 1;
+          continue;
+        }
+        const original = await archive.readEpisode(receipt.episodeId);
+        if (original._tag === 'Err') {
+          missingOriginal += 1;
+          continue;
+        }
+        const retry = await Effect.runPromise(graphiti.projection.project({
+          episodeId: original.value.episodeId,
+          occurredAtMs: original.value.occurredAtMs,
+          extractorVersion: receipt.extractorVersion,
+          claims: [{
+            original_digest: original.value.contentDigest,
+            text: original.value.searchText,
+            original_pointer: original.value.sourcePointer,
+          }],
+        }));
+        if (retry._tag === 'Err') {
+          const stored = await outbox.put({
+            ...receipt,
+            status: 'incomplete',
+            attempts: receipt.attempts + 1,
+          });
+          if (stored._tag === 'Err') throw new Error(stored.error.message);
+          continue;
+        }
+        const stored = await outbox.put({
+          ...retry.value,
+          attempts: Math.max(retry.value.attempts, receipt.attempts + 1),
+        });
+        if (stored._tag === 'Err') throw new Error(stored.error.message);
+        retried += 1;
+      }
+      process.stdout.write(JSON.stringify({
+        reconciled_projected: projected,
+        retried_pending: retried,
+        missing_original: missingOriginal,
+      }) + '\n');
+    } finally {
+      await graphiti.close();
+    }
+    return;
+  }
+  const exported = await exportCodexHistory(resolve(subject as string), workspace.value, Date.now());
   if (exported._tag === 'Err') throw new Error(exported.error.message);
   const imported = await importMemoryEpisodes({
     episodes: exported.value.episodes,
@@ -51,6 +121,7 @@ const run = async (): Promise<void> => {
     createProjection: createGraphiti,
     extractorVersion: 'ace-history-v1',
     admissionPolicy: defaultMemoryAdmissionPolicy,
+    outbox,
   });
   if (imported._tag === 'Err') throw new Error(imported.error.message);
   for (const outcome of imported.value) {
