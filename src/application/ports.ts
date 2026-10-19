@@ -11,7 +11,7 @@ import type {
 } from '../domain/workspace.js';
 import type { Result } from '../domain/result.js';
 import type { ContextBundle, CodeCandidate, RankedCandidate } from '../domain/retrieval.js';
-import type { EpisodeId, ProjectionReceipt } from '../domain/memory.js';
+import type { EpisodeId, ProjectionReceipt, SessionEpisode } from '../domain/memory.js';
 import type {
   SemanticDefinition,
   SemanticDiagnostic,
@@ -92,10 +92,18 @@ export interface SemanticQuery {
 export interface GraphProjectionPort {
   readonly project: (input: {
     readonly episodeId: EpisodeId;
+    /** Original event time; required for Graphiti bi-temporal reference_time. */
+    readonly occurredAtMs: number;
     readonly extractorVersion: string;
     readonly claims: readonly Readonly<Record<string, string>>[];
   }) => Effect.Effect<Result<ProjectionReceipt, DomainError>>;
   readonly purge: (episodeId: EpisodeId) => Effect.Effect<Result<void, DomainError>>;
+}
+
+export interface MemoryArchivePort {
+  readonly importEpisode: (episode: SessionEpisode) => Promise<Result<{ readonly created: boolean; readonly episode: SessionEpisode }, DomainError>>;
+  readonly readEpisode: (episodeId: EpisodeId) => Promise<Result<SessionEpisode, DomainError>>;
+  readonly deleteEpisode: (episodeId: EpisodeId) => Promise<Result<void, DomainError>>;
 }
 
 export interface ExactRead {

@@ -315,7 +315,7 @@ test('EXT-02 Vertex and Graphiti boundaries deny before HTTP without policy/toke
   const documents = mustOk(await Effect.runPromise(vertex.search({ workspaceId, query: 'retrieval rationale', topK: 2 })));
   assert.equal(documents[0]?.citation, 'ADR-003#decision');
   const projected = makeGraphitiProjectionPort({ endpoint: 'https://graphiti.invalid', http: successHttp, policy: allowedPolicy, workspaceId, accessToken: () => 'token' });
-  const receipt = mustOk(await Effect.runPromise(projected.project({ episodeId, extractorVersion: 'extractor-1', claims: [{ subject: 'index', predicate: 'uses', object: 'local' }] })));
+  const receipt = mustOk(await Effect.runPromise(projected.project({ episodeId, occurredAtMs: 1_700_000_000_000, extractorVersion: 'extractor-1', claims: [{ subject: 'index', predicate: 'uses', object: 'local' }] })));
   assert.equal(receipt.status, 'projected');
   assert.equal((await Effect.runPromise(projected.purge(episodeId)))._tag, 'Ok');
 });

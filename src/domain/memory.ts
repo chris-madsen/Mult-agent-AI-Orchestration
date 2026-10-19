@@ -16,6 +16,8 @@ export interface SessionEpisode {
   readonly contentDigest: ContentDigest;
   readonly content: Uint8Array;
   readonly searchText: string;
+  /** Optional exporter annotation; absence must remain archive-only unless policy signals are present. */
+  readonly memoryHint?: 'project' | 'archive_only';
   readonly tombstoned: boolean;
 }
 

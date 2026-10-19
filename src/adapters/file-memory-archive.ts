@@ -2,17 +2,14 @@ import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { domainError } from '../domain/errors.js';
-import { err, ok, type Result } from '../domain/result.js';
+import { err, ok } from '../domain/result.js';
 import type { ContentDigest } from '../domain/workspace.js';
 import { makeEpisode, type EpisodeId, type SessionEpisode } from '../domain/memory.js';
+import type { MemoryArchivePort } from '../application/ports.js';
 
 const digestOf = (bytes: Uint8Array): ContentDigest => createHash('sha256').update(bytes).digest('hex') as ContentDigest;
 
-export interface AsyncMemoryArchivePort {
-  readonly importEpisode: (episode: SessionEpisode) => Promise<Result<{ readonly created: boolean; readonly episode: SessionEpisode }, ReturnType<typeof domainError>>>;
-  readonly readEpisode: (episodeId: EpisodeId) => Promise<Result<SessionEpisode, ReturnType<typeof domainError>>>;
-  readonly deleteEpisode: (episodeId: EpisodeId) => Promise<Result<void, ReturnType<typeof domainError>>>;
-}
+export type AsyncMemoryArchivePort = MemoryArchivePort;
 
 export const makeAsyncFileMemoryArchive = async (rootPath: string): Promise<AsyncMemoryArchivePort> => {
   const episodesPath = join(rootPath, 'episodes');

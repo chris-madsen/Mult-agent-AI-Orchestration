@@ -22,21 +22,33 @@ const uuidFor = (id: string): string => {
 };
 const errorResult = (message: string): Result<never, DomainError> =>
   err(domainError('EXTERNAL_UNAVAILABLE', 'graphiti', message));
-const validateReply = (reply: unknown): Result<void, DomainError> => {
-  if (typeof reply !== 'object' || reply === null) return errorResult('invalid Graphiti MCP tool result');
+const graphitiErrorText = (reply: unknown): string | undefined => {
+  if (typeof reply !== 'object' || reply === null) return 'invalid Graphiti MCP tool result';
   const parsedReply = reply as { isError?: boolean; content?: readonly unknown[] };
-  if (parsedReply.isError === true) return errorResult('Graphiti returned an MCP tool failure');
   for (const block of parsedReply.content ?? []) {
-    if (typeof block === 'object' && block !== null && 'text' in block && typeof block.text === 'string') {
-      try {
-        const parsed: unknown = JSON.parse(block.text);
-        if (typeof parsed === 'object' && parsed !== null && 'error' in parsed) return errorResult('Graphiti reported an error');
-      } catch {
-        // A textual success response is supported by Graphiti.
-      }
+    if (typeof block !== 'object' || block === null || !('text' in block) || typeof block.text !== 'string') continue;
+    try {
+      const parsed: unknown = JSON.parse(block.text);
+      if (typeof parsed === 'object' && parsed !== null && 'error' in parsed && typeof parsed.error === 'string') return parsed.error;
+    } catch {
+      // Textual non-JSON success is supported by Graphiti.
     }
   }
-  return ok(undefined);
+  return parsedReply.isError === true ? 'Graphiti returned an MCP tool failure' : undefined;
+};
+
+const validateReply = (reply: unknown): Result<void, DomainError> => {
+  const message = graphitiErrorText(reply);
+  return message === undefined ? ok(undefined) : errorResult(message);
+};
+
+const validateDeleteReply = (reply: unknown): Result<void, DomainError> => {
+  const message = graphitiErrorText(reply);
+  if (message === undefined) return ok(undefined);
+  // Deletion is idempotent. Graphiti remove_episode reports a missing episode as
+  // an error, but absence already satisfies the privacy postcondition.
+  if (/\b(?:not\s+found|does\s+not\s+exist|no\s+such)\b/iu.test(message)) return ok(undefined);
+  return errorResult(message);
 };
 
 /** Connect to Graphiti's *official MCP server*, never invent REST episode routes.
@@ -53,11 +65,11 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
   });
   await client.connect(transport);
 
-  const invoke = (name: string, args: Record<string, unknown>): Effect.Effect<Result<void, DomainError>> =>
+  const invoke = (name: string, args: Record<string, unknown>, validate = validateReply): Effect.Effect<Result<void, DomainError>> =>
     Effect.tryPromise({
       try: async () => {
         const reply = await client.callTool({ name, arguments: args });
-        return validateReply(reply);
+        return validate(reply);
       },
       catch: () => domainError('EXTERNAL_UNAVAILABLE', 'graphiti', 'Graphiti MCP invocation failed'),
     }).pipe(Effect.catchAll((cause) => Effect.succeed(err(cause))));
@@ -76,6 +88,13 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
     project: (input) => Effect.gen(function* () {
       const granted = authorize('memory_projection');
       if (granted._tag === 'Err') return granted;
+      if (!Number.isSafeInteger(input.occurredAtMs) || input.occurredAtMs < 0) {
+        return err(domainError('INVALID_MEMORY', 'occurred_at_ms', 'Graphiti reference time must be a non-negative safe integer'));
+      }
+      const referenceTime = new Date(input.occurredAtMs);
+      if (Number.isNaN(referenceTime.getTime())) {
+        return err(domainError('INVALID_MEMORY', 'occurred_at_ms', 'Graphiti reference time must be representable as an ISO timestamp'));
+      }
       // No auto-approval of extracted facts: Graphiti edges are derived projections.
       const episodeUuid = uuidFor(input.episodeId);
       const receipt = yield* invoke('add_memory', {
@@ -83,6 +102,7 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
         group_id: options.groupId,
         source: 'json',
         source_description: `ACE extractor ${input.extractorVersion} (proposed facts)`,
+        reference_time: referenceTime.toISOString(),
         episode_body: JSON.stringify({ claims: input.claims, approval: 'unverified' }),
       });
       if (receipt._tag === 'Err') return receipt;
@@ -96,7 +116,7 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
     purge: (episodeId: EpisodeId) => Effect.gen(function* () {
       const granted = authorize('memory_purge');
       if (granted._tag === 'Err') return granted;
-      return yield* invoke('delete_episode', { uuid: uuidFor(episodeId), group_id: options.groupId });
+      return yield* invoke('delete_episode', { uuid: uuidFor(episodeId), group_id: options.groupId }, validateDeleteReply);
     }),
   };
   return { projection, close: () => client.close() };
