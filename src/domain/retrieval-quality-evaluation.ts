@@ -140,10 +140,20 @@ export const evaluateRetrievalStrategy = (
     return err(domainError('INVALID_BENCHMARK', 'retrieval_run', 'run must contain exactly one observation for every holdout case'));
   }
   for (const observation of run.observations) {
+    const integerCounters = [
+      observation.payloadCharacters,
+      observation.duplicateSourceHits,
+      observation.expansionCalls,
+      observation.nativeReadDuplicates,
+    ];
     if (new Set(observation.retrievedCandidateIds).size !== observation.retrievedCandidateIds.length
-      || ![observation.payloadCharacters, observation.duplicateSourceHits, observation.expansionCalls,
-        observation.nativeReadDuplicates, observation.latencyMs].every(nonNegative)) {
-      return err(domainError('INVALID_BENCHMARK', 'retrieval_run', 'ranked IDs must be unique and counters non-negative'));
+      || !integerCounters.every((value) => Number.isSafeInteger(value) && value >= 0)
+      || !nonNegative(observation.latencyMs)) {
+      return err(domainError(
+        'INVALID_BENCHMARK',
+        'retrieval_run',
+        'ranked IDs must be unique, count fields must be non-negative safe integers, and latency must be non-negative',
+      ));
     }
   }
 
