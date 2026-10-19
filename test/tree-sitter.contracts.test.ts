@@ -16,6 +16,11 @@ test('Tree-sitter structural adapter returns typed symbols with source provenanc
   assert.equal(result._tag, 'Ok');
   if (result._tag === 'Err') return;
   assert.deepEqual(result.value.symbols.map((symbol) => symbol.name), ['User', 'greet', 'Service', 'save']);
+  const greet = result.value.symbols.find((symbol) => symbol.name === 'greet');
+  assert.deepEqual(
+    greet === undefined ? undefined : { line: greet.nameStartLine, column: greet.nameStartColumn },
+    { line: 2, column: 10 },
+  );
   assert.equal(result.value.sourceDigest.length, 64);
   assert.equal(result.value.hasSyntaxErrors, false);
 });
