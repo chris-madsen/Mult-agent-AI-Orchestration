@@ -117,7 +117,7 @@ test('warm Qdrant snapshot reuse does not re-embed or upsert current source', as
   const ready = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
     index, qdrant, embeddings, http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'snapshot-digest',
   )));
-  assert.deepEqual(ready, { count: 1, reused: true });
+  assert.deepEqual(ready, { count: 1, reused: true, reusedVectorCount: 1 });
   assert.equal(requests, 2);
   assert.equal(upserts, 0);
   assert.equal(embeds, 0);
@@ -147,7 +147,7 @@ test('Qdrant warm reuse rebuilds on different count and fails closed on count ou
   const rebuilt = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
     index, qdrant, embeddings, http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'snapshot-digest',
   )));
-  assert.deepEqual(rebuilt, { count: 1, reused: false });
+  assert.deepEqual(rebuilt, { count: 1, reused: false, reusedVectorCount: 0 });
   assert.equal(upserts, 1);
   assert.equal(qdrantRequests.length, 2, 'count mismatch rebuilds idempotently and verifies membership');
   assert.match(qdrantRequests[1]?.url ?? '', /\/points\/scroll$/u);
@@ -640,4 +640,82 @@ test('Qdrant context merges archive-provenance memory without treating healthy e
   })));
   assert.equal(empty.complete, true);
   assert.equal(empty.partialSources.includes('memory'), false);
+});
+
+
+test('new snapshot reuses vectors only for unchanged candidate IDs from a compatible prior snapshot', async () => {
+  const changed = mustOk(makeCodeCandidate({
+    ...candidate,
+    candidateId: mustOk(makeCandidateId('changed-candidate')),
+    text: 'export function reconnectChanged() { return true; }',
+  }));
+  const index = { generation: 2 as never, candidates: [candidate, changed] };
+  let embeddingInputs: readonly string[] = [];
+  const upserted: CodePoint[] = [];
+  const qdrant: CodeCandidatePort = {
+    search: () => Effect.succeed(ok([])),
+    upsert: (points) => {
+      upserted.push(...points);
+      return Effect.succeed(ok(undefined));
+    },
+  };
+  let scrollCalls = 0;
+  const http: HttpPort = {
+    request: (request) => {
+      if (request.url.endsWith('/points/count')) {
+        return Effect.succeed(ok({ status: 200, body: { result: { count: 0 } } }));
+      }
+      if (request.url.endsWith('/points/scroll')) {
+        scrollCalls += 1;
+        if (scrollCalls === 1) {
+          return Effect.succeed(ok({
+            status: 200,
+            body: {
+              result: {
+                points: [{ payload: { candidate_id: candidate.candidateId }, vector: [0.1, 0.9] }],
+                next_page_offset: null,
+              },
+            },
+          }));
+        }
+        return Effect.succeed(ok({
+          status: 200,
+          body: {
+            result: {
+              points: [
+                { payload: { candidate_id: candidate.candidateId } },
+                { payload: { candidate_id: changed.candidateId } },
+              ],
+              next_page_offset: null,
+            },
+          },
+        }));
+      }
+      throw new Error('unexpected HTTP request: ' + request.url);
+    },
+  };
+  const embeddings: VectorEmbeddingPort = {
+    embedMany: (texts) => {
+      embeddingInputs = texts;
+      return Effect.succeed(ok(texts.map(() => [0.8, 0.2])));
+    },
+  };
+  const result = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
+    index,
+    qdrant,
+    embeddings,
+    http,
+    'http://127.0.0.1:6333',
+    'ace-test',
+    workspaceId,
+    'd'.repeat(64),
+    [],
+    false,
+    'e'.repeat(64),
+  )));
+  assert.equal(result.reused, false);
+  assert.equal(result.reusedVectorCount, 1);
+  assert.deepEqual(embeddingInputs, [changed.text]);
+  assert.equal(upserted.length, 2);
+  assert.deepEqual(upserted.find((point) => point.candidate.candidateId === candidate.candidateId)?.vector, [0.1, 0.9]);
 });
