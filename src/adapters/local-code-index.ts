@@ -10,6 +10,9 @@ import {
   makeCodeCandidate,
   type CodeIndex,
   type Generation,
+  type IndexCoverageFailure,
+  type IndexCoverageSummary,
+  type SemanticAnchorRange,
   type SourceRange,
 } from '../domain/retrieval.js';
 import type { StructuralAnalysisPort, WorkspaceFilePort } from '../application/ports.js';
@@ -19,6 +22,7 @@ export interface LocalCodeIndexBuild {
   readonly index: CodeIndex;
   readonly warnings: readonly string[];
   readonly indexedPaths: readonly RepoPath[];
+  readonly coverage: IndexCoverageSummary;
 }
 
 export interface LocalCodeIndexerOptions {
@@ -32,7 +36,7 @@ export interface LocalCodeIndexerOptions {
 interface Span {
   readonly name: string;
   readonly range: SourceRange;
-  readonly semanticAnchor?: { readonly line: number; readonly byteColumn: number };
+  readonly semanticAnchor?: SemanticAnchorRange;
   readonly content: string;
 }
 
@@ -42,7 +46,8 @@ const tsExtensions = new Set(defaultExtensions);
 const candidateId = (workspaceId: WorkspaceId, repoPath: RepoPath, digest: ContentDigest, span: Span): string =>
   createHash('sha256')
     .update([workspaceId, repoPath, digest, span.name, span.range.startLine, span.range.startColumn, span.range.endLine, span.range.endColumn,
-      span.semanticAnchor?.line ?? '', span.semanticAnchor?.byteColumn ?? ''].join(':'))
+      span.semanticAnchor?.line ?? '', span.semanticAnchor?.byteColumn ?? '',
+      span.semanticAnchor?.endLine ?? '', span.semanticAnchor?.endByteColumn ?? ''].join(':'))
     .digest('hex');
 
 const compilerSpans = (repoPath: RepoPath, source: string): readonly Span[] => {
@@ -69,13 +74,20 @@ const compilerSpans = (repoPath: RepoPath, source: string): readonly Span[] => {
         const startByteColumn = Buffer.byteLength(source.slice(startLineOffset, start), 'utf8') + 1;
         const endByteColumn = Buffer.byteLength(source.slice(endLineOffset, end), 'utf8') + 1;
         const nameStart = declaration.name.getStart(file);
+        const nameEnd = declaration.name.getEnd();
         const namePoint = file.getLineAndCharacterOfPosition(nameStart);
+        const nameEndPoint = file.getLineAndCharacterOfPosition(nameEnd);
         const nameLineStart = file.getPositionOfLineAndCharacter(namePoint.line, 0);
+        const nameEndLineStart = file.getPositionOfLineAndCharacter(nameEndPoint.line, 0);
         const nameByteColumn = Buffer.byteLength(source.slice(nameLineStart, nameStart), 'utf8') + 1;
+        const nameEndByteColumn = Buffer.byteLength(source.slice(nameEndLineStart, nameEnd), 'utf8') + 1;
         spans.push({
           name: declaration.name.text,
           range: { startLine: a.line + 1, startColumn: startByteColumn, endLine: b.line + 1, endColumn: endByteColumn },
-          semanticAnchor: { line: namePoint.line + 1, byteColumn: nameByteColumn },
+          semanticAnchor: {
+            line: namePoint.line + 1, byteColumn: nameByteColumn,
+            endLine: nameEndPoint.line + 1, endByteColumn: nameEndByteColumn,
+          },
           content: source.slice(start, end),
         });
       }
@@ -98,6 +110,8 @@ const treeSitterSpans = (
     readonly endColumn: number;
     readonly nameStartLine?: number;
     readonly nameStartColumn?: number;
+    readonly nameEndLine?: number;
+    readonly nameEndColumn?: number;
   }[],
 ): readonly Span[] => {
   const bytes = Buffer.from(source);
@@ -113,8 +127,12 @@ const treeSitterSpans = (
       name: symbol.name,
       range: { startLine: symbol.startLine, startColumn: symbol.startColumn, endLine: symbol.endLine, endColumn: symbol.endColumn },
       ...(symbol.nameStartLine === undefined || symbol.nameStartColumn === undefined
+        || symbol.nameEndLine === undefined || symbol.nameEndColumn === undefined
         ? {}
-        : { semanticAnchor: { line: symbol.nameStartLine, byteColumn: symbol.nameStartColumn } }),
+        : { semanticAnchor: {
+          line: symbol.nameStartLine, byteColumn: symbol.nameStartColumn,
+          endLine: symbol.nameEndLine, endByteColumn: symbol.nameEndColumn,
+        } }),
       content: bytes.subarray(start, end).toString('utf8'),
     }];
   });
@@ -136,6 +154,10 @@ export const buildLocalCodeIndex = (
     let index = indexResult.value;
     const warnings: string[] = [];
     const indexedPaths: RepoPath[] = [];
+    const coverageFailures: IndexCoverageFailure[] = [];
+    let attemptedPaths = 0;
+    let policyExcludedPaths = 0;
+    let outOfScopePaths = 0;
     if (options.structural === undefined) {
       warnings.push('Local TypeScript compiler parser fallback; approved Tree-sitter provider not configured');
     }
@@ -145,12 +167,20 @@ export const buildLocalCodeIndex = (
       if (
         observation.repoPath.split('/').some((part) => part === '.git' || part === 'secrets' || part === '.env'
           || part.startsWith('.env.') || part.endsWith('.secret') || part.endsWith('.pem'))
-      ) continue;
+      ) {
+        policyExcludedPaths += 1;
+        continue;
+      }
       const extension = observation.repoPath.slice(observation.repoPath.lastIndexOf('.')).toLocaleLowerCase();
-      if (!extensions.has(extension)) continue;
+      if (!extensions.has(extension)) {
+        outOfScopePaths += 1;
+        continue;
+      }
+      attemptedPaths += 1;
       const exact = yield* files.readExact(rootPath, observation.repoPath);
       if (exact._tag === 'Err') {
         warnings.push(observation.repoPath + ': ' + exact.error.code);
+        coverageFailures.push({ repoPath: observation.repoPath, kind: 'read_failed', code: exact.error.code });
         continue;
       }
       const source = Buffer.from(exact.value.bytes).toString('utf8');
@@ -159,25 +189,30 @@ export const buildLocalCodeIndex = (
       if (options.structural !== undefined) {
         if (!tsExtensions.has(extension)) {
           warnings.push(observation.repoPath + ': Tree-sitter grammar not configured for this language');
+          coverageFailures.push({ repoPath: observation.repoPath, kind: 'unsupported_parser' });
           continue;
         }
         const analyzed = yield* options.structural.extract({ repoPath: observation.repoPath, source: exact.value.bytes });
         if (analyzed._tag === 'Err') {
           warnings.push(observation.repoPath + ': structural provider unavailable (' + analyzed.error.code + ')');
+          coverageFailures.push({ repoPath: observation.repoPath, kind: 'structural_failed', code: analyzed.error.code });
           continue;
         }
         if (analyzed.value.sourceDigest !== exact.value.digest) {
           warnings.push(observation.repoPath + ': structural source digest mismatch');
+          coverageFailures.push({ repoPath: observation.repoPath, kind: 'digest_mismatch' });
           continue;
         }
         if (analyzed.value.hasSyntaxErrors) {
           warnings.push(observation.repoPath + ': Tree-sitter reports syntax errors; parseable symbols are partial evidence');
+          coverageFailures.push({ repoPath: observation.repoPath, kind: 'parser_partial' });
         }
         spans = treeSitterSpans(exact.value.bytes, analyzed.value.symbols);
       } else if (tsExtensions.has(extension)) {
         spans = compilerSpans(observation.repoPath, source);
       } else {
         warnings.push(observation.repoPath + ': no supported structural parser; file skipped');
+        coverageFailures.push({ repoPath: observation.repoPath, kind: 'unsupported_parser' });
         continue;
       }
       for (const span of spans) {
@@ -202,5 +237,17 @@ export const buildLocalCodeIndex = (
       }
       indexedPaths.push(observation.repoPath);
     }
-    return ok({ index, warnings, indexedPaths });
+    return ok({
+      index,
+      warnings,
+      indexedPaths,
+      coverage: {
+        attemptedPaths,
+        indexedPaths: indexedPaths.length,
+        policyExcludedPaths,
+        outOfScopePaths,
+        failedPaths: coverageFailures.length,
+        failures: coverageFailures,
+      },
+    });
   });
