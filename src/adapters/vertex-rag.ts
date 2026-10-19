@@ -3,9 +3,10 @@ import { createHash } from 'node:crypto';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import { authorizeOutbound, type ProjectDataPolicy } from '../domain/policy.js';
-import type { DocumentationPort, HttpPort } from '../application/ports.js';
+import type { DocumentationPort, HttpPort, ProviderTraceSink } from '../application/ports.js';
 import type { RetrievalEvidence } from '../domain/retrieval.js';
 import { containsLikelySecret } from '../domain/sensitive-text.js';
+import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
 
 export interface VertexRagConfig {
   readonly project: string;
@@ -15,11 +16,15 @@ export interface VertexRagConfig {
   readonly policy: ProjectDataPolicy;
   readonly http: HttpPort;
   readonly authorizedPaths?: readonly string[];
+  readonly trace?: ProviderTraceSink;
+  readonly providerVersion?: string;
 }
 
 /** Google Vertex RAG Engine projects.locations.retrieveContexts, official v1beta1 shape. */
 export const makeVertexRagRetrievalPort = (config: VertexRagConfig): DocumentationPort => ({
-  search: (input): Effect.Effect<Result<readonly RetrievalEvidence[], DomainError>> => Effect.gen(function* () {
+  search: (input): Effect.Effect<Result<readonly RetrievalEvidence[], DomainError>> => {
+    const startedAtMs = Date.now();
+    const operation = Effect.gen(function* () {
     const policy = authorizeOutbound({
       workspaceId: input.workspaceId, operation: 'documentation_search',
       destination: 'vertex', dataClasses: ['project_document'],
@@ -71,6 +76,19 @@ export const makeVertexRagRetrievalPort = (config: VertexRagConfig): Documentati
         content: item.text, proofClass: 'derived', freshness: 'unknown',
       });
     }
-    return ok(results);
-  }),
+      return ok(results);
+    });
+    return Effect.map(operation, (result) => {
+      providerTraceEvent(config.trace ?? noopProviderTrace, {
+        provider: 'vertex_rag',
+        providerVersion: config.providerVersion ?? 'vertex-rag/v1beta1',
+        operation: 'retrieve_contexts',
+        status: result._tag === 'Ok' ? 'success' : 'failure',
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
+        ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
+      });
+      return result;
+    });
+  },
 });
