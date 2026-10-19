@@ -132,9 +132,8 @@ const validRetryPolicy = (policy: ProjectionRetryPolicy): boolean =>
   && Number.isSafeInteger(policy.maxDelayMs) && policy.maxDelayMs >= policy.baseDelayMs;
 
 export const projectionRetryDue = (receipt: ProjectionReceipt, nowMs: number): boolean =>
-  receipt.status === 'pending'
-  || (receipt.status === 'incomplete'
-    && (receipt.nextAttemptAtMs === undefined || receipt.nextAttemptAtMs <= nowMs));
+  (receipt.status === 'pending' || receipt.status === 'incomplete')
+  && (receipt.nextAttemptAtMs === undefined || receipt.nextAttemptAtMs <= nowMs);
 
 export const scheduleProjectionRetry = (
   receipt: ProjectionReceipt,
@@ -174,6 +173,57 @@ export const scheduleProjectionRetry = (
     lastErrorCode: errorCode,
     nextAttemptAtMs: nowMs + delay,
     deadLetteredAtMs: undefined,
+  });
+};
+
+export const recordProjectionEnqueue = (
+  receipt: ProjectionReceipt,
+  providerReceipt: ProjectionReceipt,
+  nowMs: number,
+  verificationDelayMs: number,
+): Result<ProjectionReceipt, DomainError> => {
+  if (receipt.key !== providerReceipt.key
+    || receipt.episodeId !== providerReceipt.episodeId
+    || receipt.extractorVersion !== providerReceipt.extractorVersion) {
+    return err(domainError('INVALID_MEMORY', 'projection_receipt', 'provider projection receipt identity does not match durable outbox intent'));
+  }
+  if (!Number.isSafeInteger(nowMs) || nowMs < 0
+    || !Number.isSafeInteger(verificationDelayMs) || verificationDelayMs < 0) {
+    return err(domainError('INVALID_MEMORY', 'projection_receipt', 'projection enqueue timestamps/delay are invalid'));
+  }
+  if (providerReceipt.status !== 'pending' && providerReceipt.status !== 'projected') {
+    return err(domainError('INVALID_MEMORY', 'projection_receipt', 'successful projection enqueue must be pending or projected'));
+  }
+  const attempts = receipt.attempts + 1;
+  const totalAttempts = (receipt.totalAttempts ?? receipt.attempts) + 1;
+  return ok({
+    ...receipt,
+    status: providerReceipt.status,
+    attempts,
+    totalAttempts,
+    lastErrorCode: undefined,
+    deadLetteredAtMs: undefined,
+    nextAttemptAtMs: providerReceipt.status === 'pending' ? nowMs + verificationDelayMs : undefined,
+  });
+};
+
+export const deadLetterProjection = (
+  receipt: ProjectionReceipt,
+  nowMs: number,
+  errorCode: string,
+): Result<ProjectionReceipt, DomainError> => {
+  if (!Number.isSafeInteger(nowMs) || nowMs < 0 || !nonEmpty(errorCode)) {
+    return err(domainError('INVALID_MEMORY', 'projection_dead_letter', 'dead-letter timestamp and error code are required'));
+  }
+  if (receipt.status === 'projected' || receipt.status === 'tombstoned') {
+    return err(domainError('INVALID_MEMORY', 'projection_dead_letter', 'successful/tombstoned projection cannot be dead-lettered'));
+  }
+  return ok({
+    ...receipt,
+    status: 'dead_letter',
+    lastErrorCode: errorCode,
+    deadLetteredAtMs: nowMs,
+    nextAttemptAtMs: undefined,
   });
 };
 
