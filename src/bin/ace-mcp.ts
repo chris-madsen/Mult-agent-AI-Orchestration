@@ -321,6 +321,13 @@ const main = async (): Promise<void> => {
           embeddings.close();
           throw new Error(`Qdrant snapshot manifest check failed (${published.error.code})`);
         }
+        const previous = await snapshotState.latestPublished(
+          registered.value.workspaceId, embeddingFingerprint, sourceKey,
+        );
+        if (previous._tag === 'Err') {
+          embeddings.close();
+          throw new Error(`Qdrant prior snapshot lookup failed (${previous.error.code})`);
+        }
         if (!published.value) {
           const begun = await snapshotState.beginBuild(snapshotIdentity);
           if (begun._tag === 'Err') {
@@ -338,7 +345,7 @@ const main = async (): Promise<void> => {
         });
         const indexed = await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
           built.value.index, qdrant, embeddings, http, qdrantUrl, collection,
-          registered.value.workspaceId, sourceKey, qdrantAllowedHosts, published.value,
+          registered.value.workspaceId, sourceKey, qdrantAllowedHosts, published.value, previous.value?.indexKey,
         ));
         if (indexed._tag === 'Err') {
           embeddings.close();
@@ -401,7 +408,7 @@ const main = async (): Promise<void> => {
             ...(documentation === undefined ? {} : { documentation }),
             ...(memory === undefined ? {} : { memory }),
           });
-          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} embedding_identity=${embeddingFingerprint.slice(0, 12)} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} collection=${collection}\n`);
+          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} embedding_identity=${embeddingFingerprint.slice(0, 12)} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection}\n`);
         }
       }
     }
