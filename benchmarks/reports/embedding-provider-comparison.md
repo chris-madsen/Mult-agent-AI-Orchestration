@@ -24,12 +24,15 @@ models produced 384-dimensional vectors on CPU.
 | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | Sentence-Transformers/PyTorch CPU | 0.667 | 0.889 | 15.79 ms | 25.15 ms | 137.02 ms |
 
 Environment: Python 3.13.11; FastEmbed 0.7.4; ONNX Runtime 1.31.0;
-Sentence-Transformers 5.1.1; PyTorch `2.6.0+cpu`; NumPy 2.5.4. Both runs used
-the exact model revision
+Sentence-Transformers 5.1.1; PyTorch `2.6.0+cpu`; NumPy 2.5.4. The upstream
+Sentence-Transformers model is recorded at
 `e8f8c211226b894fcb81acc59f3b34ba3efd5f42`, 384 dimensions and `raw_text_v1`
-preprocessing. FastEmbed artifact SHA-256 is
-`4bb74885d054d77b15c33520114d7edc19c31699bdab813d893e4f58c3afb4a1`; the
-Sentence-Transformers artifact SHA-256 is
+preprocessing. FastEmbed actually loads the separate ONNX artifact
+`qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q` at revision
+`faf4aa4225822f3bc6376869cb1164e8e3feedd0`, with artifact SHA-256
+`4bb74885d054d77b15c33520114d7edc19c31699bdab813d893e4f58c3afb4a1`.
+The Sentence-Transformers runtime artifact remains at revision
+`e8f8c211226b894fcb81acc59f3b34ba3efd5f42`, SHA-256
 `158d654c92d05bc1cd9996d46197de45bee615f20a06c4a99cb12efb21690088`.
 
 Selection is deterministic: recall@3, recall@1, p95 query latency, model-load
