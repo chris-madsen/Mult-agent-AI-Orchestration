@@ -2,7 +2,7 @@ import { Effect, Schema } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, isErr, ok, type Result } from '../domain/result.js';
 import { workspaceIdFrom, type WorkspaceServicePorts } from '../application/workspace-service.js';
-import type { ArtifactStore } from '../application/ports.js';
+import type { ArtifactStore, MemorySearchPort } from '../application/ports.js';
 import type { ContextBundle } from '../domain/retrieval.js';
 import { projectContextForDelivery, resolveDeliveryIntent } from '../domain/context-delivery.js';
 import type { MemorySearchResult } from '../domain/memory.js';
@@ -65,14 +65,7 @@ export interface ContextProvider {
   }) => Effect.Effect<Result<ContextBundle, DomainError>>;
 }
 
-export interface MemoryProvider {
-  readonly search: (input: {
-    readonly workspaceId: WorkspaceId;
-    readonly query: string;
-    readonly asOfMs?: number;
-    readonly includeOriginal: boolean;
-  }) => Effect.Effect<Result<MemorySearchResult, DomainError>>;
-}
+export type MemoryProvider = MemorySearchPort;
 
 const decode = <Value>(schema: Schema.Schema<Value, Value, never>, input: unknown): Result<Value, DomainError> => {
   try {
