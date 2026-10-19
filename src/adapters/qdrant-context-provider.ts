@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
@@ -154,6 +155,23 @@ export const hasExactQdrantSnapshot = (
   }
   return ok(count === expectedCount);
 });
+
+export const codeIndexKey = (index: CodeIndex): string => {
+  const stable = [...index.candidates]
+    .sort((left, right) => left.candidateId.localeCompare(right.candidateId))
+    .map((candidate) => [
+      candidate.candidateId,
+      candidate.repoPath,
+      candidate.sourceDigest,
+      candidate.symbolName ?? null,
+      candidate.range.startLine,
+      candidate.range.startColumn ?? null,
+      candidate.range.endLine,
+      candidate.range.endColumn ?? null,
+      candidate.text,
+    ]);
+  return createHash('sha256').update(JSON.stringify(stable), 'utf8').digest('hex');
+};
 
 export const reuseOrPopulateQdrantSnapshot = (
   index: CodeIndex,
