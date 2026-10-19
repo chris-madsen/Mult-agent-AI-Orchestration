@@ -28,6 +28,11 @@ export interface SnapshotLease {
 
 export interface FileQdrantSnapshotState {
   readonly isPublished: (identity: SnapshotManifestIdentity) => Promise<Result<boolean, DomainError>>;
+  readonly latestPublished: (
+    workspaceId: WorkspaceId,
+    providerFingerprint: string,
+    excludeIndexKey?: string,
+  ) => Promise<Result<SnapshotManifestIdentity | undefined, DomainError>>;
   readonly beginBuild: (identity: SnapshotManifestIdentity) => Promise<Result<void, DomainError>>;
   readonly publish: (identity: SnapshotManifestIdentity) => Promise<Result<void, DomainError>>;
   readonly acquireLease: (workspaceId: WorkspaceId, indexKey: string) => Promise<Result<SnapshotLease, DomainError>>;
@@ -111,6 +116,32 @@ export const makeFileQdrantSnapshotState = async (rootPath: string): Promise<Fil
         return (cause as NodeJS.ErrnoException).code === 'ENOENT'
           ? ok(false)
           : err(domainError('PERSISTENCE_FAILED', 'snapshot_manifest', 'could not inspect Qdrant snapshot manifest'));
+      }
+    },
+    latestPublished: async (workspaceId, providerFingerprint, excludeIndexKey) => {
+      if (!/^[a-f0-9]{64}$/u.test(providerFingerprint)) {
+        return err(domainError('INVALID_INPUT', 'provider_fingerprint', 'provider fingerprint must be SHA-256 hex'));
+      }
+      const root = join(manifestsRoot, workspaceKey(workspaceId));
+      try {
+        const entries = (await readdir(root)).filter((entry) => entry.endsWith('.json')).sort();
+        let latest: StoredSnapshotManifest | undefined;
+        for (const entry of entries) {
+          const stored = JSON.parse(await readFile(join(root, entry), 'utf8')) as StoredSnapshotManifest;
+          if (stored.schemaVersion !== 2 || stored.status !== 'published'
+            || stored.workspaceId !== workspaceId
+            || stored.providerFingerprint !== providerFingerprint
+            || stored.indexKey === excludeIndexKey
+            || !validIndexKey(stored.indexKey)) continue;
+          if (latest === undefined || stored.updatedAtMs > latest.updatedAtMs) latest = stored;
+        }
+        if (latest === undefined) return ok(undefined);
+        const { schemaVersion: _schemaVersion, status: _status, updatedAtMs: _updatedAtMs, ...identity } = latest;
+        return ok(identity);
+      } catch (cause) {
+        return (cause as NodeJS.ErrnoException).code === 'ENOENT'
+          ? ok(undefined)
+          : err(domainError('PERSISTENCE_FAILED', 'snapshot_manifest', 'could not enumerate published Qdrant manifests'));
       }
     },
     beginBuild: (identity) => writeManifest(identity, 'building'),
