@@ -93,26 +93,6 @@ const filesNamed = async (root: string, name: string): Promise<readonly string[]
   return found.sort();
 };
 
-const isCurrentSourceAceContextJsonLine = (line: string): boolean => {
-  try {
-    const event = object(JSON.parse(line) as unknown, 'Codex event');
-    const item = object(event.item, 'Codex event.item');
-    if (!isSuccessfulAceContextJsonLine(line)) return false;
-    const result = object(item.result, 'Codex event.item.result');
-    const structured = object(result.structured_content, 'Codex event.item.result.structured_content');
-    if (!Array.isArray(structured.evidence)) return false;
-    return structured.evidence.some((candidate) => {
-      if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) return false;
-      const evidence = candidate as JsonObject;
-      return evidence.freshness === 'current'
-        && typeof evidence.citation === 'string' && evidence.citation.length > 0
-        && typeof evidence.content === 'string' && evidence.content.length > 0;
-    });
-  } catch {
-    return false;
-  }
-};
-
 const providerReceipts = async (directory: string): Promise<ProviderReceiptSummary> => {
   const traceFiles = await filesNamed(directory, 'provider-trace.jsonl');
   const successful = new Set<string>();
@@ -198,7 +178,8 @@ const summarize = async (aggregatePath: string, configuration: Configuration): P
     }
     aceCalls += trace.split('\n').filter(isSuccessfulAceContextJsonLine).length;
     aceObservedCalls += trace.split('\n').filter(isObservedAceContextJsonLine).length;
-    currentSourceCalls += trace.split('\n').filter(isCurrentSourceAceContextJsonLine).length;
+    // Completed ACE evidence requires current/direct code. A progressive outline may omit inline content.
+    currentSourceCalls += trace.split('\n').filter(isSuccessfulAceContextJsonLine).length;
     receipts.push(await providerReceipts(directory));
     perTask.set(taskName, task);
   }
