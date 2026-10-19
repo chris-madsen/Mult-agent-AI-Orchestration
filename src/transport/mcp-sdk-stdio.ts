@@ -18,7 +18,12 @@ const toToolResult = (response: GatewayResponse, toolName?: string) => {
     // Context must not be mirrored in full as BOTH MCP text and structured data.
     // The short navigation text cites sources; structuredContent owns the body.
     content: [{ type: 'text' as const, text: toolName === 'ace_context' && response.status === 'ok'
-      ? contextTransportText(payload) : JSON.stringify(payload) }],
+      ? contextTransportText(payload)
+      : toolName === 'ace_expand' && response.status === 'ok'
+        ? typeof payload.content_utf8 === 'string'
+          ? payload.content_utf8
+          : 'Exact original bytes are in structuredContent.content_base64; use format=utf8 for readable code.'
+        : JSON.stringify(payload) }],
     structuredContent: { ...payload },
   };
 };
@@ -65,11 +70,12 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
   }, async (args, extra) => run('ace_context', args, extra.mcpReq.signal));
 
   server.registerTool('ace_expand', {
-    description: 'Read an exact stored artifact byte range without silent truncation.',
+    description: 'Expand an exact source artifact by handle. For readable source code set format=utf8 (lossless UTF-8 per page); default base64 preserves arbitrary bytes. No silent truncation.',
     inputSchema: z.object({
       handle: z.string().min(1),
       cursor: z.string().optional(),
       max_bytes: z.number().int().positive().optional(),
+      format: z.enum(['base64', 'utf8']).optional(),
     }),
   }, async (args, extra) => run('ace_expand', args, extra.mcpReq.signal));
 
