@@ -789,3 +789,80 @@ test('one ACE request id correlates docs, memory and final source verification w
   assert.equal(serialized.includes('why reconnect architecture'), false);
   assert.equal(serialized.includes(candidate.text), false);
 });
+
+
+test('DBC-05 final worktree revalidation also runs after temporal memory retrieval', async () => {
+  let edited = false;
+  let reads = 0;
+  const changed = Buffer.from('export function reconnect(): string { return "changed-by-memory"; }\n');
+  const changedDigest = createHash('sha256').update(changed).digest('hex');
+  const files: WorkspaceFilePort = {
+    canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+    snapshot: () => { throw new Error('not used'); },
+    readExact: () => {
+      reads += 1;
+      return Effect.succeed(ok(edited
+        ? { bytes: changed, digest: changedDigest as never }
+        : { bytes: source, digest: digest as never }));
+    },
+  };
+  const qdrant: CodeCandidatePort = {
+    upsert: () => Effect.succeed(ok(undefined)),
+    search: () => Effect.succeed(ok([{ candidate, score: 0.99, freshness: 'unknown' as const }])),
+  };
+  const artifacts: ArtifactStore = {
+    storeExact: () => Effect.succeed(ok({ handle: 'memory-race', digest: digest as never, sizeBytes: source.length })),
+    readRange: () => Effect.succeed(err(domainError('ARTIFACT_NOT_FOUND', 'handle', 'not needed'))),
+  };
+  const semantics: SemanticAnalysisPort = {
+    definition: () => Effect.succeed(ok([{
+      location: { repoPath: 'src/connection.ts', startLine: 1, startColumn: 17, endLine: 1, endColumn: 26 },
+      name: 'reconnect', kind: 'function',
+    }])),
+    references: () => Effect.succeed(ok([])),
+    typeInfo: () => Effect.succeed(ok(undefined)),
+    diagnostics: () => Effect.succeed(ok([])),
+  };
+  const memory: MemorySearchPort = {
+    search: () => {
+      edited = true;
+      return Effect.succeed(ok({
+        hits: [{
+          episode: {
+            episodeId: 'race-memory-episode' as never,
+            workspaceId,
+            sessionId: 'race-memory-session',
+            sourcePointer: 'codex://race-memory-session/1',
+            occurredAtMs: 100,
+            importedAtMs: 101,
+            contentDigest: 'f'.repeat(64) as never,
+            searchText: 'we selected local qdrant',
+            tombstoned: false,
+          },
+          matchingExcerpt: 'We selected local Qdrant for private code retrieval.',
+        }],
+        conflicts: [],
+      }));
+    },
+  };
+  const provider = makeQdrantContextProvider({
+    workspaceId, rootPath: '/repo', files, qdrant, artifacts, semantics, memory,
+    embeddings: { embedMany: () => Effect.succeed(ok([[1, 0]])) },
+    newRequestId: () => 'memory-race-request',
+  });
+  const result = mustOk(await Effect.runPromise(provider.search({
+    workspaceId, query: 'why qdrant', includeDocs: false, includeMemory: true,
+  })));
+
+  assert.equal(reads, 2);
+  assert.equal(result.complete, false);
+  assert.ok(result.partialSources.includes('code'));
+  assert.equal(result.partialSources.includes('memory'), false);
+  const code = result.evidence.find((item) => item.source === 'code');
+  const temporal = result.evidence.find((item) => item.source === 'memory');
+  assert.equal(code?.freshness, 'changed_during_request');
+  assert.equal(code?.proofClass, 'uncertain');
+  assert.equal(temporal?.freshness, 'current');
+  assert.equal(temporal?.proofClass, 'derived');
+  assert.equal(temporal?.citation, 'codex://race-memory-session/1');
+});
