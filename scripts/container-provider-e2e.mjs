@@ -20,6 +20,7 @@ const transport = new StdioClientTransport({
     '-e', 'ACE_ENABLE_EXPERIMENTAL_QDRANT=true',
     '-e', 'ACE_ALLOW_LOCAL_FALLBACK=false',
     '-e', `ACE_QDRANT_URL=${process.env.ACE_QDRANT_URL?.trim() || 'http://172.17.0.1:6333'}`,
+    '-e', 'ACE_QDRANT_LOCAL_HOSTS=172.17.0.1',
     '-e', 'ACE_EMBEDDING_WORKER=/ace/scripts/fastembed-worker.sh',
     '-e', 'ACE_EMBEDDING_PYTHON=python3',
     '-e', 'ACE_TREE_SITTER_HELPER=/ace/scripts/tree-sitter-structural.py',
