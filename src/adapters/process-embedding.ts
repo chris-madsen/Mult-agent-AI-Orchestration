@@ -222,11 +222,12 @@ export const makeProcessEmbeddingPort = (options: ProcessEmbeddingOptions): Mana
     if (options.expectedIdentity === undefined) return Effect.succeed(ok(undefined));
     if (effectiveIdentity !== undefined) return Effect.succeed(effectiveIdentity);
     return Effect.async((resume) => {
+      let waiter: (result: Result<EmbeddingWorkerIdentity, DomainError>) => void;
       const timer = setTimeout(() => {
         readyWaiters.delete(waiter);
         resume(Effect.succeed(err(domainError('EXTERNAL_UNAVAILABLE', 'embedding.identity', 'embedding worker startup receipt timed out'))));
       }, timeoutMs);
-      const waiter = (result: Result<EmbeddingWorkerIdentity, DomainError>): void => {
+      waiter = (result: Result<EmbeddingWorkerIdentity, DomainError>): void => {
         clearTimeout(timer);
         resume(Effect.succeed(result));
       };
