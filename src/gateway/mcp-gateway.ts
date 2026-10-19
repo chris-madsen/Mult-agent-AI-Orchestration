@@ -124,16 +124,31 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
           if (isErr(range)) return responseError(range);
           const format = input.value.format ?? 'base64';
           let content: Readonly<Record<string, unknown>>;
+          let nextCursor = range.value.nextCursor;
           if (format === 'utf8') {
-            try {
-              const decoded = new TextDecoder('utf-8', { fatal: true }).decode(range.value.bytes);
-              content = { encoding: 'utf8', content_utf8: decoded };
-            } catch {
+            // Byte pagination can split a multibyte code point. Return the
+            // largest valid exact UTF-8 prefix inside the requested byte cap;
+            // its next cursor is the true consumed byte offset. Do not replace
+            // invalid bytes or skip any part of the original source.
+            let decoded: string | undefined;
+            const bytes = range.value.bytes;
+            for (let trim = 0; trim <= Math.min(3, bytes.length - 1); trim += 1) {
+              try {
+                const prefix = bytes.subarray(0, bytes.length - trim);
+                decoded = new TextDecoder('utf-8', { fatal: true }).decode(prefix);
+                nextCursor = range.value.offset + prefix.length < range.value.totalBytes
+                  ? String(range.value.offset + prefix.length)
+                  : undefined;
+                break;
+              } catch { /* may end inside a UTF-8 code point */ }
+            }
+            if (decoded === undefined) {
               return responseError(err(domainError(
                 'INVALID_INPUT', 'format',
-                'selected byte range is not valid standalone UTF-8; request a different byte range or use base64',
+                'byte range is invalid UTF-8 or too short to contain one full code point; use max_bytes >= 4 or base64',
               )));
             }
+            content = { encoding: 'utf8', content_utf8: decoded };
           } else {
             content = { encoding: 'base64', content_base64: Buffer.from(range.value.bytes).toString('base64') };
           }
@@ -144,7 +159,7 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
               digest: range.value.digest,
               offset: range.value.offset,
               total_bytes: range.value.totalBytes,
-              ...(range.value.nextCursor === undefined ? {} : { next_cursor: range.value.nextCursor }),
+              ...(nextCursor === undefined ? {} : { next_cursor: nextCursor }),
             },
           };
         }
