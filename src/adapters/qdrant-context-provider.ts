@@ -211,10 +211,10 @@ export const pruneQdrantOtherGenerations = (
 /** Tree-sitter uses one-based line/column coordinates here, but columns count UTF-8 bytes.
  * Re-slice authoritative workspace bytes and compare them with the Qdrant payload.
  * Qdrant ranking never confers source-of-truth status. */
-export const exactUtf8Span = (
+export const exactUtf8ByteRange = (
   bytes: Uint8Array,
   range: { readonly startLine: number; readonly endLine: number; readonly startColumn?: number; readonly endColumn?: number },
-): string | undefined => {
+): { readonly offset: number; readonly length: number } | undefined => {
   if (range.startColumn === undefined || range.endColumn === undefined) return undefined;
   const raw = Buffer.from(bytes);
   const lineOffsets = [0];
@@ -225,7 +225,17 @@ export const exactUtf8Span = (
   const from = a + range.startColumn - 1;
   const until = b + range.endColumn - 1;
   if (from < 0 || until <= from || until > raw.length) return undefined;
-  return raw.subarray(from, until).toString('utf8');
+  return { offset: from, length: until - from };
+};
+
+export const exactUtf8Span = (
+  bytes: Uint8Array,
+  range: { readonly startLine: number; readonly endLine: number; readonly startColumn?: number; readonly endColumn?: number },
+): string | undefined => {
+  const span = exactUtf8ByteRange(bytes, range);
+  return span === undefined
+    ? undefined
+    : Buffer.from(bytes).subarray(span.offset, span.offset + span.length).toString('utf8');
 };
 
 export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
@@ -286,7 +296,9 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
       // Both the digest AND the byte-exact AST slice must match. Never deliver
       // unverified Qdrant payload as if it were the workspace's current source.
       const current = full.digest === candidate.sourceDigest;
-      const verifiedText = exactUtf8Span(full.bytes, candidate.range);
+      const exactSpan = exactUtf8ByteRange(full.bytes, candidate.range);
+      const verifiedText = exactSpan === undefined ? undefined
+        : Buffer.from(full.bytes).subarray(exactSpan.offset, exactSpan.offset + exactSpan.length).toString('utf8');
       const verified = current && verifiedText !== undefined && verifiedText === candidate.text;
       const freshness = current ? (verified ? 'current' : 'unknown') : 'stale';
       if (!verified) {
@@ -326,6 +338,10 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
         ...evidenceFromCandidate({ ...ranked, freshness }, evidenceId.value),
         content: verifiedText,
         expansionHandle: full.handle,
+        ...(exactSpan === undefined ? {} : {
+          expansionCursor: String(exactSpan.offset),
+          expansionMaxBytes: exactSpan.length,
+        }),
       });
     }
 
