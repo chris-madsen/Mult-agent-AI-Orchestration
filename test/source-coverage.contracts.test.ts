@@ -34,34 +34,37 @@ const mustOk = <T, E>(value: Result<T, E>): T => {
 test('route requirements distinguish required, optional, denied and not-requested sources', () => {
   const rationale = resolveSourceRequirements(['documentation', 'memory']);
   assert.deepEqual(rationale, {
-    code: 'not_requested',
-    structural: 'not_requested',
-    documentation: 'required',
-    memory: 'required',
+    code: { requirement: 'not_requested', allowed: true },
+    structural: { requirement: 'not_requested', allowed: true },
+    documentation: { requirement: 'required', allowed: true },
+    memory: { requirement: 'required', allowed: true },
   });
 
   const enriched = resolveSourceRequirements(['documentation', 'memory'], { includeCode: true });
   assert.deepEqual(enriched, {
-    code: 'optional',
-    structural: 'optional',
-    documentation: 'required',
-    memory: 'required',
+    code: { requirement: 'optional', allowed: true },
+    structural: { requirement: 'optional', allowed: true },
+    documentation: { requirement: 'required', allowed: true },
+    memory: { requirement: 'required', allowed: true },
   });
 
   const denied = resolveSourceRequirements(['documentation', 'memory'], {
     includeDocs: false,
     includeMemory: false,
   });
-  assert.equal(denied.documentation, 'denied');
-  assert.equal(denied.memory, 'denied');
+  assert.deepEqual(denied.documentation, { requirement: 'required', allowed: false });
+  assert.deepEqual(denied.memory, { requirement: 'required', allowed: false });
+  const deniedCoverage = initialSourceCoverage(denied);
+  assert.equal(deniedCoverage.find((item) => item.source === 'documentation')?.status, 'denied');
+  assert.equal(sourceCoverageComplete(deniedCoverage), false);
 });
 
 test('only required source outcomes determine source-coverage completeness', () => {
   const requirements: SourceRequirements = {
-    code: 'required',
-    structural: 'optional',
-    documentation: 'optional',
-    memory: 'not_requested',
+    code: { requirement: 'required', allowed: true },
+    structural: { requirement: 'optional', allowed: true },
+    documentation: { requirement: 'optional', allowed: true },
+    memory: { requirement: 'not_requested', allowed: true },
   };
   let coverage = initialSourceCoverage(requirements);
   coverage = setSourceCoverage(coverage, 'code', 'satisfied');
@@ -158,10 +161,10 @@ test('optional stale documentation enriches a required code answer without makin
     includeDocs: true,
     includeMemory: false,
     sourceRequirements: {
-      code: 'required',
-      structural: 'optional',
-      documentation: 'optional',
-      memory: 'not_requested',
+      code: { requirement: 'required', allowed: true },
+      structural: { requirement: 'optional', allowed: true },
+      documentation: { requirement: 'optional', allowed: true },
+      memory: { requirement: 'not_requested', allowed: true },
     },
   })));
   assert.equal(result.complete, true);
@@ -189,10 +192,10 @@ test('the same stale documentation makes the bundle incomplete when documentatio
     includeDocs: true,
     includeMemory: false,
     sourceRequirements: {
-      code: 'required',
-      structural: 'optional',
-      documentation: 'required',
-      memory: 'not_requested',
+      code: { requirement: 'required', allowed: true },
+      structural: { requirement: 'optional', allowed: true },
+      documentation: { requirement: 'required', allowed: true },
+      memory: { requirement: 'not_requested', allowed: true },
     },
   })));
   assert.equal(result.complete, false);
@@ -233,10 +236,10 @@ test('managed mixed-source request returns truthful partial coverage when code p
     includeDocs: false,
     includeMemory: true,
     sourceRequirements: {
-      code: 'required',
-      structural: 'optional',
-      documentation: 'not_requested',
-      memory: 'required',
+      code: { requirement: 'required', allowed: true },
+      structural: { requirement: 'optional', allowed: true },
+      documentation: { requirement: 'not_requested', allowed: true },
+      memory: { requirement: 'required', allowed: true },
     },
   })));
   assert.equal(qdrantCalls, 0);
@@ -275,10 +278,10 @@ test('documentation policy denial remains denied rather than technical unavailab
     includeDocs: true,
     includeMemory: false,
     sourceRequirements: {
-      code: 'not_requested',
-      structural: 'not_requested',
-      documentation: 'required',
-      memory: 'not_requested',
+      code: { requirement: 'not_requested', allowed: true },
+      structural: { requirement: 'not_requested', allowed: true },
+      documentation: { requirement: 'required', allowed: true },
+      memory: { requirement: 'not_requested', allowed: true },
     },
   })));
   assert.equal(embeddingCalls, 0);
