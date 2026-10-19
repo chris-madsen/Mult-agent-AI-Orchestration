@@ -1,69 +1,69 @@
-# AGENTS.md — ACE repository-wide implementation contract
+# AGENTS.md — Permanent ACE engineering rules
 
-This file applies to **every path in this repository**, including `src/`, `test/`, `docs/`, `benchmarks/`, `scripts/` and native code. Nested AGENTS.md files may add narrower instructions, never weaken the rules below. **The repository owner must approve material architecture/provider changes.**
+These instructions apply to **all work in this repository** (`src/`, `test/`, `scripts/`, `docs/`, `benchmarks/`, and native code). Nested AGENTS.md files may add path-specific rules, but must not weaken these invariants.
 
-## Mission and architectural truth
+**This is a durable rules document, not a sprint plan, task queue, progress report, or a substitute for OpenSpec.** Do not add a current milestone, one-time execution instructions, dated status updates, checklists to complete this week, or links directing the agent to execute one particular change. Put those in the relevant OpenSpec `proposal.md` / `design.md` / `tasks.md` or a separate execution plan.
 
-ACE is a **Codex-independent Adaptive Context Engine**, not a new multi-agent framework or a general-purpose MCP server collection. The target is **≥5× fewer end-to-end agent tokens per successfully completed task** against a strong unmodified Codex baseline, with non-inferior correctness. **5× is not achieved or claimed.** Quality and token/cost/latency are separate measured dimensions.
+## 1. Mission and source of authority
 
-The accepted PRD/ADRs define intent; DDD/context maps are proposed design until reviewed. The goal is a **single logical MCP facade** atop **one modular monolith**, initially TypeScript + Effect; native Rust is optional and evidence-gated. A Bounded Context is **not** a deployment unit. Existing local Kubernetes only; no opportunistic microservices, observability stack, custom graph database, parser, embedding model or orchestration framework.
+- ACE is an **agent-neutral Adaptive Context Engine**, exposed through one logical MCP facade. Codex is the first client, not the only supported client.
+- Optimize accurate **end-to-end context delivery and task success**. The target of **at least 5× fewer agent tokens per accepted task** is a hypothesis to measure against a strong unmodified baseline, **never an assumed achievement**. Protect correctness, confidentiality, total cost and latency.
+- Respect the accepted PRD and ADRs as architecture decisions. The relevant OpenSpec capability specs and Meyer contracts define observable acceptance. Implementation notes, spikes, review reports and execution plans contain evidence or work instructions; they do **not** override accepted ADRs.
+- If decisions conflict, the current explicit owner decision and accepted ADR take precedence; record a proposed ADR for any material unresolved or changed choice. **Never silently settle an open production provider choice.** Experimental implementation is allowed when scoped, labeled and safe; production promotion needs evidence and owner approval.
 
-## Read before implementing
+## 2. Architecture and build-versus-buy
 
-1. `docs/docs/references/PRD-v1.0.md`, Accepted ADR-000…ADR-012, and ADR-013 (Accepted for evaluation protocol only; model remains unselected).
-2. `docs/docs/architecture/01-strategic-ddd.md` through `07-architecture-fitness-contracts.md`.
-3. `docs/openspec/README.md`, the relevant change's `proposal.md`, `design.md`, `specs/` and `tasks.md`.
-4. `docs/reviews/2026-10-18-architecture-failure-review.md` for known architectural failures. The review is evidence, not permission to modify unrelated source.
+- Maintain **one TypeScript + Effect modular monolith** and DDD bounded contexts, with supporting external infrastructure rather than a microservice per context. Use Rust only when benchmarks justify it.
+- Prefer proven maintained engines, libraries and official protocols to custom replacements. Any proposal to build a parser, embedding algorithm, vector database, memory graph, MCP transport, benchmark orchestrator or other mature infrastructure must have an owner-approved ADR with a measurable reason.
+- Use the official maintained **MCP TypeScript SDK** for the production transport. Keep experimental compatibility transports outside the production composition unless a separately approved ADR and conformance suite justify them.
+- Keep adapters and provider DTOs outside the domain; use typed ports, explicit runtime composition and provider-specific conformance tests.
+- Honor the **selected roles**, without conflating them: Qdrant for local code retrieval candidates; Tree-sitter/ast-grep for structural facts; an **evidence-selected** language-service provider for semantic facts; Vertex AI RAG for authorized documentation; immutable original session archive plus local-first Graphiti/FalkorDB for temporal memory; Harbor for agent-level evaluation.
+- No particular local embedding **model or model-serving wrapper** is mandated. **Do not add Ollama as a required/default ACE dependency.** Use genuine, measured embeddings from maintained candidate implementations; do not portray SHA-256/hash-derived test vectors as semantic retrieval. Keep embedding provider/model, inference runtime and vector store separate decisions.
+- Where accepted ADRs prescribe a comparison between candidate providers, compare them on matched, reproducible fixtures before recommending a final production choice. A provider already implemented is not automatically the winner. Do not turn an open comparison into an arbitrary selection.
+- Jev remains an optional experimental strategy selector until explicitly approved. Avoid speculative dashboards, full observability stacks, full call-graph/CPG platforms and new services outside agreed scope.
 
-## Non-negotiable build-versus-buy and runtime rules
+## 3. Source truth, retrieval and context completeness
 
-- **Selected production components:** Qdrant for local code candidate search; **Tree-sitter/ast-grep** for structural facts; approved **Serena or TypeScript Language Service** for LSP semantics; Vertex AI RAG Engine for authorized documents; Graphiti for derived temporal memory backed by exact original session archive; Harbor for evaluation. Their API integration must be real, approved and evidenced before stating a capability is production-ready.
-- **Use a maintained, official MCP TypeScript SDK** for the production MCP transport. A hand-written JSON-RPC transport may exist as a quarantined compatibility experiment only; it is not an accepted production protocol implementation without a new ADR and conformance evidence.
-- **Never implement a custom replacement for a selected mature engine or protocol** (parser, embeddings, vector DB, LSP, MCP server framework, memory graph, benchmarking orchestrator) merely to move a checklist forward. A temporary fallback/fixture **must** be marked `experimental` or `fallback`, default-off where it would silently displace the selected provider; it must not satisfy a production acceptance criterion.
-- A SHA-256-derived vector is **not semantic embedding**. It is allowed only as a clearly labelled deterministic test double, never as a retrieval-quality proof or production embedder.
-- Regex symbol detection is not AST resolution. An item with `symbolName` but an entire file as its range/content is **not** a symbol-granular candidate. Structural spans must come from parsed syntax; semantic relationships require an approved language service.
-- Preserve original source and generated artifacts byte-for-byte. A 2000+ line file must remain fully retrievable via explicit, authorized expansion. Do not silently truncate or impose a mandatory token cap; **relevance ranking of initial excerpts** is required.
-- File/source provenance includes workspace, path, digest/revision, exact range, freshness, evidence mechanism and explicit uncertainty. A stale source may be shown as stale but **never** as verified-current. Avoid workspace-wide snapshots in the hot path unless justified and benchmarked.
-- Code stays local by default. Private code to cloud requires project opt-in; policy/auth/secret violations **fail closed** with safe logs; backend outages degrade truthfully. ACE cannot mutate the user's code tree.
-- Raw Codex transcripts are authoritative memory source; extracted facts are projections, not automatically accepted human decisions. Session identity must survive append/replay, and deletion cannot destroy shared content still referenced by another episode.
-- Jev stays an **opt-in experimental strategy selector**, not required production routing. Do not silently choose open provider questions or Kubernetes host-worktree transport; record spikes/ADR proposals.
-- No dashboards, OTel stack or full static-analysis/CPG subsystem in current scope.
+- **Current verified source bytes outrank index payload and derived documentation.** For each code citation retain workspace, path, digest/revision, exact range, evidence mechanism, freshness and uncertainty.
+- Structural symbols require **real parsed spans**; a regex-identified name mapped to the whole file is not a symbol-precise result. Semantic references/definitions require validated language-service evidence; identical names and write accesses are not sufficient proof of definition identity.
+- Return **relevant, concise initial context**, not a whole file per match. At the same time preserve lossless authorized expansion of complete originals, including very large source and generated artifacts. Never silently truncate or impose a fixed mandatory output-token ceiling.
+- Revalidate selected source against the working tree; if it changes during the request, re-read and verify, or label the result stale/changed. Never mark obsolete evidence current.
+- Determine `complete` from **coverage of all required sources in the authorized retrieval plan**, source verification and honest dependency statuses. Missing or failed required providers mean a partial/not-ready result, even if the surviving snippets are fresh.
+- Failure paths must distinguish `unavailable`, `stale`, `not_ready`, `policy_denied` and `not_required`. Optional providers are queried only when relevant and permitted. Test doubles and degraded fallback must be explicitly identified and cannot satisfy real-provider acceptance gates.
+- Keep filesystem hot paths efficient: prioritize indexed candidates and targeted verification; benchmark any unavoidable workspace-wide scan or reindexing.
 
-## Vertical-slice-first delivery and Meyer contracts
+## 4. Security, privacy and lifecycle
 
-**A domain abstraction, adapter file, mocked unit test or green lint run is not evidence that a user capability works.** Work towards an actual **Codex → official MCP SDK → production composition → Qdrant candidate → AST span → approved LSP → current source verification → relevant ContextBundle / exact expansion** path before broadening the system. Documentation and Graphiti joins are conditional on need/policy, not mandatory on every request.
+- **Source code and raw dialogues stay local by default.** Cloud transfer requires documented workspace/data-class opt-in and a destination-specific authorization check **at transmission time**. Authenticated cloud credentials by themselves do not authorize an upload, resource creation or billable operation.
+- Vertex documentation may use the available supported Google credentials (including an already authenticated host `gcloud` CLI where applicable); never assume credentials, IAM, a RAG corpus or ADC exist everywhere. Do not print, commit or retain access tokens in logs or fixtures. Use minimally scoped, short-lived credentials where possible.
+- Graphiti + FalkorDB are **local-first**. Confirm not only database locality but also LLM extraction, embeddings and reranking egress. Unapproved cloud inference on private session data is forbidden.
+- Original Codex sessions remain authoritative, byte-exact and source-citable; Graphiti extracts **derived claims**, not automatically owner-approved engineering decisions. Preserve history, status, contradictions and source pointers.
+- Import/replay, background projections, queue acknowledgements, tombstones, cleanup and deletion must be idempotent and recovery-safe. No deletion may destroy shared original blobs still referenced by another episode. Cross-process and crash consistency must be tested under the actual storage semantics.
+- ACE is read-only with respect to the user's worktree. Policy denial and secret leakage fail closed, with safe diagnostics. Technical outages may degrade **truthfully**, never by silently switching to a forbidden destination.
 
-Every change that affects a user-facing capability MUST identify and test:
-- **Preconditions**: authorized workspace, valid input, approved/live dependencies, reproducible fixture.
-- **Postconditions**: precise, source-cited expected behavior and actual provider invocations; required response semantics.
-- **Invariants**: no false freshness, no invented result, no implicit cloud upload, no source-byte loss, no wrong symbol merges, no duplicate usage counting, no mistaken decision approval.
-- **Frame conditions**: what may not change (user worktree, raw archive, `main`, holdout dataset).
-- **Exceptional postconditions**: denied vs unavailable vs stale, failure evidence retained without false success.
+## 5. Bertrand Meyer design-by-contract and quality gates
 
-See `docs/docs/architecture/07-architecture-fitness-contracts.md` and `docs/openspec/changes/006-production-retrieval-vertical-slice/`. Add **runtime composition tests** and **real-provider integration tests**, not only tests of pure domain models. Do not turn unchecked blocker requirements into `[x]` with a "controlled exception"; use `[ ]` and document why.
+For changes affecting a user-visible capability, define **observable**:
+- **Preconditions (`require`)**: schema-valid, authorized input, registered workspace, required capability and fixtures.
+- **Postconditions (`ensure`)**: correct cited response and actual required provider invocations, verified source/freshness, authorized expansion or an explicit typed failure.
+- **Invariants**: no invented evidence, false freshness, fake semantics, unauthorized egress, corrupt archival state or unapproved decision promotion.
+- **Frame conditions**: user worktree, original bytes, protected branches and immutable benchmark holdouts remain unchanged by the capability.
+- **Exceptional postconditions**: distinguish provider outage, policy denial, stale/raced inputs, cancellation and retries without false success.
 
-## Quality and benchmark proof
+Use `docs/docs/architecture/07-architecture-fitness-contracts.md` and applicable OpenSpec capability specs for contract IDs and scenarios. **A domain port, adapter file, pure mock test, green compiler or passing protocol smoke is not proof of agent-facing production behavior.** Verify the runtime entrypoint calls real configured providers through the actual MCP client.
 
-- Keep `main` untouched until owner reviews a PR. Prefer small commits in feature branches; do not edit unrelated user work.
-- Run typecheck, tests, lint, OpenSpec validation and affected provider-integration/conformance tests. Report anything not run or unavailable exactly.
-- Test failure/retry, race conditions, path escape, prompt injection and removal of secrets; validate runtime schemas and explicit lifecycle/cleanup. Prefer typed ports and standard components over bespoke wrappers.
-- Harbor must compare a strong native Codex with Codex+ACE on paired, pinned **retrieval-demanding tasks**. Record actual ACE MCP invocation count, correct provider invocation/evidence, quality and total tokens plus external costs. A smoke requiring `TODO → DONE` cannot establish retrieval quality; a run with zero ACE calls cannot establish ACE savings. Preserve failed runs and raw evidence, and label exploratory vs frozen holdout.
-- Don't hide failures, invent success, silently loosen tests, promote a spike into production, or claim improvements absent measurements. Prefer clear, small, independently reviewable changes.
+Keep evidence stages separate: `contract-designed` → `adapter-implemented` → `real-provider-tested` → `agent-E2E-tested` → `benchmark-evaluated` → `owner-approved`. Unpassed mandatory checks remain unchecked; a controlled exception explains a blocker but never closes a production gate.
 
-## Definition of done
+## 6. Benchmarks and reporting
 
-A change is `Implemented` only when all its normative scenarios and Meyer contracts pass against the stated runtime composition, or the feature is explicitly labelled **not ready** and its acceptance task stays unchecked. `Production-ready` additionally requires approved dependencies/security, conformance and E2E proof, independently repeated quality-gated benchmarks where performance is claimed, and **owner review**. `docs/openspec/changes/*` remain unarchived while blockers exist.
+- Use Harbor for **paired, pinned, retrieval-demanding real agent tasks** against a strong native Codex baseline. Verify actual ACE MCP call counts and attributed provider usage; zero ACE calls cannot establish ACE-caused benefit.
+- Compare accepted task quality first, then total input/output/cached tokens without double counting, external embedding/LLM/indexing costs, latency, source integrity and failures. Preserve raw trials and independent holdouts; do not tune on frozen holdouts.
+- A measured result below 5× (or a regression) must be reported honestly; **the performance target is not a prerequisite to running experiments or benchmarks**. Do not assert savings from a forced trivial task.
+- Do not fabricate test runs, relax assertions to hide defects, suppress failed provider attempts, or mark a production criterion passed from mock-only evidence.
 
-Never confuse repository/API availability with user authorization to expose private sources. Document unresolved decisions rather than guessing.
+## 7. Repository change discipline
 
-## Owner clarification — 2026-10-19 (binding implementation guidance)
-
-- **Ollama is not a selected or required dependency. Do not install or restore it by default.** Qdrant is the selected code-vector store; the embedding model and inference implementation are intentionally separate decisions. Codex may benchmark established local inference candidates, such as Qdrant FastEmbed / ONNX, without a mandatory model-serving wrapper; see proposed ADR-013. SHA-256 pseudo-vectors cannot satisfy semantic retrieval.
-- **ADR-004 requires an actual comparison: Serena vs direct TypeScript Language Service.** Codex must run both on matched fixtures, measure correctness, latency, integration complexity, license and agent-level performance, and recommend to the owner. Do not silently select either.
-- **Graphiti + FalkorDB: local-first.** Original Codex dialogues and extraction inputs remain local by default; no implicit external model calls. Test actual local projection, temporal recall and deletion, and leave the capability not_ready where dependencies are missing.
-- **Vertex: use the owner's already authenticated host gcloud CLI** for development probes: `gcloud config get-value project`, `gcloud auth print-access-token`, or `npm run probe:vertex`. Do not require a new interactive login merely to run a REST test. CLI auth and Application Default Credentials are different; containers need explicit safe credential access. Verify IAM and actual corpus before claiming E2E; never commit tokens or silently upload private documents or create billable resources.
-- **Architecture decisions versus testing:** ADR-012 remains Proposed pending explicit owner sign-off of its six acceptance rules. Codex may conduct local provider experiments, integrate candidates on public/synthetic fixtures, and run honest exploratory Harbor tests now. Only **production promotion** and claims of accepted 5× need their respective evidence and approvals. A missing benchmark result is not permission to fabricate one, nor a reason to refuse to start a benchmark.
-
-## Execution entrypoint after owner sign-off (2026-10-19)
-
-The owner **explicitly approved all six rules in ADR-012** and the non-Ollama experimental protocol in ADR-013. No real provider, LSP winner, embedding model, 5× measurement or production readiness is implied. **Codex should follow [`docs/openspec/changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md`](docs/openspec/changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md)**. Stage 0–4 experiments are authorized on local/public/synthetic test data, but external private-data upload, new billable Vertex corpora and final production provider selection still need distinct approval.
+- Work in reviewable branches and PRs; do not push directly to `main` unless the owner explicitly authorizes that operation. Preserve unrelated edits.
+- For affected capabilities run typecheck, lint, unit/contract tests, OpenSpec validation, real-provider integration, SDK conformance and agent E2E **as applicable**. Report precisely what was run, skipped, unavailable and why.
+- Keep normative requirements and acceptance tasks in **OpenSpec**, durable architecture choices in **ADRs**, past observations in `docs/reviews/`, benchmark evidence in `benchmarks/`, and temporary stage-by-stage instructions in a separate **execution plan**. Do **not** paste an execution plan into AGENTS.md or make one sprint's plan a permanent agent instruction.
+- Promote production capability only after applicable real evidence, security/permission checks, reproducible evaluation and explicit owner review. If a provider needs credentials or external services unavailable to the current runner, record a specific blocker rather than inventing success.
