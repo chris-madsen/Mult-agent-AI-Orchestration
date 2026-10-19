@@ -50,3 +50,10 @@ approved LSP and Vertex production adapters remain controlled exceptions; see
 **Architecture correction:** the production `ace_context` currently wires lexical/regex whole-file retrieval; disconnected Qdrant, Tree-sitter and LSP adapters are not a completed unified retrieval pipeline. Previous [x] statuses denote component contracts, not production coverage. See proposed 006.
 - [ ] Integrate real Qdrant/approved embeddings/Tree-sitter/approved LSP into MCP bootstrap and satisfy DBC-01/02/03/04/05/06/07/13/14.
 - [ ] Prove source precision with 2000-line file containing 25-line function; return exact 25-line initial AST span and lossless expansion.
+
+## Immediate owner-authorized evaluation (2026-10-19; all acceptance tasks remain open)
+
+- [ ] Codex integrates a genuine locally executed embedding candidate **without installing/assuming Ollama**, e.g. FastEmbed / ONNX, with model/version and Qdrant generation pinned. Run real retrieval E2E and record recall@k / end-to-end costs; SHA-256 projections are NOT semantic evidence.
+- [ ] Codex installs and compares **Serena vs TypeScript Language Service** on matched TS/JS fixtures. Record correct refs/defs/types, negative cases, latency, agent task success and licensing, then recommend a provider to the owner (ADR-004).
+- [ ] Codex runs `npm run probe:vertex` using the already-authenticated *host* gcloud CLI, reads IAM/project/corpora status, tests actual citations on an **explicitly approved synthetic/public fixture corpus**, and reports when corpus absent. Do not export private material or create billable resources by default.
+- [ ] Real provider trace demonstrates Codex → MCP → Qdrant → actual embeddings → AST → candidate language service → verified source, including outdated index handling. Unit mocks alone cannot satisfy this gate.
