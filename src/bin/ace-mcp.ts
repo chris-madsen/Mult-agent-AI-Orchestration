@@ -6,6 +6,8 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { Effect } from 'effect';
 import { makeFileArtifactStore } from '../adapters/file-artifact-store.js';
+import { makeAsyncFileMemoryArchive } from '../adapters/file-memory-archive.js';
+import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
 import { makeFetchHttpPort, makeQdrantCodeCandidatePort } from '../adapters/http-provider-boundaries.js';
 import { buildLocalCodeIndex } from '../adapters/local-code-index.js';
 import { makeLocalContextProvider } from '../adapters/local-context-provider.js';
@@ -17,6 +19,7 @@ import { makeTreeSitterStructuralPort } from '../adapters/tree-sitter-structural
 import { makeTypeScriptLanguageServicePort } from '../adapters/typescript-language-service.js';
 import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
 import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
+import type { MemorySearchPort } from '../application/ports.js';
 import { defaultLocalPolicy } from '../domain/policy.js';
 import type { RepoPath, WorkspaceId } from '../domain/workspace.js';
 import { observeWorkspace, registerWorkspace } from '../application/workspace-service.js';
@@ -121,6 +124,39 @@ const main = async (): Promise<void> => {
   const structuralHelper = process.env.ACE_TREE_SITTER_HELPER?.trim();
   const artifacts = makeFileArtifactStore(artifactDirectory);
   const providerTrace = makeFileProviderTrace(process.env.ACE_PROVIDER_TRACE_FILE);
+  let memory: MemorySearchPort | undefined;
+  let closeMemory: (() => Promise<void>) | undefined;
+  if (process.env.ACE_ENABLE_GRAPHITI === 'true') {
+    const archiveRoot = resolve(required('ACE_MEMORY_ARCHIVE_ROOT'));
+    const command = required('ACE_GRAPHITI_COMMAND');
+    let args: string[];
+    try {
+      const decoded: unknown = JSON.parse(required('ACE_GRAPHITI_ARGS_JSON'));
+      if (!Array.isArray(decoded) || !decoded.every((item) => typeof item === 'string')) {
+        throw new Error('ACE_GRAPHITI_ARGS_JSON must decode to a string array');
+      }
+      args = decoded;
+    } catch (cause) {
+      throw new Error(cause instanceof Error ? cause.message : 'ACE_GRAPHITI_ARGS_JSON is invalid');
+    }
+    const archive = await makeAsyncFileMemoryArchive(archiveRoot);
+    try {
+      const graphiti = await makeGraphitiMcpPort({
+        command,
+        args,
+        groupId: required('ACE_GRAPHITI_GROUP_ID'),
+        workspaceId: registered.value.workspaceId,
+        policy: defaultLocalPolicy(registered.value.workspaceId),
+        archive,
+      });
+      memory = graphiti.memory;
+      closeMemory = graphiti.close;
+      if (memory === undefined) throw new Error('Graphiti archive-backed memory search was not initialized');
+      process.stderr.write(`ace-mcp temporal memory ready workspace_id=${registered.value.workspaceId}\n`);
+    } catch (cause) {
+      process.stderr.write(`ace-mcp memory NOT_READY: ${cause instanceof Error ? cause.message : 'Graphiti startup failed'}\n`);
+    }
+  }
   const structuralPath = resolve(process.env.ACE_TREE_SITTER_HELPER?.trim() || 'scripts/tree-sitter-structural.py');
   const structuralPython = optionalCommand(process.env.ACE_TREE_SITTER_PYTHON, resolve('.venv-system/bin/python'));
   let context: ReturnType<typeof makeLocalContextProvider> | undefined;
@@ -312,6 +348,7 @@ const main = async (): Promise<void> => {
             candidateLimit,
             coverage: built.value.coverage,
             ...(documentation === undefined ? {} : { documentation }),
+            ...(memory === undefined ? {} : { memory }),
           });
           process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} embedding_identity=${embeddingFingerprint.slice(0, 12)} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} collection=${collection}\n`);
         }
@@ -344,8 +381,13 @@ const main = async (): Promise<void> => {
     store,
     artifacts,
     ...(context === undefined ? {} : { context }),
+    ...(memory === undefined ? {} : { memory }),
   });
-  await runMcpSdkStdio(gateway);
+  try {
+    await runMcpSdkStdio(gateway);
+  } finally {
+    if (closeMemory !== undefined) await closeMemory();
+  }
 };
 
 try {
