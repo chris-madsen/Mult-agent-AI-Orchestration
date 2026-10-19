@@ -54,7 +54,7 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
     }
   };
   server.registerTool('ace_context', {
-    description: 'Find relevant verified code symbols. Default locate mode returns short source map and compact snippets; intent=inspect returns full selected snippets. Use ace_expand for byte-exact originals.',
+    description: 'For ambiguous cross-file code investigations, find verified symbol locations without dumping whole files. Prefer native tools for trivial known-file edits; do not duplicate file scans when ACE already returns fresh evidence. Default locate gives a concise map; intent=inspect gives full selected snippets. ace_expand retrieves exact originals.',
     inputSchema: z.object({
       workspace_id: z.string().min(1),
       query: z.string(),
