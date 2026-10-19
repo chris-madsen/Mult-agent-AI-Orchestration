@@ -866,3 +866,89 @@ test('DBC-05 final worktree revalidation also runs after temporal memory retriev
   assert.equal(temporal?.proofClass, 'derived');
   assert.equal(temporal?.citation, 'codex://race-memory-session/1');
 });
+
+
+test('W10 docs-only route skips embeddings, Qdrant, source reads and LSP entirely', async () => {
+  let embeddingCalls = 0;
+  let qdrantCalls = 0;
+  let sourceReads = 0;
+  let semanticCalls = 0;
+  let documentationCalls = 0;
+  const provider = makeQdrantContextProvider({
+    workspaceId,
+    rootPath: '/repo',
+    files: {
+      canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+      snapshot: () => { throw new Error('not used'); },
+      readExact: () => {
+        sourceReads += 1;
+        return Effect.succeed(ok({ bytes: source, digest: digest as never }));
+      },
+    },
+    qdrant: {
+      upsert: () => Effect.succeed(ok(undefined)),
+      search: () => {
+        qdrantCalls += 1;
+        return Effect.succeed(ok([{ candidate, score: 1, freshness: 'unknown' as const }]));
+      },
+    },
+    embeddings: {
+      embedMany: () => {
+        embeddingCalls += 1;
+        return Effect.succeed(ok([[1, 0]]));
+      },
+    },
+    artifacts: {
+      storeExact: () => Effect.succeed(ok({ handle: 'not-used', digest: digest as never, sizeBytes: source.length })),
+      readRange: () => Effect.succeed(err(domainError('ARTIFACT_NOT_FOUND', 'handle', 'not used'))),
+    },
+    semantics: {
+      definition: () => {
+        semanticCalls += 1;
+        return Effect.succeed(ok([]));
+      },
+      references: () => {
+        semanticCalls += 1;
+        return Effect.succeed(ok([]));
+      },
+      typeInfo: () => {
+        semanticCalls += 1;
+        return Effect.succeed(ok(undefined));
+      },
+      diagnostics: () => {
+        semanticCalls += 1;
+        return Effect.succeed(ok([]));
+      },
+    },
+    documentation: {
+      search: () => {
+        documentationCalls += 1;
+        return Effect.succeed(ok([{
+          evidenceId: 'docs-only-evidence' as never,
+          source: 'documentation',
+          citation: 'docs/decision.md',
+          content: 'The historical architecture rationale.',
+          proofClass: 'derived',
+          freshness: 'current',
+        }]));
+      },
+    },
+    newRequestId: () => 'docs-only-route',
+  });
+
+  const result = mustOk(await Effect.runPromise(provider.search({
+    workspaceId,
+    query: 'architecture rationale',
+    includeCode: false,
+    includeDocs: true,
+    includeMemory: false,
+  })));
+
+  assert.equal(embeddingCalls, 0);
+  assert.equal(qdrantCalls, 0);
+  assert.equal(sourceReads, 0);
+  assert.equal(semanticCalls, 0);
+  assert.equal(documentationCalls, 1);
+  assert.equal(result.complete, true);
+  assert.deepEqual(result.evidence.map((item) => item.source), ['documentation']);
+});

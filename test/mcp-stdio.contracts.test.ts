@@ -36,3 +36,14 @@ test('MCP notifications do not produce responses', async () => {
   const gateway = { handle: () => Effect.succeed({ status: 'ok' as const, result: {} }) };
   assert.equal(await handleMcpMessage(gateway, { jsonrpc: '2.0', method: 'notifications/initialized' }), undefined);
 });
+
+
+test('ace_context tool schema exposes explicit include_code override', () => {
+  const context = mcpToolDefinitions.find((tool) => tool.name === 'ace_context');
+  assert.notEqual(context, undefined);
+  if (context === undefined) return;
+  const schema = context.inputSchema as {
+    readonly properties?: Readonly<Record<string, unknown>>;
+  };
+  assert.ok(schema.properties?.include_code);
+});

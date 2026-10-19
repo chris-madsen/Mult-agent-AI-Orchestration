@@ -33,6 +33,7 @@ const tools = [
         workspace_id: { type: 'string' },
         query: { type: 'string' },
         intent: { type: 'string' },
+        include_code: { type: 'boolean' },
         include_docs: { type: 'boolean' },
         include_memory: { type: 'boolean' },
       },

@@ -12,6 +12,7 @@ const ContextInput = Schema.Struct({
   workspace_id: Schema.String,
   query: Schema.String,
   intent: Schema.optional(Schema.String),
+  include_code: Schema.optional(Schema.Boolean),
   include_docs: Schema.optional(Schema.Boolean),
   include_memory: Schema.optional(Schema.Boolean),
 });
@@ -68,6 +69,7 @@ export interface ContextProvider {
     readonly workspaceId: WorkspaceId;
     readonly query: string;
     readonly intent?: string;
+    readonly includeCode?: boolean;
     readonly includeDocs: boolean;
     readonly includeMemory: boolean;
   }) => Effect.Effect<Result<ContextBundle, DomainError>>;
@@ -111,12 +113,14 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
               privateCode: true,
               jevOptIn: false,
             });
+            const routeNeedsCode = route.sources.includes('code') || route.sources.includes('structural');
             const result = yield* ports.context.search({
               workspaceId: workspaceId.value,
               query: input.value.query,
               ...(input.value.intent === undefined ? {} : { intent: input.value.intent }),
               // Explicit caller booleans override planner choice. The planner is
               // only a default and cannot override an explicit privacy choice.
+              includeCode: input.value.include_code ?? routeNeedsCode,
               includeDocs: input.value.include_docs ?? route.sources.includes('documentation'),
               includeMemory: input.value.include_memory ?? route.sources.includes('memory'),
             });
