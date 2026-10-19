@@ -17,6 +17,9 @@ const aceContextItem = (event: unknown): JsonObject | null => {
 
 const hasCompleteContextResult = (item: JsonObject): boolean => {
   const result = object(item.result);
+  // A completed JSON-RPC exchange may still contain a failed MCP tool result.
+  // Never count an error-bearing tool response as DBC-12 retrieval success.
+  if (result?.isError === true || result?.is_error === true) return false;
   const structuredContent = object(result?.structured_content);
   const evidence = Array.isArray(structuredContent?.evidence) ? structuredContent.evidence : [];
   const hasVerifiedCodeEvidence = evidence.some((entry) => {
