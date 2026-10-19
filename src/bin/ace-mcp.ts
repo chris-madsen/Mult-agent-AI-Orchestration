@@ -31,7 +31,7 @@ import type { MemorySearchPort, WorkspaceFilePort } from '../application/ports.j
 import { defaultLocalPolicy } from '../domain/policy.js';
 import { makeWorkspaceId, type RepoPath, type WorkspaceId } from '../domain/workspace.js';
 import { observeWorkspace, registerWorkspace } from '../application/workspace-service.js';
-import { makeMcpGateway } from '../gateway/mcp-gateway.js';
+import { makeMcpGateway, type CapabilityReadiness } from '../gateway/mcp-gateway.js';
 import { runMcpSdkStdio } from '../transport/mcp-sdk-stdio.js';
 
 const required = (name: string): string => {
@@ -150,6 +150,20 @@ const main = async (): Promise<void> => {
   const observed = await Effect.runPromise(observeWorkspace(ports, registered.value.workspaceId));
   if (observed._tag === 'Err') throw new Error(`${observed.error.code}: ${observed.error.message}`);
   const observationEpoch = observed.value.observationEpoch;
+  const readiness: Record<string, CapabilityReadiness> = {
+    worktree: {
+      state: 'ready',
+      reason: helperUrl === undefined || helperUrl.length === 0 ? 'local_exact_read_ready' : 'authenticated_host_helper_ready',
+    },
+    code_retrieval: { state: 'not_ready', reason: 'provider_not_initialized' },
+    unified_context: { state: 'not_ready', reason: 'provider_not_initialized' },
+    project_memory: process.env.ACE_ENABLE_GRAPHITI === 'true'
+      ? { state: 'not_ready', reason: 'provider_not_initialized' }
+      : { state: 'disabled', reason: 'graphiti_disabled' },
+    documentation: process.env.ACE_ENABLE_VERTEX === 'true'
+      ? { state: 'not_ready', reason: 'provider_not_initialized' }
+      : { state: 'disabled', reason: 'vertex_disabled' },
+  };
   // No pretend success: the local lexical provider is a consciously enabled
   // degraded fallback, NOT the selected Qdrant/embeddings/AST/LSP production path.
   const allowLocalFallback = process.env.ACE_ALLOW_LOCAL_FALLBACK === 'true';
@@ -188,8 +202,10 @@ const main = async (): Promise<void> => {
       memory = graphiti.memory;
       closeMemory = graphiti.close;
       if (memory === undefined) throw new Error('Graphiti archive-backed memory search was not initialized');
-      process.stderr.write(`ace-mcp temporal memory ready workspace_id=${registered.value.workspaceId}\n`);
+      readiness.project_memory = { state: 'degraded', reason: 'provider_initialized_not_health_probed' };
+      process.stderr.write(`ace-mcp temporal memory configured workspace_id=${registered.value.workspaceId}\n`);
     } catch (cause) {
+      readiness.project_memory = { state: 'not_ready', reason: 'graphiti_startup_failed' };
       process.stderr.write(`ace-mcp memory NOT_READY: ${cause instanceof Error ? cause.message : 'Graphiti startup failed'}\n`);
     }
   }
@@ -256,6 +272,8 @@ const main = async (): Promise<void> => {
         : 'scripts/fastembed-worker.sh');
     const inspected = await Effect.runPromise(ensureQdrantCollection(http, qdrantUrl, collection, embeddingDimension, qdrantAllowedHosts));
     if (inspected._tag === 'Err') {
+      readiness.code_retrieval = { state: 'not_ready', reason: 'qdrant_collection_unavailable' };
+      readiness.unified_context = { state: 'not_ready', reason: 'qdrant_collection_unavailable' };
       if (allowLocalFallback) {
         const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
           generation,
@@ -275,12 +293,16 @@ const main = async (): Promise<void> => {
             failedSources: ['qdrant'],
             additionalWarnings: [`Qdrant unavailable: ${inspected.error.code}`],
           });
+          readiness.code_retrieval = { state: 'degraded', reason: 'lexical_fallback_qdrant_unavailable' };
+          readiness.unified_context = { state: 'degraded', reason: 'lexical_fallback_qdrant_unavailable' };
           process.stderr.write(`ace-mcp degraded retrieval workspace_id=${registered.value.workspaceId} generation=${generation} reason=qdrant_unavailable\n`);
         }
       } else {
         process.stderr.write(`ace-mcp context NOT_READY: qdrant collection check failed (${inspected.error.code})\n`);
       }
     } else if (!existsSync(embeddingWorker) || !existsSync(structuralPath) || !commandBoundaryExists(structuralPython)) {
+      readiness.code_retrieval = { state: 'not_ready', reason: 'provider_runtime_missing' };
+      readiness.unified_context = { state: 'not_ready', reason: 'provider_runtime_missing' };
       process.stderr.write('ace-mcp context NOT_READY: configured FastEmbed/Tree-sitter runtime files are missing\n');
     } else {
       const embeddings = makeProcessEmbeddingPort({
@@ -323,6 +345,8 @@ const main = async (): Promise<void> => {
       }));
       if (built._tag === 'Err') {
         embeddings.close();
+        readiness.code_retrieval = { state: 'not_ready', reason: 'structural_index_failed' };
+        readiness.unified_context = { state: 'not_ready', reason: 'structural_index_failed' };
         process.stderr.write(`ace-mcp context NOT_READY: structural index failed (${built.error.code})\n`);
       } else {
         for (const warning of built.value.warnings) process.stderr.write(`ace retrieval warning: ${warning}\n`);
@@ -376,6 +400,8 @@ const main = async (): Promise<void> => {
         ));
         if (indexed._tag === 'Err') {
           embeddings.close();
+          readiness.code_retrieval = { state: 'not_ready', reason: 'qdrant_index_failed' };
+          readiness.unified_context = { state: 'not_ready', reason: 'qdrant_index_failed' };
           process.stderr.write(`ace-mcp context NOT_READY: Qdrant indexing failed (${indexed.error.code}: ${indexed.error.message})\n`);
         } else {
           const publishedNow = await snapshotState.publish(snapshotIdentity);
@@ -416,6 +442,15 @@ const main = async (): Promise<void> => {
             throw new Error(`TypeScript language service preflight failed (${languageServiceReady.error.code})`);
           }
           const documentation = makeDocumentationProvider(registered.value.workspaceId, http, providerTrace);
+          if (process.env.ACE_ENABLE_VERTEX === 'true') {
+            if (process.env.ACE_CLOUD_DOCS_OPT_IN !== 'true') {
+              readiness.documentation = { state: 'disabled', reason: 'cloud_docs_opt_in_false' };
+            } else if (documentation === undefined) {
+              readiness.documentation = { state: 'not_ready', reason: 'vertex_configuration_missing' };
+            } else {
+              readiness.documentation = { state: 'degraded', reason: 'provider_configured_not_health_probed' };
+            }
+          }
           context = makeQdrantContextProvider({
             workspaceId: registered.value.workspaceId,
             rootPath: registered.value.rootPath,
@@ -436,6 +471,12 @@ const main = async (): Promise<void> => {
             ...(documentation === undefined ? {} : { documentation }),
             ...(memory === undefined ? {} : { memory }),
           });
+          readiness.code_retrieval = built.value.coverage.failedPaths === 0
+            ? { state: 'ready', reason: 'real_provider_preflight_passed' }
+            : { state: 'degraded', reason: 'index_coverage_partial' };
+          readiness.unified_context = built.value.coverage.failedPaths === 0
+            ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
+            : { state: 'degraded', reason: 'index_coverage_partial' };
           process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} embedding_identity=${embeddingFingerprint.slice(0, 12)} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection}\n`);
         }
       }
@@ -450,6 +491,8 @@ const main = async (): Promise<void> => {
     if (built._tag === 'Err') throw new Error(`${built.error.code}: ${built.error.message}`);
     for (const warning of built.value.warnings) process.stderr.write(`ace fallback warning: ${warning}\n`);
     process.stderr.write(`ace-mcp degraded local fallback workspace_id=${registered.value.workspaceId} indexed_paths=${built.value.indexedPaths.length}\n`);
+    readiness.code_retrieval = { state: 'degraded', reason: 'explicit_lexical_fallback' };
+    readiness.unified_context = { state: 'degraded', reason: 'explicit_lexical_fallback' };
     context = makeLocalContextProvider({
       workspaceId: registered.value.workspaceId,
       rootPath: registered.value.rootPath,
@@ -458,6 +501,8 @@ const main = async (): Promise<void> => {
       newRequestId: () => randomUUID(),
     });
   } else {
+    readiness.code_retrieval = { state: 'not_ready', reason: 'real_provider_disabled' };
+    readiness.unified_context = { state: 'not_ready', reason: 'real_provider_disabled' };
     process.stderr.write('ace-mcp context NOT_READY: enable ACE_ENABLE_EXPERIMENTAL_QDRANT=true for the real local Qdrant+FastEmbed+Tree-sitter+TypeScript-LS composition, or ACE_ALLOW_LOCAL_FALLBACK=true for explicit degraded lexical search\n');
   }
   const gateway = makeMcpGateway({
@@ -468,6 +513,7 @@ const main = async (): Promise<void> => {
     artifacts,
     ...(context === undefined ? {} : { context }),
     ...(memory === undefined ? {} : { memory }),
+    readiness: () => ({ ...readiness }),
   });
   try {
     await runMcpSdkStdio(gateway);
