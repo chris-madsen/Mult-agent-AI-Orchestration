@@ -26,6 +26,8 @@ const mapSymbol = (value: unknown): StructuralSymbol | undefined => {
   if (typeof candidate.name !== 'string' || typeof candidate.kind !== 'string') return undefined;
   const numbers = [candidate.start_line, candidate.start_column, candidate.end_line, candidate.end_column];
   if (!numbers.every((item) => typeof item === 'number' && Number.isSafeInteger(item))) return undefined;
+  const nameNumbers = [candidate.name_start_line, candidate.name_start_column, candidate.name_end_line, candidate.name_end_column];
+  const hasNameRange = nameNumbers.every((item) => typeof item === 'number' && Number.isSafeInteger(item));
   return {
     name: candidate.name,
     kind: candidate.kind as StructuralKind,
@@ -33,6 +35,12 @@ const mapSymbol = (value: unknown): StructuralSymbol | undefined => {
     startColumn: candidate.start_column as number,
     endLine: candidate.end_line as number,
     endColumn: candidate.end_column as number,
+    ...(hasNameRange ? {
+      nameStartLine: candidate.name_start_line as number,
+      nameStartColumn: candidate.name_start_column as number,
+      nameEndLine: candidate.name_end_line as number,
+      nameEndColumn: candidate.name_end_column as number,
+    } : {}),
   };
 };
 
