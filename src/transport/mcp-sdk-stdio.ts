@@ -32,10 +32,10 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
   const run = async (name: string, args: unknown, signal?: AbortSignal) => {
     if (signal?.aborted === true) return cancelledToolResult();
     try {
-      const response = await Effect.runPromise(
-        gateway.handle({ name, arguments: args }),
-        signal === undefined ? undefined : { signal },
-      );
+      const operation = gateway.handle({ name, arguments: args });
+      const response = signal === undefined
+        ? await Effect.runPromise(operation)
+        : await Effect.runPromise(operation, { signal });
       return toToolResult(response);
     } catch (error) {
       if (signal?.aborted === true) return cancelledToolResult();
