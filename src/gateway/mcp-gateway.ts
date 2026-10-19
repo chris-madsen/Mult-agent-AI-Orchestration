@@ -5,7 +5,6 @@ import { workspaceIdFrom, type WorkspaceServicePorts } from '../application/work
 import type { ArtifactStore, MemorySearchPort } from '../application/ports.js';
 import type { ContextBundle } from '../domain/retrieval.js';
 import { projectContextForDelivery, resolveDeliveryIntent } from '../domain/context-delivery.js';
-import type { MemorySearchResult } from '../domain/memory.js';
 import type { WorkspaceId } from '../domain/workspace.js';
 
 const ContextInput = Schema.Struct({
