@@ -1,8 +1,13 @@
 import type { RouteSource } from './routing.js';
 
 export type ContextSource = 'code' | 'structural' | 'documentation' | 'memory';
-export type SourceRequirement = 'required' | 'optional' | 'not_requested' | 'denied';
+export type SourceRequirement = 'required' | 'optional' | 'not_requested';
 export type SourceCoverageStatus = 'satisfied' | 'partial' | 'empty' | 'unavailable' | 'denied' | 'not_requested';
+
+export interface SourceRequest {
+  readonly requirement: SourceRequirement;
+  readonly allowed: boolean;
+}
 
 export interface SourceCoverage {
   readonly source: ContextSource;
@@ -11,7 +16,7 @@ export interface SourceCoverage {
   readonly reason?: string;
 }
 
-export type SourceRequirements = Readonly<Record<ContextSource, SourceRequirement>>;
+export type SourceRequirements = Readonly<Record<ContextSource, SourceRequest>>;
 
 export interface SourceRequestOverrides {
   readonly includeCode?: boolean;
@@ -19,11 +24,10 @@ export interface SourceRequestOverrides {
   readonly includeMemory?: boolean;
 }
 
-const requirementFor = (selected: boolean, explicit: boolean | undefined): SourceRequirement => {
-  if (explicit === false) return 'denied';
-  if (explicit === true) return selected ? 'required' : 'optional';
-  return selected ? 'required' : 'not_requested';
-};
+const requestFor = (selected: boolean, explicit: boolean | undefined): SourceRequest => ({
+  requirement: selected ? 'required' : explicit === true ? 'optional' : 'not_requested',
+  allowed: explicit !== false,
+});
 
 export const resolveSourceRequirements = (
   routeSources: readonly RouteSource[],
@@ -31,35 +35,36 @@ export const resolveSourceRequirements = (
 ): SourceRequirements => {
   const routeCode = routeSources.includes('code');
   const routeStructural = routeSources.includes('structural');
-  const code = requirementFor(routeCode || routeStructural, overrides.includeCode);
-  const structural: SourceRequirement = overrides.includeCode === false
-    ? 'denied'
-    : routeStructural
-      ? 'required'
-      : code === 'required' || code === 'optional'
-        ? 'optional'
-        : 'not_requested';
+  const code = requestFor(routeCode || routeStructural, overrides.includeCode);
+  const structuralSelected = routeStructural;
+  const structuralRelevant = structuralSelected
+    || code.requirement === 'required'
+    || code.requirement === 'optional';
+  const structural: SourceRequest = {
+    requirement: structuralSelected ? 'required' : structuralRelevant ? 'optional' : 'not_requested',
+    allowed: overrides.includeCode !== false,
+  };
   return {
     code,
     structural,
-    documentation: requirementFor(routeSources.includes('documentation'), overrides.includeDocs),
-    memory: requirementFor(routeSources.includes('memory'), overrides.includeMemory),
+    documentation: requestFor(routeSources.includes('documentation'), overrides.includeDocs),
+    memory: requestFor(routeSources.includes('memory'), overrides.includeMemory),
   };
 };
 
-export const sourceIsRequested = (requirement: SourceRequirement): boolean =>
-  requirement === 'required' || requirement === 'optional';
+export const sourceIsRequested = (request: SourceRequest): boolean =>
+  request.allowed && (request.requirement === 'required' || request.requirement === 'optional');
 
 export const initialSourceCoverage = (requirements: SourceRequirements): readonly SourceCoverage[] =>
-  (Object.entries(requirements) as Array<[ContextSource, SourceRequirement]>).map(([source, requirement]) => ({
+  (Object.entries(requirements) as Array<[ContextSource, SourceRequest]>).map(([source, request]) => ({
     source,
-    requirement,
-    status: requirement === 'not_requested'
-      ? 'not_requested'
-      : requirement === 'denied'
-        ? 'denied'
+    requirement: request.requirement,
+    status: !request.allowed
+      ? 'denied'
+      : request.requirement === 'not_requested'
+        ? 'not_requested'
         : 'unavailable',
-    ...(requirement === 'denied' ? { reason: 'caller_disabled' } : {}),
+    ...(!request.allowed ? { reason: 'caller_disabled' } : {}),
   }));
 
 export const setSourceCoverage = (
@@ -89,8 +94,8 @@ export const legacySourceRequirements = (input: {
   readonly includeDocs: boolean;
   readonly includeMemory: boolean;
 }): SourceRequirements => ({
-  code: input.includeCode ? 'required' : 'not_requested',
-  structural: input.includeCode ? 'optional' : 'not_requested',
-  documentation: input.includeDocs ? 'required' : 'not_requested',
-  memory: input.includeMemory ? 'required' : 'not_requested',
+  code: { requirement: input.includeCode ? 'required' : 'not_requested', allowed: true },
+  structural: { requirement: input.includeCode ? 'optional' : 'not_requested', allowed: true },
+  documentation: { requirement: input.includeDocs ? 'required' : 'not_requested', allowed: true },
+  memory: { requirement: input.includeMemory ? 'required' : 'not_requested', allowed: true },
 });
