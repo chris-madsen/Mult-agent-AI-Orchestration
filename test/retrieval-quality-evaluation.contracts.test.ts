@@ -58,6 +58,7 @@ test('retrieval evaluator scores ranked IDs and compactness counters from one ma
   const evaluated = evaluateRetrievalStrategy(holdout, run);
   assert.equal(evaluated._tag, 'Ok');
   if (evaluated._tag === 'Err') throw new Error(evaluated.error.message);
+  assert.equal(evaluated.value.holdoutStatus, 'frozen_holdout');
   assert.equal(evaluated.value.cases, 3);
   assert.equal(evaluated.value.recallAt1, 1 / 3);
   assert.equal(evaluated.value.recallAt3, 2 / 3);
@@ -92,6 +93,7 @@ test('retrieval evaluator rejects incomplete runs and duplicate ranked candidate
 const policy: RetrievalQualityPolicy = {
   selectedStrategy: 'hybrid-v1',
   requiredHoldoutSha256: holdoutSha,
+  requiredHoldoutStatus: 'frozen_holdout',
   minRecallAt1: 0.3,
   minRecallAt3: 0.6,
   minRecallAt5: 0.6,
@@ -121,6 +123,15 @@ test('predeclared retrieval policy accepts only the selected strategy on the exa
   if (wrongHoldout._tag === 'Ok') {
     assert.equal(wrongHoldout.value.measurementAccepted, false);
     assert.ok(wrongHoldout.value.failures.includes('holdout_identity_mismatch'));
+  }
+  const wrongStatus = evaluateRetrievalQualityPolicy(metrics.value, holdoutSha, {
+    ...policy,
+    requiredHoldoutStatus: 'production_holdout',
+  });
+  assert.equal(wrongStatus._tag, 'Ok');
+  if (wrongStatus._tag === 'Ok') {
+    assert.equal(wrongStatus.value.measurementAccepted, false);
+    assert.ok(wrongStatus.value.failures.includes('holdout_status_mismatch'));
   }
 });
 
