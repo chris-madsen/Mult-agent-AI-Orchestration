@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET = ROOT / "benchmarks/retrieval/embedding-provider-comparison-labels.json"
-OUTPUT = ROOT / "benchmarks/reports/embedding-provider-comparison-rerun.json"
+DEFAULT_OUTPUT = ROOT / "benchmarks/reports/embedding-provider-comparison-rerun.json"
 MODEL_ID = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 MODEL_REVISION = "e8f8c211226b894fcb81acc59f3b34ba3efd5f42"
 FASTEMBED_ARTIFACT_ID = "qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q"
@@ -253,6 +253,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--provider", choices=["fastembed/onnx", "sentence-transformers/pytorch"])
     parser.add_argument("--dataset", default=str(DEFAULT_DATASET))
+    parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
     parser.add_argument(
         "--evidence-stage",
         choices=["development_spike", "frozen_holdout"],
@@ -269,6 +270,11 @@ def main() -> None:
     if args.provider:
         print(json.dumps(run_provider(args.provider, dataset_path), ensure_ascii=False))
         return
+    output_path = Path(args.output).resolve()
+    try:
+        output_path.relative_to(ROOT)
+    except ValueError as error:
+        raise ValueError("embedding comparison output must be repository-contained") from error
     fast_python = os.environ.get("ACE_EMBEDDING_FAST_PYTHON", str(ROOT / ".venv-embedding-fast/bin/python"))
     st_python = os.environ.get("ACE_EMBEDDING_ST_PYTHON", str(ROOT / ".venv-embedding-st/bin/python"))
     candidates = [
@@ -312,9 +318,9 @@ def main() -> None:
         "winner": winner,
         "winner_meaning": "best measured candidate on this development fixture only; not production approval",
     }
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"output": str(OUTPUT), "status": output["status"], "winner": winner}))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({"output": str(output_path), "status": output["status"], "winner": winner}))
 
 
 if __name__ == "__main__":
