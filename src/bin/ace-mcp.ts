@@ -6,7 +6,11 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { Effect } from 'effect';
 import { makeFileArtifactStore } from '../adapters/file-artifact-store.js';
-import { makeFileQdrantSnapshotState, type SnapshotLease } from '../adapters/file-qdrant-snapshot-state.js';
+import {
+  diffSnapshotFileManifests,
+  makeFileQdrantSnapshotState,
+  type SnapshotLease,
+} from '../adapters/file-qdrant-snapshot-state.js';
 import { makeFileStructuralAnalysisCache } from '../adapters/file-structural-analysis-cache.js';
 import { makeAsyncFileMemoryArchive } from '../adapters/file-memory-archive.js';
 import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
@@ -350,8 +354,19 @@ const main = async (): Promise<void> => {
       const structuralCache = structuralIdentity._tag === 'Ok'
         ? await makeFileStructuralAnalysisCache(resolve(stateDirectory, 'structural-cache'))
         : undefined;
+      const structuralFingerprint = structuralIdentity._tag === 'Ok'
+        ? structuralIdentity.value.fingerprint
+        : createHash('sha256')
+          .update(`unverified-structural-runtime:${randomUUID()}`, 'utf8')
+          .digest('hex');
+      const retrievalFingerprint = createHash('sha256')
+        .update(JSON.stringify({
+          embedding: embeddingFingerprint,
+          structural: structuralFingerprint,
+        }), 'utf8')
+        .digest('hex');
       if (structuralIdentity._tag === 'Err') {
-        process.stderr.write(`ace retrieval warning: structural cache disabled because parser identity probe failed (${structuralIdentity.error.code})\n`);
+        process.stderr.write(`ace retrieval warning: structural identity unverified; cache disabled and cross-restart snapshot reuse intentionally disabled (${structuralIdentity.error.code})\n`);
       }
       const structural = makeTreeSitterStructuralPort(structuralOptions);
       const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
@@ -369,16 +384,22 @@ const main = async (): Promise<void> => {
         process.stderr.write(`ace-mcp context NOT_READY: structural index failed (${built.error.code})\n`);
       } else {
         for (const warning of built.value.warnings) process.stderr.write(`ace retrieval warning: ${warning}\n`);
-        // Warm reuse is keyed from the exact structural candidate set actually
-        // produced in this startup. It ignores observation epoch/timestamps,
-        // but changes on source bytes, ranges, names or parser output.
-        const sourceKey = codeIndexKey(built.value.index, built.value.coverage, embeddingFingerprint);
+        // Snapshot identity covers every successfully read in-scope source,
+        // including files that produce zero symbols, plus the verified embedding
+        // and structural parser runtime identities.
+        const sourceKey = codeIndexKey(
+          built.value.index,
+          built.value.coverage,
+          retrievalFingerprint,
+          built.value.fileManifest,
+        );
         const snapshotIdentity = {
           workspaceId: registered.value.workspaceId,
           indexKey: sourceKey,
           candidateIds: built.value.index.candidates.map((candidate) => candidate.candidateId),
+          fileManifest: built.value.fileManifest,
           coverage: built.value.coverage,
-          providerFingerprint: embeddingFingerprint,
+          providerFingerprint: retrievalFingerprint,
         };
         const lease = await snapshotState.acquireLease(registered.value.workspaceId, sourceKey);
         if (lease._tag === 'Err') {
@@ -392,12 +413,16 @@ const main = async (): Promise<void> => {
           throw new Error(`Qdrant snapshot manifest check failed (${published.error.code})`);
         }
         const previous = await snapshotState.latestPublished(
-          registered.value.workspaceId, embeddingFingerprint, sourceKey,
+          registered.value.workspaceId, retrievalFingerprint, sourceKey,
         );
         if (previous._tag === 'Err') {
           embeddings.close();
           throw new Error(`Qdrant prior snapshot lookup failed (${previous.error.code})`);
         }
+        const fileDelta = diffSnapshotFileManifests(
+          previous.value?.fileManifest ?? [],
+          built.value.fileManifest,
+        );
         if (!published.value) {
           const begun = await snapshotState.beginBuild(snapshotIdentity);
           if (begun._tag === 'Err') {
@@ -496,7 +521,7 @@ const main = async (): Promise<void> => {
           readiness.unified_context = built.value.coverage.failedPaths === 0
             ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
             : { state: 'degraded', reason: 'index_coverage_partial' };
-          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} structural_cache_hits=${built.value.structuralCacheHits} structural_cache_misses=${built.value.structuralCacheMisses} embedding_identity=${embeddingFingerprint.slice(0, 12)} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection}\n`);
+          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} structural_cache_hits=${built.value.structuralCacheHits} structural_cache_misses=${built.value.structuralCacheMisses} embedding_identity=${embeddingFingerprint.slice(0, 12)} structural_identity=${structuralFingerprint.slice(0, 12)} snapshot_identity=${retrievalFingerprint.slice(0, 12)} delta_added=${fileDelta.added.length} delta_changed=${fileDelta.changed.length} delta_deleted=${fileDelta.deleted.length} delta_renamed=${fileDelta.renamed.length} delta_unchanged=${fileDelta.unchanged.length} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection}\n`);
         }
       }
     }
