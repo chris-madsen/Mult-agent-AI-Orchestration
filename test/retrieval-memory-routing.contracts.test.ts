@@ -32,11 +32,13 @@ import { makeHarborRunner, makeNodeCommandPort, type CommandPort } from '../src/
 import { selectJevRouteOverHttp } from '../src/adapters/jev-route-provider.js';
 import {
   beginProjection,
+  decisionStateAt,
   finishProjection,
   makeDecisionRecord,
   makeEpisodeId,
   searchMemory,
   transitionDecision,
+  validateDecisionGraph,
   unsupportedMemoryImporter,
   type SessionEpisode,
 } from '../src/domain/memory.js';
@@ -205,7 +207,11 @@ test('MVC-03 memory search is as-of and reports conflicting accepted claims', ()
   const result = searchMemory([first, second], 'decision', 15, [acceptedA, acceptedB]);
   assert.equal(result.hits.length, 1);
   assert.equal(result.hits[0]?.episode.episodeId, first.episodeId);
+  assert.equal(result.hits[0]?.decisionState, 'Accepted');
   assert.equal(result.conflicts.length, 2);
+  const beforeAcceptance = searchMemory([first], 'decision', 1, [acceptedA]);
+  assert.equal(beforeAcceptance.hits[0]?.decisionState, 'Proposed');
+  assert.equal(decisionStateAt(acceptedA, 1).state, 'Proposed');
 });
 
 test('RTE-01 deterministic routing handles exact symbols and ambiguous memory questions', () => {
@@ -370,4 +376,41 @@ test('EXT-04 Jev HTTP selector is policy-gated and validates the experimental ro
   assert.equal(selected.strategy, 'jev_experimental');
   assert.deepEqual(selected.sources, ['memory', 'code']);
   assert.equal(requests, 1);
+});
+
+
+test('MVC-05 legacy mutated decisions are explicitly uncertain for historical as-of search', () => {
+  const legacy = {
+    decisionId: 'legacy' as never,
+    workspaceId,
+    subject: 'runtime',
+    proposal: 'old choice',
+    state: 'Accepted' as const,
+    validFromMs: 1,
+    sourceEpisodeIds: ['episode-legacy' as never],
+  };
+  assert.equal(decisionStateAt(legacy, 2).historicalUncertainty, true);
+  assert.equal(decisionStateAt(legacy, 2).state, undefined);
+});
+
+test('MVC-06 decision graph rejects missing successors and cycles', () => {
+  const base = mustOk(makeDecisionRecord({
+    decisionId: 'graph-a' as never,
+    workspaceId,
+    subject: 'graph',
+    proposal: 'a',
+    validFromMs: 1,
+    sourceEpisodeIds: ['episode-a' as never],
+  }));
+  const accepted = mustOk(transitionDecision(base, { type: 'confirm', atMs: 2 }));
+  const missing = mustOk(transitionDecision(accepted, { type: 'supersede', atMs: 3, successorId: 'graph-b' as never }));
+  assert.equal(validateDecisionGraph([missing])._tag, 'Err');
+  const b = {
+    ...base,
+    decisionId: 'graph-b' as never,
+    proposal: 'b',
+    successorId: 'graph-a' as never,
+    state: 'Superseded' as const,
+  };
+  assert.equal(validateDecisionGraph([{ ...missing, successorId: 'graph-b' as never }, b])._tag, 'Err');
 });
