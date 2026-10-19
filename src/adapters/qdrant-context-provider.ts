@@ -18,6 +18,7 @@ import type {
   CodePoint,
   DocumentationPort,
   HttpPort,
+  MemorySearchPort,
   SemanticAnalysisPort,
   VectorEmbeddingPort,
   WorkspaceFilePort,
@@ -37,6 +38,7 @@ export interface QdrantContextConfig {
   readonly generation?: number;
   readonly indexKey?: string;
   readonly documentation?: DocumentationPort;
+  readonly memory?: MemorySearchPort;
   readonly candidateLimit?: number;
   readonly coverage?: IndexCoverageSummary;
 }
@@ -528,7 +530,40 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
         }
       }
     }
-    if (input.includeMemory) { warnings.push('memory provider not configured'); failed.push('memory'); }
+    if (input.includeMemory) {
+      if (config.memory === undefined) {
+        warnings.push('memory provider not configured');
+        failed.push('memory');
+      } else {
+        const memories = yield* config.memory.search({
+          workspaceId: input.workspaceId,
+          query: input.query,
+          includeOriginal: false,
+        });
+        if (memories._tag === 'Err') {
+          warnings.push('temporal memory unavailable: ' + memories.error.code);
+          failed.push('memory');
+        } else {
+          for (const [index, hit] of memories.value.hits.entries()) {
+            const evidenceId = makeEvidenceId('memory-' + (index + 1));
+            if (evidenceId._tag === 'Err') return evidenceId;
+            evidence.push({
+              evidenceId: evidenceId.value,
+              source: 'memory',
+              citation: hit.episode.sourcePointer,
+              content: hit.matchingExcerpt,
+              sourceDigest: hit.episode.contentDigest,
+              proofClass: 'derived',
+              // "current" here means the Graphiti edge was linked back to
+              // byte-verified immutable archive provenance, not current source code.
+              freshness: 'current',
+              sourceRevision: hit.episode.contentDigest,
+              sourceTimestampMs: hit.episode.occurredAtMs,
+            });
+          }
+        }
+      }
+    }
     if ((config.coverage?.failedPaths ?? 0) > 0) {
       warnings.push(`index coverage degraded: ${config.coverage?.failedPaths ?? 0} in-scope path(s) were not fully indexed`);
       failed.push('code');
