@@ -268,7 +268,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
     }
     const requestId = makeRequestId(config.newRequestId());
     if (requestId._tag === 'Err') return requestId;
-    const vectors = yield* config.embeddings.embedMany([input.query]);
+    const vectors = yield* config.embeddings.embedMany([input.query], requestId.value);
     if (vectors._tag === 'Err') return vectors;
     const vector = vectors.value[0];
     if (vector === undefined) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'empty query vector'));
@@ -278,6 +278,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
       limit: config.candidateLimit ?? 6,
       ...(config.generation === undefined ? {} : { generation: config.generation }),
       ...(config.indexKey === undefined ? {} : { indexKey: config.indexKey }),
+      requestId: requestId.value,
     });
     if (result._tag === 'Err') return result;
 
@@ -338,6 +339,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
           repoPath: candidate.repoPath,
           line: candidate.range.startLine,
           column: symbolOffset + 1,
+          requestId: requestId.value,
         });
         if (definitions._tag === 'Err') {
           warnings.push(candidate.repoPath + ': language service unavailable (' + definitions.error.code + ')');
