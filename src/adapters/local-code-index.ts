@@ -13,18 +13,13 @@ import {
   type Generation,
   type IndexCoverageFailure,
   type IndexCoverageSummary,
+  type IndexFileIdentity,
   type SemanticAnchorRange,
   type SourceRange,
 } from '../domain/retrieval.js';
 import type { StructuralAnalysisCachePort, StructuralAnalysisPort, WorkspaceFilePort } from '../application/ports.js';
 import type { StructuralAnalysis } from '../domain/semantic.js';
 import type { ContentDigest, RepoPath, WorkspaceId } from '../domain/workspace.js';
-
-export interface FileIndexManifestEntry {
-  readonly repoPath: RepoPath;
-  readonly sourceDigest: ContentDigest;
-  readonly candidateIds: readonly CandidateId[];
-}
 
 export interface LocalCodeIndexBuild {
   readonly index: CodeIndex;
@@ -34,7 +29,7 @@ export interface LocalCodeIndexBuild {
   readonly structuralCacheHits: number;
   readonly structuralCacheMisses: number;
   /** Exact digest membership for every in-scope source successfully read. */
-  readonly fileManifest: readonly FileIndexManifestEntry[];
+  readonly fileManifest: readonly IndexFileIdentity[];
 }
 
 export interface LocalCodeIndexerOptions {
