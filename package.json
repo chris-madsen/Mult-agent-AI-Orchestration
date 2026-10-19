@@ -24,7 +24,9 @@
     "probe:jev": "bash scripts/jev-readonly-probe.sh",
     "test": "npm run check && tsx --test test/*.test.ts",
     "memory:sync": "npm run build && node dist/bin/ace-memory.js",
-    "gate:harbor": "tsx scripts/harbor-retrieval-gate.ts"
+    "gate:harbor": "tsx scripts/harbor-retrieval-gate.ts",
+    "test:real-same-name": "npm run build && tsx scripts/real-same-name-lsp-e2e.ts",
+    "test:container-provider": "npm run build && node scripts/container-provider-e2e.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",

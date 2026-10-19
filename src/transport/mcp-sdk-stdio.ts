@@ -54,8 +54,9 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
         });
       });
       return response === undefined ? cancelledToolResult() : toToolResult(response);
-    } catch {
+    } catch (error) {
       // The thrown failure is an ACE error, not an invitation to leak a stack trace.
+      process.stderr.write(`ace gateway failure: ${error instanceof Error ? error.message : 'unknown error'}\n`);
       return {
         isError: true,
         content: [{ type: 'text' as const, text: 'ACE gateway failed' }],

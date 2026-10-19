@@ -66,6 +66,10 @@ holdout through real FastEmbed/Qdrant/AST/LSP and writes its metrics to
 `benchmarks/reports/real-semantic-retrieval-e2e.json`.
 `npm run test:memory-process` checks stable history IDs and cross-process
 archive reference safety without requiring an inference model.
+`npm run test:real-same-name` verifies same-name structural spans, definitions,
+references and write locations through real Tree-sitter and TypeScript LS.
+`npm run test:container-provider` verifies the same retrieval composition through
+the official MCP client and a Docker stdio container.
 
 No production-approved embedding model/LSP, Graphiti extraction, Harbor quality
 gate or 5× improvement is claimed until the documented provider spikes and owner

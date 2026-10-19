@@ -1,0 +1,19 @@
+schema_version = "1.4"
+artifacts = []
+[task]
+name = "ace/cloud-policy-impact"
+version = "1.0.0"
+description = "Cross-file policy investigation with public and secret-bearing routes"
+authors = []
+keywords = ["typescript", "policy", "security", "code-intelligence"]
+[metadata]
+[verifier]
+timeout_sec = 180.0
+collect = []
+[agent]
+timeout_sec = 600.0
+[environment]
+network_mode = "public"
+build_timeout_sec = 300.0
+os = "linux"
+mcp_servers = []

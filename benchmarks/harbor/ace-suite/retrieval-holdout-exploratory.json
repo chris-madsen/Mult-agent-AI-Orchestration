@@ -1,0 +1,30 @@
+{
+  "suite_id": "ace-harness-retrieval-exploratory",
+  "suite_version": 1,
+  "holdout": false,
+  "status": "exploratory",
+  "quality_rubric": "All task tests pass; only paired runs with actual ACE calls are attributable.",
+  "tasks": [
+    {
+      "task_id": "ace-retrieval-impact",
+      "task_path": "benchmarks/harbor/ace-retrieval-impact",
+      "task_version": "1.0.0",
+      "repo_base_commit": "fixture-only",
+      "input_digest": "20ad0473422fc116ab2fc09cb32fefacabdf8d5abb1a8fffe4f00289df04a86e"
+    },
+    {
+      "task_id": "ace-cloud-policy-impact",
+      "task_path": "benchmarks/harbor/ace-cloud-policy-impact",
+      "task_version": "1.0.0",
+      "repo_base_commit": "fixture-only",
+      "input_digest": "5d5bca8e63c6634ce7432b207b10f38e19c09290495b8e68f6839b38868b10f8"
+    },
+    {
+      "task_id": "ace-shared-archive-impact",
+      "task_path": "benchmarks/harbor/ace-shared-archive-impact",
+      "task_version": "1.0.0",
+      "repo_base_commit": "fixture-only",
+      "input_digest": "94f1f5bd2313b7380a4530c51565b6fead73a20afc8ee13106da3ba629c02b1d"
+    }
+  ]
+}

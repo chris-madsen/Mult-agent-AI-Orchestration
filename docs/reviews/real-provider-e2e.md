@@ -19,6 +19,12 @@ Codex-shaped MCP client
   -> ContextBundle + lossless artifact handles
 ```
 
+The official client-to-container composition also passed via
+`npm run test:container-provider`: `complete=true`, four evidence items and no
+warnings. The container kept stdin open for the official MCP stdio transport,
+used the local FastEmbed/Qdrant/Tree-sitter/TypeScript-LS path, and did not use
+an API key or lexical fallback.
+
 The first fixture contained `service.ts` (`reconnect`, `disconnect`) and
 `consumer.ts` (`boot` calling `reconnect`). A second fixture contained exactly
 2000 source lines and a 25-line `retryAfterTransientFailure` function. The
@@ -121,3 +127,6 @@ is not used by this path.
 - A frozen retrieval-demanding holdout and Harbor paired agent run are not
   represented here; no token saving or 5× claim follows from this smoke.
 - The runtime does not upload code to Vertex or any external embedding API.
+- `npm run test:real-same-name` passes DBC-04; its direct-LS/Serena comparison
+  remains partial because latency and large-fixture measurements are not yet
+  collected.

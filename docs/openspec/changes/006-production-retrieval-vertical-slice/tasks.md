@@ -20,7 +20,7 @@ their evidence exists. Prior port-level `[x]` markers do not satisfy those gates
 - [ ] DBC-01 production composition, no fallback-only passing.
 - [x] DBC-02 2000-line/25-line exact AST span and exact expand (`npm run test:real-provider`, commit evidence report).
 - [x] DBC-03 behavior-driven semantic retrieval vs lexical distractor and real embeddings (`npm run test:real-semantic`: three real FastEmbed/Qdrant/AST/LSP cases, recall@12=3/3; one lexical distractor remains top1, recorded in the report).
-- [ ] DBC-04 same-name symbols and correct definition/write semantics.
+- [x] DBC-04 same-name symbols and correct definition/write semantics (`npm run test:real-same-name`: real Tree-sitter structural spans plus TypeScript LS definitions/references; Serena comparison recorded in `benchmarks/reports/serena-vs-ts-language-service-2026-10-19.json`).
 - [x] DBC-05 mid-request edit D1→D2, no false-current (`npm run test:real-provider-race`, commit evidence report).
 - [x] DBC-06 source failure completeness / degraded truthful response (`npm run test:real-provider-outage`: unavailable Qdrant yields `complete=false`, `partialSources=["code","qdrant"]`, current local evidence and explicit outage warning).
 - [x] DBC-07 policy denial outbound count zero and safe audit (`npx tsx --test test/provider-and-multiprocess-contracts.test.ts`: Vertex adapter and gateway composition make zero HTTP calls; existing audit contract verifies redacted safe decision record).

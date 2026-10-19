@@ -19,6 +19,14 @@ Codex-shaped MCP client
   -> ContextBundle + lossless artifact handles
 ```
 
+The same composition was also exercised in a Docker container through the
+official `@modelcontextprotocol/client` stdio transport. The passing command was
+`npm run test:container-provider`: the container used the real FastEmbed worker,
+Qdrant at the local k3s port-forward gateway, Tree-sitter and TypeScript LS;
+the result was `complete=true`, four current evidence items and zero warnings.
+The container keeps stdin open for the official stdio transport and does not
+use an API key or a local lexical fallback.
+
 The first fixture contained `service.ts` (`reconnect`, `disconnect`) and
 `consumer.ts` (`boot` calling `reconnect`). A second fixture contained exactly
 2000 source lines and a 25-line `retryAfterTransientFailure` function. The
@@ -121,3 +129,5 @@ is not used by this path.
 - A frozen retrieval-demanding holdout and Harbor paired agent run are not
   represented here; no token saving or 5× claim follows from this smoke.
 - The runtime does not upload code to Vertex or any external embedding API.
+- The same-name semantic gate now passes via `npm run test:real-same-name`;
+  DBC-04 is tested, but this is not production-provider approval.

@@ -32,7 +32,14 @@ Invocation **after running real paired Harbor jobs**:
 npm run gate:harbor -- /path/to/native-job /path/to/ace-job /path/to/report.json
 ```
 
-The existing Harbor smoke reports cannot establish causal benefit. **No paired real-service Harbor job was run in this assistant environment**: the required Qdrant service, approved embedding-provider configuration, Graphiti/Vertex services, Codex runtime, Docker and relevant credentials were not available through the GitHub connector. A frozen multi-task holdout, full agent/model/settings parity, total external provider costs and provenance tracing remain release gates.
+The existing Harbor smoke reports cannot establish causal benefit. A three-task
+native-only exploratory attempt was run, but all three trials errored: one
+Codex trial was rejected with `invalid_api_key`, and two pre-fix task builds
+failed because their Docker contexts lacked `environment/fixture`. No ACE arm
+was run, so no quality, attribution, token, cost or 5x claim is made. The
+redacted raw summary is `benchmarks/reports/harbor-native-exploratory-failure.json`.
+The task contexts are now fixed and Docker-build locally; a valid owner-provided
+Codex runtime is still required for the paired gate.
 
 ## Verification matrix
 
@@ -42,7 +49,7 @@ The existing Harbor smoke reports cannot establish causal benefit. **No paired r
 | Multi-instance file-lock regression | Test committed; CI pending |
 | Vertex denied-before-network contract | Test committed; CI pending |
 | Graphiti stdio client + tools wired for import/delete | Code committed; real Graphiti MCP not exercised |
-| Paired Harbor tool and behavioral task | Code committed; real benchmark not executed |
+| Paired Harbor tool and behavioral task | Tool and three exploratory tasks committed; native-only attempt rejected with preserved failure evidence; paired benchmark remains open |
 | OpenSpec 006 production acceptance, 5× | **Not proven** |
 
 All outstanding failures should be repaired by Codex with direct real-provider integration and negative tests. Do not relax Meyer invariants to make CI pass.

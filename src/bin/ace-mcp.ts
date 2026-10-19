@@ -31,6 +31,11 @@ const required = (name: string): string => {
 const optionalPath = (value: string | undefined, fallback: string): string =>
   resolve(value === undefined || value.trim().length === 0 ? fallback : value.trim());
 
+const optionalCommand = (value: string | undefined, fallback: string): string =>
+  value === undefined || value.trim().length === 0 ? fallback : value.trim();
+
+const commandBoundaryExists = (value: string): boolean => value.includes('/') ? existsSync(value) : true;
+
 const defaultEmbeddingModel = 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2';
 
 const gcloudAccessToken = (): string | undefined => {
@@ -110,7 +115,7 @@ const main = async (): Promise<void> => {
   const structuralHelper = process.env.ACE_TREE_SITTER_HELPER?.trim();
   const artifacts = makeFileArtifactStore(artifactDirectory);
   const structuralPath = resolve(process.env.ACE_TREE_SITTER_HELPER?.trim() || 'scripts/tree-sitter-structural.py');
-  const structuralPython = optionalPath(process.env.ACE_TREE_SITTER_PYTHON, '.venv-system/bin/python');
+  const structuralPython = optionalCommand(process.env.ACE_TREE_SITTER_PYTHON, resolve('.venv-system/bin/python'));
   let context: ReturnType<typeof makeLocalContextProvider> | undefined;
   if (process.env.ACE_ENABLE_EXPERIMENTAL_QDRANT === 'true') {
     const http = makeFetchHttpPort();
@@ -149,7 +154,7 @@ const main = async (): Promise<void> => {
       }
     } else if (embeddingModel !== defaultEmbeddingModel && process.env.ACE_QDRANT_COLLECTION === undefined) {
       process.stderr.write('ace-mcp context NOT_READY: a non-default embedding model requires an explicit versioned ACE_QDRANT_COLLECTION\n');
-    } else if (!existsSync(embeddingWorker) || !existsSync(structuralPath) || !existsSync(structuralPython)) {
+    } else if (!existsSync(embeddingWorker) || !existsSync(structuralPath) || !commandBoundaryExists(structuralPython)) {
       process.stderr.write('ace-mcp context NOT_READY: configured FastEmbed/Tree-sitter runtime files are missing\n');
     } else {
       const embeddings = makeProcessEmbeddingPort({ command: embeddingWorker, dimension: embeddingDimension });

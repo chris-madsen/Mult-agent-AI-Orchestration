@@ -1,0 +1,74 @@
+{
+  "status": "provider-pass",
+  "contract": "DBC-04",
+  "provider": "Tree-sitter 0.26.0 + tree-sitter-typescript 0.23.2 + TypeScript Language Service 5.9.3",
+  "source": "repositories.ts",
+  "sourceDigest": "264aa0d5fe4e56e05a2b8e50d1e0e97689dc4483eb6185afaf605ae836a8dadf",
+  "structuralSaveSpans": [
+    {
+      "startLine": 2,
+      "startColumn": 3,
+      "endLine": 2,
+      "endColumn": 58
+    },
+    {
+      "startLine": 5,
+      "startColumn": 3,
+      "endLine": 5,
+      "endColumn": 59
+    }
+  ],
+  "userDefinition": {
+    "repoPath": "repositories.ts",
+    "startLine": 2,
+    "startColumn": 3,
+    "endLine": 2,
+    "endColumn": 7
+  },
+  "auditDefinition": {
+    "repoPath": "repositories.ts",
+    "startLine": 5,
+    "startColumn": 3,
+    "endLine": 5,
+    "endColumn": 7
+  },
+  "userReferenceLines": [
+    {
+      "line": 2,
+      "isDefinition": true
+    },
+    {
+      "line": 7,
+      "isDefinition": false
+    }
+  ],
+  "auditReferenceLines": [
+    {
+      "line": 5,
+      "isDefinition": true
+    },
+    {
+      "line": 8,
+      "isDefinition": false
+    }
+  ],
+  "writeReferenceLines": [
+    {
+      "line": 10,
+      "isDefinition": true
+    },
+    {
+      "line": 11,
+      "isDefinition": false
+    },
+    {
+      "line": 11,
+      "isDefinition": false
+    },
+    {
+      "line": 12,
+      "isDefinition": false
+    }
+  ],
+  "invariant": "same-name methods remain distinct; assignment is not a definition"
+}

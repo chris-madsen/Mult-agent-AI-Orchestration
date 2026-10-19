@@ -1,0 +1,26 @@
+{
+  "status": "partial-provider-comparison",
+  "fixture": "same-name repositories.ts",
+  "fixtureDigest": "264aa0d5fe4e56e05a2b8e50d1e0e97689dc4483eb6185afaf605ae836a8dadf",
+  "directTypeScriptLanguageService": {
+    "provider": "TypeScript 5.9.3",
+    "userDefinitionLine": 2,
+    "auditDefinitionLine": 5,
+    "userReferenceLines": [2, 7],
+    "auditReferenceLines": [5, 8],
+    "writeReferenceLines": [10, 11, 11, 12],
+    "status": "provider-pass"
+  },
+  "serena": {
+    "provider": "serena-agent 2.0.0 via uv tool run",
+    "toolsInterface": true,
+    "userSymbol": "UserRepository/save",
+    "auditSymbol": "AuditRepository/save",
+    "userReferenceContains": "persistUser call site only",
+    "auditReferenceContains": "persistAudit call site only",
+    "diagnostics": "{}",
+    "status": "provider-pass"
+  },
+  "notMeasured": ["cold and warm latency", "large-fixture throughput", "resident resource use"],
+  "decision": "No production winner selected; direct TypeScript Language Service remains the current in-process composition."
+}
