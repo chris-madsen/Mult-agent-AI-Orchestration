@@ -33,7 +33,8 @@
     "memory:reconcile": "npm run build && node dist/bin/ace-memory.js reconcile",
     "worktree-helper": "npm run build && node dist/bin/ace-worktree-helper.js",
     "eval:memory-admission": "tsx scripts/memory-admission-eval.ts",
-    "gate:harbor-three-arm": "tsx scripts/harbor-three-arm-gate.ts"
+    "gate:harbor-three-arm": "tsx scripts/harbor-three-arm-gate.ts",
+    "test:real-graphiti-lifecycle": "tsx scripts/graphiti-real-lifecycle-e2e.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",
