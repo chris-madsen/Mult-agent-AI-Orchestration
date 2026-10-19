@@ -35,6 +35,11 @@ interface GateReport {
   readonly tokenReduction: number | null;
   readonly costSavingsFactor: number | null;
   readonly costReduction: number | null;
+  readonly evaluationDesign?: string;
+  readonly providerOperationsObserved?: boolean;
+  readonly providerCorrelationVerified?: boolean;
+  readonly productionAcceptance?: string;
+  readonly limitations?: readonly string[];
 }
 
 const csv = (value: string | number | null | boolean): string => `"${String(value).replaceAll('"', '""')}"`;
@@ -43,6 +48,8 @@ const format = (value: number | null): string => value === null ? 'unavailable' 
 const main = async (): Promise<void> => {
   const [inputPath = 'benchmarks/reports/ace-retrieval-paired-3x3.json', outputDirectory = 'benchmarks/reports'] = process.argv.slice(2);
   const report = JSON.parse(await readFile(inputPath, 'utf8')) as GateReport;
+  const forcedOrHistorical = report.evaluationDesign === undefined || report.evaluationDesign === 'forced-tool-use';
+  const label = forcedOrHistorical ? 'diagnostic-only (not DBC-12 acceptance)' : report.acceptance;
   const rows = [
     ['native-codex', 'aggregate', report.native],
     ['codex-plus-ace', 'aggregate', report.ace],
@@ -65,7 +72,11 @@ const main = async (): Promise<void> => {
   const markdown = [
     '# Production retrieval paired Harbor report',
     '',
-    `- Acceptance: **${report.acceptance}**`,
+    `- Historical gate result: **${report.acceptance}**`,
+    `- Audited interpretation: **${label}**`,
+    `- Evaluation design: ${report.evaluationDesign ?? 'unrecorded; cannot infer natural tool use'}`,
+    `- Per-request provider correlation: ${report.providerCorrelationVerified === true ? 'verified' : 'not demonstrated'}`,
+    '- Provider CPU/RAM/indexing costs: not metered; displayed USD totals are Codex-reported usage only.',
     `- Paired: ${report.paired}`,
     `- Quality non-inferior: ${report.qualityNonInferior}`,
     `- Provider receipts verified: ${report.providerReceiptsVerified}`,
@@ -85,7 +96,12 @@ const main = async (): Promise<void> => {
     '|---|---|---:|---:|---:|---:|---:|---:|',
     ...[['native-codex', report.native], ['codex-plus-ace', report.ace]].flatMap(([configuration, summary]) => summary.taskStats.map((task) => `| ${configuration} | ${task.taskName} | ${task.trials} | ${task.successes} | ${task.failures} | ${task.rawTotalTokens ?? 'unavailable'} | ${task.costUsd ?? 'unavailable'} | ${task.latencyMsMedian ?? 'unavailable'} |`)),
     '',
-    'A ratio is publishable only when acceptance is not `rejected`; no automatic 5× claim is made.',
+    'These ratios describe the recorded trials only; forced tool use and tiny repeated fixtures cannot establish a production 5× retrieval result.',
+    '',
+    '## Known limitations',
+    ...(report.limitations ?? [
+      'Historical report pre-dates explicit evaluation-mode/correlation fields and cannot be promoted to normative DBC-12 acceptance.',
+    ]).map((limitation) => `- ${limitation}`),
     '',
   ].join('\n');
   await mkdir(outputDirectory, { recursive: true });
