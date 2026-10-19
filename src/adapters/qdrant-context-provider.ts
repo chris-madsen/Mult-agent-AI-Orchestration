@@ -10,6 +10,7 @@ import {
   type CodeIndex,
   type ContextBundle,
   type IndexCoverageSummary,
+  type RankedCandidate,
   type RetrievalEvidence,
 } from '../domain/retrieval.js';
 import type {
@@ -555,6 +556,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
   search: (input: {
     readonly workspaceId: WorkspaceId;
     readonly query: string;
+    readonly includeCode: boolean;
     readonly includeDocs: boolean;
     readonly includeMemory: boolean;
   }): Effect.Effect<Result<ContextBundle, DomainError>> => Effect.gen(function* () {
@@ -563,19 +565,23 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
     }
     const requestId = makeRequestId(config.newRequestId());
     if (requestId._tag === 'Err') return requestId;
-    const vectors = yield* config.embeddings.embedMany([input.query], requestId.value);
-    if (vectors._tag === 'Err') return vectors;
-    const vector = vectors.value[0];
-    if (vector === undefined) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'empty query vector'));
-    const result = yield* config.qdrant.search({
-      workspaceId: input.workspaceId,
-      vector,
-      limit: config.candidateLimit ?? 6,
-      ...(config.generation === undefined ? {} : { generation: config.generation }),
-      ...(config.indexKey === undefined ? {} : { indexKey: config.indexKey }),
-      requestId: requestId.value,
-    });
-    if (result._tag === 'Err') return result;
+    let rankedResults: readonly RankedCandidate[] = [];
+    if (input.includeCode) {
+      const vectors = yield* config.embeddings.embedMany([input.query], requestId.value);
+      if (vectors._tag === 'Err') return vectors;
+      const vector = vectors.value[0];
+      if (vector === undefined) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'empty query vector'));
+      const result = yield* config.qdrant.search({
+        workspaceId: input.workspaceId,
+        vector,
+        limit: config.candidateLimit ?? 6,
+        ...(config.generation === undefined ? {} : { generation: config.generation }),
+        ...(config.indexKey === undefined ? {} : { indexKey: config.indexKey }),
+        requestId: requestId.value,
+      });
+      if (result._tag === 'Err') return result;
+      rankedResults = result.value;
+    }
 
     const evidence: RetrievalEvidence[] = [];
     const warnings: string[] = [];
@@ -583,7 +589,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
     const fullSources = new Map<RepoPath, { readonly bytes: Uint8Array; readonly digest: string; readonly handle: string }>();
 
     const initialFailures = new Map<RepoPath, string>();
-    for (const [i, ranked] of result.value.entries()) {
+    for (const [i, ranked] of rankedResults.entries()) {
       const candidate = ranked.candidate;
       // One authoritative exact read and one immutable artifact per source,
       // not one read per Qdrant symbol. All selected sources are revalidated
@@ -729,7 +735,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
         }
       }
     }
-    if ((config.coverage?.failedPaths ?? 0) > 0) {
+    if (input.includeCode && (config.coverage?.failedPaths ?? 0) > 0) {
       warnings.push(`index coverage degraded: ${config.coverage?.failedPaths ?? 0} in-scope path(s) were not fully indexed`);
       failed.push('code');
     }
