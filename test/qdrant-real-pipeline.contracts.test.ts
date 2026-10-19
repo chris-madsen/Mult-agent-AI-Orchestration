@@ -8,6 +8,7 @@ import {
   exactUtf8ByteRange,
   hasExactQdrantSnapshot,
   reuseOrPopulateQdrantSnapshot,
+  verifyQdrantSnapshotMembership,
   makeQdrantContextProvider,
   populateQdrantFromStructuralIndex,
 } from '../src/adapters/qdrant-context-provider.js';
@@ -38,7 +39,7 @@ const candidate = mustOk(makeCodeCandidate({
   workspaceId, repoPath: 'src/connection.ts' as never,
   range: { startLine: 1, endLine: 1, startColumn: 1, endColumn: 53 },
   symbolName: 'reconnect',
-  semanticAnchor: { line: 1, byteColumn: 17 },
+  semanticAnchor: { line: 1, byteColumn: 17, endLine: 1, endByteColumn: 26 },
   text: source.toString('utf8').trim(),
   sourceDigest: digest as never,
   generation: 1 as never,
@@ -96,12 +97,13 @@ test('warm Qdrant snapshot reuse does not re-embed or upsert current source', as
   const http: HttpPort = {
     request: (request) => {
       requests += 1;
-      assert.equal(request.url.endsWith('/points/count'), true);
       assert.deepEqual((request.body?.filter as { must: unknown[] }).must, [
         { key: 'workspace_id', match: { value: workspaceId } },
         { key: 'index_key', match: { value: 'snapshot-digest' } },
       ]);
-      return Effect.succeed(ok({ status: 200, body: { result: { count: 1 } } }));
+      return Effect.succeed(ok(request.url.endsWith('/points/count')
+        ? { status: 200, body: { result: { count: 1 } } }
+        : { status: 200, body: { result: { points: [{ payload: { candidate_id: candidate.candidateId } }], next_page_offset: null } } }));
     },
   };
   const qdrant: CodeCandidatePort = {
@@ -115,8 +117,8 @@ test('warm Qdrant snapshot reuse does not re-embed or upsert current source', as
   const ready = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
     index, qdrant, embeddings, http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'snapshot-digest',
   )));
-  assert.deepEqual(ready, { count: 1, reused: true });
-  assert.equal(requests, 1);
+  assert.deepEqual(ready, { count: 1, reused: true, reusedVectorCount: 1 });
+  assert.equal(requests, 2);
   assert.equal(upserts, 0);
   assert.equal(embeds, 0);
 });
@@ -137,20 +139,18 @@ test('Qdrant warm reuse rebuilds on different count and fails closed on count ou
       qdrantRequests.push({ url: request.url, ...(request.body === undefined ? {} : { body: request.body }) });
       return Effect.succeed(ok(request.url.endsWith('/points/count')
         ? { status: 200, body: { result: { count: 0 } } }
-        : { status: 200, body: { result: true } }));
+        : request.url.endsWith('/points/scroll')
+          ? { status: 200, body: { result: { points: [{ payload: { candidate_id: candidate.candidateId } }], next_page_offset: null } } }
+          : { status: 200, body: { result: true } }));
     },
   };
   const rebuilt = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
     index, qdrant, embeddings, http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'snapshot-digest',
   )));
-  assert.deepEqual(rebuilt, { count: 1, reused: false });
+  assert.deepEqual(rebuilt, { count: 1, reused: false, reusedVectorCount: 0 });
   assert.equal(upserts, 1);
-  assert.equal(qdrantRequests.length, 2, 'count mismatch must clear the exact snapshot before rebuilding');
-  assert.match(qdrantRequests[1]?.url ?? '', /\/points\/delete\?wait=true$/u);
-  assert.deepEqual((qdrantRequests[1]?.body?.filter as { must: unknown[] }).must, [
-    { key: 'workspace_id', match: { value: workspaceId } },
-    { key: 'index_key', match: { value: 'snapshot-digest' } },
-  ]);
+  assert.equal(qdrantRequests.length, 2, 'count mismatch rebuilds idempotently and verifies membership');
+  assert.match(qdrantRequests[1]?.url ?? '', /\/points\/scroll$/u);
   const offline: HttpPort = { request: () => Effect.succeed(err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'offline'))) };
   const failed = await Effect.runPromise(hasExactQdrantSnapshot(
     offline, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'snapshot-digest', 1,
@@ -436,4 +436,286 @@ test('DBC-05 final worktree revalidation runs after documentation retrieval', as
   assert.equal(result.partialSources.includes('documentation'), false);
   assert.equal(result.evidence.find((item) => item.source === 'code')?.freshness, 'changed_during_request');
   assert.equal(result.evidence.find((item) => item.source === 'code')?.proofClass, 'uncertain');
+});
+
+
+test('Qdrant snapshot membership rejects equal-count wrong candidates', async () => {
+  const http: HttpPort = {
+    request: () => Effect.succeed(ok({
+      status: 200,
+      body: { result: { points: [{ payload: { candidate_id: 'wrong-candidate' } }], next_page_offset: null } },
+    })),
+  };
+  const result = await Effect.runPromise(verifyQdrantSnapshotMembership(
+    http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'snapshot-a', [candidate.candidateId],
+  ));
+  assert.equal(mustOk(result), false);
+});
+
+test('exact LSP confirmation rejects a different declaration on the same AST line', async () => {
+  const sameLineSource = Buffer.from('export function alpha(){} export function beta(){}\n');
+  const sameLineDigest = createHash('sha256').update(sameLineSource).digest('hex');
+  const beta = mustOk(makeCodeCandidate({
+    candidateId: mustOk(makeCandidateId('same-line-beta')),
+    workspaceId,
+    repoPath: 'src/same-line.ts' as never,
+    range: { startLine: 1, startColumn: 27, endLine: 1, endColumn: 51 },
+    symbolName: 'beta',
+    semanticAnchor: { line: 1, byteColumn: 43, endLine: 1, endByteColumn: 47 },
+    text: 'export function beta(){}',
+    sourceDigest: sameLineDigest as never,
+    generation: 1 as never,
+    indexedAtMs: 1,
+  }));
+  const provider = makeQdrantContextProvider({
+    workspaceId,
+    rootPath: '/repo',
+    files: {
+      canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+      snapshot: () => { throw new Error('not used'); },
+      readExact: () => Effect.succeed(ok({ bytes: sameLineSource, digest: sameLineDigest as never })),
+    },
+    qdrant: {
+      upsert: () => Effect.succeed(ok(undefined)),
+      search: () => Effect.succeed(ok([{ candidate: beta, score: 1, freshness: 'unknown' as const }])),
+    },
+    embeddings: { embedMany: () => Effect.succeed(ok([[1, 0]])) },
+    artifacts: {
+      storeExact: () => Effect.succeed(ok({ handle: 'same-line', digest: sameLineDigest as never, sizeBytes: sameLineSource.length })),
+      readRange: () => Effect.succeed(err(domainError('ARTIFACT_NOT_FOUND', 'handle', 'not used'))),
+    },
+    semantics: {
+      definition: () => Effect.succeed(ok([{
+        location: { repoPath: 'src/same-line.ts', startLine: 1, startColumn: 17, endLine: 1, endColumn: 22 },
+        name: 'alpha',
+      }])),
+      references: () => Effect.succeed(ok([])),
+      typeInfo: () => Effect.succeed(ok(undefined)),
+      diagnostics: () => Effect.succeed(ok([])),
+    },
+    newRequestId: () => 'same-line-lsp',
+  });
+  const bundle = mustOk(await Effect.runPromise(provider.search({
+    workspaceId, query: 'beta', includeDocs: false, includeMemory: false,
+  })));
+  assert.equal(bundle.complete, false);
+  assert.ok(bundle.partialSources.includes('lsp'));
+  assert.equal(bundle.evidence[0]?.proofClass, 'uncertain');
+});
+
+test('index coverage failures make an otherwise current result incomplete', async () => {
+  const provider = makeQdrantContextProvider({
+    workspaceId,
+    rootPath: '/repo',
+    files: {
+      canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+      snapshot: () => { throw new Error('not used'); },
+      readExact: () => Effect.succeed(ok({ bytes: source, digest: digest as never })),
+    },
+    qdrant: {
+      upsert: () => Effect.succeed(ok(undefined)),
+      search: () => Effect.succeed(ok([{ candidate, score: 1, freshness: 'unknown' as const }])),
+    },
+    embeddings: { embedMany: () => Effect.succeed(ok([[1, 0]])) },
+    artifacts: {
+      storeExact: () => Effect.succeed(ok({ handle: 'coverage', digest: digest as never, sizeBytes: source.length })),
+      readRange: () => Effect.succeed(err(domainError('ARTIFACT_NOT_FOUND', 'handle', 'not used'))),
+    },
+    semantics: {
+      definition: () => Effect.succeed(ok([{
+        location: { repoPath: 'src/connection.ts', startLine: 1, startColumn: 17, endLine: 1, endColumn: 26 },
+        name: 'reconnect',
+      }])),
+      references: () => Effect.succeed(ok([])),
+      typeInfo: () => Effect.succeed(ok(undefined)),
+      diagnostics: () => Effect.succeed(ok([])),
+    },
+    coverage: {
+      attemptedPaths: 2,
+      indexedPaths: 1,
+      policyExcludedPaths: 0,
+      outOfScopePaths: 0,
+      failedPaths: 1,
+      failures: [{ repoPath: 'src/unreadable.ts' as never, kind: 'read_failed', code: 'FILE_NOT_FOUND' }],
+    },
+    newRequestId: () => 'coverage-request',
+  });
+  const bundle = mustOk(await Effect.runPromise(provider.search({
+    workspaceId, query: 'reconnect', includeDocs: false, includeMemory: false,
+  })));
+  assert.equal(bundle.complete, false);
+  assert.ok(bundle.partialSources.includes('code'));
+  assert.equal(bundle.indexCoverage?.failedPaths, 1);
+});
+
+
+test('Qdrant context merges archive-provenance memory without treating healthy empty memory as an outage', async () => {
+  const provider = makeQdrantContextProvider({
+    workspaceId,
+    rootPath: '/repo',
+    files: {
+      canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+      snapshot: () => { throw new Error('not used'); },
+      readExact: () => Effect.succeed(ok({ bytes: source, digest: digest as never })),
+    },
+    qdrant: {
+      upsert: () => Effect.succeed(ok(undefined)),
+      search: () => Effect.succeed(ok([{ candidate, score: 1, freshness: 'unknown' as const }])),
+    },
+    embeddings: { embedMany: () => Effect.succeed(ok([[1, 0]])) },
+    artifacts: {
+      storeExact: () => Effect.succeed(ok({ handle: 'memory-context', digest: digest as never, sizeBytes: source.length })),
+      readRange: () => Effect.succeed(err(domainError('ARTIFACT_NOT_FOUND', 'handle', 'not used'))),
+    },
+    semantics: {
+      definition: () => Effect.succeed(ok([{
+        location: { repoPath: 'src/connection.ts', startLine: 1, startColumn: 17, endLine: 1, endColumn: 26 },
+        name: 'reconnect',
+      }])),
+      references: () => Effect.succeed(ok([])),
+      typeInfo: () => Effect.succeed(ok(undefined)),
+      diagnostics: () => Effect.succeed(ok([])),
+    },
+    memory: {
+      search: () => Effect.succeed(ok({
+        hits: [{
+          episode: {
+            episodeId: 'episode-memory' as never,
+            workspaceId,
+            sessionId: 'session-memory',
+            sourcePointer: 'codex://session-memory/1',
+            occurredAtMs: 10,
+            importedAtMs: 11,
+            contentDigest: 'c'.repeat(64) as never,
+            searchText: 'we selected local qdrant',
+            tombstoned: false,
+          },
+          matchingExcerpt: 'Local Qdrant was selected for private code retrieval.',
+        }],
+        conflicts: [],
+      })),
+    },
+    newRequestId: () => 'memory-context-request',
+  });
+  const bundle = mustOk(await Effect.runPromise(provider.search({
+    workspaceId, query: 'why local qdrant', includeDocs: false, includeMemory: true,
+  })));
+  assert.equal(bundle.complete, true);
+  const memoryEvidence = bundle.evidence.find((item) => item.source === 'memory');
+  assert.equal(memoryEvidence?.citation, 'codex://session-memory/1');
+  assert.equal(memoryEvidence?.proofClass, 'derived');
+  assert.equal(memoryEvidence?.sourceDigest, 'c'.repeat(64));
+
+  const emptyProvider = makeQdrantContextProvider({
+    workspaceId,
+    rootPath: '/repo',
+    files: {
+      canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+      snapshot: () => { throw new Error('not used'); },
+      readExact: () => Effect.succeed(ok({ bytes: source, digest: digest as never })),
+    },
+    qdrant: {
+      upsert: () => Effect.succeed(ok(undefined)),
+      search: () => Effect.succeed(ok([{ candidate, score: 1, freshness: 'unknown' as const }])),
+    },
+    embeddings: { embedMany: () => Effect.succeed(ok([[1, 0]])) },
+    artifacts: {
+      storeExact: () => Effect.succeed(ok({ handle: 'empty-memory', digest: digest as never, sizeBytes: source.length })),
+      readRange: () => Effect.succeed(err(domainError('ARTIFACT_NOT_FOUND', 'handle', 'not used'))),
+    },
+    semantics: {
+      definition: () => Effect.succeed(ok([{
+        location: { repoPath: 'src/connection.ts', startLine: 1, startColumn: 17, endLine: 1, endColumn: 26 },
+        name: 'reconnect',
+      }])),
+      references: () => Effect.succeed(ok([])),
+      typeInfo: () => Effect.succeed(ok(undefined)),
+      diagnostics: () => Effect.succeed(ok([])),
+    },
+    memory: { search: () => Effect.succeed(ok({ hits: [], conflicts: [] })) },
+    newRequestId: () => 'empty-memory-context',
+  });
+  const empty = mustOk(await Effect.runPromise(emptyProvider.search({
+    workspaceId, query: 'unknown historical thing', includeDocs: false, includeMemory: true,
+  })));
+  assert.equal(empty.complete, true);
+  assert.equal(empty.partialSources.includes('memory'), false);
+});
+
+
+test('new snapshot reuses vectors only for unchanged candidate IDs from a compatible prior snapshot', async () => {
+  const changed = mustOk(makeCodeCandidate({
+    ...candidate,
+    candidateId: mustOk(makeCandidateId('changed-candidate')),
+    text: 'export function reconnectChanged() { return true; }',
+  }));
+  const index = { generation: 2 as never, candidates: [candidate, changed] };
+  let embeddingInputs: readonly string[] = [];
+  const upserted: CodePoint[] = [];
+  const qdrant: CodeCandidatePort = {
+    search: () => Effect.succeed(ok([])),
+    upsert: (points) => {
+      upserted.push(...points);
+      return Effect.succeed(ok(undefined));
+    },
+  };
+  let scrollCalls = 0;
+  const http: HttpPort = {
+    request: (request) => {
+      if (request.url.endsWith('/points/count')) {
+        return Effect.succeed(ok({ status: 200, body: { result: { count: 0 } } }));
+      }
+      if (request.url.endsWith('/points/scroll')) {
+        scrollCalls += 1;
+        if (scrollCalls === 1) {
+          return Effect.succeed(ok({
+            status: 200,
+            body: {
+              result: {
+                points: [{ payload: { candidate_id: candidate.candidateId }, vector: [0.1, 0.9] }],
+                next_page_offset: null,
+              },
+            },
+          }));
+        }
+        return Effect.succeed(ok({
+          status: 200,
+          body: {
+            result: {
+              points: [
+                { payload: { candidate_id: candidate.candidateId } },
+                { payload: { candidate_id: changed.candidateId } },
+              ],
+              next_page_offset: null,
+            },
+          },
+        }));
+      }
+      throw new Error('unexpected HTTP request: ' + request.url);
+    },
+  };
+  const embeddings: VectorEmbeddingPort = {
+    embedMany: (texts) => {
+      embeddingInputs = texts;
+      return Effect.succeed(ok(texts.map(() => [0.8, 0.2])));
+    },
+  };
+  const result = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
+    index,
+    qdrant,
+    embeddings,
+    http,
+    'http://127.0.0.1:6333',
+    'ace-test',
+    workspaceId,
+    'd'.repeat(64),
+    [],
+    false,
+    'e'.repeat(64),
+  )));
+  assert.equal(result.reused, false);
+  assert.equal(result.reusedVectorCount, 1);
+  assert.deepEqual(embeddingInputs, [changed.text]);
+  assert.equal(upserted.length, 2);
+  assert.deepEqual(upserted.find((point) => point.candidate.candidateId === candidate.candidateId)?.vector, [0.1, 0.9]);
 });

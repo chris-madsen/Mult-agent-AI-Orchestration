@@ -6,17 +6,27 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { Effect } from 'effect';
 import { makeFileArtifactStore } from '../adapters/file-artifact-store.js';
+import { makeFileQdrantSnapshotState, type SnapshotLease } from '../adapters/file-qdrant-snapshot-state.js';
+import { makeAsyncFileMemoryArchive } from '../adapters/file-memory-archive.js';
+import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
 import { makeFetchHttpPort, makeQdrantCodeCandidatePort } from '../adapters/http-provider-boundaries.js';
 import { buildLocalCodeIndex } from '../adapters/local-code-index.js';
 import { makeLocalContextProvider } from '../adapters/local-context-provider.js';
 import { makeNodeWorkspacePort } from '../adapters/node-workspace-port.js';
-import { makeProcessEmbeddingPort } from '../adapters/process-embedding.js';
+import { makeProcessEmbeddingPort, type ResolvedEmbeddingConfig } from '../adapters/process-embedding.js';
 import { makeFileProviderTrace } from '../adapters/provider-trace.js';
-import { codeIndexKey, ensureQdrantCollection, makeQdrantContextProvider, pruneQdrantOtherGenerations, reuseOrPopulateQdrantSnapshot } from '../adapters/qdrant-context-provider.js';
+import {
+  codeIndexKey,
+  ensureQdrantCollection,
+  makeQdrantContextProvider,
+  pruneQdrantUnleasedSnapshots,
+  reuseOrPopulateQdrantSnapshot,
+} from '../adapters/qdrant-context-provider.js';
 import { makeTreeSitterStructuralPort } from '../adapters/tree-sitter-structural.js';
 import { makeTypeScriptLanguageServicePort } from '../adapters/typescript-language-service.js';
 import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
 import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
+import type { MemorySearchPort } from '../application/ports.js';
 import { defaultLocalPolicy } from '../domain/policy.js';
 import type { RepoPath, WorkspaceId } from '../domain/workspace.js';
 import { observeWorkspace, registerWorkspace } from '../application/workspace-service.js';
@@ -121,6 +131,41 @@ const main = async (): Promise<void> => {
   const structuralHelper = process.env.ACE_TREE_SITTER_HELPER?.trim();
   const artifacts = makeFileArtifactStore(artifactDirectory);
   const providerTrace = makeFileProviderTrace(process.env.ACE_PROVIDER_TRACE_FILE);
+  let memory: MemorySearchPort | undefined;
+  let closeMemory: (() => Promise<void>) | undefined;
+  let snapshotLease: SnapshotLease | undefined;
+  const snapshotState = await makeFileQdrantSnapshotState(resolve(stateDirectory, 'qdrant-snapshots'));
+  if (process.env.ACE_ENABLE_GRAPHITI === 'true') {
+    const archiveRoot = resolve(required('ACE_MEMORY_ARCHIVE_ROOT'));
+    const command = required('ACE_GRAPHITI_COMMAND');
+    let args: string[];
+    try {
+      const decoded: unknown = JSON.parse(required('ACE_GRAPHITI_ARGS_JSON'));
+      if (!Array.isArray(decoded) || !decoded.every((item) => typeof item === 'string')) {
+        throw new Error('ACE_GRAPHITI_ARGS_JSON must decode to a string array');
+      }
+      args = decoded;
+    } catch (cause) {
+      throw new Error(cause instanceof Error ? cause.message : 'ACE_GRAPHITI_ARGS_JSON is invalid');
+    }
+    const archive = await makeAsyncFileMemoryArchive(archiveRoot);
+    try {
+      const graphiti = await makeGraphitiMcpPort({
+        command,
+        args,
+        groupId: required('ACE_GRAPHITI_GROUP_ID'),
+        workspaceId: registered.value.workspaceId,
+        policy: defaultLocalPolicy(registered.value.workspaceId),
+        archive,
+      });
+      memory = graphiti.memory;
+      closeMemory = graphiti.close;
+      if (memory === undefined) throw new Error('Graphiti archive-backed memory search was not initialized');
+      process.stderr.write(`ace-mcp temporal memory ready workspace_id=${registered.value.workspaceId}\n`);
+    } catch (cause) {
+      process.stderr.write(`ace-mcp memory NOT_READY: ${cause instanceof Error ? cause.message : 'Graphiti startup failed'}\n`);
+    }
+  }
   const structuralPath = resolve(process.env.ACE_TREE_SITTER_HELPER?.trim() || 'scripts/tree-sitter-structural.py');
   const structuralPython = optionalCommand(process.env.ACE_TREE_SITTER_PYTHON, resolve('.venv-system/bin/python'));
   let context: ReturnType<typeof makeLocalContextProvider> | undefined;
@@ -148,10 +193,34 @@ const main = async (): Promise<void> => {
     }
     const embeddingDimension = Number(process.env.ACE_EMBEDDING_DIMENSION ?? '384');
     if (!Number.isSafeInteger(embeddingDimension) || embeddingDimension < 1) throw new Error('ACE_EMBEDDING_DIMENSION must be a positive integer');
+    const embeddingConfig: ResolvedEmbeddingConfig = {
+      provider: embeddingProvider,
+      model: embeddingModel,
+      modelRevision: embeddingRevision,
+      artifactModel: embeddingArtifactModel,
+      artifactRevision: embeddingArtifactRevision,
+      artifactDigest: embeddingArtifactDigest,
+      dimension: embeddingDimension,
+      preprocessing: embeddingPreprocessing,
+    };
+    const embeddingEnvironment: Record<string, string> = {
+      ACE_EMBEDDING_PROVIDER: embeddingProvider,
+      ACE_EMBEDDING_MODEL: embeddingModel,
+      ACE_EMBEDDING_MODEL_REVISION: embeddingRevision,
+      ACE_EMBEDDING_ARTIFACT_MODEL: embeddingArtifactModel,
+      ACE_EMBEDDING_ARTIFACT_REVISION: embeddingArtifactRevision,
+      ACE_EMBEDDING_DIMENSION: String(embeddingDimension),
+      ACE_EMBEDDING_PREPROCESSING: embeddingPreprocessing,
+      ...(embeddingArtifactDigest === 'unverified' ? {} : { ACE_EMBEDDING_ARTIFACT_DIGEST: embeddingArtifactDigest }),
+    };
+    for (const name of ['ACE_EMBEDDING_PYTHON', 'ACE_EMBEDDING_LD_LIBRARY_PATH', 'FASTEMBED_CACHE_PATH', 'HF_HOME', 'HF_HUB_CACHE']) {
+      const value = process.env[name]?.trim();
+      if (value !== undefined && value.length > 0) embeddingEnvironment[name] = value;
+    }
     const candidateLimit = Number(process.env.ACE_CONTEXT_CANDIDATE_LIMIT ?? '6');
     if (!Number.isSafeInteger(candidateLimit) || candidateLimit < 1 || candidateLimit > 20) throw new Error('ACE_CONTEXT_CANDIDATE_LIMIT must be an integer between 1 and 20');
     const workspaceKey = createHash('sha256').update(registered.value.workspaceId).digest('hex').slice(0, 12);
-    const modelKey = createHash('sha256').update(`${embeddingProvider}|${embeddingModel}|${embeddingRevision}|${embeddingArtifactModel}|${embeddingArtifactRevision}|${embeddingArtifactDigest}|${embeddingPreprocessing}|${embeddingDimension}`).digest('hex').slice(0, 12);
+    const modelKey = createHash('sha256').update(`snapshot-v2|${embeddingProvider}|${embeddingModel}|${embeddingRevision}|${embeddingArtifactModel}|${embeddingArtifactRevision}|${embeddingArtifactDigest}|${embeddingPreprocessing}|${embeddingDimension}`).digest('hex').slice(0, 12);
     const generation = observationEpoch;
     const collection = process.env.ACE_QDRANT_COLLECTION?.trim() || `ace_code_${workspaceKey}_${modelKey}`;
     const embeddingWorker = process.env.ACE_EMBEDDING_WORKER?.trim()
@@ -192,6 +261,8 @@ const main = async (): Promise<void> => {
         dimension: embeddingDimension,
         providerVersion: `${embeddingProvider}|model=${embeddingModel}@${embeddingRevision}|artifact=${embeddingArtifactModel}@${embeddingArtifactRevision}#${embeddingArtifactDigest}`,
         trace: providerTrace,
+        env: embeddingEnvironment,
+        expectedIdentity: embeddingConfig,
       });
       const closeEmbeddingWorker = (): void => embeddings.close();
       process.once('SIGTERM', closeEmbeddingWorker);
@@ -205,6 +276,14 @@ const main = async (): Promise<void> => {
         embeddings.close();
         throw new Error(`embedding provider preflight failed (${embeddingReady.error.code})`);
       }
+      const effectiveEmbedding = embeddings.identity();
+      if (effectiveEmbedding === undefined) {
+        embeddings.close();
+        throw new Error('embedding provider preflight did not return a verified effective identity');
+      }
+      const embeddingFingerprint = createHash('sha256')
+        .update(JSON.stringify(effectiveEmbedding), 'utf8')
+        .digest('hex');
       const structural = makeTreeSitterStructuralPort({
         helperPath: structuralPath,
         pythonCommand: structuralPython,
@@ -223,7 +302,39 @@ const main = async (): Promise<void> => {
         // Warm reuse is keyed from the exact structural candidate set actually
         // produced in this startup. It ignores observation epoch/timestamps,
         // but changes on source bytes, ranges, names or parser output.
-        const sourceKey = codeIndexKey(built.value.index);
+        const sourceKey = codeIndexKey(built.value.index, built.value.coverage, embeddingFingerprint);
+        const snapshotIdentity = {
+          workspaceId: registered.value.workspaceId,
+          indexKey: sourceKey,
+          candidateIds: built.value.index.candidates.map((candidate) => candidate.candidateId),
+          coverage: built.value.coverage,
+          providerFingerprint: embeddingFingerprint,
+        };
+        const lease = await snapshotState.acquireLease(registered.value.workspaceId, sourceKey);
+        if (lease._tag === 'Err') {
+          embeddings.close();
+          throw new Error(`Qdrant snapshot lease failed (${lease.error.code})`);
+        }
+        snapshotLease = lease.value;
+        const published = await snapshotState.isPublished(snapshotIdentity);
+        if (published._tag === 'Err') {
+          embeddings.close();
+          throw new Error(`Qdrant snapshot manifest check failed (${published.error.code})`);
+        }
+        const previous = await snapshotState.latestPublished(
+          registered.value.workspaceId, embeddingFingerprint, sourceKey,
+        );
+        if (previous._tag === 'Err') {
+          embeddings.close();
+          throw new Error(`Qdrant prior snapshot lookup failed (${previous.error.code})`);
+        }
+        if (!published.value) {
+          const begun = await snapshotState.beginBuild(snapshotIdentity);
+          if (begun._tag === 'Err') {
+            embeddings.close();
+            throw new Error(`Qdrant snapshot manifest begin failed (${begun.error.code})`);
+          }
+        }
         const qdrant = makeQdrantCodeCandidatePort({
           baseUrl: qdrantUrl,
           collection,
@@ -234,16 +345,32 @@ const main = async (): Promise<void> => {
         });
         const indexed = await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
           built.value.index, qdrant, embeddings, http, qdrantUrl, collection,
-          registered.value.workspaceId, sourceKey, qdrantAllowedHosts,
+          registered.value.workspaceId, sourceKey, qdrantAllowedHosts, published.value, previous.value?.indexKey,
         ));
         if (indexed._tag === 'Err') {
           embeddings.close();
           process.stderr.write(`ace-mcp context NOT_READY: Qdrant indexing failed (${indexed.error.code}: ${indexed.error.message})\n`);
         } else {
-          const pruned = await Effect.runPromise(pruneQdrantOtherGenerations(
-            http, qdrantUrl, collection, registered.value.workspaceId, generation, qdrantAllowedHosts, sourceKey,
-          ));
-          if (pruned._tag === 'Err') process.stderr.write(`ace retrieval warning: obsolete Qdrant generation cleanup failed (${pruned.error.code})\n`);
+          const publishedNow = await snapshotState.publish(snapshotIdentity);
+          if (publishedNow._tag === 'Err') {
+            embeddings.close();
+            throw new Error(`Qdrant snapshot publish failed (${publishedNow.error.code})`);
+          }
+          const activeKeys = await snapshotState.activeIndexKeys(registered.value.workspaceId);
+          if (activeKeys._tag === 'Err') {
+            process.stderr.write(`ace retrieval warning: snapshot lease inspection failed (${activeKeys.error.code})\n`);
+          } else {
+            const retained = new Set(activeKeys.value);
+            retained.add(sourceKey);
+            const cleaned = await Effect.runPromise(pruneQdrantUnleasedSnapshots(
+              http, qdrantUrl, collection, registered.value.workspaceId, retained, qdrantAllowedHosts,
+            ));
+            if (cleaned._tag === 'Err') {
+              process.stderr.write(`ace retrieval warning: lease-aware snapshot cleanup failed (${cleaned.error.code})\n`);
+            } else if (cleaned.value.length > 0) {
+              process.stderr.write(`ace retrieval cleanup removed_snapshots=${cleaned.value.length}\n`);
+            }
+          }
           const sourceFiles = await readSourceFiles(files, registered.value.rootPath, built.value.indexedPaths);
           const semantics = makeTypeScriptLanguageServicePort({
             rootPath: registered.value.rootPath,
@@ -277,9 +404,11 @@ const main = async (): Promise<void> => {
             ...(indexed.value.reused ? {} : { generation }),
             indexKey: sourceKey,
             candidateLimit,
+            coverage: built.value.coverage,
             ...(documentation === undefined ? {} : { documentation }),
+            ...(memory === undefined ? {} : { memory }),
           });
-          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} collection=${collection}\n`);
+          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} embedding_identity=${embeddingFingerprint.slice(0, 12)} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection}\n`);
         }
       }
     }
@@ -310,8 +439,14 @@ const main = async (): Promise<void> => {
     store,
     artifacts,
     ...(context === undefined ? {} : { context }),
+    ...(memory === undefined ? {} : { memory }),
   });
-  await runMcpSdkStdio(gateway);
+  try {
+    await runMcpSdkStdio(gateway);
+  } finally {
+    if (snapshotLease !== undefined) await snapshotLease.close();
+    if (closeMemory !== undefined) await closeMemory();
+  }
 };
 
 try {

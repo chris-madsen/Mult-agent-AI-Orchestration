@@ -43,12 +43,20 @@ export interface DecisionRecord {
   readonly validToMs?: number;
   readonly sourceEpisodeIds: readonly EpisodeId[];
   readonly successorId?: DecisionId;
+  /** Immutable decision transitions; legacy records may omit them. */
+  readonly transitions?: readonly DecisionTransition[];
 }
 
+export type SessionEpisodeReference = Omit<SessionEpisode, 'content'> & {
+  /** Present only when the caller explicitly requested original bytes. */
+  readonly content?: Uint8Array;
+};
+
 export interface MemorySearchHit {
-  readonly episode: SessionEpisode;
+  readonly episode: SessionEpisodeReference;
   readonly matchingExcerpt: string;
   readonly decisionState?: DecisionState;
+  readonly historicalUncertainty?: boolean;
 }
 
 export interface MemorySearchResult {
@@ -110,10 +118,12 @@ export const makeDecisionRecord = (input: Omit<DecisionRecord, 'state'> & { read
   return ok({ ...input, state });
 };
 
-export type DecisionEvent =
+export type DecisionTransition =
   | { readonly type: 'confirm'; readonly atMs: number }
   | { readonly type: 'reject'; readonly atMs: number }
   | { readonly type: 'supersede'; readonly atMs: number; readonly successorId: DecisionId };
+
+export type DecisionEvent = DecisionTransition;
 
 export const transitionDecision = (record: DecisionRecord, event: DecisionEvent): Result<DecisionRecord, DomainError> => {
   if (!Number.isSafeInteger(event.atMs) || event.atMs < record.validFromMs) {
@@ -128,12 +138,54 @@ export const transitionDecision = (record: DecisionRecord, event: DecisionEvent)
   if (record.state !== 'Accepted' || event.type !== 'supersede') {
     if (event.type === 'supersede') return err(domainError('INVALID_MEMORY', 'state', 'only accepted decisions may be superseded'));
   }
-  if (event.type === 'confirm') return ok({ ...record, state: 'Accepted' });
-  if (event.type === 'reject') return ok({ ...record, state: 'Rejected', validToMs: event.atMs });
+  const transitions = [...(record.transitions ?? []), event];
+  if (event.type === 'confirm') return ok({ ...record, state: 'Accepted', transitions });
+  if (event.type === 'reject') return ok({ ...record, state: 'Rejected', validToMs: event.atMs, transitions });
   if (event.successorId === record.decisionId || !nonEmpty(event.successorId)) {
     return err(domainError('INVALID_MEMORY', 'successor_id', 'successor must be a non-empty different decision'));
   }
-  return ok({ ...record, state: 'Superseded', validToMs: event.atMs, successorId: event.successorId });
+  return ok({ ...record, state: 'Superseded', validToMs: event.atMs, successorId: event.successorId, transitions });
+};
+
+export const decisionStateAt = (
+  record: DecisionRecord,
+  asOfMs?: number,
+): { readonly state?: DecisionState; readonly historicalUncertainty: boolean } => {
+  if (asOfMs === undefined) return { state: record.state, historicalUncertainty: false };
+  if (asOfMs < record.validFromMs) return { historicalUncertainty: false };
+  const transitions = record.transitions;
+  if (transitions === undefined || transitions.length === 0) {
+    return record.state === 'Proposed'
+      ? { state: 'Proposed', historicalUncertainty: false }
+      : { historicalUncertainty: true };
+  }
+  let state: DecisionState = 'Proposed';
+  for (const transition of [...transitions].sort((left, right) => left.atMs - right.atMs)) {
+    if (transition.atMs > asOfMs) break;
+    if (transition.type === 'confirm' && state === 'Proposed') state = 'Accepted';
+    else if (transition.type === 'reject' && state === 'Proposed') state = 'Rejected';
+    else if (transition.type === 'supersede' && state === 'Accepted') state = 'Superseded';
+  }
+  return { state, historicalUncertainty: false };
+};
+
+export const validateDecisionGraph = (decisions: readonly DecisionRecord[]): Result<void, DomainError> => {
+  const byId = new Map(decisions.map((decision) => [decision.decisionId, decision]));
+  for (const decision of decisions) {
+    if (decision.successorId !== undefined && !byId.has(decision.successorId)) {
+      return err(domainError('INVALID_MEMORY', 'successor_id', 'decision successor must exist in the decision graph'));
+    }
+    const seen = new Set<DecisionId>();
+    let current: DecisionRecord | undefined = decision;
+    while (current?.successorId !== undefined) {
+      if (seen.has(current.decisionId)) {
+        return err(domainError('INVALID_MEMORY', 'successor_id', 'decision successor graph must be acyclic'));
+      }
+      seen.add(current.decisionId);
+      current = byId.get(current.successorId);
+    }
+  }
+  return ok(undefined);
 };
 
 export const searchMemory = (
@@ -154,16 +206,24 @@ export const searchMemory = (
     .sort((left, right) => right.matches.length - left.matches.length || right.episode.occurredAtMs - left.episode.occurredAtMs)
     .map(({ episode, matches }) => {
       const decision = decisions.find((candidate) => candidate.sourceEpisodeIds.includes(episode.episodeId));
+      const state = decision === undefined ? undefined : decisionStateAt(decision, asOfMs);
       return {
         episode,
         matchingExcerpt: matches.join(', '),
-        ...(decision === undefined ? {} : { decisionState: decision.state }),
+        ...(state?.state === undefined ? {} : { decisionState: state.state }),
+        ...(state?.historicalUncertainty === true ? { historicalUncertainty: true } : {}),
       };
     });
-  const accepted = decisions.filter((decision) => decision.state === 'Accepted');
-  const conflicts = accepted
-    .filter((decision) => accepted.some((other) => other.decisionId !== decision.decisionId && other.subject === decision.subject && other.proposal !== decision.proposal))
-    .map((decision) => `conflicting accepted decisions for ${decision.subject}: ${decision.decisionId}`);
+  const effective = decisions
+    .map((decision) => ({ decision, state: decisionStateAt(decision, asOfMs) }))
+    .filter((item) => item.state.state === 'Accepted');
+  const conflicts = effective
+    .filter(({ decision }) => effective.some(({ decision: other }) =>
+      other.decisionId !== decision.decisionId
+      && other.workspaceId === decision.workspaceId
+      && other.subject === decision.subject
+      && other.proposal !== decision.proposal))
+    .map(({ decision }) => `conflicting accepted decisions for ${decision.subject}: ${decision.decisionId}`);
   return { hits, conflicts: [...new Set(conflicts)], ...(asOfMs === undefined ? {} : { asOfMs }) };
 };
 

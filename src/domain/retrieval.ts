@@ -14,14 +14,21 @@ export interface SourceRange {
   readonly endColumn?: number;
 }
 
+export interface SemanticAnchorRange {
+  readonly line: number;
+  readonly byteColumn: number;
+  readonly endLine: number;
+  readonly endByteColumn: number;
+}
+
 export interface CodeCandidate {
   readonly candidateId: CandidateId;
   readonly workspaceId: WorkspaceId;
   readonly repoPath: RepoPath;
   readonly range: SourceRange;
   readonly symbolName?: string;
-  /** Tree-sitter identifier start. byteColumn is one-based UTF-8 byte offset within the line. */
-  readonly semanticAnchor?: { readonly line: number; readonly byteColumn: number };
+  /** Exact identifier range. Columns are one-based UTF-8 byte offsets; end is exclusive. */
+  readonly semanticAnchor?: SemanticAnchorRange;
   readonly text: string;
   readonly sourceDigest: ContentDigest;
   readonly generation: Generation;
@@ -48,6 +55,23 @@ export interface CurrentDigestLookup {
 export interface CodeIndex {
   readonly generation: Generation;
   readonly candidates: readonly CodeCandidate[];
+}
+
+export type IndexCoverageFailureKind = 'read_failed' | 'structural_failed' | 'digest_mismatch' | 'parser_partial' | 'unsupported_parser';
+
+export interface IndexCoverageFailure {
+  readonly repoPath: RepoPath;
+  readonly kind: IndexCoverageFailureKind;
+  readonly code?: string;
+}
+
+export interface IndexCoverageSummary {
+  readonly attemptedPaths: number;
+  readonly indexedPaths: number;
+  readonly policyExcludedPaths: number;
+  readonly outOfScopePaths: number;
+  readonly failedPaths: number;
+  readonly failures: readonly IndexCoverageFailure[];
 }
 
 export interface RetrievalEvidence {
@@ -88,6 +112,7 @@ export interface ContextBundle {
   readonly partialSources: readonly string[];
   readonly complete: boolean;
   readonly conflicts?: readonly RetrievalConflict[];
+  readonly indexCoverage?: IndexCoverageSummary;
 }
 
 export interface RetrievalProvider {
@@ -119,10 +144,14 @@ const validRange = (range: SourceRange): boolean =>
 export const makeCodeCandidate = (input: Omit<CodeCandidate, 'invalidated'> & { readonly invalidated?: boolean }): Result<CodeCandidate, DomainError> => {
   if (input.text.length === 0) return err(domainError('INVALID_RETRIEVAL', 'text', 'candidate text must not be empty'));
   if (!validRange(input.range)) return err(domainError('INVALID_RETRIEVAL', 'range', 'source range is invalid'));
-  if (input.semanticAnchor !== undefined
-    && (!Number.isSafeInteger(input.semanticAnchor.line) || input.semanticAnchor.line < 1
-      || !Number.isSafeInteger(input.semanticAnchor.byteColumn) || input.semanticAnchor.byteColumn < 1)) {
-    return err(domainError('INVALID_RETRIEVAL', 'semantic_anchor', 'semantic anchor must use positive one-based coordinates'));
+  if (input.semanticAnchor !== undefined) {
+    const anchor = input.semanticAnchor;
+    if (![anchor.line, anchor.byteColumn, anchor.endLine, anchor.endByteColumn]
+      .every((value) => Number.isSafeInteger(value) && value >= 1)
+      || anchor.endLine < anchor.line
+      || (anchor.endLine === anchor.line && anchor.endByteColumn <= anchor.byteColumn)) {
+      return err(domainError('INVALID_RETRIEVAL', 'semantic_anchor', 'semantic anchor must be a positive non-empty one-based UTF-8 range'));
+    }
   }
   if (!Number.isSafeInteger(input.generation) || input.generation < 1) {
     return err(domainError('INVALID_RETRIEVAL', 'generation', 'index generation must be positive'));

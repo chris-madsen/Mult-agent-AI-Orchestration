@@ -2,6 +2,7 @@
 """Long-lived Sentence-Transformers boundary using the shared worker protocol."""
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import os
 import sys
@@ -12,15 +13,35 @@ from sentence_transformers import SentenceTransformer
 from embedding_artifact_verifier import verify_loaded_artifact
 
 
+def _version(package: str) -> str:
+    try:
+        return importlib.metadata.version(package)
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
+
+
 def main() -> int:
     model_name = sys.argv[1]
     os.environ.setdefault("ACE_EMBEDDING_MODEL", model_name)
     revision = os.environ.get("ACE_EMBEDDING_MODEL_REVISION")
-    # Resolve once, then load AND hash the same local snapshot. Resolving a
-    # different cache entry after loading does not prove inference identity.
     loaded_path = snapshot_download(model_name, revision=revision, local_files_only=True)
     model = SentenceTransformer(loaded_path, local_files_only=True)
-    verify_loaded_artifact(model, loaded_path=loaded_path)
+    artifact_digest = verify_loaded_artifact(model, loaded_path=loaded_path)
+    dimension = model.get_sentence_embedding_dimension()
+    if not isinstance(dimension, int) or dimension < 1:
+        raise RuntimeError("Sentence-Transformers did not report a valid embedding dimension")
+    identity = {
+        "provider": os.environ.get("ACE_EMBEDDING_PROVIDER", "sentence-transformers/pytorch"),
+        "model": model_name,
+        "modelRevision": os.environ.get("ACE_EMBEDDING_MODEL_REVISION", "unknown"),
+        "artifactModel": os.environ.get("ACE_EMBEDDING_ARTIFACT_MODEL", model_name),
+        "artifactRevision": os.environ.get("ACE_EMBEDDING_ARTIFACT_REVISION", "unknown"),
+        "artifactDigest": artifact_digest,
+        "dimension": dimension,
+        "preprocessing": os.environ.get("ACE_EMBEDDING_PREPROCESSING", "raw_text_v1"),
+        "runtime": f"sentence-transformers/{_version('sentence-transformers')}|torch/{_version('torch')}",
+    }
+    print(json.dumps({"type": "ready", "identity": identity}, separators=(",", ":")), flush=True)
     for line in sys.stdin:
         request = None
         try:
