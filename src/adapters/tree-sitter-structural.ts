@@ -5,7 +5,7 @@ import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { makeStructuralAnalysis, type StructuralAnalysis, type StructuralKind, type StructuralSymbol } from '../domain/semantic.js';
 import { makeContentDigest } from '../domain/workspace.js';
-import { err, type Result } from '../domain/result.js';
+import { err, ok, type Result } from '../domain/result.js';
 import type { ProviderTraceSink, StructuralAnalysisPort } from '../application/ports.js';
 import { recoverResult } from '../application/effect-result.js';
 import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
