@@ -123,13 +123,13 @@ const run = async (): Promise<void> => {
         const present = await Effect.runPromise(graphiti.projectionState.isPresent(receipt.episodeId));
         if (present._tag === 'Err') throw new Error(present.error.message);
         if (present.value) {
-          const stored = await outbox.put({
-            ...receipt,
-            status: 'projected',
-            nextAttemptAtMs: undefined,
-            deadLetteredAtMs: undefined,
-            lastErrorCode: undefined,
-          });
+          const {
+            nextAttemptAtMs: _nextAttemptAtMs,
+            deadLetteredAtMs: _deadLetteredAtMs,
+            lastErrorCode: _lastErrorCode,
+            ...projectedReceipt
+          } = receipt;
+          const stored = await outbox.put({ ...projectedReceipt, status: 'projected' });
           if (stored._tag === 'Err') throw new Error(stored.error.message);
           projected += 1;
           continue;
