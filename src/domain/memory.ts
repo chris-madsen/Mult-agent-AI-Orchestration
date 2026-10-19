@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { domainError, type DomainError } from './errors.js';
 import { err, ok, type Result } from './result.js';
 import type { ContentDigest, WorkspaceId } from './workspace.js';
@@ -68,9 +67,10 @@ export const makeEpisode = (input: SessionEpisode): Result<SessionEpisode, Domai
     return err(domainError('INVALID_MEMORY', 'episode', 'session id and source pointer are required'));
   }
   if (input.content.length === 0) return err(domainError('INVALID_MEMORY', 'content', 'episode content must not be empty'));
-  const actualDigest = createHash('sha256').update(input.content).digest('hex');
-  if (actualDigest !== input.contentDigest) {
-    return err(domainError('DIGEST_MISMATCH', 'content_digest', 'episode SHA-256 must match its exact content bytes'));
+  // Platform-independent domain validation: the archive adapter verifies
+  // SHA-256 binding to the exact bytes at the persistence boundary (DBC-09).
+  if (!/^[a-f0-9]{64}$/u.test(input.contentDigest)) {
+    return err(domainError('INVALID_MEMORY', 'content_digest', 'episode requires a lowercase SHA-256 digest'));
   }
   if (!Number.isSafeInteger(input.occurredAtMs) || !Number.isSafeInteger(input.importedAtMs)) {
     return err(domainError('INVALID_MEMORY', 'timestamp', 'episode timestamps must be safe integers'));
