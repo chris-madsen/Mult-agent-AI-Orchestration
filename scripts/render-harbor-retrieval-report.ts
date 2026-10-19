@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { auditedHarborLabel } from '../src/domain/harbor-report-label.js';
 
 interface TaskSummary {
   readonly taskName: string;
@@ -48,8 +49,11 @@ const format = (value: number | null): string => value === null ? 'unavailable' 
 const main = async (): Promise<void> => {
   const [inputPath = 'benchmarks/reports/ace-retrieval-paired-3x3.json', outputDirectory = 'benchmarks/reports'] = process.argv.slice(2);
   const report = JSON.parse(await readFile(inputPath, 'utf8')) as GateReport;
-  const forcedOrHistorical = report.evaluationDesign === undefined || report.evaluationDesign === 'forced-tool-use';
-  const label = forcedOrHistorical ? 'diagnostic-only (not DBC-12 acceptance)' : report.acceptance;
+  const label = auditedHarborLabel(report.acceptance, report.evaluationDesign);
+  const configurations: ReadonlyArray<readonly [string, ConfigurationSummary]> = [
+    ['native-codex', report.native],
+    ['codex-plus-ace', report.ace],
+  ];
   const rows = [
     ['native-codex', 'aggregate', report.native],
     ['codex-plus-ace', 'aggregate', report.ace],
@@ -87,14 +91,13 @@ const main = async (): Promise<void> => {
     '',
     '| Configuration | Trials | Successes | Raw tokens | Cost USD | ACE calls | Current-source calls |',
     '|---|---:|---:|---:|---:|---:|---:|',
-    `| native-codex | ${report.native.trials} | ${report.native.successes} | ${report.native.rawTotalTokens ?? 'unavailable'} | ${report.native.costUsd ?? 'unavailable'} | ${report.native.aceCalls} | ${report.native.currentSourceCalls} |`,
-    `| codex-plus-ace | ${report.ace.trials} | ${report.ace.successes} | ${report.ace.rawTotalTokens ?? 'unavailable'} | ${report.ace.costUsd ?? 'unavailable'} | ${report.ace.aceCalls} | ${report.ace.currentSourceCalls} |`,
+    ...configurations.map(([configuration, summary]) => `| ${configuration} | ${summary.trials} | ${summary.successes} | ${summary.rawTotalTokens ?? 'unavailable'} | ${summary.costUsd ?? 'unavailable'} | ${summary.aceCalls} | ${summary.currentSourceCalls} |`),
     '',
     '## Per-task results',
     '',
     '| Configuration | Task | Trials | Successes | Failures | Raw tokens | Cost USD | Median latency ms |',
     '|---|---|---:|---:|---:|---:|---:|---:|',
-    ...[['native-codex', report.native], ['codex-plus-ace', report.ace]].flatMap(([configuration, summary]) => summary.taskStats.map((task) => `| ${configuration} | ${task.taskName} | ${task.trials} | ${task.successes} | ${task.failures} | ${task.rawTotalTokens ?? 'unavailable'} | ${task.costUsd ?? 'unavailable'} | ${task.latencyMsMedian ?? 'unavailable'} |`)),
+    ...configurations.flatMap(([configuration, summary]) => summary.taskStats.map((task) => `| ${configuration} | ${task.taskName} | ${task.trials} | ${task.successes} | ${task.failures} | ${task.rawTotalTokens ?? 'unavailable'} | ${task.costUsd ?? 'unavailable'} | ${task.latencyMsMedian ?? 'unavailable'} |`)),
     '',
     'These ratios describe the recorded trials only; forced tool use and tiny repeated fixtures cannot establish a production 5× retrieval result.',
     '',
