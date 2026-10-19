@@ -835,20 +835,20 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
       return ok(config.coverage === undefined ? merged : { ...merged, indexCoverage: config.coverage });
     }
 
-    if (sourceIsRequested(requirements.code)) {
+    if (requirements.code.requirement !== 'not_requested' && requirements.code.allowed) {
       sourceCoverage = setSourceCoverage(
         sourceCoverage,
         'code',
-        codeProviderError !== undefined ? 'unavailable' : failed.includes('code') ? 'partial' : 'satisfied',
-        codeProviderError?.code,
+        !includeCode || codeProviderError !== undefined ? 'unavailable' : failed.includes('code') ? 'partial' : 'satisfied',
+        !includeCode ? 'not_executed' : codeProviderError?.code,
       );
     }
-    if (sourceIsRequested(requirements.structural)) {
+    if (requirements.structural.requirement !== 'not_requested' && requirements.structural.allowed) {
       sourceCoverage = setSourceCoverage(
         sourceCoverage,
         'structural',
-        codeProviderError !== undefined ? 'unavailable' : failed.includes('lsp') ? 'partial' : 'satisfied',
-        codeProviderError?.code,
+        !includeCode || codeProviderError !== undefined ? 'unavailable' : failed.includes('lsp') ? 'partial' : 'satisfied',
+        !includeCode ? 'not_executed' : codeProviderError?.code,
       );
     }
     const incomplete = requiredIncompleteSources(sourceCoverage);
