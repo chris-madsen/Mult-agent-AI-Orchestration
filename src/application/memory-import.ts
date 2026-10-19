@@ -2,7 +2,16 @@ import { Effect } from 'effect';
 import { admitMemoryEpisode, defaultMemoryAdmissionPolicy, type MemoryAdmission, type MemoryAdmissionPolicy } from '../domain/memory-admission.js';
 import { domainError, type DomainError, type DomainErrorCode } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
-import { finishProjection, type EpisodeId, type ProjectionReceipt, type SessionEpisode } from '../domain/memory.js';
+import {
+  defaultProjectionRetryPolicy,
+  recordProjectionEnqueue,
+  scheduleProjectionRetry,
+  type EpisodeId,
+  type ProjectionReceipt,
+  type ProjectionRetryPolicy,
+  type ProjectionStatus,
+  type SessionEpisode,
+} from '../domain/memory.js';
 import type { GraphProjectionPort, MemoryArchivePort, ProjectionOutboxPort } from './ports.js';
 
 export interface ProjectionSession {
@@ -15,7 +24,7 @@ export interface MemoryImportOutcome {
   /** True only when this import created a new immutable archive record. */
   readonly persisted: boolean;
   readonly admission: MemoryAdmission;
-  readonly projectionStatus?: 'pending' | 'projected' | 'incomplete' | 'tombstoned';
+  readonly projectionStatus?: ProjectionStatus;
   readonly projectionErrorCode?: DomainErrorCode;
 }
 
@@ -26,6 +35,9 @@ export interface MemoryImportInput {
   readonly extractorVersion: string;
   readonly admissionPolicy?: MemoryAdmissionPolicy;
   readonly outbox?: ProjectionOutboxPort;
+  readonly retryPolicy?: ProjectionRetryPolicy;
+  readonly nowMs?: () => number;
+  readonly verificationDelayMs?: number;
 }
 
 const errorFrom = (cause: unknown, path: string, message: string): DomainError =>
@@ -48,6 +60,9 @@ interface ArchivedEpisode {
  */
 export const importMemoryEpisodes = async (input: MemoryImportInput): Promise<Result<readonly MemoryImportOutcome[], DomainError>> => {
   const policy = input.admissionPolicy ?? defaultMemoryAdmissionPolicy;
+  const retryPolicy = input.retryPolicy ?? defaultProjectionRetryPolicy;
+  const nowMs = input.nowMs ?? Date.now;
+  const verificationDelayMs = input.verificationDelayMs ?? retryPolicy.baseDelayMs;
   const archived: ArchivedEpisode[] = [];
 
   // Phase 1: source truth first. Any archive failure is fatal because ACE cannot
@@ -79,12 +94,12 @@ export const importMemoryEpisodes = async (input: MemoryImportInput): Promise<Re
         const begun = await input.outbox.begin(episode.episodeId, input.extractorVersion);
         if (begun._tag === 'Err') return begun;
         queued = begun.value;
-        if (queued.status === 'projected') {
+        if (queued.status === 'projected' || queued.status === 'tombstoned' || queued.status === 'dead_letter') {
           outcomes.push({
             episodeId: episode.episodeId,
             persisted: created,
             admission,
-            projectionStatus: 'projected',
+            projectionStatus: queued.status,
           });
           continue;
         }
@@ -92,16 +107,17 @@ export const importMemoryEpisodes = async (input: MemoryImportInput): Promise<Re
 
       if (projectionUnavailable !== undefined) {
         if (queued !== undefined && input.outbox !== undefined) {
-          const incomplete = finishProjection(queued, 'incomplete');
-          const stored = await input.outbox.put(incomplete);
+          const incomplete = scheduleProjectionRetry(queued, nowMs(), projectionUnavailable.code, retryPolicy);
+          if (incomplete._tag === 'Err') return incomplete;
+          const stored = await input.outbox.put(incomplete.value);
           if (stored._tag === 'Err') return stored;
-          queued = incomplete;
+          queued = incomplete.value;
         }
         outcomes.push({
           episodeId: episode.episodeId,
           persisted: created,
           admission,
-          projectionStatus: 'incomplete',
+          projectionStatus: queued?.status ?? 'incomplete',
           projectionErrorCode: projectionUnavailable.code,
         });
         continue;
@@ -113,10 +129,11 @@ export const importMemoryEpisodes = async (input: MemoryImportInput): Promise<Re
         } catch (cause) {
           projectionUnavailable = errorFrom(cause, 'graphiti', 'Graphiti projection session could not start');
           if (queued !== undefined && input.outbox !== undefined) {
-            const incomplete = finishProjection(queued, 'incomplete');
-            const stored = await input.outbox.put(incomplete);
+            const incomplete = scheduleProjectionRetry(queued, nowMs(), projectionUnavailable.code, retryPolicy);
+            if (incomplete._tag === 'Err') return incomplete;
+            const stored = await input.outbox.put(incomplete.value);
             if (stored._tag === 'Err') return stored;
-            queued = incomplete;
+            queued = incomplete.value;
           }
           outcomes.push({
             episodeId: episode.episodeId,
@@ -141,25 +158,30 @@ export const importMemoryEpisodes = async (input: MemoryImportInput): Promise<Re
       }));
       if (projected._tag === 'Err') {
         if (queued !== undefined && input.outbox !== undefined) {
-          const incomplete = finishProjection(queued, 'incomplete');
-          const stored = await input.outbox.put(incomplete);
+          const incomplete = scheduleProjectionRetry(queued, nowMs(), projected.error.code, retryPolicy);
+          if (incomplete._tag === 'Err') return incomplete;
+          const stored = await input.outbox.put(incomplete.value);
           if (stored._tag === 'Err') return stored;
+          queued = incomplete.value;
         }
         outcomes.push({
           episodeId: episode.episodeId,
           persisted: created,
           admission,
-          projectionStatus: 'incomplete',
+          projectionStatus: queued?.status ?? 'incomplete',
           projectionErrorCode: projected.error.code,
         });
         continue;
       }
       if (input.outbox !== undefined) {
-        const receipt: ProjectionReceipt = {
+        const base: ProjectionReceipt = queued ?? {
           ...projected.value,
-          attempts: Math.max(projected.value.attempts, (queued?.attempts ?? 0) + 1),
+          status: 'pending',
+          attempts: 0,
         };
-        const stored = await input.outbox.put(receipt);
+        const receipt = recordProjectionEnqueue(base, projected.value, nowMs(), verificationDelayMs);
+        if (receipt._tag === 'Err') return receipt;
+        const stored = await input.outbox.put(receipt.value);
         if (stored._tag === 'Err') return stored;
       }
       outcomes.push({
