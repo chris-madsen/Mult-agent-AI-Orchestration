@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { isObservedAceContextJsonLine, isSuccessfulAceContextJsonLine } from '../src/domain/harbor-mcp-evidence.js';
 
 type JsonObject = Readonly<Record<string, unknown>>;
 
@@ -17,7 +18,9 @@ interface JobSummary {
   readonly outputTokens: number | null;
   readonly totalTokens: number | null;
   readonly costUsd: number | null;
-  readonly aceCalls: number;
+  readonly aceObservedCalls: number;
+  readonly aceSuccessfulCalls: number;
+  readonly aceUnsuccessfulCalls: number;
   readonly taskNames: readonly string[];
 }
 
@@ -47,19 +50,6 @@ const sha256 = (content: string): string => createHash('sha256').update(content,
 
 const readJson = async (path: string): Promise<JsonObject> => object(JSON.parse(await readFile(path, 'utf8')) as unknown, path);
 
-const successfulAceCall = (line: string): boolean => {
-  try {
-    const event = object(JSON.parse(line) as unknown, 'Codex event');
-    const item = object(event.item, 'Codex event.item');
-    return item.type === 'mcp_tool_call'
-      && item.server === 'ace'
-      && item.tool === 'ace_context'
-      && (item.error === undefined || item.error === null || item.error === '');
-  } catch {
-    return false;
-  }
-};
-
 const trialDirectories = async (aggregatePath: string): Promise<readonly string[]> => {
   const parent = dirname(resolve(aggregatePath));
   const entries = await readdir(parent, { withFileTypes: true });
@@ -87,7 +77,8 @@ const summarize = async (aggregatePath: string): Promise<JobSummary> => {
 
   const trials = await trialDirectories(aggregatePath);
   let successes = 0;
-  let aceCalls = 0;
+  let aceObservedCalls = 0;
+  let aceSuccessfulCalls = 0;
   const taskNames: string[] = [];
   for (const directory of trials) {
     const trial = await readJson(join(directory, 'result.json'));
@@ -107,7 +98,9 @@ const summarize = async (aggregatePath: string): Promise<JobSummary> => {
     }
     try {
       const trace = await readFile(join(directory, 'agent', 'codex.txt'), 'utf8');
-      aceCalls += trace.split('\n').filter(successfulAceCall).length;
+      const lines = trace.split('\n');
+      aceObservedCalls += lines.filter(isObservedAceContextJsonLine).length;
+      aceSuccessfulCalls += lines.filter(isSuccessfulAceContextJsonLine).length;
     } catch (error) {
       if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error;
     }
@@ -126,7 +119,9 @@ const summarize = async (aggregatePath: string): Promise<JobSummary> => {
     outputTokens,
     totalTokens: inputTokens === null || outputTokens === null ? null : inputTokens + outputTokens,
     costUsd,
-    aceCalls,
+    aceObservedCalls,
+    aceSuccessfulCalls,
+    aceUnsuccessfulCalls: aceObservedCalls - aceSuccessfulCalls,
     taskNames: [...new Set(taskNames)].sort(),
   };
 };
@@ -141,21 +136,23 @@ const ace = await summarize(acePath);
 const paired = native.trials === ace.trials && native.trials >= 3
   && JSON.stringify(native.taskNames) === JSON.stringify(ace.taskNames);
 const qualityNonInferior = ace.successes / ace.trials >= native.successes / native.trials;
-const attributed = native.aceCalls === 0 && ace.aceCalls > 0;
+const attributionEvidence = native.aceObservedCalls === 0 && ace.aceSuccessfulCalls > 0;
 const report = {
   evidence: 'real-harbor-trials',
   native,
   ace,
   paired,
   qualityNonInferior,
-  aceInvocationsObserved: attributed,
+  aceInvocationsObserved: ace.aceObservedCalls > 0,
+  completeAceInvocationsObserved: ace.aceSuccessfulCalls > 0,
+  attributionEvidence,
   measuredTokenRatio: native.totalTokens === null || ace.totalTokens === null || ace.totalTokens === 0
     ? null : native.totalTokens / ace.totalTokens,
   measuredCostRatio: native.costUsd === null || ace.costUsd === null || ace.costUsd === 0
     ? null : native.costUsd / ace.costUsd,
-  target5xReached: paired && qualityNonInferior && attributed && ace.totalTokens !== null
+  target5xReached: paired && qualityNonInferior && attributionEvidence && ace.totalTokens !== null
     && native.totalTokens !== null && ace.totalTokens > 0 && native.totalTokens / ace.totalTokens >= 5,
-  acceptance: paired && qualityNonInferior && attributed ? 'measured-not-necessarily-5x' : 'rejected',
+  acceptance: paired && qualityNonInferior && attributionEvidence ? 'measured-not-necessarily-5x' : 'rejected',
 };
 await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n', 'utf8');
 process.stdout.write(JSON.stringify(report) + '\n');

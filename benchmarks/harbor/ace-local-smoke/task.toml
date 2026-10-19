@@ -3,8 +3,8 @@ artifacts = []
 
 [task]
 name = "ace/ace-local-smoke"
-version = "1.0.0"
-description = "Minimal deterministic ACE/Harbor smoke task"
+version = "1.1.0"
+description = "Deterministic TypeScript ACE/Harbor retrieval smoke task"
 authors = []
 keywords = ["typescript", "devops", "smoke"]
 
