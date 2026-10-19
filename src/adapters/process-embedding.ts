@@ -29,11 +29,16 @@ export interface ResolvedEmbeddingConfig {
   readonly artifactDigest: string;
   readonly dimension: number;
   readonly preprocessing: string;
+  /** Pinned is an explicit mode, never inferred from a model label. */
+  readonly executionMode: 'pinned' | 'experimental-unpinned';
+  readonly pinned: boolean;
 }
 
 export interface EmbeddingWorkerIdentity extends ResolvedEmbeddingConfig {
+  /** Hash of the worker implementation that produced the receipt. */
+  readonly runtimeBuild: string;
   /** Runtime/library versions actually reported by the worker. */
-  readonly runtime: string;
+  readonly runtimeVersion: string;
 }
 
 export interface ProcessEmbeddingOptions {
@@ -71,10 +76,17 @@ const parseIdentity = (value: unknown): Result<EmbeddingWorkerIdentity, DomainEr
     return err(domainError('INVALID_EXTERNAL_RESPONSE', 'embedding.identity', 'embedding worker identity must be an object'));
   }
   const raw = value as Record<string, unknown>;
-  const fields = ['provider', 'model', 'modelRevision', 'artifactModel', 'artifactRevision', 'artifactDigest', 'preprocessing', 'runtime'] as const;
+  const fields = [
+    'provider', 'model', 'modelRevision', 'artifactModel', 'artifactRevision',
+    'artifactDigest', 'preprocessing', 'executionMode', 'runtimeBuild', 'runtimeVersion',
+  ] as const;
+  const executionMode = raw.executionMode;
   if (!fields.every((field) => nonEmpty(raw[field]))
     || typeof raw.dimension !== 'number' || !Number.isSafeInteger(raw.dimension) || raw.dimension < 1
-    || !/^[a-f0-9]{64}$/u.test(String(raw.artifactDigest))) {
+    || !/^[a-f0-9]{64}$/u.test(String(raw.artifactDigest))
+    || (executionMode !== 'pinned' && executionMode !== 'experimental-unpinned')
+    || typeof raw.pinned !== 'boolean'
+    || raw.pinned !== (executionMode === 'pinned')) {
     return err(domainError('INVALID_EXTERNAL_RESPONSE', 'embedding.identity', 'embedding worker returned an invalid effective identity'));
   }
   return ok({
@@ -86,7 +98,10 @@ const parseIdentity = (value: unknown): Result<EmbeddingWorkerIdentity, DomainEr
     artifactDigest: String(raw.artifactDigest),
     dimension: raw.dimension,
     preprocessing: String(raw.preprocessing),
-    runtime: String(raw.runtime),
+    executionMode,
+    pinned: raw.pinned,
+    runtimeBuild: String(raw.runtimeBuild),
+    runtimeVersion: String(raw.runtimeVersion),
   });
 };
 
@@ -94,7 +109,7 @@ const compareIdentity = (
   expected: ResolvedEmbeddingConfig,
   actual: EmbeddingWorkerIdentity,
 ): Result<EmbeddingWorkerIdentity, DomainError> => {
-  const comparisons: Array<readonly [string, string | number, string | number]> = [
+  const comparisons: Array<readonly [string, string | number | boolean, string | number | boolean]> = [
     ['provider', expected.provider, actual.provider],
     ['model', expected.model, actual.model],
     ['modelRevision', expected.modelRevision, actual.modelRevision],
@@ -102,6 +117,8 @@ const compareIdentity = (
     ['artifactRevision', expected.artifactRevision, actual.artifactRevision],
     ['dimension', expected.dimension, actual.dimension],
     ['preprocessing', expected.preprocessing, actual.preprocessing],
+    ['executionMode', expected.executionMode, actual.executionMode],
+    ['pinned', expected.pinned, actual.pinned],
   ];
   if (expected.artifactDigest !== 'unverified') {
     comparisons.push(['artifactDigest', expected.artifactDigest, actual.artifactDigest]);
@@ -140,6 +157,31 @@ const safeInheritedEnvironment = (): NodeJS.ProcessEnv => {
   return Object.fromEntries(allowed.flatMap((key) => process.env[key] === undefined ? [] : [[key, process.env[key] as string]]));
 };
 
+const allowedWorkerEnvironment = new Set([
+  'ACE_EMBEDDING_PROVIDER',
+  'ACE_EMBEDDING_MODEL',
+  'ACE_EMBEDDING_MODEL_REVISION',
+  'ACE_EMBEDDING_ARTIFACT_MODEL',
+  'ACE_EMBEDDING_ARTIFACT_REVISION',
+  'ACE_EMBEDDING_ARTIFACT_DIGEST',
+  'ACE_EMBEDDING_DIMENSION',
+  'ACE_EMBEDDING_PREPROCESSING',
+  'ACE_EMBEDDING_EXECUTION_MODE',
+  'ACE_EMBEDDING_PINNED',
+  'ACE_EMBEDDING_PYTHON',
+  'ACE_EMBEDDING_LD_LIBRARY_PATH',
+  'ACE_EMBEDDING_DELAY_MS',
+  'FASTEMBED_CACHE_PATH',
+  'HF_HOME',
+  'HF_HUB_CACHE',
+]);
+
+const controlledWorkerEnvironment = (
+  environment: Readonly<Record<string, string>> | undefined,
+): NodeJS.ProcessEnv => Object.fromEntries(
+  Object.entries(environment ?? {}).filter(([key]) => allowedWorkerEnvironment.has(key)),
+);
+
 /**
  * Long-lived maintained embedding runtime with an optional mandatory startup
  * receipt. The parent never infers effective model identity from labels alone.
@@ -147,7 +189,7 @@ const safeInheritedEnvironment = (): NodeJS.ProcessEnv => {
 export const makeProcessEmbeddingPort = (options: ProcessEmbeddingOptions): ManagedVectorEmbeddingPort => {
   const child: ChildProcessWithoutNullStreams = spawn(options.command, [...(options.args ?? [])], {
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...safeInheritedEnvironment(), ...(options.env ?? {}) },
+    env: { ...safeInheritedEnvironment(), ...controlledWorkerEnvironment(options.env) },
   });
   const pending = new Map<number, PendingRequest>();
   const readyWaiters = new Set<(result: Result<EmbeddingWorkerIdentity, DomainError>) => void>();
@@ -277,7 +319,7 @@ export const makeProcessEmbeddingPort = (options: ProcessEmbeddingOptions): Mana
         provider: 'embedding',
         providerVersion: identity === undefined
           ? options.providerVersion ?? 'process-worker/unknown'
-          : `${identity.provider}|model=${identity.model}@${identity.modelRevision}|artifact=${identity.artifactModel}@${identity.artifactRevision}#${identity.artifactDigest}|runtime=${identity.runtime}`,
+          : `${identity.provider}|model=${identity.model}@${identity.modelRevision}|artifact=${identity.artifactModel}@${identity.artifactRevision}#${identity.artifactDigest}|mode=${identity.executionMode}|runtime=${identity.runtimeBuild}@${identity.runtimeVersion}`,
         operation: 'embed_many',
         status: result._tag === 'Ok' ? 'success' : 'failure',
         durationMs: Math.max(0, Date.now() - startedAtMs),

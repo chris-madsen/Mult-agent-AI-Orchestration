@@ -16,6 +16,8 @@ const expected: ResolvedEmbeddingConfig = {
   artifactDigest: digest,
   dimension: 2,
   preprocessing: 'raw_text_v1',
+  executionMode: 'pinned',
+  pinned: true,
 };
 
 const workerScript = (model = expected.model): string => `
@@ -29,7 +31,10 @@ const identity = {
   artifactDigest: '${digest}',
   dimension: 2,
   preprocessing: 'raw_text_v1',
-  runtime: 'fixture-runtime/1',
+  executionMode: 'pinned',
+  pinned: true,
+  runtimeBuild: 'fixture-worker.js#${digest}',
+  runtimeVersion: 'node/fixture-runtime-1',
 };
 process.stdout.write(JSON.stringify({ type: 'ready', identity }) + '\\n');
 const rl = readline.createInterface({ input: process.stdin });
@@ -51,10 +56,54 @@ test('embedding process requires and exposes a matching effective worker identit
   try {
     const probe = await Effect.runPromise(port.probe());
     assert.equal(probe._tag, 'Ok');
-    assert.deepEqual(port.identity(), { ...expected, runtime: 'fixture-runtime/1' });
+    assert.deepEqual(port.identity(), {
+      ...expected,
+      runtimeBuild: `fixture-worker.js#${digest}`,
+      runtimeVersion: 'node/fixture-runtime-1',
+    });
     const embedded = await Effect.runPromise(port.embedMany(['hello']));
     assert.equal(embedded._tag, 'Ok');
     if (embedded._tag === 'Ok') assert.deepEqual(embedded.value, [[0.25, 0.75]]);
+  } finally {
+    port.close();
+  }
+});
+
+test('embedding process rejects an inconsistent execution mode receipt', async () => {
+  const port = makeProcessEmbeddingPort({
+    command: process.execPath,
+    args: ['-e', workerScript().replace('pinned: true', 'pinned: false')],
+    dimension: 2,
+    expectedIdentity: expected,
+    timeoutMs: 5_000,
+  });
+  try {
+    const probe = await Effect.runPromise(port.probe());
+    assert.equal(probe._tag, 'Err');
+    if (probe._tag === 'Err') assert.equal(probe.error.code, 'INVALID_EXTERNAL_RESPONSE');
+  } finally {
+    port.close();
+  }
+});
+
+test('embedding process does not forward non-allowlisted environment variables', async () => {
+  const script = `
+if (process.env.ACE_EMBEDDING_SECRET_SENTINEL !== undefined || process.env.OPENAI_API_KEY !== undefined) process.exit(23);
+${workerScript()}`;
+  const port = makeProcessEmbeddingPort({
+    command: process.execPath,
+    args: ['-e', script],
+    dimension: 2,
+    expectedIdentity: expected,
+    env: {
+      ACE_EMBEDDING_SECRET_SENTINEL: 'must-not-cross-boundary',
+      OPENAI_API_KEY: 'must-not-cross-boundary',
+    },
+    timeoutMs: 5_000,
+  });
+  try {
+    const probe = await Effect.runPromise(port.probe());
+    assert.equal(probe._tag, 'Ok');
   } finally {
     port.close();
   }

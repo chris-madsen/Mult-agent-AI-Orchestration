@@ -25,6 +25,17 @@ class ArtifactVerificationTests(unittest.TestCase):
         self.assertEqual(verify_loaded_artifact(nested), expected)
         self.assertEqual(verify_loaded_artifact(object(), loaded_path=self.root), expected)
 
+    def test_loaded_path_must_match_the_declared_artifact_model_and_revision(self):
+        model_root = self.root / 'models--fixture--artifact' / 'snapshots' / 'artifact-r1'
+        model_root.mkdir(parents=True)
+        (model_root / 'model.bin').write_bytes(b'actual-model')
+        os.environ['ACE_EMBEDDING_ARTIFACT_MODEL'] = 'fixture/artifact'
+        os.environ['ACE_EMBEDDING_ARTIFACT_REVISION'] = 'artifact-r1'
+        self.assertEqual(verify_loaded_artifact(object(), loaded_path=model_root), tree_sha256(model_root))
+        os.environ['ACE_EMBEDDING_ARTIFACT_MODEL'] = 'fixture/other'
+        with self.assertRaisesRegex(RuntimeError, 'model mismatch'):
+            verify_loaded_artifact(object(), loaded_path=model_root)
+
     def test_environment_cannot_substitute_for_unknown_loaded_model(self):
         os.environ['ACE_EMBEDDING_ARTIFACT_MODEL'] = 'unrelated/cached-model'
         os.environ['ACE_EMBEDDING_ARTIFACT_REVISION'] = 'a' * 40

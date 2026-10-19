@@ -229,7 +229,9 @@ const main = async (): Promise<void> => {
       || (embeddingProvider === 'fastembed/onnx' ? defaultFastEmbedArtifactRevision : embeddingRevision);
     const embeddingArtifactDigest = process.env.ACE_EMBEDDING_ARTIFACT_DIGEST?.trim() || 'unverified';
     const embeddingPreprocessing = process.env.ACE_EMBEDDING_PREPROCESSING?.trim() || defaultEmbeddingPreprocessing;
-    if (process.env.ACE_REQUIRE_PINNED_EMBEDDING === 'true'
+    const embeddingPinned = process.env.ACE_REQUIRE_PINNED_EMBEDDING === 'true';
+    const embeddingExecutionMode = embeddingPinned ? 'pinned' as const : 'experimental-unpinned' as const;
+    if (embeddingPinned
       && (!/^[a-f0-9]{40}$/u.test(embeddingRevision)
         || !/^[a-f0-9]{40}$/u.test(embeddingArtifactRevision)
         || !/^[a-f0-9]{64}$/u.test(embeddingArtifactDigest))) {
@@ -246,6 +248,8 @@ const main = async (): Promise<void> => {
       artifactDigest: embeddingArtifactDigest,
       dimension: embeddingDimension,
       preprocessing: embeddingPreprocessing,
+      executionMode: embeddingExecutionMode,
+      pinned: embeddingPinned,
     };
     const embeddingEnvironment: Record<string, string> = {
       ACE_EMBEDDING_PROVIDER: embeddingProvider,
@@ -255,6 +259,8 @@ const main = async (): Promise<void> => {
       ACE_EMBEDDING_ARTIFACT_REVISION: embeddingArtifactRevision,
       ACE_EMBEDDING_DIMENSION: String(embeddingDimension),
       ACE_EMBEDDING_PREPROCESSING: embeddingPreprocessing,
+      ACE_EMBEDDING_EXECUTION_MODE: embeddingExecutionMode,
+      ACE_EMBEDDING_PINNED: String(embeddingPinned),
       ...(embeddingArtifactDigest === 'unverified' ? {} : { ACE_EMBEDDING_ARTIFACT_DIGEST: embeddingArtifactDigest }),
     };
     for (const name of ['ACE_EMBEDDING_PYTHON', 'ACE_EMBEDDING_LD_LIBRARY_PATH', 'FASTEMBED_CACHE_PATH', 'HF_HOME', 'HF_HUB_CACHE']) {

@@ -45,6 +45,15 @@ def verify_loaded_artifact(model: object, *, loaded_path: str | Path | None = No
     if model_dir is None:
         raise RuntimeError("embedding provider did not expose its loaded artifact directory")
     resolved = Path(model_dir).resolve()
+    expected_model = os.environ.get("ACE_EMBEDDING_ARTIFACT_MODEL", "").strip()
+    if expected_model:
+        if "\\" in expected_model or any(part in {"", ".", ".."} for part in expected_model.split("/")):
+            raise RuntimeError("embedding artifact model label is invalid")
+        model_marker = f"models--{expected_model.replace('/', '--')}"
+        if model_marker not in {path.name for path in (resolved, *resolved.parents)}:
+            raise RuntimeError(
+                f"embedding artifact model mismatch: expected {expected_model}, loaded {resolved}"
+            )
     expected_revision = os.environ.get("ACE_EMBEDDING_ARTIFACT_REVISION", "").strip()
     if expected_revision and expected_revision not in resolved.parts:
         raise RuntimeError(
