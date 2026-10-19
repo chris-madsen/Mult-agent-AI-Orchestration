@@ -1,0 +1,100 @@
+{
+  "generatedAt": "2026-10-19T10:14:19.824Z",
+  "commands": [
+    {
+      "command": "harbor",
+      "available": true,
+      "output": "0.24.0"
+    },
+    {
+      "command": "tb",
+      "available": false,
+      "reason": "spawnSync tb ENOENT"
+    },
+    {
+      "command": "terminal-bench",
+      "available": false,
+      "reason": "spawnSync terminal-bench ENOENT"
+    },
+    {
+      "command": "qdrant",
+      "available": false,
+      "reason": "spawnSync qdrant ENOENT"
+    },
+    {
+      "command": "codex",
+      "available": true,
+      "output": "codex-cli 0.148.0-alpha.9"
+    },
+    {
+      "command": "kubectl",
+      "available": true,
+      "output": "{"
+    }
+  ],
+  "pythonModules": [
+    {
+      "module": "harbor",
+      "python": ".venv-system/bin/python",
+      "available": false,
+      "exitCode": 1,
+      "output": "Traceback (most recent call last):"
+    },
+    {
+      "module": "terminal_bench",
+      "python": ".venv-system/bin/python",
+      "available": false,
+      "exitCode": 1,
+      "output": "Traceback (most recent call last):"
+    },
+    {
+      "module": "graphiti_core",
+      "python": ".venv-system/bin/python",
+      "available": true,
+      "output": "/media/ilja/DATA/soft/consillium/harness/.venv-system/lib/python3.10/site-packages/graphiti_core/__init__.py"
+    },
+    {
+      "module": "tree_sitter",
+      "python": ".venv-system/bin/python",
+      "available": true,
+      "output": "/media/ilja/DATA/soft/consillium/harness/.venv-system/lib/python3.10/site-packages/tree_sitter/__init__.py"
+    },
+    {
+      "module": "ast_grep_py",
+      "python": ".venv-system/bin/python",
+      "available": true,
+      "output": "/media/ilja/DATA/soft/consillium/harness/.venv-system/lib/python3.10/site-packages/ast_grep_py/__init__.py"
+    },
+    {
+      "module": "pygls",
+      "python": ".venv-system/bin/python",
+      "available": true,
+      "output": "/media/ilja/DATA/soft/consillium/harness/.venv-system/lib/python3.10/site-packages/pygls/__init__.py"
+    }
+  ],
+  "codexJsonCapability": {
+    "available": true,
+    "output": "Run Codex non-interactively"
+  },
+  "kubernetesContext": {
+    "kubeconfig": "/etc/rancher/k3s/k3s.yaml",
+    "available": true,
+    "output": "default"
+  },
+  "kubernetesCluster": {
+    "available": true,
+    "output": "xmg   Ready   control-plane   120d   v1.35.5+k3s1"
+  },
+  "localServices": {
+    "qdrantHealth": {
+      "available": false,
+      "exitCode": 7,
+      "output": "curl: (7) Failed to connect to 127.0.0.1 port 6333 after 0 ms: Connection refused"
+    },
+    "graphitiFalkorDriverHealth": {
+      "available": false,
+      "exitCode": 1,
+      "output": "Traceback (most recent call last):"
+    }
+  }
+}
