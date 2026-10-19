@@ -262,17 +262,40 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
     storeExact: () => Effect.succeed({ _tag: 'Err', error: { code: 'PERSISTENCE_FAILED', path: 'artifact', message: 'not used' } }),
     readRange: () => Effect.succeed({ _tag: 'Err', error: { code: 'ARTIFACT_NOT_FOUND', path: 'artifact', message: 'not used' } }),
   };
+  let lastContextInput: { readonly includeDocs: boolean; readonly includeMemory: boolean } | undefined;
   const gateway = makeMcpGateway({
     clock: { nowMs: () => 1 },
     ids: { newWorkspaceId: () => 'workspace', newRequestId: () => 'request' },
     files,
     store,
     artifacts,
-    context: { search: () => Effect.succeed({ _tag: 'Ok', value: { requestId: 'request-1', query: 'save', evidence: [], warnings: [], partialSources: [], complete: true } }) },
+    context: { search: (input) => {
+      lastContextInput = input;
+      return Effect.succeed({ _tag: 'Ok', value: { requestId: 'request-1', query: input.query, evidence: [], warnings: [], partialSources: [], complete: true } });
+    } },
     memory: { search: () => Effect.succeed({ _tag: 'Ok', value: { hits: [], conflicts: [] } }) },
   });
   const context = await Effect.runPromise(gateway.handle({ name: 'ace_context', arguments: { workspace_id: workspaceId, query: 'save' } }));
   assert.equal(context.status, 'ok');
+  assert.deepEqual(lastContextInput, { includeDocs: false, includeMemory: false });
+
+  await Effect.runPromise(gateway.handle({
+    name: 'ace_context',
+    arguments: { workspace_id: workspaceId, query: 'why did we choose this architecture decision?' },
+  }));
+  assert.deepEqual(lastContextInput, { includeDocs: true, includeMemory: true });
+
+  await Effect.runPromise(gateway.handle({
+    name: 'ace_context',
+    arguments: {
+      workspace_id: workspaceId,
+      query: 'why did we choose this architecture decision?',
+      include_docs: false,
+      include_memory: false,
+    },
+  }));
+  assert.deepEqual(lastContextInput, { includeDocs: false, includeMemory: false });
+
   const memory = await Effect.runPromise(gateway.handle({ name: 'ace_memory_search', arguments: { workspace_id: workspaceId, query: 'decision' } }));
   assert.equal(memory.status, 'ok');
 });
