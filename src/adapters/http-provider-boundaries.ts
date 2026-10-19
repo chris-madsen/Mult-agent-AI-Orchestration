@@ -45,23 +45,18 @@ const successful = (response: HttpResponse): boolean => response.status >= 200 &
 
 export const makeFetchHttpPort = (): HttpPort => ({
   request: (request: HttpRequest) => Effect.catchAll(Effect.tryPromise<Result<HttpResponse, DomainError>, DomainError>({
-    try: async () => {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), request.timeoutMs ?? 10_000);
-      try {
-        const response = await fetch(request.url, {
-          method: request.method,
-          headers: { 'content-type': 'application/json', ...request.headers },
-          ...(request.body === undefined ? {} : { body: JSON.stringify(request.body) }),
-          signal: controller.signal,
-        });
-        const text = await response.text();
-        let body: unknown = text;
-        try { body = text.length === 0 ? {} : JSON.parse(text) as unknown; } catch { /* preserve non-JSON body */ }
-        return ok({ status: response.status, body });
-      } finally {
-        clearTimeout(timer);
-      }
+    try: async (signal) => {
+      const timeout = AbortSignal.timeout(request.timeoutMs ?? 10_000);
+      const response = await fetch(request.url, {
+        method: request.method,
+        headers: { 'content-type': 'application/json', ...request.headers },
+        ...(request.body === undefined ? {} : { body: JSON.stringify(request.body) }),
+        signal: AbortSignal.any([signal, timeout]),
+      });
+      const text = await response.text();
+      let body: unknown = text;
+      try { body = text.length === 0 ? {} : JSON.parse(text) as unknown; } catch { /* preserve non-JSON body */ }
+      return ok({ status: response.status, body });
     },
     catch: () => domainError('EXTERNAL_UNAVAILABLE', 'http', 'external HTTP request failed or timed out'),
   }), (failure) => Effect.succeed(err(failure))),
