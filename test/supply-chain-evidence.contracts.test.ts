@@ -56,7 +56,7 @@ test('supply-chain evidence passes only when audit, SBOM, image provenance and l
     sbomSha256,
     sbom,
     productionAudit: audit,
-    auditCommand: 'npm audit --omit=dev --json',
+    auditCommand: 'npm audit --omit=dev --audit-level=high --json',
     imageProvenance: provenance,
     licenseReview,
   });
@@ -76,7 +76,7 @@ test('high vulnerabilities, unsigned image and unresolved licenses independently
     productionAudit: {
       metadata: { vulnerabilities: { high: 2, critical: 1 } },
     },
-    auditCommand: 'npm audit --omit=dev --json',
+    auditCommand: 'npm audit --omit=dev --audit-level=high --json',
     imageProvenance: { ...provenance, signatureVerified: false },
     licenseReview: {
       ...licenseReview,
@@ -104,7 +104,7 @@ test('wrong commit/SBOM/lock identities cannot be hidden by a verified signature
     sbomSha256,
     sbom,
     productionAudit: audit,
-    auditCommand: 'npm audit --omit=dev --json',
+    auditCommand: 'npm audit --omit=dev --audit-level=high --json',
     imageProvenance: {
       ...provenance,
       sourceCommit: 'e'.repeat(40),
@@ -147,7 +147,7 @@ test('supply-chain gate rejects a generic audit command or malformed SBOM instea
     sbomSha256,
     sbom: { components: [] },
     productionAudit: audit,
-    auditCommand: 'npm audit --omit=dev --json',
+    auditCommand: 'npm audit --omit=dev --audit-level=high --json',
     imageProvenance: provenance,
     licenseReview,
   });
