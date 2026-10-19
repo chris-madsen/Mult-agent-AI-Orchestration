@@ -48,6 +48,7 @@ export const populateQdrantFromStructuralIndex = (
   qdrant: CodeCandidatePort,
   embeddings: VectorEmbeddingPort,
   indexKey?: string,
+  seedVectors: ReadonlyMap<string, readonly number[]> = new Map(),
 ): Effect.Effect<Result<number, DomainError>> => Effect.gen(function* () {
   if (index.candidates.length === 0) {
     return err(domainError('UNSUPPORTED_PROVIDER', 'index', 'no verified structural candidates available for Qdrant'));
@@ -55,16 +56,23 @@ export const populateQdrantFromStructuralIndex = (
   let count = 0;
   for (let offset = 0; offset < index.candidates.length; offset += 16) {
     const candidates = index.candidates.slice(offset, offset + 16);
-    const vectors = yield* embeddings.embedMany(candidates.map((candidate) => candidate.text));
-    if (vectors._tag === 'Err') return vectors;
-    if (vectors.value.length !== candidates.length) {
+    const missing = candidates.filter((candidate) => !seedVectors.has(candidate.candidateId));
+    const embedded = missing.length === 0
+      ? ok<readonly (readonly number[])[], DomainError>([])
+      : yield* embeddings.embedMany(missing.map((candidate) => candidate.text));
+    if (embedded._tag === 'Err') return embedded;
+    if (embedded.value.length !== missing.length) {
       return err(domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'embedding batch size mismatch'));
     }
-    const points: CodePoint[] = candidates.map((candidate, i) => ({
-      candidate,
-      vector: vectors.value[i] ?? [],
-      ...(indexKey === undefined ? {} : { indexKey }),
-    }));
+    const generated = new Map(missing.map((candidate, index) => [candidate.candidateId, embedded.value[index] ?? []] as const));
+    const points: CodePoint[] = [];
+    for (const candidate of candidates) {
+      const vector = seedVectors.get(candidate.candidateId) ?? generated.get(candidate.candidateId);
+      if (vector === undefined || vector.length === 0 || !vector.every((value) => Number.isFinite(value))) {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'candidate is missing a valid vector'));
+      }
+      points.push({ candidate, vector, ...(indexKey === undefined ? {} : { indexKey }) });
+    }
     const result = yield* qdrant.upsert(points);
     if (result._tag === 'Err') return result;
     count += candidates.length;
@@ -257,6 +265,63 @@ export const verifyQdrantSnapshotMembership = (
   return ok(expected.length === observed.length && expected.every((value, index) => value === observed[index]));
 });
 
+export const readQdrantSnapshotVectors = (
+  http: HttpPort,
+  baseUrl: string,
+  collection: string,
+  workspaceId: WorkspaceId,
+  indexKey: string,
+  allowedHosts: readonly string[] = [],
+): Effect.Effect<Result<ReadonlyMap<string, readonly number[]>, DomainError>> => Effect.gen(function* () {
+  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
+  if (endpoint._tag === 'Err') return endpoint;
+  const vectors = new Map<string, readonly number[]>();
+  let offset: unknown;
+  for (let page = 0; page < 10_000; page += 1) {
+    const response = yield* http.request({
+      method: 'POST',
+      url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/scroll',
+      body: {
+        limit: 256,
+        with_payload: true,
+        with_vector: true,
+        filter: { must: [
+          { key: 'workspace_id', match: { value: workspaceId } },
+          { key: 'index_key', match: { value: indexKey } },
+        ] },
+        ...(offset === undefined ? {} : { offset }),
+      },
+    });
+    if (response._tag === 'Err') return response;
+    if (response.value.status < 200 || response.value.status >= 300) {
+      return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not read prior snapshot vectors'));
+    }
+    const body = response.value.body as { result?: { points?: unknown; next_page_offset?: unknown } };
+    if (!Array.isArray(body?.result?.points)) {
+      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior snapshot vector response requires points'));
+    }
+    for (const point of body.result.points) {
+      if (typeof point !== 'object' || point === null || Array.isArray(point)) continue;
+      const record = point as { payload?: unknown; vector?: unknown };
+      if (typeof record.payload !== 'object' || record.payload === null || Array.isArray(record.payload)) continue;
+      const candidateId = (record.payload as { candidate_id?: unknown }).candidate_id;
+      if (typeof candidateId !== 'string') continue;
+      if (!Array.isArray(record.vector) || record.vector.length === 0
+        || !record.vector.every((value) => typeof value === 'number' && Number.isFinite(value))) {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_vector', 'prior snapshot contains an invalid vector'));
+      }
+      vectors.set(candidateId, record.vector as number[]);
+    }
+    const next = body.result.next_page_offset;
+    if (next === undefined || next === null) break;
+    offset = next;
+    if (page === 9_999) {
+      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior vector pagination did not terminate'));
+    }
+  }
+  return ok(vectors);
+});
+
 export const reuseOrPopulateQdrantSnapshot = (
   index: CodeIndex,
   qdrant: CodeCandidatePort,
@@ -268,7 +333,8 @@ export const reuseOrPopulateQdrantSnapshot = (
   indexKey: string,
   allowedHosts: readonly string[] = [],
   reuseAllowed = true,
-): Effect.Effect<Result<{ readonly count: number; readonly reused: boolean }, DomainError>> => Effect.gen(function* () {
+  priorIndexKey?: string,
+): Effect.Effect<Result<{ readonly count: number; readonly reused: boolean; readonly reusedVectorCount: number }, DomainError>> => Effect.gen(function* () {
   const expectedCandidateIds = index.candidates.map((candidate) => candidate.candidateId);
   if (reuseAllowed) {
     const checked = yield* hasExactQdrantSnapshot(
@@ -280,13 +346,20 @@ export const reuseOrPopulateQdrantSnapshot = (
       http, baseUrl, collection, workspaceId, indexKey, expectedCandidateIds, allowedHosts,
     );
       if (membership._tag === 'Err') return membership;
-      if (membership.value) return ok({ count: index.candidates.length, reused: true });
+      if (membership.value) return ok({ count: index.candidates.length, reused: true, reusedVectorCount: index.candidates.length });
     }
   }
   // Do not delete an in-use snapshot while another process may still read it.
   // Snapshot-scoped deterministic point IDs make same-snapshot writes idempotent
   // and different snapshots independent.
-  const indexed = yield* populateQdrantFromStructuralIndex(index, qdrant, embeddings, indexKey);
+  let seedVectors: ReadonlyMap<string, readonly number[]> = new Map();
+  if (priorIndexKey !== undefined && priorIndexKey !== indexKey) {
+    const prior = yield* readQdrantSnapshotVectors(http, baseUrl, collection, workspaceId, priorIndexKey, allowedHosts);
+    if (prior._tag === 'Err') return prior;
+    const currentIds = new Set(index.candidates.map((candidate) => candidate.candidateId));
+    seedVectors = new Map([...prior.value].filter(([candidateId]) => currentIds.has(candidateId)));
+  }
+  const indexed = yield* populateQdrantFromStructuralIndex(index, qdrant, embeddings, indexKey, seedVectors);
   if (indexed._tag === 'Err') return indexed;
   const verified = yield* verifyQdrantSnapshotMembership(
     http, baseUrl, collection, workspaceId, indexKey, expectedCandidateIds, allowedHosts,
@@ -295,7 +368,7 @@ export const reuseOrPopulateQdrantSnapshot = (
   if (!verified.value) {
     return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_snapshot', 'rebuilt snapshot membership does not match the structural index'));
   }
-  return ok({ count: indexed.value, reused: false });
+  return ok({ count: indexed.value, reused: false, reusedVectorCount: seedVectors.size });
 });
 
 export const pruneQdrantOtherGenerations = (
