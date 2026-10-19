@@ -20,6 +20,7 @@ const ExpandInput = Schema.Struct({
   handle: Schema.String,
   cursor: Schema.optional(Schema.String),
   max_bytes: Schema.optional(Schema.Number),
+  format: Schema.optional(Schema.Literal('base64', 'utf8')),
 });
 
 const WorkspaceStatusInput = Schema.Struct({ workspace_id: Schema.String });
@@ -121,11 +122,25 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
           if (isErr(input)) return responseError(input);
           const range = yield* ports.artifacts.readRange(input.value.handle, input.value.cursor, input.value.max_bytes);
           if (isErr(range)) return responseError(range);
+          const format = input.value.format ?? 'base64';
+          let content: Readonly<Record<string, unknown>>;
+          if (format === 'utf8') {
+            try {
+              const decoded = new TextDecoder('utf-8', { fatal: true }).decode(range.value.bytes);
+              content = { encoding: 'utf8', content_utf8: decoded };
+            } catch {
+              return responseError(err(domainError(
+                'INVALID_INPUT', 'format',
+                'selected byte range is not valid standalone UTF-8; request a different byte range or use base64',
+              )));
+            }
+          } else {
+            content = { encoding: 'base64', content_base64: Buffer.from(range.value.bytes).toString('base64') };
+          }
           return {
             status: 'ok',
             result: {
-              encoding: 'base64',
-              content_base64: Buffer.from(range.value.bytes).toString('base64'),
+              ...content,
               digest: range.value.digest,
               offset: range.value.offset,
               total_bytes: range.value.totalBytes,
