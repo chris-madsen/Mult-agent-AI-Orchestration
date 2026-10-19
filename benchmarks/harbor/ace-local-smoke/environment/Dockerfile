@@ -7,4 +7,4 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
-COPY fixture.txt /workspace/fixture.txt
+COPY fixture.ts /workspace/fixture.ts
