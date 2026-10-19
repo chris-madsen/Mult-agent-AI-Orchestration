@@ -18,9 +18,15 @@ const aceContextItem = (event: unknown): JsonObject | null => {
 const hasCompleteContextResult = (item: JsonObject): boolean => {
   const result = object(item.result);
   const structuredContent = object(result?.structured_content);
+  const evidence = Array.isArray(structuredContent?.evidence) ? structuredContent.evidence : [];
+  const hasVerifiedCodeEvidence = evidence.some((entry) => {
+    const item = object(entry);
+    return item?.source === 'code' && item.freshness === 'current' && item.proofClass === 'direct';
+  });
   return structuredContent?.complete === true
     && structuredContent.status !== 'not_ready'
-    && structuredContent.status !== 'error';
+    && structuredContent.status !== 'error'
+    && hasVerifiedCodeEvidence;
 };
 
 /**
@@ -35,7 +41,7 @@ export const isObservedAceContextEvent = (event: unknown): boolean => {
 
 /**
  * Strong attribution evidence: the ACE call reached a terminal successful MCP
- * result and the structured ContextBundle is complete. Partial/failed calls are
+ * result, the structured ContextBundle is complete, and it contains at least one\n * current/direct code evidence item. Partial/failed/empty calls are
  * still observed invocations, but cannot establish ACE-caused retrieval value.
  */
 export const isSuccessfulAceContextEvent = (event: unknown): boolean => {
