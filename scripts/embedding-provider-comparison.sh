@@ -16,4 +16,4 @@ fi
 export FASTEMBED_CACHE_PATH="${FASTEMBED_CACHE_PATH:-${root}/.cache/ace-fastembed}"
 export HF_HOME="${ACE_EMBEDDING_HF_HOME:-${root}/.cache/ace-embedding-eval}"
 export HF_HUB_CACHE="${ACE_EMBEDDING_HF_HUB_CACHE:-${HF_HOME}/hub}"
-exec "$python_command" "$root/scripts/embedding-provider-comparison.py"
+exec "$python_command" "$root/scripts/embedding-provider-comparison.py" "$@"
