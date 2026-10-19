@@ -30,7 +30,8 @@
     "test:container-provider": "npm run build && node scripts/container-provider-e2e.mjs",
     "compare:embeddings": "bash scripts/embedding-provider-comparison.sh",
     "test:real-provider-hard-outage": "npm run build && ACE_REAL_PROVIDER_HARD_OUTAGE=true node scripts/real-provider-e2e.mjs",
-    "memory:reconcile": "npm run build && node dist/bin/ace-memory.js reconcile"
+    "memory:reconcile": "npm run build && node dist/bin/ace-memory.js reconcile",
+    "worktree-helper": "npm run build && node dist/bin/ace-worktree-helper.js"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",

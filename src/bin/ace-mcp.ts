@@ -9,6 +9,7 @@ import { makeFileArtifactStore } from '../adapters/file-artifact-store.js';
 import { makeFileQdrantSnapshotState, type SnapshotLease } from '../adapters/file-qdrant-snapshot-state.js';
 import { makeAsyncFileMemoryArchive } from '../adapters/file-memory-archive.js';
 import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
+import { makeHostWorkspacePort, makeMtlsHostHelperTransport } from '../adapters/host-worktree-helper.js';
 import { makeFetchHttpPort, makeQdrantCodeCandidatePort } from '../adapters/http-provider-boundaries.js';
 import { buildLocalCodeIndex } from '../adapters/local-code-index.js';
 import { makeLocalContextProvider } from '../adapters/local-context-provider.js';
@@ -26,9 +27,9 @@ import { makeTreeSitterStructuralPort } from '../adapters/tree-sitter-structural
 import { makeTypeScriptLanguageServicePort } from '../adapters/typescript-language-service.js';
 import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
 import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
-import type { MemorySearchPort } from '../application/ports.js';
+import type { MemorySearchPort, WorkspaceFilePort } from '../application/ports.js';
 import { defaultLocalPolicy } from '../domain/policy.js';
-import type { RepoPath, WorkspaceId } from '../domain/workspace.js';
+import { makeWorkspaceId, type RepoPath, type WorkspaceId } from '../domain/workspace.js';
 import { observeWorkspace, registerWorkspace } from '../application/workspace-service.js';
 import { makeMcpGateway } from '../gateway/mcp-gateway.js';
 import { runMcpSdkStdio } from '../transport/mcp-sdk-stdio.js';
@@ -66,7 +67,7 @@ const gcloudAccessToken = (): string | undefined => {
 };
 
 const readSourceFiles = async (
-  files: ReturnType<typeof makeNodeWorkspacePort>,
+  files: WorkspaceFilePort,
   rootPath: string,
   paths: readonly RepoPath[],
 ): Promise<Readonly<Record<string, string>>> => {
@@ -110,10 +111,31 @@ const main = async (): Promise<void> => {
     .map((value) => resolve(value));
   const stateDirectory = optionalPath(process.env.ACE_STATE_DIR, `${homedir()}/.local/state/ace`);
   const artifactDirectory = optionalPath(process.env.ACE_ARTIFACT_DIR, `${stateDirectory}/artifacts`);
-  const workspaceState = resolve(stateDirectory, 'workspaces.json');
-  const files = makeNodeWorkspacePort({ allowedRoots });
-  const store = makeFileWorkspaceStore(workspaceState);
   const configuredWorkspaceId = process.env.ACE_WORKSPACE_ID?.trim();
+  const helperUrl = process.env.ACE_WORKTREE_HELPER_URL?.trim();
+  let files: WorkspaceFilePort;
+  if (helperUrl !== undefined && helperUrl.length > 0) {
+    if (configuredWorkspaceId === undefined || configuredWorkspaceId.length === 0) {
+      throw new Error('ACE_WORKSPACE_ID is required when ACE_WORKTREE_HELPER_URL is configured');
+    }
+    const workspaceId = makeWorkspaceId(configuredWorkspaceId);
+    if (workspaceId._tag === 'Err') throw new Error(workspaceId.error.message);
+    const helper = await makeMtlsHostHelperTransport({
+      endpoint: helperUrl,
+      caFile: required('ACE_WORKTREE_HELPER_TLS_CA'),
+      certificateFile: required('ACE_WORKTREE_HELPER_TLS_CERT'),
+      privateKeyFile: required('ACE_WORKTREE_HELPER_TLS_KEY'),
+    });
+    if (helper._tag === 'Err') throw new Error(`${helper.error.code}: ${helper.error.message}`);
+    files = makeHostWorkspacePort(workspaceId.value, helper.value);
+  } else {
+    files = makeNodeWorkspacePort({ allowedRoots });
+  }
+  const workspaceState = resolve(
+    stateDirectory,
+    helperUrl === undefined || helperUrl.length === 0 ? 'workspaces.json' : 'workspaces-host-helper.json',
+  );
+  const store = makeFileWorkspaceStore(workspaceState);
   const ports = {
     clock: { nowMs: () => Date.now() },
     ids: { newWorkspaceId: () => configuredWorkspaceId ?? randomUUID(), newRequestId: () => randomUUID() },
