@@ -117,7 +117,7 @@ export const importMemoryEpisodes = async (input: MemoryImportInput): Promise<Re
           episodeId: episode.episodeId,
           persisted: created,
           admission,
-          projectionStatus: 'incomplete',
+          projectionStatus: queued?.status ?? 'incomplete',
           projectionErrorCode: projectionUnavailable.code,
         });
         continue;
@@ -162,12 +162,13 @@ export const importMemoryEpisodes = async (input: MemoryImportInput): Promise<Re
           if (incomplete._tag === 'Err') return incomplete;
           const stored = await input.outbox.put(incomplete.value);
           if (stored._tag === 'Err') return stored;
+          queued = incomplete.value;
         }
         outcomes.push({
           episodeId: episode.episodeId,
           persisted: created,
           admission,
-          projectionStatus: 'incomplete',
+          projectionStatus: queued?.status ?? 'incomplete',
           projectionErrorCode: projected.error.code,
         });
         continue;
