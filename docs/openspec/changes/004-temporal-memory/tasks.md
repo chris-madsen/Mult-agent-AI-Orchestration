@@ -7,7 +7,7 @@ Codex session-export and Graphiti adapters remain controlled exceptions; see
 
 ## Feasibility and security
 - [x] SPIKE a supported local Codex history export interface and exact source/cursor identity; the adapter preserves JSONL bytes and SHA-256 cursors, while an official cross-version exporter remains unclaimed.
-- [x] Choose local-first Graphiti/FalkorDB storage backend and verify its cloud/data-residency boundary; extraction model selection remains an explicit approval gate because no local model or approved cloud route is configured.
+- [x] Choose local-first Graphiti/FalkorDB storage backend and verify its cloud/data-residency boundary. **Experimental local inference selection is delegated to Codex/agents and is not an owner-blocking decision**; production promotion remains evidence-gated.
 - [x] Document Graphiti local backend lifecycle and deletion capabilities before deployment; `FalkorDriver.health_check()` is verified and Graphiti `remove_episode`/index lifecycle is recorded, with no production episode projection enabled.
 
 ## Archives and projection
@@ -40,5 +40,5 @@ Codex session-export and Graphiti adapters remain controlled exceptions; see
 ## Mandatory outstanding production gates (2026-10-18)
 
 **Architecture correction:** archive and Graphiti readiness must not be claimed from source-independent tests alone; stable event IDs across JSONL append and shared-digest deletion are unfulfilled critical contracts.
-- [ ] Test DBC-10 JSONL append/replay identity and DBC-11 shared content deletion with real archive persistence and derived-index purge.
-- [ ] Verify supported full-session Codex transcript capture and approved Graphiti projection before declaring temporal memory production-ready.
+- [x] Test DBC-10 JSONL append/replay identity with real archive persistence.\n- [ ] Complete DBC-11 end-to-end: shared-content archive deletion is covered, but real Graphiti derived-index purge/tombstone behavior still needs provider evidence.
+- [ ] Verify supported full-session Codex transcript capture and **real local Graphiti projection** before declaring temporal memory production-ready; Graphiti must preserve original episode time via `reference_time`.\n- [ ] Validate the memory-admission filter against an unfiltered baseline on a frozen bilingual durable-memory holdout; cost savings do not justify silently losing required historical recall.
