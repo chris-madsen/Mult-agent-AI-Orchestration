@@ -90,8 +90,8 @@ export const evaluateSupplyChainEvidence = (
   if (!validSbom(input.sbom)) {
     return err(domainError('INVALID_BENCHMARK', 'sbom', 'SBOM must be CycloneDX or SPDX with an explicit component/package list'));
   }
-  if (input.auditCommand.trim() !== 'npm audit --omit=dev --json') {
-    return err(domainError('INVALID_BENCHMARK', 'npm_audit', 'production audit command must be exactly npm audit --omit=dev --json'));
+  if (input.auditCommand.trim() !== 'npm audit --omit=dev --audit-level=high --json') {
+    return err(domainError('INVALID_BENCHMARK', 'npm_audit', 'production audit command must be exactly npm audit --omit=dev --audit-level=high --json'));
   }
   const audit = auditVulnerabilities(input.productionAudit);
   if (audit._tag === 'Err') return audit;
