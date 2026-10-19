@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { Effect } from 'effect';
 import {
+  codeIndexKey,
   ensureQdrantCollection,
   hasExactQdrantSnapshot,
   reuseOrPopulateQdrantSnapshot,
@@ -61,6 +62,29 @@ test('Qdrant collection bootstrap is additive and rejects mismatched dimensions'
     request: () => Effect.succeed(ok({ status: 200, body: { result: { config: { params: { vectors: { size: 64 } } } } } })),
   };
   assert.equal((await Effect.runPromise(ensureQdrantCollection(wrong, 'http://127.0.0.1:6333', 'ace-test', 2)))._tag, 'Err');
+});
+
+test('warm Qdrant index key follows actual structural content, not observation epoch', () => {
+  const first = mustOk(createCodeIndex(1, [candidate]));
+  const sameContentLater = mustOk(createCodeIndex(2, [{
+    ...candidate,
+    generation: 2 as never,
+    indexedAtMs: 9_999,
+  }]));
+  assert.equal(codeIndexKey(first), codeIndexKey(sameContentLater),
+    'unchanged structural candidates must reuse vectors across observation epochs');
+
+  const changed = mustOk(createCodeIndex(2, [{
+    ...candidate,
+    candidateId: mustOk(makeCandidateId('function-reconnect-changed')),
+    text: 'export function reconnect(): string { return "changed"; }',
+    sourceDigest: 'b'.repeat(64) as never,
+    generation: 2 as never,
+    indexedAtMs: 9_999,
+  }]));
+  assert.notEqual(codeIndexKey(first), codeIndexKey(changed),
+    'changed source/candidate structure must never reuse the previous semantic vectors');
+  assert.match(codeIndexKey(first), /^[a-f0-9]{64}$/u);
 });
 
 test('warm Qdrant snapshot reuse does not re-embed or upsert current source', async () => {
