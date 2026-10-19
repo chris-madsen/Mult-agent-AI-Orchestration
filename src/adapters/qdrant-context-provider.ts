@@ -556,7 +556,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
   search: (input: {
     readonly workspaceId: WorkspaceId;
     readonly query: string;
-    readonly includeCode: boolean;
+    readonly includeCode?: boolean;
     readonly includeDocs: boolean;
     readonly includeMemory: boolean;
   }): Effect.Effect<Result<ContextBundle, DomainError>> => Effect.gen(function* () {
@@ -565,8 +565,9 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
     }
     const requestId = makeRequestId(config.newRequestId());
     if (requestId._tag === 'Err') return requestId;
+    const includeCode = input.includeCode ?? true;
     let rankedResults: readonly RankedCandidate[] = [];
-    if (input.includeCode) {
+    if (includeCode) {
       const vectors = yield* config.embeddings.embedMany([input.query], requestId.value);
       if (vectors._tag === 'Err') return vectors;
       const vector = vectors.value[0];
@@ -735,7 +736,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
         }
       }
     }
-    if (input.includeCode && (config.coverage?.failedPaths ?? 0) > 0) {
+    if (includeCode && (config.coverage?.failedPaths ?? 0) > 0) {
       warnings.push(`index coverage degraded: ${config.coverage?.failedPaths ?? 0} in-scope path(s) were not fully indexed`);
       failed.push('code');
     }
