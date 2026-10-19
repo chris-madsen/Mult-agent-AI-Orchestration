@@ -64,6 +64,7 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
       workspace_id: z.string().min(1),
       query: z.string(),
       intent: z.string().optional(),
+      include_code: z.boolean().optional(),
       include_docs: z.boolean().optional(),
       include_memory: z.boolean().optional(),
     }),
