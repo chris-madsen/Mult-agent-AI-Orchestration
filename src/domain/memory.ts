@@ -47,8 +47,13 @@ export interface DecisionRecord {
   readonly transitions?: readonly DecisionTransition[];
 }
 
+export type SessionEpisodeReference = Omit<SessionEpisode, 'content'> & {
+  /** Present only when the caller explicitly requested original bytes. */
+  readonly content?: Uint8Array;
+};
+
 export interface MemorySearchHit {
-  readonly episode: SessionEpisode;
+  readonly episode: SessionEpisodeReference;
   readonly matchingExcerpt: string;
   readonly decisionState?: DecisionState;
   readonly historicalUncertainty?: boolean;
