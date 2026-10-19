@@ -26,8 +26,7 @@ npm run gate:harbor -- \
 
 For the forced diagnostic, pass the forced ACE result and its job configuration instead.
 The gate reads the committed `extra_instructions` field to label the experiment
-and records the config digest. Without per-MCP-request correlated provider traces
-and measured local compute cost, it reports `diagnostic-only`, not DBC-12 closure.
+and records the config digest. New ACE traces carry the ContextBundle `requestId` through query embedding, Qdrant query and TypeScript-LS definition; the gate rejects missing per-request correlation. Local compute cost is still unmetered, so even a correlated run remains `diagnostic-only` until cost telemetry is complete.
 
 **Do not tune the frozen holdout after inspecting the outcome.** Track whether
 Codex used ACE voluntarily and whether it then reread the same source using native
