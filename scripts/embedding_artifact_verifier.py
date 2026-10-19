@@ -34,13 +34,19 @@ def verify_loaded_artifact(model: object) -> str:
         nested_model = getattr(model, "model", None)
         model_dir = getattr(nested_model, "_model_dir", None)
     if model_dir is None:
-        model_name = os.environ.get("ACE_EMBEDDING_MODEL", "").strip()
-        revision = os.environ.get("ACE_EMBEDDING_MODEL_REVISION", "").strip()
-        if not model_name or not revision:
+        artifact_model = os.environ.get("ACE_EMBEDDING_ARTIFACT_MODEL", "").strip()
+        artifact_revision = os.environ.get("ACE_EMBEDDING_ARTIFACT_REVISION", "").strip()
+        if not artifact_model or not artifact_revision:
             raise RuntimeError("embedding provider did not expose its loaded artifact directory")
         from huggingface_hub import snapshot_download
-        model_dir = snapshot_download(model_name, revision=revision, local_files_only=True)
-    digest = tree_sha256(Path(model_dir))
+        model_dir = snapshot_download(artifact_model, revision=artifact_revision, local_files_only=True)
+    resolved = Path(model_dir).resolve()
+    expected_revision = os.environ.get("ACE_EMBEDDING_ARTIFACT_REVISION", "").strip()
+    if expected_revision and expected_revision not in resolved.parts:
+        raise RuntimeError(
+            f"embedding artifact revision mismatch: expected {expected_revision}, loaded {resolved}"
+        )
+    digest = tree_sha256(resolved)
     expected = os.environ.get("ACE_EMBEDDING_ARTIFACT_DIGEST", "").strip()
     if expected and digest != expected:
         raise RuntimeError(f"embedding artifact digest mismatch: expected {expected}, got {digest}")
