@@ -12,7 +12,7 @@
 - Vector configuration: Vertex-managed vector database with
   `text-embedding-005` in `europe-west4`
 
-The resource was created with the existing authenticated `gcloud` session.
+The resource was created with the existing authenticated `gcloud` session **after explicit owner authorization to create the Europe Vertex corpus**. It is an approved test resource and must not be removed as a remediation.
 No access token, identity, private document or uploaded fixture is stored in
 this repository.
 
@@ -34,6 +34,4 @@ The MCP composition enables this provider only when
 `ACE_ENABLE_VERTEX=true`, `ACE_VERTEX_PROJECT` and `ACE_VERTEX_CORPUS_ID` are
 explicitly configured. `ACE_VERTEX_LOCATION` defaults to `europe-west4`.
 Outbound calls use the short-lived `gcloud auth print-access-token` result in
-memory and pass through the project data policy. The corpus remains empty until
-the owner separately authorizes importing a public/synthetic fixture; no private
-source is sent to Vertex.
+memory and pass through the project data policy. The corpus remains empty in this evidence snapshot. Its creation is authorized. Private source must not be sent to Vertex without separate data-scope authorization; any synthetic/public fixture import must remain traceable and non-secret.
