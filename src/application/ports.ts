@@ -92,6 +92,8 @@ export interface SemanticQuery {
 export interface GraphProjectionPort {
   readonly project: (input: {
     readonly episodeId: EpisodeId;
+    /** Original event time; required for Graphiti bi-temporal reference_time. */
+    readonly occurredAtMs: number;
     readonly extractorVersion: string;
     readonly claims: readonly Readonly<Record<string, string>>[];
   }) => Effect.Effect<Result<ProjectionReceipt, DomainError>>;
