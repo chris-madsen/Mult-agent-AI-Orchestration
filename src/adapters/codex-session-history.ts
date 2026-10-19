@@ -21,7 +21,7 @@ export interface CodexHistoryExport {
 
 const digestOf = (bytes: Uint8Array): ContentDigest => createHash('sha256').update(bytes).digest('hex') as ContentDigest;
 
-const parseRecord = (line: string, lineNumber: number): Result<{ readonly sessionId: string; readonly occurredAtMs: number; readonly text: string }, ReturnType<typeof domainError>> => {
+const parseRecord = (line: string, lineNumber: number): Result<{ readonly sessionId: string; readonly occurredAtMs: number; readonly text: string; readonly memoryHint?: 'project' | 'archive_only' }, ReturnType<typeof domainError>> => {
   try {
     const value: unknown = JSON.parse(line);
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return err(domainError('INVALID_MEMORY', `history[${lineNumber}]`, 'Codex history record must be an object'));
@@ -29,7 +29,8 @@ const parseRecord = (line: string, lineNumber: number): Result<{ readonly sessio
     if (typeof record.session_id !== 'string' || record.session_id.trim().length === 0) return err(domainError('INVALID_MEMORY', `history[${lineNumber}].session_id`, 'session_id is required'));
     if (typeof record.ts !== 'number' || !Number.isSafeInteger(record.ts) || record.ts < 0) return err(domainError('INVALID_MEMORY', `history[${lineNumber}].ts`, 'ts must be a non-negative Unix timestamp'));
     if (typeof record.text !== 'string' || record.text.trim().length === 0) return err(domainError('INVALID_MEMORY', `history[${lineNumber}].text`, 'text is required'));
-    return ok({ sessionId: record.session_id, occurredAtMs: record.ts * 1000, text: record.text });
+    const memoryHint = record.ace_memory === 'project' || record.ace_memory === 'archive_only' ? record.ace_memory : undefined;
+    return ok({ sessionId: record.session_id, occurredAtMs: record.ts * 1000, text: record.text, ...(memoryHint === undefined ? {} : { memoryHint }) });
   } catch {
     return err(domainError('INVALID_MEMORY', `history[${lineNumber}]`, 'Codex history line is not valid JSON'));
   }
@@ -73,6 +74,7 @@ export const exportCodexHistory = async (
         contentDigest: digestOf(raw),
         content: raw,
         searchText: parsed.value.text,
+        ...(parsed.value.memoryHint === undefined ? {} : { memoryHint: parsed.value.memoryHint }),
         tombstoned: false,
       });
       if (episode._tag === 'Err') return episode;
