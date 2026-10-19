@@ -17,6 +17,8 @@ export interface ProviderTraceEvent {
   readonly operation: string;
   readonly status: ProviderTraceStatus;
   readonly durationMs: number;
+  /** ACE ContextBundle request id; absent for startup/indexing work. */
+  readonly requestId?: string;
   readonly collection?: string;
   readonly generation?: number;
   readonly vectorDimension?: number;
