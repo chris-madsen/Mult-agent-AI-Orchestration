@@ -171,6 +171,12 @@ test('Qdrant→current filesystem→LSP→ContextBundle includes verified snippe
   assert.equal(context.complete, true);
   assert.equal(context.evidence[0]?.freshness, 'current');
   assert.equal(context.evidence[0]?.expansionHandle, 'full-file-handle');
+  const spanOffset = Number(context.evidence[0]?.expansionCursor);
+  const spanLength = context.evidence[0]?.expansionMaxBytes ?? 0;
+  assert.ok(Number.isSafeInteger(spanOffset));
+  assert.ok(spanLength > 0);
+  assert.equal(source.subarray(spanOffset, spanOffset + spanLength).toString('utf8'), candidate.text,
+    'one precise expansion range restores only the verified AST symbol, not the entire file');
   assert.equal(context.evidence[0]?.content, source.toString('utf8').trim());
 });
 
