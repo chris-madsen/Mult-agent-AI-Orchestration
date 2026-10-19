@@ -10,7 +10,7 @@ The accepted PRD/ADRs define intent; DDD/context maps are proposed design until 
 
 ## Read before implementing
 
-1. `docs/docs/references/PRD-v1.0.md`, ADR-000…ADR-011; proposed ADR-012 requires owner review.
+1. `docs/docs/references/PRD-v1.0.md`, Accepted ADR-000…ADR-012, and ADR-013 (Accepted for evaluation protocol only; model remains unselected).
 2. `docs/docs/architecture/01-strategic-ddd.md` through `07-architecture-fitness-contracts.md`.
 3. `docs/openspec/README.md`, the relevant change's `proposal.md`, `design.md`, `specs/` and `tasks.md`.
 4. `docs/reviews/2026-10-18-architecture-failure-review.md` for known architectural failures. The review is evidence, not permission to modify unrelated source.
@@ -63,3 +63,7 @@ Never confuse repository/API availability with user authorization to expose priv
 - **Graphiti + FalkorDB: local-first.** Original Codex dialogues and extraction inputs remain local by default; no implicit external model calls. Test actual local projection, temporal recall and deletion, and leave the capability not_ready where dependencies are missing.
 - **Vertex: use the owner's already authenticated host gcloud CLI** for development probes: `gcloud config get-value project`, `gcloud auth print-access-token`, or `npm run probe:vertex`. Do not require a new interactive login merely to run a REST test. CLI auth and Application Default Credentials are different; containers need explicit safe credential access. Verify IAM and actual corpus before claiming E2E; never commit tokens or silently upload private documents or create billable resources.
 - **Architecture decisions versus testing:** ADR-012 remains Proposed pending explicit owner sign-off of its six acceptance rules. Codex may conduct local provider experiments, integrate candidates on public/synthetic fixtures, and run honest exploratory Harbor tests now. Only **production promotion** and claims of accepted 5× need their respective evidence and approvals. A missing benchmark result is not permission to fabricate one, nor a reason to refuse to start a benchmark.
+
+## Execution entrypoint after owner sign-off (2026-10-19)
+
+The owner **explicitly approved all six rules in ADR-012** and the non-Ollama experimental protocol in ADR-013. No real provider, LSP winner, embedding model, 5× measurement or production readiness is implied. **Codex should follow [`docs/openspec/changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md`](docs/openspec/changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md)**. Stage 0–4 experiments are authorized on local/public/synthetic test data, but external private-data upload, new billable Vertex corpora and final production provider selection still need distinct approval.
