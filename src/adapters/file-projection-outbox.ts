@@ -12,8 +12,18 @@ const validReceipt = (value: unknown): value is ProjectionReceipt => {
   return typeof receipt.key === 'string' && receipt.key.length > 0
     && typeof receipt.episodeId === 'string' && receipt.episodeId.length > 0
     && typeof receipt.extractorVersion === 'string' && receipt.extractorVersion.trim().length > 0
-    && ['pending', 'projected', 'incomplete', 'tombstoned'].includes(String(receipt.status))
-    && typeof receipt.attempts === 'number' && Number.isSafeInteger(receipt.attempts) && receipt.attempts >= 0;
+    && ['pending', 'projected', 'incomplete', 'dead_letter', 'tombstoned'].includes(String(receipt.status))
+    && typeof receipt.attempts === 'number' && Number.isSafeInteger(receipt.attempts) && receipt.attempts >= 0
+    && (receipt.totalAttempts === undefined
+      || typeof receipt.totalAttempts === 'number' && Number.isSafeInteger(receipt.totalAttempts) && receipt.totalAttempts >= receipt.attempts)
+    && (receipt.nextAttemptAtMs === undefined
+      || typeof receipt.nextAttemptAtMs === 'number' && Number.isSafeInteger(receipt.nextAttemptAtMs) && receipt.nextAttemptAtMs >= 0)
+    && (receipt.lastErrorCode === undefined
+      || typeof receipt.lastErrorCode === 'string' && receipt.lastErrorCode.trim().length > 0)
+    && (receipt.deadLetteredAtMs === undefined
+      || typeof receipt.deadLetteredAtMs === 'number' && Number.isSafeInteger(receipt.deadLetteredAtMs) && receipt.deadLetteredAtMs >= 0)
+    && (receipt.manualRepairCount === undefined
+      || typeof receipt.manualRepairCount === 'number' && Number.isSafeInteger(receipt.manualRepairCount) && receipt.manualRepairCount >= 0);
 };
 
 export const makeFileProjectionOutbox = async (rootPath: string): Promise<ProjectionOutboxPort> => {
