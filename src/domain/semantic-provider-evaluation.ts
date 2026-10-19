@@ -5,6 +5,16 @@ export interface SemanticExpectedLocation {
   readonly repoPath: string;
   readonly line: number;
   readonly column: number;
+  readonly namePath?: string;
+}
+
+export interface SemanticObservedLocation {
+  readonly repoPath: string;
+  readonly line: number;
+  /** Exact one-based UTF-16 column when the provider exposes it. */
+  readonly column?: number;
+  /** Semantic name path when the provider does not expose an identifier column. */
+  readonly namePath?: string;
 }
 
 export interface SemanticProviderCase {
@@ -32,8 +42,8 @@ export interface SemanticProviderOracle {
 
 export interface SemanticCaseObservation {
   readonly id: string;
-  readonly definition?: SemanticExpectedLocation;
-  readonly references: readonly SemanticExpectedLocation[];
+  readonly definition?: SemanticObservedLocation;
+  readonly references: readonly SemanticObservedLocation[];
   readonly durationMs: number;
   readonly error?: string;
 }
@@ -70,8 +80,17 @@ const validLocation = (value: SemanticExpectedLocation): boolean =>
   && Number.isSafeInteger(value.line) && value.line >= 1
   && Number.isSafeInteger(value.column) && value.column >= 1;
 
-const locationKey = (location: SemanticExpectedLocation): string =>
-  `${location.repoPath}:${location.line}:${location.column}`;
+const referenceKey = (location: { readonly repoPath: string; readonly line: number }): string =>
+  `${location.repoPath}:${location.line}`;
+
+const definitionMatches = (
+  wanted: SemanticExpectedLocation,
+  observed: SemanticObservedLocation | undefined,
+): boolean => {
+  if (observed === undefined || observed.repoPath !== wanted.repoPath || observed.line !== wanted.line) return false;
+  if (observed.column !== undefined) return observed.column === wanted.column;
+  return wanted.namePath !== undefined && observed.namePath === wanted.namePath;
+};
 
 export const validateSemanticProviderOracle = (
   oracle: SemanticProviderOracle,
@@ -135,10 +154,9 @@ export const evaluateSemanticProvider = (
       || wanted.references.some((value) => !validLocation(value))) {
       return err(domainError('INVALID_BENCHMARK', item.id, 'semantic expected locations were not resolved from frozen fixture'));
     }
-    const definitionMatch = observed.definition !== undefined
-      && locationKey(observed.definition) === locationKey(wanted.definition);
-    const expectedRefs = [...new Set(wanted.references.map(locationKey))].sort();
-    const actualRefs = [...new Set(observed.references.map(locationKey))].sort();
+    const definitionMatch = definitionMatches(wanted.definition, observed.definition);
+    const expectedRefs = [...new Set(wanted.references.map(referenceKey))].sort();
+    const actualRefs = [...new Set(observed.references.map(referenceKey))].sort();
     const referencesMatch = JSON.stringify(expectedRefs) === JSON.stringify(actualRefs);
     if (definitionMatch) definitionMatches += 1;
     if (referencesMatch) referenceSetMatches += 1;
