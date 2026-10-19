@@ -3,18 +3,27 @@ import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { Effect } from 'effect';
 import * as z from 'zod/v4';
 import type { GatewayResponse, ToolCall } from '../gateway/mcp-gateway.js';
+import { contextTransportText } from '../domain/context-delivery.js';
 
 export interface McpGatewayLike {
   readonly handle: (call: ToolCall) => Effect.Effect<GatewayResponse>;
 }
 
-const toToolResult = (response: GatewayResponse) => {
+const toToolResult = (response: GatewayResponse, toolName?: string) => {
   const payload: Readonly<Record<string, unknown>> = response.status === 'ok'
     ? response.result
     : response;
   return {
     ...(response.status === 'ok' ? {} : { isError: true }),
-    content: [{ type: 'text' as const, text: JSON.stringify(payload) }],
+    // Context must not be mirrored in full as BOTH MCP text and structured data.
+    // The short navigation text cites sources; structuredContent owns the body.
+    content: [{ type: 'text' as const, text: toolName === 'ace_context' && response.status === 'ok'
+      ? contextTransportText(payload)
+      : toolName === 'ace_expand' && response.status === 'ok'
+        ? typeof payload.content_utf8 === 'string'
+          ? payload.content_utf8
+          : 'Exact original bytes are in structuredContent.content_base64; use format=utf8 for readable code.'
+        : JSON.stringify(payload) }],
     structuredContent: { ...payload },
   };
 };
@@ -37,7 +46,7 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
       const response = signal === undefined
         ? await Effect.runPromise(operation)
         : await Effect.runPromise(operation, { signal });
-      return toToolResult(response);
+      return toToolResult(response, name);
     } catch (error) {
       if (isAborted()) return cancelledToolResult();
       // The thrown failure is an ACE error, not an invitation to leak a stack trace.
@@ -50,7 +59,7 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
     }
   };
   server.registerTool('ace_context', {
-    description: 'Retrieve source-attributed workspace context when configured.',
+    description: 'For ambiguous cross-file code investigations, find verified symbol locations without dumping whole files. Prefer native tools for trivial known-file edits; do not duplicate file scans when ACE already returns fresh evidence. Default locate gives a concise map; intent=inspect gives full selected snippets. ace_expand retrieves exact originals.',
     inputSchema: z.object({
       workspace_id: z.string().min(1),
       query: z.string(),
@@ -61,11 +70,12 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
   }, async (args, extra) => run('ace_context', args, extra.mcpReq.signal));
 
   server.registerTool('ace_expand', {
-    description: 'Read an exact stored artifact byte range without silent truncation.',
+    description: 'Expand an exact source artifact by handle. For readable source code set format=utf8 (lossless UTF-8 per page); default base64 preserves arbitrary bytes. No silent truncation.',
     inputSchema: z.object({
       handle: z.string().min(1),
       cursor: z.string().optional(),
       max_bytes: z.number().int().positive().optional(),
+      format: z.enum(['base64', 'utf8']).optional(),
     }),
   }, async (args, extra) => run('ace_expand', args, extra.mcpReq.signal));
 

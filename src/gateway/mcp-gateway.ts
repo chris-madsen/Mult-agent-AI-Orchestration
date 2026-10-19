@@ -4,6 +4,7 @@ import { err, isErr, ok, type Result } from '../domain/result.js';
 import { workspaceIdFrom, type WorkspaceServicePorts } from '../application/workspace-service.js';
 import type { ArtifactStore } from '../application/ports.js';
 import type { ContextBundle } from '../domain/retrieval.js';
+import { projectContextForDelivery, resolveDeliveryIntent } from '../domain/context-delivery.js';
 import type { MemorySearchResult } from '../domain/memory.js';
 import type { WorkspaceId } from '../domain/workspace.js';
 
@@ -19,6 +20,7 @@ const ExpandInput = Schema.Struct({
   handle: Schema.String,
   cursor: Schema.optional(Schema.String),
   max_bytes: Schema.optional(Schema.Number),
+  format: Schema.optional(Schema.Literal('base64', 'utf8')),
 });
 
 const WorkspaceStatusInput = Schema.Struct({ workspace_id: Schema.String });
@@ -57,6 +59,7 @@ export interface ContextProvider {
   readonly search: (input: {
     readonly workspaceId: WorkspaceId;
     readonly query: string;
+    readonly intent?: string;
     readonly includeDocs: boolean;
     readonly includeMemory: boolean;
   }) => Effect.Effect<Result<ContextBundle, DomainError>>;
@@ -104,11 +107,13 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
             const result = yield* ports.context.search({
               workspaceId: workspaceId.value,
               query: input.value.query,
+              ...(input.value.intent === undefined ? {} : { intent: input.value.intent }),
               includeDocs: input.value.include_docs ?? false,
               includeMemory: input.value.include_memory ?? false,
             });
             if (isErr(result)) return responseError(result);
-            return { status: 'ok', result: { ...result.value } };
+            const delivered = projectContextForDelivery(result.value, resolveDeliveryIntent(input.value.intent));
+            return { status: 'ok', result: { ...delivered } };
           }
           return notReady('unified_context');
         }
@@ -117,15 +122,44 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
           if (isErr(input)) return responseError(input);
           const range = yield* ports.artifacts.readRange(input.value.handle, input.value.cursor, input.value.max_bytes);
           if (isErr(range)) return responseError(range);
+          const format = input.value.format ?? 'base64';
+          let content: Readonly<Record<string, unknown>>;
+          let nextCursor = range.value.nextCursor;
+          if (format === 'utf8') {
+            // Byte pagination can split a multibyte code point. Return the
+            // largest valid exact UTF-8 prefix inside the requested byte cap;
+            // its next cursor is the true consumed byte offset. Do not replace
+            // invalid bytes or skip any part of the original source.
+            let decoded: string | undefined;
+            const bytes = range.value.bytes;
+            for (let trim = 0; trim <= Math.min(3, bytes.length - 1); trim += 1) {
+              try {
+                const prefix = bytes.subarray(0, bytes.length - trim);
+                decoded = new TextDecoder('utf-8', { fatal: true }).decode(prefix);
+                nextCursor = range.value.offset + prefix.length < range.value.totalBytes
+                  ? String(range.value.offset + prefix.length)
+                  : undefined;
+                break;
+              } catch { /* may end inside a UTF-8 code point */ }
+            }
+            if (decoded === undefined) {
+              return responseError(err(domainError(
+                'INVALID_INPUT', 'format',
+                'byte range is invalid UTF-8 or too short to contain one full code point; use max_bytes >= 4 or base64',
+              )));
+            }
+            content = { encoding: 'utf8', content_utf8: decoded };
+          } else {
+            content = { encoding: 'base64', content_base64: Buffer.from(range.value.bytes).toString('base64') };
+          }
           return {
             status: 'ok',
             result: {
-              encoding: 'base64',
-              content_base64: Buffer.from(range.value.bytes).toString('base64'),
+              ...content,
               digest: range.value.digest,
               offset: range.value.offset,
               total_bytes: range.value.totalBytes,
-              ...(range.value.nextCursor === undefined ? {} : { next_cursor: range.value.nextCursor }),
+              ...(nextCursor === undefined ? {} : { next_cursor: nextCursor }),
             },
           };
         }
