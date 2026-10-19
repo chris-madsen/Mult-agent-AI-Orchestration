@@ -122,12 +122,14 @@ try {
   }
   const contextResponse = await contextRequest;
   const statusResponse = await request(4, { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'ace_workspace_status', arguments: { workspace_id: 'real-provider-2000-line' } } });
-  assert.equal(statusResponse.result?.structuredContent?.index_status, hardOutage ? 'not_ready' : 'ready', JSON.stringify(statusResponse));
+  const expectedIndexStatus = hardOutage ? 'not_ready' : outage ? 'degraded' : 'ready';
+  assert.equal(statusResponse.result?.structuredContent?.index_status, expectedIndexStatus, JSON.stringify(statusResponse));
   const context = contextResponse.result?.structuredContent;
   if (outage) {
     assert.equal(contextResponse.result?.isError, undefined, JSON.stringify(contextResponse));
     assert.equal(context.complete, false, JSON.stringify(context));
-    assert.ok(context.partialSources.includes('qdrant'), JSON.stringify(context));
+    assert.ok(context.partialSources.includes('code'), JSON.stringify(context));
+    assert.equal(context.sourceCoverage?.find((source) => source.source === 'code')?.status, 'partial', JSON.stringify(context));
     assert.ok(context.warnings.some((warning) => warning.includes('Qdrant unavailable')), JSON.stringify(context));
     assert.ok(context.evidence.some((item) => item.freshness === 'current'), JSON.stringify(context));
     console.log(JSON.stringify({ status: 'provider-partial-is-honest', outage: true, complete: context.complete, warnings: context.warnings, partial_sources: context.partialSources }, null, 2));

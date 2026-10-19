@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import importlib.metadata
+import hashlib
 import json
 import os
+import platform
 import sys
 import time
 
@@ -20,6 +22,14 @@ def _version(package: str) -> str:
         return "unknown"
 
 
+def _runtime_build() -> str:
+    digest = hashlib.sha256()
+    with open(__file__, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return f"{os.path.basename(__file__)}#{digest.hexdigest()}"
+
+
 def main() -> int:
     model_name = sys.argv[1]
     os.environ.setdefault("ACE_EMBEDDING_MODEL", model_name)
@@ -30,6 +40,10 @@ def main() -> int:
     dimension = model.get_sentence_embedding_dimension()
     if not isinstance(dimension, int) or dimension < 1:
         raise RuntimeError("Sentence-Transformers did not report a valid embedding dimension")
+    execution_mode = os.environ.get("ACE_EMBEDDING_EXECUTION_MODE", "experimental-unpinned")
+    pinned = os.environ.get("ACE_EMBEDDING_PINNED", "false") == "true"
+    if execution_mode not in {"pinned", "experimental-unpinned"} or pinned != (execution_mode == "pinned"):
+        raise RuntimeError("embedding execution mode and pinned flag are inconsistent")
     identity = {
         "provider": os.environ.get("ACE_EMBEDDING_PROVIDER", "sentence-transformers/pytorch"),
         "model": model_name,
@@ -39,7 +53,10 @@ def main() -> int:
         "artifactDigest": artifact_digest,
         "dimension": dimension,
         "preprocessing": os.environ.get("ACE_EMBEDDING_PREPROCESSING", "raw_text_v1"),
-        "runtime": f"sentence-transformers/{_version('sentence-transformers')}|torch/{_version('torch')}",
+        "executionMode": execution_mode,
+        "pinned": pinned,
+        "runtimeBuild": _runtime_build(),
+        "runtimeVersion": f"python/{platform.python_version()}|sentence-transformers/{_version('sentence-transformers')}|torch/{_version('torch')}",
     }
     print(json.dumps({"type": "ready", "identity": identity}, separators=(",", ":")), flush=True)
     for line in sys.stdin:
