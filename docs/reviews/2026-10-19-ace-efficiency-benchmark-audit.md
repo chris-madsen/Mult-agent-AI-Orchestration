@@ -34,7 +34,7 @@ Keep setup context, Codex version, state/caching policy, task verifier and time 
 
 The gate previously looked for *any successful operation* for each of `embedding`, `qdrant`, `tree_sitter`, and `typescript_language_service` anywhere in the trial's `provider-trace.jsonl`. These events may be emitted during startup/indexing or diagnostics and are **not linked to individual Codex MCP request IDs**.
 
-The corrected gate checks actual operation names, including `qdrant:query_points` and `typescript_language_service:definition`, but it **does not invent correlation proof**. `providerOperationsObserved` may be true while `providerCorrelationVerified=false`. Normative DBC-12 remains open until real request-level linkage is measured.
+The corrected gate checks actual operation names, including `qdrant:query_points` and `typescript_language_service:definition`, but it **does not invent correlation proof**. `providerOperationsObserved` may be true while `providerCorrelationVerified=false`. Normative DBC-12 remains open for the historical run. The corrected runtime now propagates the ACE ContextBundle `requestId` into query-time embedding, Qdrant and TypeScript-LS trace events, and the Harbor gate verifies those operations per successful request. A **new** Harbor run is required; historical traces cannot be retroactively correlated.
 
 ### P0: repeated cold reconstruction was masking a non-existent warm path
 
@@ -76,4 +76,4 @@ OpenSpec PR #8 marked DBC-12 and full external-cost acceptance as complete based
 
 ## Immediate execution advice for Codex
 
-Do not wait for another owner decision. First rerun typecheck/lint/contracts and the new Qdrant warm-cache tests, then real local Qdrant restart E2E including unchanged-worktree reuse and dirty-worktree invalidation. After that implement request-correlated provider traces, deduplicated/precise context delivery and run a frozen three-arm Harbor experiment. Preserve the negative 3×3 numbers as historical evidence.
+Do not wait for another owner decision. First rerun typecheck/lint/contracts and the new Qdrant warm-cache tests, then real local Qdrant restart E2E including unchanged-worktree reuse and dirty-worktree invalidation. After that rerun Harbor using the implemented request-correlated provider traces and precise context delivery, then run the frozen three-arm experiment. Preserve the negative 3×3 numbers as historical evidence.
