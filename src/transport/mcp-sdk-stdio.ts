@@ -3,18 +3,22 @@ import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { Effect } from 'effect';
 import * as z from 'zod/v4';
 import type { GatewayResponse, ToolCall } from '../gateway/mcp-gateway.js';
+import { contextTransportText } from '../domain/context-delivery.js';
 
 export interface McpGatewayLike {
   readonly handle: (call: ToolCall) => Effect.Effect<GatewayResponse>;
 }
 
-const toToolResult = (response: GatewayResponse) => {
+const toToolResult = (response: GatewayResponse, toolName?: string) => {
   const payload: Readonly<Record<string, unknown>> = response.status === 'ok'
     ? response.result
     : response;
   return {
     ...(response.status === 'ok' ? {} : { isError: true }),
-    content: [{ type: 'text' as const, text: JSON.stringify(payload) }],
+    // Context must not be mirrored in full as BOTH MCP text and structured data.
+    // The short navigation text cites sources; structuredContent owns the body.
+    content: [{ type: 'text' as const, text: toolName === 'ace_context' && response.status === 'ok'
+      ? contextTransportText(payload) : JSON.stringify(payload) }],
     structuredContent: { ...payload },
   };
 };
@@ -37,7 +41,7 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
       const response = signal === undefined
         ? await Effect.runPromise(operation)
         : await Effect.runPromise(operation, { signal });
-      return toToolResult(response);
+      return toToolResult(response, name);
     } catch (error) {
       if (isAborted()) return cancelledToolResult();
       // The thrown failure is an ACE error, not an invitation to leak a stack trace.
@@ -50,7 +54,7 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
     }
   };
   server.registerTool('ace_context', {
-    description: 'Retrieve source-attributed workspace context when configured.',
+    description: 'Find relevant verified code symbols. Default locate mode returns short source map and compact snippets; intent=inspect returns full selected snippets. Use ace_expand for byte-exact originals.',
     inputSchema: z.object({
       workspace_id: z.string().min(1),
       query: z.string(),
