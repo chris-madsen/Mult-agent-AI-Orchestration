@@ -1,8 +1,11 @@
 # Exploratory embedding provider comparison
 
 **Date:** 2026-10-19
-**Status:** exploratory candidate evidence; no production model approval.
+**Status:** historical exploratory candidate evidence; **not suitable for production selection until rerun** with the committed normalized benchmark.
+**Reproduction:** `npm run compare:embeddings` writes `benchmarks/reports/embedding-provider-comparison-rerun.json`.
 **Raw data:** [`2026-10-19-embedding-provider-comparison.json`](2026-10-19-embedding-provider-comparison.json)
+
+The original run was not fully reproducible from the repository and its FastEmbed raw similarity values exceeded 1, indicating unnormalized dot-product scoring rather than cosine. Preserve it as historical evidence only. The replacement script normalizes cosine at scoring time, records a fixed nine-query dataset and attempts to capture a local model artifact tree digest.
 
 Nine synthetic labeled cases covered behavior-not-name retrieval, duplicate and
 similar symbol names, RU↔EN technical requests and read/write semantics. All
