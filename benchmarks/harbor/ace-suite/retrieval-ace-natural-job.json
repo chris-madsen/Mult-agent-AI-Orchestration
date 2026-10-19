@@ -47,7 +47,7 @@
     "mounts": [
       {
         "type": "bind",
-        "source": "/media/ilja/DATA/soft/consillium/harness",
+        "source": "${ACE_HARNESS_ROOT}",
         "target": "/ace",
         "read_only": true
       }
