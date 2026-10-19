@@ -60,9 +60,10 @@ try {
     dataset: 'inline_stage1_holdout_v1',
     provider: 'FastEmbed/ONNX sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2',
     cases: observations,
-    recallAt12: observations.length / cases.length,
+    retrievalLimit: 6,
+    recallAtLimit: observations.length / cases.length,
     top1Accuracy: observations.filter((item) => item.top1 === item.citation).length / cases.length,
-    note: 'Exploratory three-case real-provider gate; the larger frozen holdout and production model approval remain open.',
+    note: 'Exploratory three-case real-provider gate with a six-candidate response cap; the larger frozen holdout and production model approval remain open.',
   };
   await mkdir('benchmarks/reports', { recursive: true });
   await writeFile('benchmarks/reports/real-semantic-retrieval-e2e.json', `${JSON.stringify(report, null, 2)}\n`, 'utf8');
