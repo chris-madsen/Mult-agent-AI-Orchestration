@@ -79,6 +79,10 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
       if (!Number.isSafeInteger(input.occurredAtMs) || input.occurredAtMs < 0) {
         return err(domainError('INVALID_MEMORY', 'occurred_at_ms', 'Graphiti reference time must be a non-negative safe integer'));
       }
+      const referenceTime = new Date(input.occurredAtMs);
+      if (Number.isNaN(referenceTime.getTime())) {
+        return err(domainError('INVALID_MEMORY', 'occurred_at_ms', 'Graphiti reference time must be representable as an ISO timestamp'));
+      }
       // No auto-approval of extracted facts: Graphiti edges are derived projections.
       const episodeUuid = uuidFor(input.episodeId);
       const receipt = yield* invoke('add_memory', {
@@ -86,7 +90,7 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
         group_id: options.groupId,
         source: 'json',
         source_description: `ACE extractor ${input.extractorVersion} (proposed facts)`,
-        reference_time: new Date(input.occurredAtMs).toISOString(),
+        reference_time: referenceTime.toISOString(),
         episode_body: JSON.stringify({ claims: input.claims, approval: 'unverified' }),
       });
       if (receipt._tag === 'Err') return receipt;
