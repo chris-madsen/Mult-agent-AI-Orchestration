@@ -3,7 +3,14 @@ import test from 'node:test';
 import { Effect } from 'effect';
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 import { createAceServer } from '../src/transport/mcp-sdk-stdio.js';
+import { makeFileArtifactStore } from '../src/adapters/file-artifact-store.js';
+import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
+import { makeFileWorkspaceStore } from '../src/application/file-workspace-store.js';
+import { makeMcpGateway } from '../src/gateway/mcp-gateway.js';
 import { createHash } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { projectContextForDelivery, contextTransportText, resolveDeliveryIntent } from '../src/domain/context-delivery.js';
 import type { ContextBundle, RetrievalEvidence } from '../src/domain/retrieval.js';
 
@@ -103,5 +110,52 @@ test('actual official MCP transport does not mirror the entire structured Contex
   } finally {
     await client.close();
     await server.close();
+  }
+});
+
+test('ace_expand format=utf8 returns exact readable source instead of expensive duplicate base64', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ace-readable-expand-'));
+  const artifacts = makeFileArtifactStore(directory);
+  const source = Buffer.from('export const greeting = "Привет, 世界 🙂";\n', 'utf8');
+  const stored = await Effect.runPromise(artifacts.storeExact(source));
+  assert.equal(stored._tag, 'Ok');
+  if (stored._tag === 'Err') return;
+  const gateway = makeMcpGateway({
+    clock: { nowMs: () => Date.now() },
+    ids: { newRequestId: () => 'expand-test', newWorkspaceId: () => 'expand-workspace' },
+    files: makeNodeWorkspacePort({ allowedRoots: [directory] }),
+    store: makeFileWorkspaceStore(join(directory, 'workspaces.json')),
+    artifacts,
+  });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = createAceServer(gateway);
+  const client = new Client({ name: 'ace-readable-source-client', version: '1.0.0' });
+  await server.connect(serverTransport);
+  try {
+    await client.connect(clientTransport);
+    const result = await client.callTool({
+      name: 'ace_expand',
+      arguments: { handle: stored.value.handle, format: 'utf8' },
+    });
+    assert.equal(result.isError, undefined);
+    const output = result.structuredContent as unknown as Record<string, unknown>;
+    assert.equal(output.encoding, 'utf8');
+    assert.equal(output.content_utf8, source.toString('utf8'));
+    assert.equal(output.digest, stored.value.digest);
+    assert.equal(output.total_bytes, source.length);
+    assert.equal('content_base64' in output, false);
+    assert.equal(result.content[0]?.type, 'text');
+    if (result.content[0]?.type === 'text') assert.equal(result.content[0].text, source.toString('utf8'));
+
+    const raw = await client.callTool({
+      name: 'ace_expand',
+      arguments: { handle: stored.value.handle, format: 'base64' },
+    });
+    const bytes = raw.structuredContent as unknown as Record<string, unknown>;
+    assert.deepEqual(Buffer.from(String(bytes.content_base64), 'base64'), source);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
   }
 });
