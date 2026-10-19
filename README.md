@@ -6,8 +6,7 @@ slice under `src/`.
 
 ## Current implementation
 
-`001-foundation` is partially implemented in TypeScript + Effect; provider-independent
-cores for `003`–`005` are also implemented:
+The TypeScript + Effect modular monolith now implements substantial slices across foundation, retrieval, temporal memory, routing and acceptance. Full unified production readiness is still evidence-gated:
 
 - validated workspace identity and working-tree observations;
 - canonical path and symlink containment checks;
@@ -73,6 +72,12 @@ No production-approved embedding model/LSP, Graphiti extraction, Harbor quality
 gate or 5× improvement is claimed until the documented provider spikes and owner
 review are complete. The real-provider exploratory E2E is evidence, not a release
 claim.
+
+## Configuration and readiness
+
+See [`docs/operations/ace-configuration-and-readiness-matrix.md`](docs/operations/ace-configuration-and-readiness-matrix.md) before enabling providers. In particular, `ACE_ENABLE_EXPERIMENTAL_QDRANT=true` selects the real local Qdrant composition but does **not** constitute production approval, and `ACE_ALLOW_LOCAL_FALLBACK=true` is an explicitly degraded fallback.
+
+Full code + documentation + memory release readiness is evaluated by `npm run release:preflight -- ...`; there is no environment flag that turns an unverified provider set into a production-approved system.
 
 ## Development
 
