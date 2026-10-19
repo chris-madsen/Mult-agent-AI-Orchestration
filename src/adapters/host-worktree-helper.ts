@@ -181,7 +181,7 @@ export const makeMtlsHostHelperTransport = async (options: MtlsHostHelperOptions
         });
       });
       request.setTimeout(timeoutMs, () => request.destroy(new Error('host helper timed out')));
-      request.on('error', () => resolve(err(domainError('EXTERNAL_UNAVAILABLE', 'worktree_helper', 'mTLS host helper request failed')));
+      request.on('error', () => resolve(err(domainError('EXTERNAL_UNAVAILABLE', 'worktree_helper', 'mTLS host helper request failed'))));
       request.end(body);
     }),
   });
