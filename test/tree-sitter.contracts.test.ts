@@ -26,3 +26,17 @@ test('Tree-sitter provider failure is explicit rather than fabricated evidence',
   assert.equal(result._tag, 'Err');
   if (result._tag === 'Err') assert.equal(result.error.code, 'UNSUPPORTED_PROVIDER');
 });
+
+
+test('Tree-sitter adapter rejects invalid UTF-8 before provider execution', async () => {
+  const port = makeTreeSitterStructuralPort({ helperPath: '/does/not/matter' });
+  const result = await Effect.runPromise(port.extract({
+    repoPath: 'invalid.ts',
+    source: Uint8Array.from([0x66, 0x6f, 0x80, 0x6f]),
+  }));
+  assert.equal(result._tag, 'Err');
+  if (result._tag === 'Err') {
+    assert.equal(result.error.code, 'INVALID_INPUT');
+    assert.equal(result.error.path, 'source');
+  }
+});
