@@ -36,7 +36,8 @@
     "gate:harbor-three-arm": "tsx scripts/harbor-three-arm-gate.ts",
     "test:real-graphiti-lifecycle": "tsx scripts/graphiti-real-lifecycle-e2e.ts",
     "vertex:import-synthetic": "bash scripts/vertex-synthetic-fixture-import.sh",
-    "test:real-vertex-conflict": "tsx scripts/vertex-synthetic-conflict-e2e.ts"
+    "test:real-vertex-conflict": "tsx scripts/vertex-synthetic-conflict-e2e.ts",
+    "evidence:dbc": "tsx scripts/dbc-evidence-manifest.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",
