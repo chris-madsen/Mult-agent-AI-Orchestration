@@ -124,9 +124,9 @@ const run = async (): Promise<void> => {
         if (present._tag === 'Err') throw new Error(present.error.message);
         if (present.value) {
           const {
-            nextAttemptAtMs: _nextAttemptAtMs,
-            deadLetteredAtMs: _deadLetteredAtMs,
-            lastErrorCode: _lastErrorCode,
+            nextAttemptAtMs: discardedNextAttemptAtMs,
+            deadLetteredAtMs: discardedDeadLetteredAtMs,
+            lastErrorCode: discardedLastErrorCode,
             ...projectedReceipt
           } = receipt;
           const stored = await outbox.put({ ...projectedReceipt, status: 'projected' });
