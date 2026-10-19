@@ -12,7 +12,7 @@ import { makeLocalContextProvider } from '../adapters/local-context-provider.js'
 import { makeNodeWorkspacePort } from '../adapters/node-workspace-port.js';
 import { makeProcessEmbeddingPort } from '../adapters/process-embedding.js';
 import { makeFileProviderTrace } from '../adapters/provider-trace.js';
-import { ensureQdrantCollection, makeQdrantContextProvider, pruneQdrantOtherGenerations, reuseOrPopulateQdrantSnapshot } from '../adapters/qdrant-context-provider.js';
+import { codeIndexKey, ensureQdrantCollection, makeQdrantContextProvider, pruneQdrantOtherGenerations, reuseOrPopulateQdrantSnapshot } from '../adapters/qdrant-context-provider.js';
 import { makeTreeSitterStructuralPort } from '../adapters/tree-sitter-structural.js';
 import { makeTypeScriptLanguageServicePort } from '../adapters/typescript-language-service.js';
 import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
@@ -113,15 +113,6 @@ const main = async (): Promise<void> => {
   const observed = await Effect.runPromise(observeWorkspace(ports, registered.value.workspaceId));
   if (observed._tag === 'Err') throw new Error(`${observed.error.code}: ${observed.error.message}`);
   const observationEpoch = observed.value.observationEpoch;
-  const sourceSnapshot = observed.value.lastObservation === undefined
-    ? `generation:${observationEpoch}`
-    : JSON.stringify({
-      headRevision: observed.value.lastObservation.headRevision,
-      files: [...observed.value.lastObservation.files]
-        .sort((left, right) => left.repoPath.localeCompare(right.repoPath))
-        .map((file) => [file.repoPath, file.digest, file.sizeBytes]),
-      removedPaths: [...observed.value.lastObservation.removedPaths].sort(),
-    });
   // No pretend success: the local lexical provider is a consciously enabled
   // degraded fallback, NOT the selected Qdrant/embeddings/AST/LSP production path.
   const allowLocalFallback = process.env.ACE_ALLOW_LOCAL_FALLBACK === 'true';
@@ -153,11 +144,6 @@ const main = async (): Promise<void> => {
     if (!Number.isSafeInteger(candidateLimit) || candidateLimit < 1 || candidateLimit > 20) throw new Error('ACE_CONTEXT_CANDIDATE_LIMIT must be an integer between 1 and 20');
     const workspaceKey = createHash('sha256').update(registered.value.workspaceId).digest('hex').slice(0, 12);
     const modelKey = createHash('sha256').update(`${embeddingProvider}|${embeddingModel}|${embeddingRevision}|${embeddingArtifactDigest}|${embeddingPreprocessing}|${embeddingDimension}`).digest('hex').slice(0, 12);
-    // A model revision alone is not enough to isolate vectors: the same
-    // workspace id and observation epoch may be reused for a changed checkout
-    // or a paired fixture. Keep the collection stable, but isolate each
-    // snapshot by an opaque source index key.
-    const sourceKey = createHash('sha256').update(sourceSnapshot).digest('hex').slice(0, 12);
     const generation = observationEpoch;
     const collection = process.env.ACE_QDRANT_COLLECTION?.trim() || `ace_code_${workspaceKey}_${modelKey}`;
     const embeddingWorker = process.env.ACE_EMBEDDING_WORKER?.trim()
@@ -226,6 +212,10 @@ const main = async (): Promise<void> => {
         process.stderr.write(`ace-mcp context NOT_READY: structural index failed (${built.error.code})\n`);
       } else {
         for (const warning of built.value.warnings) process.stderr.write(`ace retrieval warning: ${warning}\n`);
+        // Warm reuse is keyed from the exact structural candidate set actually
+        // produced in this startup. It ignores observation epoch/timestamps,
+        // but changes on source bytes, ranges, names or parser output.
+        const sourceKey = codeIndexKey(built.value.index);
         const qdrant = makeQdrantCodeCandidatePort({
           baseUrl: qdrantUrl,
           collection,
