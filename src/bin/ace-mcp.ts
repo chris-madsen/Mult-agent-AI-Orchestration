@@ -271,7 +271,10 @@ const main = async (): Promise<void> => {
             artifacts,
             semantics,
             newRequestId: () => randomUUID(),
-            generation,
+            // A warm index can have an older observation epoch; the precise
+            // content-derived indexKey is authoritative and every snippet is
+            // reverified against current bytes. Do not relabel its generation.
+            ...(indexed.value.reused ? {} : { generation }),
             indexKey: sourceKey,
             candidateLimit,
             ...(documentation === undefined ? {} : { documentation }),
