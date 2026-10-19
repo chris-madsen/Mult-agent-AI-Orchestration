@@ -215,6 +215,9 @@ test('EVC-07 quality failures remain in reports and cannot become accepted succe
   assert.equal(report.totalRuns, 1);
   assert.equal(report.successfulRuns, 0);
   assert.deepEqual(report.qualityPassRate, { status: 'known', value: 0 });
+  assert.deepEqual(report.completionRate, { status: 'known', value: 1 });
+  assert.deepEqual(report.abortedRate, { status: 'known', value: 0 });
+  assert.deepEqual(report.incompleteRate, { status: 'known', value: 0 });
   assert.ok(report.limitations.includes('single run'));
   const artifacts = renderComparisonReportArtifacts(report);
   assert.equal(artifacts.length, 3);
