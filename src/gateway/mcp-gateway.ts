@@ -141,7 +141,7 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
             result: {
               workspace_id: workspace.value.workspaceId,
               observation_epoch: workspace.value.observationEpoch,
-              index_status: 'not_ready',
+              index_status: ports.context === undefined ? 'not_ready' : 'ready',
               freshness: workspace.value.lastObservation === undefined ? 'unknown' : 'observed',
             },
           };

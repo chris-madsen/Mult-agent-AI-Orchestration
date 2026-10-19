@@ -52,6 +52,11 @@ directories. Vertex documentation is separately opt-in with
 `ACE_ENABLE_VERTEX=true`, `ACE_VERTEX_PROJECT`, `ACE_VERTEX_CORPUS_ID` and the
 Europe default `ACE_VERTEX_LOCATION=europe-west4`.
 
+With k3s Qdrant forwarded to localhost, the real gates are reproducible with
+`npm run test:real-provider` (2000-line precision, current digest, exact
+expansion and workspace readiness) and `npm run test:real-provider-race`
+(mid-request edit must become partial/stale, never current).
+
 No production-approved embedding model/LSP, Graphiti extraction, Harbor quality
 gate or 5× improvement is claimed until the documented provider spikes and owner
 review are complete. The real-provider exploratory E2E is evidence, not a release

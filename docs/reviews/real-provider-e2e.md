@@ -2,7 +2,8 @@
 
 **Date:** 2026-10-19
 **Status:** exploratory real-provider evidence; not production approval.
-**Scope:** one read-only MCP retrieval path on a synthetic two-file TypeScript fixture.
+**Scope:** read-only MCP retrieval paths on synthetic 2000-line TypeScript and
+two-file fixtures.
 
 ## Composition exercised
 
@@ -18,9 +19,10 @@ Codex-shaped MCP client
   -> ContextBundle + lossless artifact handles
 ```
 
-The fixture contained `service.ts` (`reconnect`, `disconnect`) and
-`consumer.ts` (`boot` calling `reconnect`). The runtime reported three
-structural candidates and populated the versioned collection
+The first fixture contained `service.ts` (`reconnect`, `disconnect`) and
+`consumer.ts` (`boot` calling `reconnect`). A second fixture contained exactly
+2000 source lines and a 25-line `retryAfterTransientFailure` function. The
+runtime populated the versioned collection
 `ace_code_paraphrase_multilingual_minilm_l12_v2_g1`.
 
 ## Provider evidence
@@ -45,6 +47,17 @@ Every item carried a working-tree SHA-256 digest and an `expansionHandle`.
 The bundle had no warnings, no partial sources and `complete=true`. The exact
 source slice was checked against the current file bytes before delivery.
 
+The automated 2000-line gate returned `service.ts:1-25`,
+`freshness=current`, with the target function content only. `ace_expand`
+reassembled all 63,482 source bytes and matched the fixture SHA-256
+`49ee6a02de93468eb1d88a8de10f0fa2eb21a186db33362c01f8c30f7e41b152`.
+`ace_workspace_status` returned `index_status=ready`.
+
+The race gate delayed the query embedding, edited the file from D1 to D2 while
+retrieval was in flight, and observed `complete=false`, `partialSources=["code"]`
+and `stale index or AST slice disagrees with current original bytes`. No stale
+evidence was labelled `current`.
+
 ## Reproduction
 
 The local k3s service is ClusterIP, so host-side tests use an explicit,
@@ -68,8 +81,6 @@ is not used by this path.
 
 ## Remaining gates
 
-- 2000+ line exact-span/expansion and mid-request edit scenarios are not yet
-  covered by this small fixture.
 - A frozen retrieval-demanding holdout and Harbor paired agent run are not
   represented here; no token saving or 5× claim follows from this smoke.
 - The runtime does not upload code to Vertex or any external embedding API.

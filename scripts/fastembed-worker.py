@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+import time
 
 from fastembed import TextEmbedding
 
@@ -20,6 +22,9 @@ def main() -> int:
             texts = request["texts"]
             if not isinstance(texts, list) or not all(isinstance(text, str) and text.strip() for text in texts):
                 raise ValueError("texts must be a non-empty list of non-empty strings")
+            delay_ms = float(os.environ.get("ACE_EMBEDDING_DELAY_MS", "0"))
+            if delay_ms > 0:
+                time.sleep(delay_ms / 1000)
             vectors = [vector.tolist() for vector in model.embed(texts)]
             print(json.dumps({"id": request_id, "vectors": vectors}, separators=(",", ":")), flush=True)
         except Exception as error:  # provider boundary: serialize failure, never fake vectors

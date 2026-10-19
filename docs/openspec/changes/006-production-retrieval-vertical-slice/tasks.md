@@ -1,6 +1,8 @@
 # Tasks — Production retrieval vertical slice
 
-**State: NOT IMPLEMENTED. All checkboxes intentionally unchecked.** Prior port-level `[x]` markers do not satisfy these end-to-end acceptance criteria.
+**State: PARTIAL.** Real exploratory Qdrant/embedding/AST/LSP E2E is implemented;
+the remaining production, agent, memory and Harbor gates stay unchecked until
+their evidence exists. Prior port-level `[x]` markers do not satisfy those gates.
 
 ## Architecture/approval
 - [x] Owner approved ADR-012's six acceptance rules on 2026-10-19. **Separate open approvals remain:** production embedding model/runtime, exact LSP winner, cloud data handling and provider license/version evidence.
@@ -16,13 +18,13 @@
 
 ## Bertrand Meyer contracts (real integration or agent E2E)
 - [ ] DBC-01 production composition, no fallback-only passing.
-- [ ] DBC-02 2000-line/25-line exact AST span and exact expand.
+- [x] DBC-02 2000-line/25-line exact AST span and exact expand (`npm run test:real-provider`, commit evidence report).
 - [ ] DBC-03 behavior-driven semantic retrieval vs lexical distractor and real embeddings.
 - [ ] DBC-04 same-name symbols and correct definition/write semantics.
-- [ ] DBC-05 mid-request edit D1→D2, no false-current.
+- [x] DBC-05 mid-request edit D1→D2, no false-current (`npm run test:real-provider-race`, commit evidence report).
 - [ ] DBC-06 source failure completeness / degraded truthful response.
 - [ ] DBC-07 policy denial outbound count zero and safe audit.
-- [ ] DBC-08 byte-identical original and generated 2000+ line content.
+- [x] DBC-08 byte-identical original and generated 2000+ line content (`npm run test:real-provider`, SHA-256 and exact expansion assertions).
 - [ ] DBC-09 official MCP SDK conformance with Codex, cancellation/error paths.
 - [ ] DBC-10 stable Codex historical episode IDs after append and replay.
 - [ ] DBC-11 shared digest archive delete and derived purge correctness.
