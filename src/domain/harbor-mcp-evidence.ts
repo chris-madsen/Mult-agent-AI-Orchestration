@@ -7,35 +7,54 @@ const object = (value: unknown): JsonObject | null => {
 
 const hasNoError = (value: unknown): boolean => value === undefined || value === null || value === '';
 
+const aceContextItem = (event: unknown): JsonObject | null => {
+  const eventObject = object(event);
+  const item = object(eventObject?.item);
+  if (eventObject?.type !== 'item.completed') return null;
+  if (item?.type !== 'mcp_tool_call' || item.server !== 'ace' || item.tool !== 'ace_context') return null;
+  return item;
+};
+
 const hasCompleteContextResult = (item: JsonObject): boolean => {
   const result = object(item.result);
   const structuredContent = object(result?.structured_content);
-  return structuredContent?.complete === true && structuredContent.status !== 'not_ready';
+  return structuredContent?.complete === true
+    && structuredContent.status !== 'not_ready'
+    && structuredContent.status !== 'error';
 };
 
 /**
- * Counts only a completed ACE tool call as provider invocation evidence.
- *
- * Codex emits an `item.completed` event even when the MCP tool itself returns
- * a failed result. The nested item status and the structured completeness
- * marker are therefore authoritative here; checking only `error` would turn
- * `NOT_READY` into a false success.
+ * Counts one terminal Codex event per ACE context invocation, including
+ * partial/failed/NOT_READY calls. DBC-12 requires the benchmark to report
+ * actual call counts and failures, so these observations must not disappear.
+ */
+export const isObservedAceContextEvent = (event: unknown): boolean => {
+  const item = aceContextItem(event);
+  return item !== null && (item.status === 'completed' || item.status === 'failed');
+};
+
+/**
+ * Strong attribution evidence: the ACE call reached a terminal successful MCP
+ * result and the structured ContextBundle is complete. Partial/failed calls are
+ * still observed invocations, but cannot establish ACE-caused retrieval value.
  */
 export const isSuccessfulAceContextEvent = (event: unknown): boolean => {
-  const eventObject = object(event);
-  const item = object(eventObject?.item);
-  return item?.type === 'mcp_tool_call'
-    && item.server === 'ace'
-    && item.tool === 'ace_context'
-    && item.status === 'completed'
+  const item = aceContextItem(event);
+  return item?.status === 'completed'
     && hasNoError(item.error)
     && hasCompleteContextResult(item);
 };
 
-export const isSuccessfulAceContextJsonLine = (line: string): boolean => {
+const fromJsonLine = (line: string, predicate: (event: unknown) => boolean): boolean => {
   try {
-    return isSuccessfulAceContextEvent(JSON.parse(line) as unknown);
+    return predicate(JSON.parse(line) as unknown);
   } catch {
     return false;
   }
 };
+
+export const isObservedAceContextJsonLine = (line: string): boolean =>
+  fromJsonLine(line, isObservedAceContextEvent);
+
+export const isSuccessfulAceContextJsonLine = (line: string): boolean =>
+  fromJsonLine(line, isSuccessfulAceContextEvent);
