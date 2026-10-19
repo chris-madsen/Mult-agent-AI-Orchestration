@@ -12,6 +12,7 @@ import {
 } from '../domain/retrieval.js';
 import { makeContentDigest, ingestRepoPath, type WorkspaceId } from '../domain/workspace.js';
 import { projectionKey, type ProjectionReceipt } from '../domain/memory.js';
+import { containsLikelySecret } from '../domain/sensitive-text.js';
 import type {
   CodeCandidatePort,
   CodePoint,
@@ -289,7 +290,7 @@ export const makeVertexDocumentationPort = (config: VertexConfig): Documentation
       destination: 'vertex',
       dataClasses: ['project_document'],
       paths: config.authorizedPaths ?? [],
-      secretDetected: false,
+      secretDetected: containsLikelySecret(input.query),
     }, config.policy);
     if (action._tag === 'Err') return action;
     if (action.value.outcome !== 'allowed') return err(domainError('POLICY_DENIED', 'vertex', action.value.reasonCode));
@@ -338,7 +339,14 @@ interface GraphitiConfig {
 
 export const makeGraphitiProjectionPort = (config: GraphitiConfig): GraphProjectionPort => ({
   project: (input) => Effect.gen(function* () {
-    const action = authorizeOutbound({ workspaceId: config.workspaceId, operation: 'memory_projection', destination: 'other_external', dataClasses: ['private_conversation'], paths: [], secretDetected: false }, config.policy);
+    const action = authorizeOutbound({
+      workspaceId: config.workspaceId,
+      operation: 'memory_projection',
+      destination: 'other_external',
+      dataClasses: ['private_conversation'],
+      paths: [],
+      secretDetected: containsLikelySecret(JSON.stringify(input.claims)),
+    }, config.policy);
     if (action._tag === 'Err') return action;
     if (action.value.outcome !== 'allowed') return err(domainError('POLICY_DENIED', 'graphiti', action.value.reasonCode));
     const token = config.accessToken();
