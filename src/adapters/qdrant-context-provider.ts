@@ -258,16 +258,26 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
     const failed: string[] = [];
     const fullSources = new Map<RepoPath, { readonly bytes: Uint8Array; readonly digest: string; readonly handle: string }>();
 
+    const initialFailures = new Map<RepoPath, string>();
     for (const [i, ranked] of result.value.entries()) {
       const candidate = ranked.candidate;
-      const read = yield* config.files.readExact(config.rootPath, candidate.repoPath);
-      if (read._tag === 'Err') {
-        warnings.push(candidate.repoPath + ': ' + read.error.code);
-        failed.push('code');
-        continue;
-      }
+      // One authoritative exact read and one immutable artifact per source,
+      // not one read per Qdrant symbol. All selected sources are revalidated
+      // a second time at the request boundary below.
       let full = fullSources.get(candidate.repoPath);
       if (full === undefined) {
+        const priorError = initialFailures.get(candidate.repoPath);
+        if (priorError !== undefined) {
+          failed.push('code');
+          continue;
+        }
+        const read = yield* config.files.readExact(config.rootPath, candidate.repoPath);
+        if (read._tag === 'Err') {
+          initialFailures.set(candidate.repoPath, read.error.code);
+          warnings.push(candidate.repoPath + ': ' + read.error.code);
+          failed.push('code');
+          continue;
+        }
         const stored = yield* config.artifacts.storeExact(read.value.bytes);
         if (stored._tag === 'Err') return stored;
         full = { bytes: read.value.bytes, digest: read.value.digest, handle: stored.value.handle };
