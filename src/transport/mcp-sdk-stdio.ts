@@ -21,7 +21,7 @@ const toToolResult = (response: GatewayResponse, toolName?: string) => {
       ? contextTransportText(payload)
       : toolName === 'ace_expand' && response.status === 'ok'
         ? typeof payload.content_utf8 === 'string'
-          ? payload.content_utf8
+          ? `Exact UTF-8 source is in structuredContent.content_utf8 (offset=${String(payload.offset ?? '?')}, total_bytes=${String(payload.total_bytes ?? '?')}).`
           : 'Exact original bytes are in structuredContent.content_base64; use format=utf8 for readable code.'
         : JSON.stringify(payload) }],
     structuredContent: { ...payload },

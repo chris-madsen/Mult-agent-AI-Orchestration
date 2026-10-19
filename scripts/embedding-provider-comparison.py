@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
+"""Compare approved local embedding runtimes in isolated pinned processes."""
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import math
+import os
+import platform
 import statistics
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -12,104 +17,226 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DATASET = ROOT / "benchmarks/retrieval/embedding-provider-comparison-labels.json"
 OUTPUT = ROOT / "benchmarks/reports/embedding-provider-comparison-rerun.json"
+MODEL_ID = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+MODEL_REVISION = "e8f8c211226b894fcb81acc59f3b34ba3efd5f42"
+FASTEMBED_ARTIFACT_ID = "qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q"
+FASTEMBED_CACHE = ROOT / ".cache/ace-fastembed"
 
 
-def cosine(left, right):
+def cosine(left: list[float], right: list[float]) -> float:
     dot = sum(float(a) * float(b) for a, b in zip(left, right, strict=True))
-    ln = math.sqrt(sum(float(a) * float(a) for a in left))
-    rn = math.sqrt(sum(float(b) * float(b) for b in right))
-    if ln == 0 or rn == 0:
+    left_norm = math.sqrt(sum(float(a) * float(a) for a in left))
+    right_norm = math.sqrt(sum(float(b) * float(b) for b in right))
+    if left_norm == 0 or right_norm == 0:
         raise ValueError("zero-length embedding norm")
-    return dot / (ln * rn)
+    return dot / (left_norm * right_norm)
 
 
-def artifact_digest(model_id):
+def package_version(name: str) -> str:
     try:
+        from importlib.metadata import version
+        return version(name)
+    except Exception:
+        return "unknown"
+
+
+def artifact_digest(model_id: str, revision: str | None) -> dict[str, object]:
+    """Hash the complete local snapshot and reject incomplete HF cache entries."""
+    if Path(model_id).is_dir():
+        root = Path(model_id)
+        candidates = sorted(root.glob("models--*/snapshots/*"))
+        if not candidates:
+            candidates = [root]
+        snapshot = candidates[-1]
+    else:
         from huggingface_hub import snapshot_download
-        path = Path(snapshot_download(model_id, local_files_only=True))
-        digest = hashlib.sha256()
-        for file in sorted(p for p in path.rglob("*") if p.is_file()):
-            rel = file.relative_to(path).as_posix()
-            digest.update(rel.encode())
-            digest.update(b"\0")
-            with file.open("rb") as handle:
-                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                    digest.update(chunk)
-        return {"revision": path.name, "tree_sha256": digest.hexdigest()}
-    except Exception as error:
-        return {"revision": "not-captured", "tree_sha256": "not-captured", "digest_error": type(error).__name__}
+
+        arguments = {"repo_id": model_id, "local_files_only": True}
+        if revision is not None:
+            arguments["revision"] = revision
+        snapshot = Path(snapshot_download(**arguments))
+    if not snapshot.is_dir():
+        raise RuntimeError(f"model snapshot is not a directory: {snapshot}")
+    files = sorted(path for path in snapshot.rglob("*") if path.is_file())
+    if not files:
+        raise RuntimeError(f"model snapshot is empty: {snapshot}")
+    digest = hashlib.sha256()
+    total_bytes = 0
+    for path in files:
+        if path.name.endswith(".incomplete"):
+            raise RuntimeError(f"incomplete model artifact: {path}")
+        if path.is_symlink() and not path.exists():
+            raise RuntimeError(f"broken model artifact link: {path}")
+        relative = path.relative_to(snapshot).as_posix()
+        size = path.stat().st_size
+        if size == 0:
+            raise RuntimeError(f"empty model artifact: {path}")
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(size).encode("ascii"))
+        digest.update(b"\0")
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        total_bytes += size
+    try:
+        display_snapshot = snapshot.resolve().relative_to(ROOT).as_posix()
+    except ValueError:
+        display_snapshot = f"<external-cache>/{snapshot.name}"
+    return {
+        "model_id": model_id,
+        "revision": revision or snapshot.name,
+        "snapshot": display_snapshot,
+        "tree_sha256": digest.hexdigest(),
+        "file_count": len(files),
+        "total_bytes": total_bytes,
+    }
 
 
-def evaluate(name, model_id, encode):
-    dataset = json.loads(DATASET.read_text())
-    ids = list(dataset["candidates"].keys())
-    texts = [dataset["candidates"][key] for key in ids]
+def evaluate(
+    provider: str,
+    model_id: str,
+    revision: str,
+    artifact_model_id: str,
+    artifact_revision: str | None,
+    encode,
+    runtime: dict[str, object],
+) -> dict[str, object]:
+    dataset = json.loads(DATASET.read_text(encoding="utf-8"))
+    candidate_ids = list(dataset["candidates"].keys())
+    candidate_texts = [dataset["candidates"][key] for key in candidate_ids]
     started = time.perf_counter()
-    candidate_vectors = encode(texts)
+    candidate_vectors = encode(candidate_texts)
     index_ms = (time.perf_counter() - started) * 1000
-    query_ms = []
+    if not candidate_vectors or not candidate_vectors[0]:
+        raise RuntimeError("embedding provider returned no vectors")
+    dimensions = len(candidate_vectors[0])
+    if any(len(vector) != dimensions for vector in candidate_vectors):
+        raise RuntimeError("embedding provider returned inconsistent dimensions")
+    query_ms: list[float] = []
     observations = []
     for case in dataset["queries"]:
         started = time.perf_counter()
         query_vector = encode([case["query"]])[0]
         query_ms.append((time.perf_counter() - started) * 1000)
         ranked = sorted(
-            ((candidate_id, cosine(query_vector, vector)) for candidate_id, vector in zip(ids, candidate_vectors, strict=True)),
-            key=lambda item: item[1],
-            reverse=True,
+            ((candidate_id, cosine(query_vector, vector)) for candidate_id, vector in zip(candidate_ids, candidate_vectors, strict=True)),
+            key=lambda item: item[1], reverse=True,
         )
         observations.append({
-            "query": case["query"],
-            "relevant": case["relevant"],
-            "top1": ranked[0][0],
-            "top3": [item[0] for item in ranked[:3]],
-            "scores": ranked[:5],
+            "query": case["query"], "relevant": case["relevant"], "top1": ranked[0][0],
+            "top3": [item[0] for item in ranked[:3]], "scores": ranked[:5],
         })
+    relevant_count = len(observations)
+    sorted_query_ms = sorted(query_ms)
+    artifact = artifact_digest(artifact_model_id, artifact_revision)
+    if Path(artifact_model_id).is_dir():
+        artifact["model_id"] = FASTEMBED_ARTIFACT_ID
     return {
-        "provider": name,
-        "model": model_id,
-        "dimensions": len(candidate_vectors[0]),
-        "case_count": len(observations),
-        "index_ms": index_ms,
+        "provider": provider, "model": model_id, "revision": revision,
+        "dimensions": dimensions, "case_count": relevant_count, "index_ms": index_ms,
         "query_ms_median": statistics.median(query_ms),
+        "query_ms_p95": sorted_query_ms[max(0, math.ceil(len(query_ms) * 0.95) - 1)],
         "query_ms_max": max(query_ms),
-        "recall_at_1": sum(row["top1"] == row["relevant"] for row in observations) / len(observations),
-        "recall_at_3": sum(row["relevant"] in row["top3"] for row in observations) / len(observations),
+        "recall_at_1": sum(row["top1"] == row["relevant"] for row in observations) / relevant_count,
+        "recall_at_3": sum(row["relevant"] in row["top3"] for row in observations) / relevant_count,
         "results": observations,
-        "artifact": artifact_digest(model_id),
+        "artifact": artifact,
+        "source_model": model_id,
         "similarity": "cosine-normalized-at-scoring",
+        "preprocessing": "raw_text_v1; no provider-side normalization", "runtime": runtime,
     }
 
 
-def main():
-    from fastembed import TextEmbedding
-    from sentence_transformers import SentenceTransformer
+def current_memory_bytes() -> int | None:
+    try:
+        import resource
+        value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return int(value * (1024 if sys.platform != "darwin" else 1))
+    except (ImportError, AttributeError):
+        return None
 
-    results = []
-    for model_id in ["BAAI/bge-small-en-v1.5", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"]:
+
+def run_provider(provider: str) -> dict[str, object]:
+    if provider == "fastembed/onnx":
+        from fastembed import TextEmbedding
+        os.environ.setdefault("FASTEMBED_CACHE_PATH", str(FASTEMBED_CACHE))
         started = time.perf_counter()
-        model = TextEmbedding(model_name=model_id)
+        model = TextEmbedding(model_name=MODEL_ID)
         load_ms = (time.perf_counter() - started) * 1000
-        row = evaluate("fastembed/onnx", model_id, lambda texts, m=model: [v.tolist() for v in m.embed(texts)])
-        row["model_load_ms"] = load_ms
-        results.append(row)
+        result = evaluate(
+            provider, MODEL_ID, MODEL_REVISION, str(FASTEMBED_CACHE), None,
+            lambda texts: [vector.tolist() for vector in model.embed(texts)],
+            {"python": platform.python_version(), "fastembed": package_version("fastembed"),
+             "onnxruntime": package_version("onnxruntime"), "numpy": package_version("numpy"),
+             "preprocessing": "raw_text_v1; fastembed model defaults"},
+        )
+    elif provider == "sentence-transformers/pytorch":
+        from sentence_transformers import SentenceTransformer
+        started = time.perf_counter()
+        model = SentenceTransformer(MODEL_ID, revision=MODEL_REVISION)
+        load_ms = (time.perf_counter() - started) * 1000
+        result = evaluate(
+            provider, MODEL_ID, MODEL_REVISION, MODEL_ID, MODEL_REVISION,
+            lambda texts: model.encode(texts, normalize_embeddings=False, convert_to_numpy=True).tolist(),
+            {"python": platform.python_version(), "sentence-transformers": package_version("sentence-transformers"),
+             "torch": package_version("torch"), "transformers": package_version("transformers"),
+             "numpy": package_version("numpy"), "preprocessing": "raw_text_v1; normalize_embeddings=false"},
+        )
+    else:
+        raise ValueError(f"unsupported provider: {provider}")
+    result["model_load_ms"] = load_ms
+    result["max_rss_bytes"] = current_memory_bytes()
+    return result
 
-    model_id = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+
+def run_candidate(provider: str, python_command: str) -> dict[str, object]:
+    command = [python_command, str(Path(__file__).resolve()), "--provider", provider]
+    environment = os.environ.copy()
+    environment["HF_HUB_OFFLINE"] = "1"
     started = time.perf_counter()
-    model = SentenceTransformer(model_id)
-    load_ms = (time.perf_counter() - started) * 1000
-    row = evaluate("sentence-transformers/pytorch", model_id, lambda texts: model.encode(texts, normalize_embeddings=False).tolist())
-    row["model_load_ms"] = load_ms
-    results.append(row)
+    completed = subprocess.run(command, capture_output=True, text=True, check=False, env=environment)
+    wall_ms = (time.perf_counter() - started) * 1000
+    if completed.returncode != 0:
+        return {"provider": provider, "status": "failed", "wall_ms": wall_ms,
+                "error": completed.stderr[-4000:], "stdout": completed.stdout[-2000:]}
+    try:
+        result = json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        return {"provider": provider, "status": "failed", "wall_ms": wall_ms,
+                "error": f"runner emitted invalid JSON: {error}", "stdout": completed.stdout[-4000:]}
+    result["status"] = "success"
+    result["wall_ms"] = wall_ms
+    return result
 
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--provider", choices=["fastembed/onnx", "sentence-transformers/pytorch"])
+    args = parser.parse_args()
+    if args.provider:
+        print(json.dumps(run_provider(args.provider), ensure_ascii=False))
+        return
+    fast_python = os.environ.get("ACE_EMBEDDING_FAST_PYTHON", str(ROOT / ".venv-embedding-fast/bin/python"))
+    st_python = os.environ.get("ACE_EMBEDDING_ST_PYTHON", str(ROOT / ".venv-embedding-st/bin/python"))
+    candidates = [run_candidate("fastembed/onnx", fast_python), run_candidate("sentence-transformers/pytorch", st_python)]
+    successful = [candidate for candidate in candidates if candidate["status"] == "success"]
+    winner = None
+    if successful:
+        winner = min(successful, key=lambda candidate: (
+            -float(candidate["recall_at_3"]), -float(candidate["recall_at_1"]),
+            float(candidate["query_ms_p95"]), float(candidate["model_load_ms"]),
+            int(candidate.get("max_rss_bytes") or 2**63), str(candidate["provider"]),
+        ))["provider"]
     output = {
-        "status": "reproducible-exploratory-comparison",
-        "dataset": DATASET.relative_to(ROOT).as_posix(),
-        "metric": "cosine",
-        "results": results,
+        "status": "comparison-complete" if len(successful) == 2 else "comparison-incomplete",
+        "selection_policy": ["recall_at_3", "recall_at_1", "query_ms_p95", "model_load_ms", "max_rss_bytes", "provider_name"],
+        "dataset": DATASET.relative_to(ROOT).as_posix(), "model": MODEL_ID, "revision": MODEL_REVISION,
+        "candidates": candidates, "winner": winner,
     }
-    OUTPUT.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n")
-    print(json.dumps({"output": str(OUTPUT), "providers": len(results), "cases": len(json.loads(DATASET.read_text())["queries"])}))
+    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    OUTPUT.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({"output": str(OUTPUT), "status": output["status"], "winner": winner}))
 
 
 if __name__ == "__main__":

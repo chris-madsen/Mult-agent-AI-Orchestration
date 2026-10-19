@@ -17,6 +17,9 @@ const aceContextItem = (event: unknown): JsonObject | null => {
 
 const hasCompleteContextResult = (item: JsonObject): boolean => {
   const result = object(item.result);
+  // A completed JSON-RPC exchange may still contain a failed MCP tool result.
+  // Never count an error-bearing tool response as DBC-12 retrieval success.
+  if (result?.isError === true || result?.is_error === true) return false;
   const structuredContent = object(result?.structured_content);
   const evidence = Array.isArray(structuredContent?.evidence) ? structuredContent.evidence : [];
   const hasVerifiedCodeEvidence = evidence.some((entry) => {
@@ -49,6 +52,28 @@ export const isSuccessfulAceContextEvent = (event: unknown): boolean => {
   return item?.status === 'completed'
     && hasNoError(item.error)
     && hasCompleteContextResult(item);
+};
+
+const successfulRequestId = (item: JsonObject): string | undefined => {
+  if (item.status !== 'completed' || !hasNoError(item.error) || !hasCompleteContextResult(item)) return undefined;
+  const result = object(item.result);
+  const structuredContent = object(result?.structured_content);
+  return typeof structuredContent?.requestId === 'string' && structuredContent.requestId.length > 0
+    ? structuredContent.requestId
+    : undefined;
+};
+
+export const successfulAceContextRequestId = (event: unknown): string | undefined => {
+  const item = aceContextItem(event);
+  return item === null ? undefined : successfulRequestId(item);
+};
+
+export const successfulAceContextRequestIdJsonLine = (line: string): string | undefined => {
+  try {
+    return successfulAceContextRequestId(JSON.parse(line) as unknown);
+  } catch {
+    return undefined;
+  }
 };
 
 const fromJsonLine = (line: string, predicate: (event: unknown) => boolean): boolean => {

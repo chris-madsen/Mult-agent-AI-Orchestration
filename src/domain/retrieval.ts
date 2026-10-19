@@ -20,6 +20,8 @@ export interface CodeCandidate {
   readonly repoPath: RepoPath;
   readonly range: SourceRange;
   readonly symbolName?: string;
+  /** Tree-sitter identifier start. byteColumn is one-based UTF-8 byte offset within the line. */
+  readonly semanticAnchor?: { readonly line: number; readonly byteColumn: number };
   readonly text: string;
   readonly sourceDigest: ContentDigest;
   readonly generation: Generation;
@@ -117,6 +119,11 @@ const validRange = (range: SourceRange): boolean =>
 export const makeCodeCandidate = (input: Omit<CodeCandidate, 'invalidated'> & { readonly invalidated?: boolean }): Result<CodeCandidate, DomainError> => {
   if (input.text.length === 0) return err(domainError('INVALID_RETRIEVAL', 'text', 'candidate text must not be empty'));
   if (!validRange(input.range)) return err(domainError('INVALID_RETRIEVAL', 'range', 'source range is invalid'));
+  if (input.semanticAnchor !== undefined
+    && (!Number.isSafeInteger(input.semanticAnchor.line) || input.semanticAnchor.line < 1
+      || !Number.isSafeInteger(input.semanticAnchor.byteColumn) || input.semanticAnchor.byteColumn < 1)) {
+    return err(domainError('INVALID_RETRIEVAL', 'semantic_anchor', 'semantic anchor must use positive one-based coordinates'));
+  }
   if (!Number.isSafeInteger(input.generation) || input.generation < 1) {
     return err(domainError('INVALID_RETRIEVAL', 'generation', 'index generation must be positive'));
   }

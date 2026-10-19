@@ -1,9 +1,30 @@
 import { createHash } from 'node:crypto';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
-import { isObservedAceContextJsonLine, isSuccessfulAceContextJsonLine } from '../src/domain/harbor-mcp-evidence.js';
+import { dirname, join, relative, resolve } from 'node:path';
+import { isObservedAceContextJsonLine, isSuccessfulAceContextJsonLine, successfulAceContextRequestIdJsonLine } from '../src/domain/harbor-mcp-evidence.js';
+import { assessHarborAcceptance } from '../src/domain/harbor-evaluation-policy.js';
 
 type JsonObject = Readonly<Record<string, unknown>>;
+type Configuration = 'native-codex' | 'codex-plus-ace';
+const requiredCorrelatedProviderOperations = [
+  'embedding:embed_many',
+  'qdrant:query_points',
+  'typescript_language_service:definition',
+] as const;
+const requiredProviderOperations = [
+  ...requiredCorrelatedProviderOperations,
+  'tree_sitter:extract',
+] as const;
+
+interface ProviderReceiptSummary {
+  readonly traceFiles: readonly string[];
+  readonly successfulProviders: readonly string[];
+  readonly successfulOperations: readonly string[];
+  readonly correlatedRequestIds: readonly string[];
+  readonly missingRequestIds: readonly string[];
+  readonly valid: boolean;
+  readonly correlated: boolean;
+}
 
 interface JobSummary {
   readonly jobPath: string;
@@ -15,39 +36,47 @@ interface JobSummary {
   readonly quality: number;
   readonly inputTokens: number | null;
   readonly cachedInputTokens: number | null;
-  readonly outputTokens: number | null;
-  readonly totalTokens: number | null;
+  readonly rawTotalTokens: number | null;
   readonly costUsd: number | null;
+  readonly externalProviderCostUsd: number | null;
+  readonly aceCalls: number;
   readonly aceObservedCalls: number;
-  readonly aceSuccessfulCalls: number;
-  readonly aceUnsuccessfulCalls: number;
+  readonly aceIncompleteCalls: number;
+  readonly currentSourceCalls: number;
   readonly taskNames: readonly string[];
+  readonly taskStats: readonly TaskSummary[];
+  readonly providerReceipts: readonly ProviderReceiptSummary[];
+}
+
+interface TaskSummary {
+  readonly taskName: string;
+  readonly trials: number;
+  readonly successes: number;
+  readonly failures: number;
+  readonly inputTokens: number | null;
+  readonly cachedInputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly rawTotalTokens: number | null;
+  readonly costUsd: number | null;
+  readonly latencyMsMedian: number | null;
 }
 
 const object = (value: unknown, path: string): JsonObject => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error(`${path} must be an object`);
   return value as JsonObject;
 };
-
 const number = (value: unknown, path: string): number => {
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`${path} must be a finite number`);
   return value;
 };
-
 const integer = (value: unknown, path: string): number => {
   const result = number(value, path);
   if (!Number.isSafeInteger(result) || result < 0) throw new Error(`${path} must be a non-negative integer`);
   return result;
 };
-
-const optionalInteger = (value: unknown, path: string): number | null =>
-  value === null || value === undefined ? null : integer(value, path);
-
-const optionalNumber = (value: unknown, path: string): number | null =>
-  value === null || value === undefined ? null : number(value, path);
-
+const optionalInteger = (value: unknown, path: string): number | null => value === null || value === undefined ? null : integer(value, path);
+const optionalNumber = (value: unknown, path: string): number | null => value === null || value === undefined ? null : number(value, path);
 const sha256 = (content: string): string => createHash('sha256').update(content, 'utf8').digest('hex');
-
 const readJson = async (path: string): Promise<JsonObject> => object(JSON.parse(await readFile(path, 'utf8')) as unknown, path);
 
 const trialDirectories = async (aggregatePath: string): Promise<readonly string[]> => {
@@ -56,7 +85,65 @@ const trialDirectories = async (aggregatePath: string): Promise<readonly string[
   return entries.filter((entry) => entry.isDirectory()).map((entry) => join(parent, entry.name)).sort();
 };
 
-const summarize = async (aggregatePath: string): Promise<JobSummary> => {
+const filesNamed = async (root: string, name: string): Promise<readonly string[]> => {
+  const found: string[] = [];
+  const visit = async (directory: string): Promise<void> => {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) await visit(path);
+      else if (entry.isFile() && entry.name === name) found.push(path);
+    }
+  };
+  await visit(root);
+  return found.sort();
+};
+
+const providerReceipts = async (
+  directory: string,
+  expectedRequestIds: readonly string[],
+): Promise<ProviderReceiptSummary> => {
+  const traceFiles = await filesNamed(directory, 'provider-trace.jsonl');
+  const successful = new Set<string>();
+  const operations = new Set<string>();
+  const operationsByRequest = new Map<string, Set<string>>();
+  for (const path of traceFiles) {
+    const content = await readFile(path, 'utf8');
+    for (const line of content.split('\n').filter((value) => value.trim().length > 0)) {
+      const event = object(JSON.parse(line) as unknown, path);
+      const forbidden = ['source', 'query', 'text', 'token', 'secret', 'authorization'];
+      if (forbidden.some((key) => key in event)) throw new Error(`${path}: unsafe provider trace field ${forbidden.find((key) => key in event)}`);
+      if (event.status === 'success' && typeof event.provider === 'string' && typeof event.operation === 'string') {
+        const operation = event.provider + ':' + event.operation;
+        successful.add(event.provider);
+        operations.add(operation);
+        if (typeof event.requestId === 'string' && event.requestId.length > 0) {
+          const requestOperations = operationsByRequest.get(event.requestId) ?? new Set<string>();
+          requestOperations.add(operation);
+          operationsByRequest.set(event.requestId, requestOperations);
+        }
+      }
+    }
+  }
+  const expected = [...new Set(expectedRequestIds)];
+  const correlatedRequestIds = expected.filter((requestId) => {
+    const requestOperations = operationsByRequest.get(requestId);
+    return requestOperations !== undefined
+      && requiredCorrelatedProviderOperations.every((operation) => requestOperations.has(operation));
+  });
+  const correlated = expected.length > 0 && correlatedRequestIds.length === expected.length;
+  return {
+    traceFiles: traceFiles.map((path) => relative(process.cwd(), path)),
+    successfulProviders: [...successful].sort(),
+    successfulOperations: [...operations].sort(),
+    correlatedRequestIds,
+    missingRequestIds: expected.filter((requestId) => !correlatedRequestIds.includes(requestId)),
+    valid: requiredProviderOperations.every((operation) => operations.has(operation)),
+    correlated,
+  };
+};
+
+const summarize = async (aggregatePath: string, configuration: Configuration): Promise<JobSummary> => {
   const aggregateContent = await readFile(aggregatePath, 'utf8');
   const aggregate = await readJson(aggregatePath);
   const stats = object(aggregate.stats, `${aggregatePath}.stats`);
@@ -77,35 +164,57 @@ const summarize = async (aggregatePath: string): Promise<JobSummary> => {
 
   const trials = await trialDirectories(aggregatePath);
   let successes = 0;
+  let aceCalls = 0;
   let aceObservedCalls = 0;
-  let aceSuccessfulCalls = 0;
+  let currentSourceCalls = 0;
   const taskNames: string[] = [];
+  const receipts: ProviderReceiptSummary[] = [];
+  const perTask = new Map<string, { trials: number; successes: number; input: number; cached: number; output: number; cost: number; latencies: number[]; completeUsage: boolean }>();
   for (const directory of trials) {
     const trial = await readJson(join(directory, 'result.json'));
     const taskName = trial.task_name;
     if (typeof taskName !== 'string' || taskName.length === 0) throw new Error(`${directory}: missing task_name`);
     taskNames.push(taskName);
+    const task = perTask.get(taskName) ?? { trials: 0, successes: 0, input: 0, cached: 0, output: 0, cost: 0, latencies: [], completeUsage: true };
+    task.trials += 1;
     const exception = trial.exception_info;
-    const verifier = trial.verifier_result === null || trial.verifier_result === undefined
-      ? null
-      : object(trial.verifier_result, `${directory}.verifier_result`);
-    const rewards = verifier === null || verifier.rewards === null || verifier.rewards === undefined
-      ? null
-      : object(verifier.rewards, `${directory}.verifier_result.rewards`);
-    if ((exception === null || exception === undefined) && rewards !== null
-      && number(rewards.reward, `${directory}.reward`) === 1) {
+    const verifier = trial.verifier_result === null || trial.verifier_result === undefined ? null : object(trial.verifier_result, `${directory}.verifier_result`);
+    const rewards = verifier === null || verifier.rewards === null || verifier.rewards === undefined ? null : object(verifier.rewards, `${directory}.verifier_result.rewards`);
+    const trialSuccess = (exception === null || exception === undefined) && rewards !== null && number(rewards.reward, `${directory}.reward`) === 1;
+    if (trialSuccess) {
       successes += 1;
+      task.successes += 1;
     }
-    try {
-      const trace = await readFile(join(directory, 'agent', 'codex.txt'), 'utf8');
-      const lines = trace.split('\n');
-      aceObservedCalls += lines.filter(isObservedAceContextJsonLine).length;
-      aceSuccessfulCalls += lines.filter(isSuccessfulAceContextJsonLine).length;
-    } catch (error) {
+    const agentResult = trial.agent_result === null || trial.agent_result === undefined ? null : object(trial.agent_result, `${directory}.agent_result`);
+    if (agentResult === null) task.completeUsage = false;
+    else {
+      const input = optionalInteger(agentResult.n_input_tokens, `${directory}.agent_result.n_input_tokens`);
+      const cached = optionalInteger(agentResult.n_cache_tokens, `${directory}.agent_result.n_cache_tokens`);
+      const output = optionalInteger(agentResult.n_output_tokens, `${directory}.agent_result.n_output_tokens`);
+      const cost = optionalNumber(agentResult.cost_usd, `${directory}.agent_result.cost_usd`);
+      if (input === null || cached === null || output === null || cost === null) task.completeUsage = false;
+      else { task.input += input; task.cached += cached; task.output += output; task.cost += cost; }
+    }
+    const startedAt = typeof trial.started_at === 'string' ? Date.parse(trial.started_at) : Number.NaN;
+    const finishedAt = typeof trial.finished_at === 'string' ? Date.parse(trial.finished_at) : Number.NaN;
+    if (Number.isFinite(startedAt) && Number.isFinite(finishedAt) && finishedAt >= startedAt) task.latencies.push(finishedAt - startedAt);
+    let trace = '';
+    try { trace = await readFile(join(directory, 'agent', 'codex.txt'), 'utf8'); } catch (error) {
       if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error;
     }
+    const traceLines = trace.split('\n');
+    const successfulRequestIds = traceLines
+      .map(successfulAceContextRequestIdJsonLine)
+      .filter((requestId): requestId is string => requestId !== undefined);
+    aceCalls += traceLines.filter(isSuccessfulAceContextJsonLine).length;
+    aceObservedCalls += traceLines.filter(isObservedAceContextJsonLine).length;
+    // Completed ACE evidence requires current/direct code. A progressive outline may omit inline content.
+    currentSourceCalls += successfulRequestIds.length;
+    receipts.push(await providerReceipts(directory, successfulRequestIds));
+    perTask.set(taskName, task);
   }
   if (trials.length !== totalTrials) throw new Error(`${aggregatePath}: aggregate/trial count mismatch`);
+  if (configuration === 'native-codex' && (aceObservedCalls !== 0 || currentSourceCalls !== 0)) throw new Error(`${aggregatePath}: native baseline unexpectedly called ACE MCP`);
   return {
     jobPath: aggregatePath,
     aggregateSha256: sha256(aggregateContent),
@@ -116,43 +225,107 @@ const summarize = async (aggregatePath: string): Promise<JobSummary> => {
     quality,
     inputTokens,
     cachedInputTokens,
-    outputTokens,
-    totalTokens: inputTokens === null || outputTokens === null ? null : inputTokens + outputTokens,
+    rawTotalTokens: inputTokens === null || outputTokens === null ? null : inputTokens + outputTokens,
     costUsd,
+    // Local CPU/RAM/indexing and model acquisition were not metered. Zero would
+    // falsely present an unknown end-to-end cost as a measured free service.
+    externalProviderCostUsd: null,
+    aceCalls,
     aceObservedCalls,
-    aceSuccessfulCalls,
-    aceUnsuccessfulCalls: aceObservedCalls - aceSuccessfulCalls,
-    taskNames: [...new Set(taskNames)].sort(),
+    aceIncompleteCalls: aceObservedCalls - aceCalls,
+    currentSourceCalls,
+    taskNames: [...taskNames].sort(),
+    taskStats: [...perTask.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([taskName, task]) => {
+      const sorted = [...task.latencies].sort((left, right) => left - right);
+      return {
+        taskName,
+        trials: task.trials,
+        successes: task.successes,
+        failures: task.trials - task.successes,
+        inputTokens: task.completeUsage ? task.input : null,
+        cachedInputTokens: task.completeUsage ? task.cached : null,
+        outputTokens: task.completeUsage ? task.output : null,
+        rawTotalTokens: task.completeUsage ? task.input + task.output : null,
+        costUsd: task.completeUsage ? task.cost : null,
+        latencyMsMedian: sorted.length === 0 ? null : sorted[Math.floor(sorted.length / 2)],
+      };
+    }),
+    providerReceipts: receipts,
   };
 };
 
-const [nativePath, acePath, reportPath] = process.argv.slice(2);
+const [nativePath, acePath, reportPath, aceJobConfigPath = 'benchmarks/harbor/ace-suite/retrieval-ace-paired-job.json'] = process.argv.slice(2);
 if (nativePath === undefined || acePath === undefined || reportPath === undefined) {
-  throw new Error('Usage: tsx scripts/harbor-retrieval-gate.ts <native-result.json> <ace-result.json> <report.json>');
+  throw new Error('Usage: tsx scripts/harbor-retrieval-gate.ts <native-result.json> <ace-result.json> <report.json> [ace-job-config.json]');
 }
-
-const native = await summarize(nativePath);
-const ace = await summarize(acePath);
-const paired = native.trials === ace.trials && native.trials >= 3
-  && JSON.stringify(native.taskNames) === JSON.stringify(ace.taskNames);
-const qualityNonInferior = ace.successes / ace.trials >= native.successes / native.trials;
-const attributionEvidence = native.aceObservedCalls === 0 && ace.aceSuccessfulCalls > 0;
+const aceJobConfigContent = await readFile(aceJobConfigPath, 'utf8');
+const aceJobConfig = object(JSON.parse(aceJobConfigContent) as unknown, 'ACE Harbor job config');
+const instructions = aceJobConfig.extra_instructions;
+if (!Array.isArray(instructions) || !instructions.every((entry) => typeof entry === 'string')) {
+  throw new Error('ACE Harbor job config must explicitly declare extra_instructions as a string array');
+}
+const forcedToolUse = instructions.some((instruction) =>
+  /(?:before editing|must|require|mandatory).*?(?:ace_context|call.*?ace)/iu.test(instruction));
+const evaluationDesign = forcedToolUse ? 'forced-tool-use' : 'optional-natural-tool-use';
+const native = await summarize(nativePath, 'native-codex');
+const ace = await summarize(acePath, 'codex-plus-ace');
+const receiptGate = ace.providerReceipts.length === ace.trials && ace.providerReceipts.every((receipt) => receipt.valid);
+const paired = native.trials === ace.trials && native.trials >= 9 && JSON.stringify(native.taskNames) === JSON.stringify(ace.taskNames);
+const qualityNonInferior = native.trials > 0 && ace.successes / ace.trials >= native.successes / native.trials;
+const attributed = native.aceObservedCalls === 0 && ace.aceCalls > 0 && ace.currentSourceCalls === ace.aceCalls;
+const providerCorrelationVerified = receiptGate
+  && ace.aceCalls > 0
+  && ace.providerReceipts.every((receipt) => receipt.correlated);
+const acceptance = assessHarborAcceptance({
+  paired,
+  qualityNonInferior,
+  actualAceCallObserved: ace.aceObservedCalls > 0 && native.aceObservedCalls === 0,
+  codeEvidenceObserved: attributed,
+  providerOperationsObserved: receiptGate,
+  forcedToolUse,
+  providerRequestCorrelationVerified: providerCorrelationVerified,
+  completeCostTelemetry: false,
+});
 const report = {
-  evidence: 'real-harbor-trials',
+  evidence: 'real-harbor-retrieval-trials',
   native,
   ace,
   paired,
   qualityNonInferior,
+  evaluationDesign,
+  declaredAceJobConfig: aceJobConfigPath,
+  aceJobConfigSha256: sha256(aceJobConfigContent),
+  // "natural" describes the committed job configuration, not independently
+  // authenticated runtime prompts; DBC-12 remains diagnostic either way.
   aceInvocationsObserved: ace.aceObservedCalls > 0,
-  completeAceInvocationsObserved: ace.aceSuccessfulCalls > 0,
-  attributionEvidence,
-  measuredTokenRatio: native.totalTokens === null || ace.totalTokens === null || ace.totalTokens === 0
-    ? null : native.totalTokens / ace.totalTokens,
-  measuredCostRatio: native.costUsd === null || ace.costUsd === null || ace.costUsd === 0
-    ? null : native.costUsd / ace.costUsd,
-  target5xReached: paired && qualityNonInferior && attributionEvidence && ace.totalTokens !== null
-    && native.totalTokens !== null && ace.totalTokens > 0 && native.totalTokens / ace.totalTokens >= 5,
-  acceptance: paired && qualityNonInferior && attributionEvidence ? 'measured-not-necessarily-5x' : 'rejected',
+  completeAceCallsObserved: attributed,
+  providerOperationsObserved: receiptGate,
+  providerCorrelationVerified,
+  providerReceiptsVerified: receiptGate && providerCorrelationVerified,
+  costScope: 'codex-reported-usage-only; local infrastructure cost unmeasured',
+  rawTotalTokens: { native: native.rawTotalTokens, ace: ace.rawTotalTokens },
+  uncachedInputTokens: {
+    native: native.inputTokens === null || native.cachedInputTokens === null ? null : native.inputTokens - native.cachedInputTokens,
+    ace: ace.inputTokens === null || ace.cachedInputTokens === null ? null : ace.inputTokens - ace.cachedInputTokens,
+  },
+  costUsd: { native: native.costUsd, ace: ace.costUsd },
+  externalProviderCostUsd: { native: native.externalProviderCostUsd, ace: ace.externalProviderCostUsd },
+  savingsFactor: native.rawTotalTokens === null || ace.rawTotalTokens === null || ace.rawTotalTokens === 0 ? null : native.rawTotalTokens / ace.rawTotalTokens,
+  tokenReduction: native.rawTotalTokens === null || ace.rawTotalTokens === null || native.rawTotalTokens === 0 ? null : 1 - ace.rawTotalTokens / native.rawTotalTokens,
+  costSavingsFactor: native.costUsd === null || ace.costUsd === null || ace.costUsd === 0 ? null : native.costUsd / ace.costUsd,
+  costReduction: native.costUsd === null || ace.costUsd === null || native.costUsd === 0 ? null : 1 - ace.costUsd / native.costUsd,
+  target5xReached: false, // a forced tool invocation cannot close DBC-12
+  acceptance,
+  productionAcceptance: 'rejected',
+  limitations: [
+    forcedToolUse
+      ? 'ACE was forced by an extra instruction, so natural tool-choice savings were not tested.'
+      : 'The ACE job config has no mandatory tool-call instruction, but actual tool-choice and cost attribution still require raw trace review.',
+    'Only three small tasks repeated three times; this is not a large-repository long-horizon workload.',
+    ...(providerCorrelationVerified ? [] : ['One or more successful ACE requests lack request-ID-correlated embedding/Qdrant/LSP operations.']),
+    'Local embedding, Qdrant, Tree-sitter and TypeScript LS CPU/RAM cost and index setup are not metered.',
+    'Raw totals include cached input tokens; Codex cost represents its reported usage only.',
+  ],
 };
 await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n', 'utf8');
 process.stdout.write(JSON.stringify(report) + '\n');

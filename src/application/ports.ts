@@ -19,6 +19,7 @@ import type {
   SemanticTypeInfo,
   StructuralAnalysis,
 } from '../domain/semantic.js';
+import type { ProviderTraceEvent } from '../domain/provider-trace.js';
 
 export interface HttpRequest {
   readonly method: 'GET' | 'POST' | 'PUT' | 'DELETE';
@@ -42,12 +43,18 @@ export interface HttpPort {
  * selected here; provider choice requires an approved, measured spike.
  */
 export interface VectorEmbeddingPort {
-  readonly embedMany: (input: readonly string[]) => Effect.Effect<Result<readonly (readonly number[])[], DomainError>>;
+  readonly embedMany: (input: readonly string[], requestId?: string) => Effect.Effect<Result<readonly (readonly number[])[], DomainError>>;
+}
+
+export interface ProviderTraceSink {
+  readonly record: (event: ProviderTraceEvent) => void;
 }
 
 export interface CodePoint {
   readonly candidate: CodeCandidate;
   readonly vector: readonly number[];
+  /** Opaque source-snapshot key used to isolate equal observation epochs. */
+  readonly indexKey?: string;
 }
 
 export interface CodeCandidatePort {
@@ -57,6 +64,10 @@ export interface CodeCandidatePort {
     readonly limit: number;
     /** Current build epoch, preventing deleted/renamed sources from reappearing. */
     readonly generation?: number;
+    /** Current source snapshot key, preventing equal epochs from mixing. */
+    readonly indexKey?: string;
+    /** Correlates query-time provider work to one ACE ContextBundle. */
+    readonly requestId?: string;
   }) => Effect.Effect<Result<readonly RankedCandidate[], DomainError>>;
   readonly upsert: (points: readonly CodePoint[]) => Effect.Effect<Result<void, DomainError>>;
 }
@@ -87,6 +98,8 @@ export interface SemanticQuery {
   readonly repoPath: string;
   readonly line: number;
   readonly column: number;
+  /** Correlates semantic provider work to one ACE ContextBundle. */
+  readonly requestId?: string;
 }
 
 export interface GraphProjectionPort {

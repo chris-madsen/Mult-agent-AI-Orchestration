@@ -9,11 +9,14 @@ import sys
 import time
 
 from fastembed import TextEmbedding
+from embedding_artifact_verifier import verify_loaded_artifact
 
 
 def main() -> int:
     model_name = sys.argv[1]
+    os.environ.setdefault("ACE_EMBEDDING_MODEL", model_name)
     model = TextEmbedding(model_name=model_name)
+    verify_loaded_artifact(model)
     for line in sys.stdin:
         request = None
         try:

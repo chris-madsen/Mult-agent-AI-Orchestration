@@ -12,6 +12,7 @@
     "probe:providers": "node scripts/provider-capability-probe.mjs",
     "report:harbor-smoke": "tsx scripts/render-harbor-smoke-report.ts",
     "report:harbor-paired": "tsx scripts/render-harbor-paired-report.ts",
+    "report:harbor-retrieval": "tsx scripts/render-harbor-retrieval-report.ts",
     "spike:embeddings": "tsx scripts/embedding-spike.ts",
     "recall:codex-history": "tsx scripts/recall-codex-history.ts",
     "probe:vertex": "bash scripts/vertex-rag-readonly-probe.sh",
@@ -27,7 +28,8 @@
     "gate:harbor": "tsx scripts/harbor-retrieval-gate.ts",
     "test:real-same-name": "npm run build && tsx scripts/real-same-name-lsp-e2e.ts",
     "test:container-provider": "npm run build && node scripts/container-provider-e2e.mjs",
-    "compare:embeddings": "bash scripts/embedding-provider-comparison.sh"
+    "compare:embeddings": "bash scripts/embedding-provider-comparison.sh",
+    "test:real-provider-hard-outage": "npm run build && ACE_REAL_PROVIDER_HARD_OUTAGE=true node scripts/real-provider-e2e.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",

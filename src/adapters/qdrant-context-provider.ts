@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
@@ -33,6 +34,7 @@ export interface QdrantContextConfig {
   readonly semantics: SemanticAnalysisPort;
   readonly newRequestId: () => string;
   readonly generation?: number;
+  readonly indexKey?: string;
   readonly documentation?: DocumentationPort;
   readonly candidateLimit?: number;
 }
@@ -41,6 +43,7 @@ export const populateQdrantFromStructuralIndex = (
   index: CodeIndex,
   qdrant: CodeCandidatePort,
   embeddings: VectorEmbeddingPort,
+  indexKey?: string,
 ): Effect.Effect<Result<number, DomainError>> => Effect.gen(function* () {
   if (index.candidates.length === 0) {
     return err(domainError('UNSUPPORTED_PROVIDER', 'index', 'no verified structural candidates available for Qdrant'));
@@ -56,6 +59,7 @@ export const populateQdrantFromStructuralIndex = (
     const points: CodePoint[] = candidates.map((candidate, i) => ({
       candidate,
       vector: vectors.value[i] ?? [],
+      ...(indexKey === undefined ? {} : { indexKey }),
     }));
     const result = yield* qdrant.upsert(points);
     if (result._tag === 'Err') return result;
@@ -85,10 +89,10 @@ export const ensureQdrantCollection = (
   const found = yield* http.request({ method: 'GET', url, headers });
   if (found._tag === 'Err') return found;
   if (found.value.status === 200) {
-    const body = found.value.body as { result?: { config?: { params?: { vectors?: { size?: number } } } } };
+    const body = found.value.body as { result?: { config?: { params?: { vectors?: { size?: number; distance?: string } } } } };
     const configured = body?.result?.config?.params?.vectors?.size;
-    if (configured !== dimension) {
-      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant', 'collection vector dimension does not match approved embedding provider'));
+    if (configured !== dimension || body?.result?.config?.params?.vectors?.distance !== 'Cosine') {
+      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant', 'collection vector size or distance is incompatible with cosine embeddings'));
     }
     return ok(undefined);
   }
@@ -104,6 +108,127 @@ export const ensureQdrantCollection = (
     : err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not create dedicated collection'));
 });
 
+/**
+ * Warm-start reuse is safe only for an exact workspace + source-snapshot key.
+ * Observation epochs change on every scan even when bytes do not, so they
+ * MUST NOT be used as the warm-cache identity. A count mismatch forces a
+ * complete rebuild; a failed
+ * count request does not quietly claim the index is healthy.
+ *
+ * Every returned snippet is still re-read from the authoritative worktree.
+ */
+export const hasExactQdrantSnapshot = (
+  http: HttpPort,
+  baseUrl: string,
+  collection: string,
+  workspaceId: WorkspaceId,
+  indexKey: string,
+  expectedCount: number,
+  allowedHosts: readonly string[] = [],
+): Effect.Effect<Result<boolean, DomainError>> => Effect.gen(function* () {
+  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
+  if (endpoint._tag === 'Err') return endpoint;
+  if (indexKey.length === 0 || !Number.isSafeInteger(expectedCount) || expectedCount <= 0) {
+    return err(domainError('INVALID_INPUT', 'snapshot', 'snapshot identity and expected positive candidate count are required'));
+  }
+  const response = yield* http.request({
+    method: 'POST',
+    url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/count',
+    body: {
+      exact: true,
+      filter: {
+        must: [
+          { key: 'workspace_id', match: { value: workspaceId } },
+          { key: 'index_key', match: { value: indexKey } },
+        ],
+      },
+    },
+  });
+  if (response._tag === 'Err') return response;
+  if (response.value.status < 200 || response.value.status >= 300) {
+    return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not verify current snapshot count'));
+  }
+  const body = response.value.body as { result?: { count?: unknown } };
+  const count = body?.result?.count;
+  if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) {
+    return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_count', 'invalid exact snapshot count'));
+  }
+  return ok(count === expectedCount);
+});
+
+export const codeIndexKey = (index: CodeIndex): string => {
+  const stable = [...index.candidates]
+    .sort((left, right) => left.candidateId.localeCompare(right.candidateId))
+    .map((candidate) => [
+      candidate.candidateId,
+      candidate.repoPath,
+      candidate.sourceDigest,
+      candidate.symbolName ?? null,
+      candidate.semanticAnchor?.line ?? null,
+      candidate.semanticAnchor?.byteColumn ?? null,
+      candidate.range.startLine,
+      candidate.range.startColumn ?? null,
+      candidate.range.endLine,
+      candidate.range.endColumn ?? null,
+      candidate.text,
+    ]);
+  return createHash('sha256').update(JSON.stringify(stable), 'utf8').digest('hex');
+};
+
+const clearQdrantSnapshot = (
+  http: HttpPort,
+  baseUrl: string,
+  collection: string,
+  workspaceId: WorkspaceId,
+  indexKey: string,
+  allowedHosts: readonly string[] = [],
+): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
+  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
+  if (endpoint._tag === 'Err') return endpoint;
+  const response = yield* http.request({
+    method: 'POST',
+    url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/delete?wait=true',
+    body: {
+      filter: {
+        must: [
+          { key: 'workspace_id', match: { value: workspaceId } },
+          { key: 'index_key', match: { value: indexKey } },
+        ],
+      },
+    },
+  });
+  if (response._tag === 'Err') return response;
+  return response.value.status >= 200 && response.value.status < 300
+    ? ok(undefined)
+    : err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not clear incomplete current snapshot'));
+});
+
+export const reuseOrPopulateQdrantSnapshot = (
+  index: CodeIndex,
+  qdrant: CodeCandidatePort,
+  embeddings: VectorEmbeddingPort,
+  http: HttpPort,
+  baseUrl: string,
+  collection: string,
+  workspaceId: WorkspaceId,
+  indexKey: string,
+  allowedHosts: readonly string[] = [],
+): Effect.Effect<Result<{ readonly count: number; readonly reused: boolean }, DomainError>> => Effect.gen(function* () {
+  const checked = yield* hasExactQdrantSnapshot(
+    http, baseUrl, collection, workspaceId, indexKey, index.candidates.length, allowedHosts,
+  );
+  if (checked._tag === 'Err') return checked;
+  if (checked.value) return ok({ count: index.candidates.length, reused: true });
+  // A mismatched count can be a partially written or contaminated snapshot.
+  // Remove only this exact workspace+snapshot partition before rebuilding so
+  // surplus points cannot survive under the same cryptographic index key.
+  const cleared = yield* clearQdrantSnapshot(http, baseUrl, collection, workspaceId, indexKey, allowedHosts);
+  if (cleared._tag === 'Err') return cleared;
+  const indexed = yield* populateQdrantFromStructuralIndex(index, qdrant, embeddings, indexKey);
+  if (indexed._tag === 'Err') return indexed;
+  return ok({ count: indexed.value, reused: false });
+});
+
 export const pruneQdrantOtherGenerations = (
   http: HttpPort,
   baseUrl: string,
@@ -111,6 +236,7 @@ export const pruneQdrantOtherGenerations = (
   workspaceId: WorkspaceId,
   generation: number,
   allowedHosts: readonly string[] = [],
+  indexKey?: string,
 ): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
   const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
   if (endpoint._tag === 'Err') return endpoint;
@@ -123,7 +249,9 @@ export const pruneQdrantOtherGenerations = (
     body: {
       filter: {
         must: [{ key: 'workspace_id', match: { value: workspaceId } }],
-        must_not: [{ key: 'generation', match: { value: generation } }],
+        must_not: [indexKey === undefined
+          ? { key: 'generation', match: { value: generation } }
+          : { key: 'index_key', match: { value: indexKey } }],
       },
     },
   });
@@ -136,21 +264,66 @@ export const pruneQdrantOtherGenerations = (
 /** Tree-sitter uses one-based line/column coordinates here, but columns count UTF-8 bytes.
  * Re-slice authoritative workspace bytes and compare them with the Qdrant payload.
  * Qdrant ranking never confers source-of-truth status. */
-export const exactUtf8Span = (
+export const exactUtf8ByteRange = (
   bytes: Uint8Array,
   range: { readonly startLine: number; readonly endLine: number; readonly startColumn?: number; readonly endColumn?: number },
-): string | undefined => {
+): { readonly offset: number; readonly length: number } | undefined => {
   if (range.startColumn === undefined || range.endColumn === undefined) return undefined;
+  if (![range.startLine, range.endLine, range.startColumn, range.endColumn]
+    .every((value) => Number.isSafeInteger(value) && (value as number) >= 1)
+    || range.startLine > range.endLine) return undefined;
   const raw = Buffer.from(bytes);
   const lineOffsets = [0];
   for (let i = 0; i < raw.length; i += 1) if (raw[i] === 10) lineOffsets.push(i + 1);
   const a = lineOffsets[range.startLine - 1];
   const b = lineOffsets[range.endLine - 1];
   if (a === undefined || b === undefined) return undefined;
-  const from = a + range.startColumn - 1;
-  const until = b + range.endColumn - 1;
-  if (from < 0 || until <= from || until > raw.length) return undefined;
-  return raw.subarray(from, until).toString('utf8');
+  // An untrusted column must not spill into another line.
+  const startLineEnd = lineOffsets[range.startLine] === undefined
+    ? raw.length : (lineOffsets[range.startLine] as number) - 1;
+  const endLineEnd = lineOffsets[range.endLine] === undefined
+    ? raw.length : (lineOffsets[range.endLine] as number) - 1;
+  const from = a + (range.startColumn as number) - 1;
+  const until = b + (range.endColumn as number) - 1;
+  if (from < a || from >= startLineEnd || until < b || until > endLineEnd || until <= from) return undefined;
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(raw.subarray(from, until));
+  } catch {
+    return undefined;
+  }
+  return { offset: from, length: until - from };
+};
+
+const utf16ColumnAtUtf8Byte = (
+  bytes: Uint8Array,
+  line: number,
+  byteColumn: number,
+): number | undefined => {
+  if (!Number.isSafeInteger(line) || line < 1 || !Number.isSafeInteger(byteColumn) || byteColumn < 1) return undefined;
+  const raw = Buffer.from(bytes);
+  const lineOffsets = [0];
+  for (let i = 0; i < raw.length; i += 1) if (raw[i] === 10) lineOffsets.push(i + 1);
+  const start = lineOffsets[line - 1];
+  if (start === undefined) return undefined;
+  const end = lineOffsets[line] === undefined ? raw.length : (lineOffsets[line] as number) - 1;
+  const target = start + byteColumn - 1;
+  if (target < start || target > end) return undefined;
+  try {
+    const prefix = new TextDecoder('utf-8', { fatal: true }).decode(raw.subarray(start, target));
+    return prefix.length + 1;
+  } catch {
+    return undefined;
+  }
+};
+
+export const exactUtf8Span = (
+  bytes: Uint8Array,
+  range: { readonly startLine: number; readonly endLine: number; readonly startColumn?: number; readonly endColumn?: number },
+): string | undefined => {
+  const span = exactUtf8ByteRange(bytes, range);
+  return span === undefined
+    ? undefined
+    : Buffer.from(bytes).subarray(span.offset, span.offset + span.length).toString('utf8');
 };
 
 export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
@@ -165,7 +338,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
     }
     const requestId = makeRequestId(config.newRequestId());
     if (requestId._tag === 'Err') return requestId;
-    const vectors = yield* config.embeddings.embedMany([input.query]);
+    const vectors = yield* config.embeddings.embedMany([input.query], requestId.value);
     if (vectors._tag === 'Err') return vectors;
     const vector = vectors.value[0];
     if (vector === undefined) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'empty query vector'));
@@ -174,6 +347,8 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
       vector,
       limit: config.candidateLimit ?? 6,
       ...(config.generation === undefined ? {} : { generation: config.generation }),
+      ...(config.indexKey === undefined ? {} : { indexKey: config.indexKey }),
+      requestId: requestId.value,
     });
     if (result._tag === 'Err') return result;
 
@@ -182,16 +357,26 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
     const failed: string[] = [];
     const fullSources = new Map<RepoPath, { readonly bytes: Uint8Array; readonly digest: string; readonly handle: string }>();
 
+    const initialFailures = new Map<RepoPath, string>();
     for (const [i, ranked] of result.value.entries()) {
       const candidate = ranked.candidate;
-      const read = yield* config.files.readExact(config.rootPath, candidate.repoPath);
-      if (read._tag === 'Err') {
-        warnings.push(candidate.repoPath + ': ' + read.error.code);
-        failed.push('code');
-        continue;
-      }
+      // One authoritative exact read and one immutable artifact per source,
+      // not one read per Qdrant symbol. All selected sources are revalidated
+      // a second time at the request boundary below.
       let full = fullSources.get(candidate.repoPath);
       if (full === undefined) {
+        const priorError = initialFailures.get(candidate.repoPath);
+        if (priorError !== undefined) {
+          failed.push('code');
+          continue;
+        }
+        const read = yield* config.files.readExact(config.rootPath, candidate.repoPath);
+        if (read._tag === 'Err') {
+          initialFailures.set(candidate.repoPath, read.error.code);
+          warnings.push(candidate.repoPath + ': ' + read.error.code);
+          failed.push('code');
+          continue;
+        }
         const stored = yield* config.artifacts.storeExact(read.value.bytes);
         if (stored._tag === 'Err') return stored;
         full = { bytes: read.value.bytes, digest: read.value.digest, handle: stored.value.handle };
@@ -200,7 +385,9 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
       // Both the digest AND the byte-exact AST slice must match. Never deliver
       // unverified Qdrant payload as if it were the workspace's current source.
       const current = full.digest === candidate.sourceDigest;
-      const verifiedText = exactUtf8Span(full.bytes, candidate.range);
+      const exactSpan = exactUtf8ByteRange(full.bytes, candidate.range);
+      const verifiedText = exactSpan === undefined ? undefined
+        : Buffer.from(full.bytes).subarray(exactSpan.offset, exactSpan.offset + exactSpan.length).toString('utf8');
       const verified = current && verifiedText !== undefined && verifiedText === candidate.text;
       const freshness = current ? (verified ? 'current' : 'unknown') : 'stale';
       if (!verified) {
@@ -211,52 +398,47 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
       if (evidenceId._tag === 'Err') return evidenceId;
       // Even a partial response must never present an unverified indexed snippet as direct evidence.
       if (!verified || verifiedText === undefined) continue;
-      const symbolLocationLine = Buffer.from(full.bytes).toString('utf8').split('\n')[candidate.range.startLine - 1] ?? '';
-      const symbolOffset = candidate.symbolName === undefined ? -1 : symbolLocationLine.indexOf(candidate.symbolName);
-      if (symbolOffset < 0) {
-        warnings.push(candidate.repoPath + ': symbol identifier was not found at the syntax node start');
+      const semanticColumn = candidate.semanticAnchor === undefined
+        ? undefined
+        : utf16ColumnAtUtf8Byte(full.bytes, candidate.semanticAnchor.line, candidate.semanticAnchor.byteColumn);
+      let lspConfirmed = false;
+      if (candidate.semanticAnchor === undefined || semanticColumn === undefined) {
+        warnings.push(candidate.repoPath + ': exact structural identifier anchor is unavailable');
         failed.push('lsp');
       } else {
         const definitions = yield* config.semantics.definition({
           repoPath: candidate.repoPath,
-          line: candidate.range.startLine,
-          column: symbolOffset + 1,
+          line: candidate.semanticAnchor.line,
+          column: semanticColumn,
+          requestId: requestId.value,
         });
         if (definitions._tag === 'Err') {
           warnings.push(candidate.repoPath + ': language service unavailable (' + definitions.error.code + ')');
           failed.push('lsp');
         } else {
-          const matchingDefinition = definitions.value.some((entry) =>
+          lspConfirmed = definitions.value.some((entry) =>
             entry.location.repoPath === candidate.repoPath
             && entry.location.startLine >= candidate.range.startLine
             && entry.location.endLine <= candidate.range.endLine);
-          if (!matchingDefinition) {
+          if (!lspConfirmed) {
             warnings.push(candidate.repoPath + ': LSP definition does not agree with the selected structural node');
             failed.push('lsp');
           }
         }
       }
+      const baseEvidence = evidenceFromCandidate({ ...ranked, freshness }, evidenceId.value);
       evidence.push({
-        ...evidenceFromCandidate({ ...ranked, freshness }, evidenceId.value),
+        ...baseEvidence,
+        proofClass: lspConfirmed ? baseEvidence.proofClass : 'uncertain',
         content: verifiedText,
         expansionHandle: full.handle,
+        ...(exactSpan === undefined ? {} : {
+          expansionCursor: String(exactSpan.offset),
+          expansionMaxBytes: exactSpan.length,
+        }),
       });
     }
 
-    // A second exact read guards against edits during the multi-provider call.
-    for (const [path, original] of fullSources) {
-      const current = yield* config.files.readExact(config.rootPath, path);
-      if (current._tag === 'Err' || current.value.digest !== original.digest) {
-        warnings.push(path + ': source changed during retrieval');
-        failed.push('code');
-        for (let i = 0; i < evidence.length; i += 1) {
-          if (evidence[i]?.citation.startsWith(path + ':')) {
-            const existing = evidence[i];
-            if (existing !== undefined) evidence[i] = { ...existing, freshness: 'changed_during_request', proofClass: 'uncertain' };
-          }
-        }
-      }
-    }
     if (input.includeDocs) {
       if (config.documentation === undefined) {
         warnings.push('documentation provider not configured'); failed.push('documentation');
@@ -277,6 +459,20 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
       }
     }
     if (input.includeMemory) { warnings.push('memory provider not configured'); failed.push('memory'); }
+    // Revalidate as the LAST I/O step, after even slow Vertex/document calls.
+    for (const [path, original] of fullSources) {
+      const current = yield* config.files.readExact(config.rootPath, path);
+      if (current._tag === 'Err' || current.value.digest !== original.digest) {
+        warnings.push(path + ': source changed during retrieval');
+        failed.push('code');
+        for (let i = 0; i < evidence.length; i += 1) {
+          if (evidence[i]?.citation.startsWith(path + ':')) {
+            const existing = evidence[i];
+            if (existing !== undefined) evidence[i] = { ...existing, freshness: 'changed_during_request', proofClass: 'uncertain' };
+          }
+        }
+      }
+    }
     return ok(mergeEvidence(requestId.value, input.query, evidence, warnings, failed));
   }),
 });

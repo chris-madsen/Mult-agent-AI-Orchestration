@@ -16,6 +16,11 @@ test('Tree-sitter structural adapter returns typed symbols with source provenanc
   assert.equal(result._tag, 'Ok');
   if (result._tag === 'Err') return;
   assert.deepEqual(result.value.symbols.map((symbol) => symbol.name), ['User', 'greet', 'Service', 'save']);
+  const greet = result.value.symbols.find((symbol) => symbol.name === 'greet');
+  assert.deepEqual(
+    greet === undefined ? undefined : { line: greet.nameStartLine, column: greet.nameStartColumn },
+    { line: 2, column: 10 },
+  );
   assert.equal(result.value.sourceDigest.length, 64);
   assert.equal(result.value.hasSyntaxErrors, false);
 });
@@ -25,4 +30,18 @@ test('Tree-sitter provider failure is explicit rather than fabricated evidence',
   const result = await Effect.runPromise(port.extract({ repoPath: 'fixture.ts', source: Buffer.from('function x() {}') }));
   assert.equal(result._tag, 'Err');
   if (result._tag === 'Err') assert.equal(result.error.code, 'UNSUPPORTED_PROVIDER');
+});
+
+
+test('Tree-sitter adapter rejects invalid UTF-8 before provider execution', async () => {
+  const port = makeTreeSitterStructuralPort({ helperPath: '/does/not/matter' });
+  const result = await Effect.runPromise(port.extract({
+    repoPath: 'invalid.ts',
+    source: Uint8Array.from([0x66, 0x6f, 0x80, 0x6f]),
+  }));
+  assert.equal(result._tag, 'Err');
+  if (result._tag === 'Err') {
+    assert.equal(result.error.code, 'INVALID_INPUT');
+    assert.equal(result.error.path, 'source');
+  }
 });

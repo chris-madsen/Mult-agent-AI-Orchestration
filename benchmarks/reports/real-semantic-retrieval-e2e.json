@@ -7,22 +7,23 @@
       "query": "persist a user record",
       "citation": "users.ts:2-2",
       "top1": "users.ts:2-2",
-      "evidence_count": 10
+      "evidence_count": 6
     },
     {
       "query": "read current workspace file bytes",
       "citation": "workspace-files.ts:1-1",
       "top1": "workspace-files.ts:2-2",
-      "evidence_count": 10
+      "evidence_count": 6
     },
     {
       "query": "удалить старый эпизод графа",
       "citation": "episodes.ts:1-1",
       "top1": "episodes.ts:1-1",
-      "evidence_count": 10
+      "evidence_count": 6
     }
   ],
-  "recallAt12": 1,
+  "retrievalLimit": 6,
+  "recallAtLimit": 1,
   "top1Accuracy": 0.6666666666666666,
-  "note": "Exploratory three-case real-provider gate; the larger frozen holdout and production model approval remain open."
+  "note": "Exploratory three-case real-provider gate with a six-candidate response cap; the larger frozen holdout and production model approval remain open."
 }

@@ -95,15 +95,26 @@ try {
   const firstCollection = /generation=1 .*collection=([^\s]+)/u.exec(first.stderr)?.[1];
   assert.ok(firstCollection, first.stderr);
 
+  // Unchanged checkout: observationEpoch still advances, but the exact
+  // content-derived snapshot must reuse already persisted Qdrant vectors.
+  const warm = await runOnce();
+  const warmContext = warm.response.result?.structuredContent;
+  assert.equal(warm.response.result?.isError, undefined, JSON.stringify(warm.response));
+  assert.equal(warmContext.complete, true, JSON.stringify(warmContext));
+  assert.equal(warmContext.evidence[0]?.sourceDigest, firstDigest);
+  assert.match(warm.stderr, /generation=2 .*index_mode=warm_reused/u,
+    'unchanged checkout must not re-embed on the next MCP process');
+
   await writeFile(sourcePath, 'export function currentValue() { return "D2"; }\n');
   const secondDigest = await digest();
   const second = await runOnce();
   const secondContext = second.response.result?.structuredContent;
   assert.equal(second.response.result?.isError, undefined, JSON.stringify(second.response));
   assert.equal(secondContext.complete, true, JSON.stringify(secondContext));
+  assert.match(second.stderr, /index_mode=rebuilt/u, 'changed source must rebuild semantic vectors');
   assert.equal(secondContext.evidence[0]?.sourceDigest, secondDigest);
   assert.notEqual(secondDigest, firstDigest);
-  const secondCollection = /generation=2 .*collection=([^\s]+)/u.exec(second.stderr)?.[1];
+  const secondCollection = /generation=3 .*collection=([^\s]+)/u.exec(second.stderr)?.[1];
   assert.equal(secondCollection, firstCollection, 'collection is stable across observation generations');
 
   const scrollGeneration = async (generation) => {
@@ -122,17 +133,21 @@ try {
         },
       }),
     });
-    assert.equal(response.ok, true, await response.text());
-    const body = await response.json();
+    const bodyText = await response.text();
+    assert.equal(response.ok, true, bodyText);
+    const body = JSON.parse(bodyText);
     return body.result?.points ?? [];
   };
   assert.equal((await scrollGeneration(1)).length, 0, 'obsolete generation is pruned after successful rebuild');
-  assert.ok((await scrollGeneration(2)).length > 0, 'current generation remains indexed');
+  assert.equal((await scrollGeneration(2)).length, 0, 'unchanged observation epoch did not create extra Qdrant points');
+  assert.ok((await scrollGeneration(3)).length > 0, 'current changed snapshot remains indexed');
 
   console.log(JSON.stringify({
     status: 'provider-pass',
     first_generation: 1,
-    second_generation: 2,
+    warm_generation: 2,
+    warm_index_reused: true,
+    second_generation: 3,
     collection: firstCollection,
     obsolete_generation_pruned: true,
     first_digest: firstDigest,

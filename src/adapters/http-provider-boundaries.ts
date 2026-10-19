@@ -19,7 +19,9 @@ import type {
   HttpPort,
   HttpRequest,
   HttpResponse,
+  ProviderTraceSink,
 } from '../application/ports.js';
+import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
 
 const object = (value: unknown): Record<string, unknown> | undefined =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
@@ -69,6 +71,8 @@ interface QdrantConfig {
   /** Explicit local bridge aliases (for example a Docker host gateway). */
   readonly allowedHosts?: readonly string[];
   readonly apiKey?: () => string | undefined;
+  readonly providerVersion?: string;
+  readonly trace?: ProviderTraceSink;
 }
 
 export const validateLocalQdrantBaseUrl = (
@@ -131,6 +135,10 @@ const candidateFromPayload = (point: Record<string, unknown>, workspaceId: Works
         ? { endColumn: payload.end_column } : {}),
     },
     ...(typeof payload.symbol_name === 'string' ? { symbolName: payload.symbol_name } : {}),
+    ...(typeof payload.semantic_line === 'number' && Number.isSafeInteger(payload.semantic_line)
+      && typeof payload.semantic_byte_column === 'number' && Number.isSafeInteger(payload.semantic_byte_column)
+      ? { semanticAnchor: { line: payload.semantic_line, byteColumn: payload.semantic_byte_column } }
+      : {}),
     ...(typeof payload.conflict_key === 'string' ? { conflictKey: payload.conflict_key } : {}),
     ...(typeof payload.conflict_value === 'string' ? { conflictValue: payload.conflict_value } : {}),
     text: text.value,
@@ -152,11 +160,16 @@ const qdrantPoint = (point: CodePoint): Readonly<Record<string, unknown>> => ({
     ...(point.candidate.range.startColumn === undefined ? {} : { start_column: point.candidate.range.startColumn }),
     ...(point.candidate.range.endColumn === undefined ? {} : { end_column: point.candidate.range.endColumn }),
     ...(point.candidate.symbolName === undefined ? {} : { symbol_name: point.candidate.symbolName }),
+    ...(point.candidate.semanticAnchor === undefined ? {} : {
+      semantic_line: point.candidate.semanticAnchor.line,
+      semantic_byte_column: point.candidate.semanticAnchor.byteColumn,
+    }),
     ...(point.candidate.conflictKey === undefined ? {} : { conflict_key: point.candidate.conflictKey }),
     ...(point.candidate.conflictValue === undefined ? {} : { conflict_value: point.candidate.conflictValue }),
     text: point.candidate.text,
     source_digest: point.candidate.sourceDigest,
     generation: point.candidate.generation,
+    ...(point.indexKey === undefined ? {} : { index_key: point.indexKey }),
     indexed_at_ms: point.candidate.indexedAtMs,
   },
 });
@@ -167,51 +180,84 @@ const qdrantPointId = (candidateId: string): string => {
 };
 
 export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidatePort => ({
-  search: (input) => Effect.gen(function* () {
-    const endpoint = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
-    if (endpoint._tag === 'Err') return endpoint;
-    if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 1000) {
-      return err(domainError('INVALID_INPUT', 'limit', 'Qdrant limit must be between 1 and 1000'));
-    }
-    const responseResult = yield* config.http.request({
-      method: 'POST',
-      url: `${endpoint.value}/collections/${encodeURIComponent(config.collection)}/points/query`,
-      ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
-      body: { query: input.vector, limit: input.limit, with_payload: true, with_vector: false,
-        filter: { must: [
-          { key: 'workspace_id', match: { value: input.workspaceId } },
-          ...(input.generation === undefined ? [] : [{ key: 'generation', match: { value: input.generation } }]),
-        ] } },
+  search: (input) => {
+    const startedAtMs = Date.now();
+    const operation = Effect.gen(function* () {
+      const endpoint = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
+      if (endpoint._tag === 'Err') return endpoint;
+      if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 1000) {
+        return err(domainError('INVALID_INPUT', 'limit', 'Qdrant limit must be between 1 and 1000'));
+      }
+      const responseResult = yield* config.http.request({
+        method: 'POST',
+        url: `${endpoint.value}/collections/${encodeURIComponent(config.collection)}/points/query`,
+        ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
+        body: { query: input.vector, limit: input.limit, with_payload: true, with_vector: false,
+          filter: { must: [
+            { key: 'workspace_id', match: { value: input.workspaceId } },
+            ...(input.generation === undefined ? [] : [{ key: 'generation', match: { value: input.generation } }]),
+            ...(input.indexKey === undefined ? [] : [{ key: 'index_key', match: { value: input.indexKey } }]),
+          ] } },
+      });
+      if (responseResult._tag === 'Err') return responseResult;
+      const response = responseResult.value;
+      if (!successful(response)) return externalFailure(response, 'qdrant');
+      const body = object(response.body);
+      const result = body?.result;
+      const points = Array.isArray(result) ? result : object(result)?.points;
+      if (!Array.isArray(points)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'result', 'Qdrant result must be an array'));
+      const output: RankedCandidate[] = [];
+      for (const raw of points) {
+        const point = object(raw);
+        if (point === undefined || typeof point.score !== 'number') return err(domainError('INVALID_EXTERNAL_RESPONSE', 'score', 'Qdrant point score is required'));
+        const candidate = candidateFromPayload(point, input.workspaceId);
+        if (candidate._tag === 'Err') return candidate;
+        output.push({ candidate: candidate.value, score: point.score, freshness: 'unknown' as CandidateFreshness, warning: 'Qdrant freshness requires local digest verification' });
+      }
+      return ok(output);
     });
-    if (responseResult._tag === 'Err') return responseResult;
-    const response = responseResult.value;
-    if (!successful(response)) return externalFailure(response, 'qdrant');
-    const body = object(response.body);
-    const result = body?.result;
-    const points = Array.isArray(result) ? result : object(result)?.points;
-    if (!Array.isArray(points)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'result', 'Qdrant result must be an array'));
-    const output: RankedCandidate[] = [];
-    for (const raw of points) {
-      const point = object(raw);
-      if (point === undefined || typeof point.score !== 'number') return err(domainError('INVALID_EXTERNAL_RESPONSE', 'score', 'Qdrant point score is required'));
-      const candidate = candidateFromPayload(point, input.workspaceId);
-      if (candidate._tag === 'Err') return candidate;
-      output.push({ candidate: candidate.value, score: point.score, freshness: 'unknown' as CandidateFreshness, warning: 'Qdrant freshness requires local digest verification' });
-    }
-    return ok(output);
-  }),
-  upsert: (points) => Effect.gen(function* () {
-    const endpoint = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
-    if (endpoint._tag === 'Err') return endpoint;
-    const responseResult = yield* config.http.request({
-      method: 'PUT',
-      url: `${endpoint.value}/collections/${encodeURIComponent(config.collection)}/points?wait=true`,
-      ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
-      body: { points: points.map(qdrantPoint) },
+    return Effect.map(operation, (result) => {
+      providerTraceEvent(config.trace ?? noopProviderTrace, {
+        provider: 'qdrant',
+        providerVersion: config.providerVersion ?? 'qdrant/unknown',
+        operation: 'query_points',
+        status: result._tag === 'Ok' ? 'success' : 'failure',
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        collection: config.collection,
+        ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
+        ...(input.generation === undefined ? {} : { generation: input.generation }),
+        ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
+      });
+      return result;
     });
-    if (responseResult._tag === 'Err') return responseResult;
-    return successful(responseResult.value) ? ok(undefined) : externalFailure(responseResult.value, 'qdrant');
-  }),
+  },
+  upsert: (points) => {
+    const startedAtMs = Date.now();
+    const operation = Effect.gen(function* () {
+      const endpoint = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
+      if (endpoint._tag === 'Err') return endpoint;
+      const responseResult = yield* config.http.request({
+        method: 'PUT',
+        url: `${endpoint.value}/collections/${encodeURIComponent(config.collection)}/points?wait=true`,
+        ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
+        body: { points: points.map(qdrantPoint) },
+      });
+      if (responseResult._tag === 'Err') return responseResult;
+      return successful(responseResult.value) ? ok(undefined) : externalFailure(responseResult.value, 'qdrant');
+    });
+    return Effect.map(operation, (result) => {
+      providerTraceEvent(config.trace ?? noopProviderTrace, {
+        provider: 'qdrant',
+        providerVersion: config.providerVersion ?? 'qdrant/unknown',
+        operation: 'upsert_points',
+        status: result._tag === 'Ok' ? 'success' : 'failure',
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        collection: config.collection,
+        ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
+      });
+      return result;
+    });
+  },
 });
 
 interface VertexConfig {

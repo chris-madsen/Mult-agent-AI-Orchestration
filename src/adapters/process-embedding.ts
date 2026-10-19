@@ -2,7 +2,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
-import type { VectorEmbeddingPort } from '../application/ports.js';
+import type { ProviderTraceSink, VectorEmbeddingPort } from '../application/ports.js';
+import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
 
 interface EmbeddingResponse {
   readonly id?: unknown;
@@ -21,10 +22,13 @@ export interface ProcessEmbeddingOptions {
   readonly args?: readonly string[];
   readonly dimension: number;
   readonly timeoutMs?: number;
+  readonly providerVersion?: string;
+  readonly trace?: ProviderTraceSink;
 }
 
 export interface ManagedVectorEmbeddingPort extends VectorEmbeddingPort {
   readonly close: () => void;
+  readonly probe: () => Effect.Effect<Result<void, DomainError>>;
 }
 
 const providerError = (message: string): Result<never, DomainError> =>
@@ -117,8 +121,9 @@ export const makeProcessEmbeddingPort = (options: ProcessEmbeddingOptions): Mana
     if (failure === undefined) failPending(domainError('UNSUPPORTED_PROVIDER', 'embedding', `embedding worker exited with code ${code ?? 'unknown'}`));
   });
 
-  const embedMany = (input: readonly string[]): Effect.Effect<Result<readonly (readonly number[])[], DomainError>> =>
-    Effect.async((resume) => {
+  const embedMany = (input: readonly string[], requestId?: string): Effect.Effect<Result<readonly (readonly number[])[], DomainError>> => {
+    const startedAtMs = Date.now();
+    const operation: Effect.Effect<Result<readonly (readonly number[])[], DomainError>> = Effect.async((resume) => {
       if (input.length === 0 || input.some((text) => text.trim().length === 0)) {
         resume(Effect.succeed(err(domainError('INVALID_INPUT', 'embedding_text', 'embedding input must contain non-empty text'))));
         return;
@@ -146,6 +151,25 @@ export const makeProcessEmbeddingPort = (options: ProcessEmbeddingOptions): Mana
         }
       });
     });
+    return Effect.map(operation, (result) => {
+      providerTraceEvent(options.trace ?? noopProviderTrace, {
+        provider: 'embedding',
+        providerVersion: options.providerVersion ?? 'process-worker/unknown',
+        operation: 'embed_many',
+        status: result._tag === 'Ok' ? 'success' : 'failure',
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        vectorDimension: options.dimension,
+        ...(requestId === undefined ? {} : { requestId }),
+        ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
+      });
+      return result;
+    });
+  };
+
+  const probe = (): Effect.Effect<Result<void, DomainError>> => Effect.map(
+    embedMany(['ace_embedding_provider_probe']),
+    (result) => result._tag === 'Err' ? result : ok(undefined),
+  );
 
   const close = (): void => {
     if (!child.killed) {
@@ -154,5 +178,5 @@ export const makeProcessEmbeddingPort = (options: ProcessEmbeddingOptions): Mana
     }
   };
 
-  return { embedMany, close };
+  return { embedMany, close, probe };
 };
