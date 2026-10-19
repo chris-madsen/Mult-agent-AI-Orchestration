@@ -163,7 +163,6 @@ export const reuseOrPopulateQdrantSnapshot = (
   baseUrl: string,
   collection: string,
   workspaceId: WorkspaceId,
-  generation: number,
   indexKey: string,
   allowedHosts: readonly string[] = [],
 ): Effect.Effect<Result<{ readonly count: number; readonly reused: boolean }, DomainError>> => Effect.gen(function* () {
