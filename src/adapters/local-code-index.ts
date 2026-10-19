@@ -64,13 +64,17 @@ const compilerSpans = (repoPath: RepoPath, source: string): readonly Span[] => {
       if (end > start) {
         const a = file.getLineAndCharacterOfPosition(start);
         const b = file.getLineAndCharacterOfPosition(end);
+        const startLineOffset = file.getPositionOfLineAndCharacter(a.line, 0);
+        const endLineOffset = file.getPositionOfLineAndCharacter(b.line, 0);
+        const startByteColumn = Buffer.byteLength(source.slice(startLineOffset, start), 'utf8') + 1;
+        const endByteColumn = Buffer.byteLength(source.slice(endLineOffset, end), 'utf8') + 1;
         const nameStart = declaration.name.getStart(file);
         const namePoint = file.getLineAndCharacterOfPosition(nameStart);
         const nameLineStart = file.getPositionOfLineAndCharacter(namePoint.line, 0);
         const nameByteColumn = Buffer.byteLength(source.slice(nameLineStart, nameStart), 'utf8') + 1;
         spans.push({
           name: declaration.name.text,
-          range: { startLine: a.line + 1, startColumn: a.character + 1, endLine: b.line + 1, endColumn: b.character + 1 },
+          range: { startLine: a.line + 1, startColumn: startByteColumn, endLine: b.line + 1, endColumn: endByteColumn },
           semanticAnchor: { line: namePoint.line + 1, byteColumn: nameByteColumn },
           content: source.slice(start, end),
         });
