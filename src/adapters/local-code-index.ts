@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import ts from 'typescript';
 import { Effect } from 'effect';
 import { domainError } from '../domain/errors.js';
-import { ok, type Result } from '../domain/result.js';
+import { err, ok, type Result } from '../domain/result.js';
 import {
   createCodeIndex,
   indexCandidate,
@@ -16,6 +16,7 @@ import {
   type SourceRange,
 } from '../domain/retrieval.js';
 import type { StructuralAnalysisCachePort, StructuralAnalysisPort, WorkspaceFilePort } from '../application/ports.js';
+import type { StructuralAnalysis } from '../domain/semantic.js';
 import type { ContentDigest, RepoPath, WorkspaceId } from '../domain/workspace.js';
 
 export interface LocalCodeIndexBuild {
@@ -168,14 +169,11 @@ export const buildLocalCodeIndex = (
     if (options.structuralCache !== undefined
       && (options.structuralProviderFingerprint === undefined
         || !/^[a-f0-9]{64}$/u.test(options.structuralProviderFingerprint))) {
-      return {
-        _tag: 'Err',
-        error: domainError(
-          'INVALID_INPUT',
-          'structural_provider_fingerprint',
-          'structural cache requires an explicit lowercase SHA-256 provider fingerprint',
-        ),
-      } as const;
+      return err(domainError(
+        'INVALID_INPUT',
+        'structural_provider_fingerprint',
+        'structural cache requires an explicit lowercase SHA-256 provider fingerprint',
+      ));
     }
     if (options.structural === undefined) {
       warnings.push('Local TypeScript compiler parser fallback; approved Tree-sitter provider not configured');
@@ -211,7 +209,7 @@ export const buildLocalCodeIndex = (
           coverageFailures.push({ repoPath: observation.repoPath, kind: 'unsupported_parser' });
           continue;
         }
-        let analyzedValue;
+        let analyzedValue: StructuralAnalysis | undefined;
         if (options.structuralCache !== undefined && options.structuralProviderFingerprint !== undefined) {
           const cached = yield* options.structuralCache.get({
             repoPath: observation.repoPath,
