@@ -56,7 +56,12 @@ export const contextTransportText = (bundle: ContextCarrier): string => {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return [];
     const item = value as Record<string, unknown>;
     if (typeof item.citation !== 'string') return [];
-    const mode = item.contentDelivery === 'expand' ? ' [exact body via ace_expand]' : '';
+    const span = typeof item.expansionCursor === 'string' && typeof item.expansionMaxBytes === 'number'
+      ? ` cursor=${item.expansionCursor}, max_bytes=${item.expansionMaxBytes}`
+      : '';
+    const mode = item.contentDelivery === 'expand'
+      ? ` [exact body via ace_expand(handle${span})]`
+      : '';
     const line = item.source === 'code' && typeof item.content === 'string' && item.content.length > 0
       ? ` — ${item.content.split(/\r?\n/u)[0]?.trim() ?? ''}`
       : '';
@@ -67,6 +72,6 @@ export const contextTransportText = (bundle: ContextCarrier): string => {
     `ACE source map: ${evidence.length} cited items, complete=${bundle.complete === true}.`,
     ...sources,
     ...(warnings.length === 0 ? [] : [`Warnings: ${warnings.map(String).join('; ')}`]),
-    'Use structuredContent for verified inlined snippets; call ace_expand(handle, format=utf8, cursor) for readable lossless code; base64 remains available for arbitrary bytes.',
+    'Use structuredContent for verified inlined snippets; for a cited symbol call ace_expand(handle, cursor=expansionCursor, max_bytes=expansionMaxBytes, format=utf8). Omit cursor/max_bytes only when the full original file is needed.',
   ].join('\n');
 };
