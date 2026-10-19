@@ -24,7 +24,7 @@
   "environment": {
     "type": "docker",
     "delete": true,
-    "mounts": [{"type": "bind", "source": "/media/ilja/DATA/soft/consillium/harness", "target": "/ace", "read_only": true}]
+    "mounts": [{"type": "bind", "source": "${ACE_HARNESS_ROOT}", "target": "/ace", "read_only": true}]
   },
   "n_concurrent_trials": 1,
   "n_attempts": 1,
