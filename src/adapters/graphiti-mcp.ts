@@ -159,6 +159,9 @@ const stripOriginal = (episode: SessionEpisode, includeOriginal: boolean): Memor
 export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<{
   readonly projection: GraphProjectionPort;
   readonly memory?: MemorySearchPort;
+  readonly projectionState: {
+    readonly isPresent: (episodeId: EpisodeId) => Effect.Effect<Result<boolean, DomainError>>;
+  };
   readonly close: () => Promise<void>;
 }> => {
   if (options.groupId.trim().length === 0) throw new Error('Graphiti group_id is required');
@@ -289,9 +292,43 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
     }).pipe(Effect.catchAll((cause) => Effect.succeed(err(cause)))),
   };
 
+  const projectionState = {
+    isPresent: (episodeId: EpisodeId): Effect.Effect<Result<boolean, DomainError>> =>
+      Effect.tryPromise({
+        try: async () => {
+          const granted = authorize('memory_reconcile');
+          if (granted._tag === 'Err') return granted;
+          const reply = await client.callTool({
+            name: 'get_episodes',
+            arguments: { group_ids: [options.groupId], max_episodes: 100_000 },
+          });
+          const parsed = replyJsonObject(reply);
+          if (parsed._tag === 'Err') return parsed;
+          if (typeof parsed.value.error === 'string') return errorResult(parsed.value.error);
+          if (!Array.isArray(parsed.value.episodes)) {
+            return err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti.episodes', 'Graphiti get_episodes requires an episodes array'));
+          }
+          const expected = graphitiEpisodeUuid(episodeId);
+          for (const raw of parsed.value.episodes) {
+            if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+              return err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti.episodes', 'Graphiti episode must be an object'));
+            }
+            const episode = raw as { readonly uuid?: unknown; readonly group_id?: unknown };
+            if (typeof episode.group_id === 'string' && episode.group_id !== options.groupId) {
+              return err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti.group_id', 'Graphiti returned an episode from another group'));
+            }
+            if (episode.uuid === expected) return ok(true);
+          }
+          return ok(false);
+        },
+        catch: () => domainError('EXTERNAL_UNAVAILABLE', 'graphiti', 'Graphiti projection reconciliation failed'),
+      }).pipe(Effect.catchAll((cause) => Effect.succeed(err(cause)))),
+  };
+
   return {
     projection,
     ...(memory === undefined ? {} : { memory }),
+    projectionState,
     close: () => client.close(),
   };
 };
