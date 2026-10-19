@@ -122,8 +122,9 @@ try {
         },
       }),
     });
-    assert.equal(response.ok, true, await response.text());
-    const body = await response.json();
+    const bodyText = await response.text();
+    assert.equal(response.ok, true, bodyText);
+    const body = JSON.parse(bodyText);
     return body.result?.points ?? [];
   };
   assert.equal((await scrollGeneration(1)).length, 0, 'obsolete generation is pruned after successful rebuild');

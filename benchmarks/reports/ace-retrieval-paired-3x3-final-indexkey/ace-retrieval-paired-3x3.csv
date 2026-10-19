@@ -1,0 +1,9 @@
+configuration,scope,trials,successes,failures,input_tokens,cached_input_tokens,output_tokens,raw_total_tokens,cost_usd,latency_ms_median,ace_calls,current_source_calls
+"native-codex","aggregate","9","9","0","871270","789760","null","891950","0.05691319999999999","null","0","0"
+"codex-plus-ace","aggregate","9","9","0","1550541","1389952","null","1571768","0.08538924","null","9","9"
+"native-codex","ace/cloud-policy-impact","3","3","0","308018","287744","7336","315354","0.01861288","46469","null","null"
+"native-codex","ace/semantic-retry-impact","3","3","0","222401","190848","3566","225967","0.014406760000000001","39010","null","null"
+"native-codex","ace/shared-archive-impact","3","3","0","340851","311168","9778","350629","0.02389356","53632","null","null"
+"codex-plus-ace","ace/cloud-policy-impact","3","3","0","510984","445440","8045","519029","0.0316716","151230","null","null"
+"codex-plus-ace","ace/semantic-retry-impact","3","3","0","578752","526976","5441","584193","0.027423919999999997","147092","null","null"
+"codex-plus-ace","ace/shared-archive-impact","3","3","0","460805","417536","7741","468546","0.02629372","152152","null","null"

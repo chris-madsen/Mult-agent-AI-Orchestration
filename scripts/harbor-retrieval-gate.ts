@@ -1,9 +1,17 @@
 import { createHash } from 'node:crypto';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { isSuccessfulAceContextJsonLine } from '../src/domain/harbor-mcp-evidence.js';
 
 type JsonObject = Readonly<Record<string, unknown>>;
+type Configuration = 'native-codex' | 'codex-plus-ace';
+const requiredProviders = ['embedding', 'qdrant', 'tree_sitter', 'typescript_language_service'] as const;
+
+interface ProviderReceiptSummary {
+  readonly traceFiles: readonly string[];
+  readonly successfulProviders: readonly string[];
+  readonly valid: boolean;
+}
 
 interface JobSummary {
   readonly jobPath: string;
@@ -15,37 +23,45 @@ interface JobSummary {
   readonly quality: number;
   readonly inputTokens: number | null;
   readonly cachedInputTokens: number | null;
-  readonly outputTokens: number | null;
-  readonly totalTokens: number | null;
+  readonly rawTotalTokens: number | null;
   readonly costUsd: number | null;
+  readonly externalProviderCostUsd: number;
   readonly aceCalls: number;
+  readonly currentSourceCalls: number;
   readonly taskNames: readonly string[];
+  readonly taskStats: readonly TaskSummary[];
+  readonly providerReceipts: readonly ProviderReceiptSummary[];
+}
+
+interface TaskSummary {
+  readonly taskName: string;
+  readonly trials: number;
+  readonly successes: number;
+  readonly failures: number;
+  readonly inputTokens: number | null;
+  readonly cachedInputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly rawTotalTokens: number | null;
+  readonly costUsd: number | null;
+  readonly latencyMsMedian: number | null;
 }
 
 const object = (value: unknown, path: string): JsonObject => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error(`${path} must be an object`);
   return value as JsonObject;
 };
-
 const number = (value: unknown, path: string): number => {
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`${path} must be a finite number`);
   return value;
 };
-
 const integer = (value: unknown, path: string): number => {
   const result = number(value, path);
   if (!Number.isSafeInteger(result) || result < 0) throw new Error(`${path} must be a non-negative integer`);
   return result;
 };
-
-const optionalInteger = (value: unknown, path: string): number | null =>
-  value === null || value === undefined ? null : integer(value, path);
-
-const optionalNumber = (value: unknown, path: string): number | null =>
-  value === null || value === undefined ? null : number(value, path);
-
+const optionalInteger = (value: unknown, path: string): number | null => value === null || value === undefined ? null : integer(value, path);
+const optionalNumber = (value: unknown, path: string): number | null => value === null || value === undefined ? null : number(value, path);
 const sha256 = (content: string): string => createHash('sha256').update(content, 'utf8').digest('hex');
-
 const readJson = async (path: string): Promise<JsonObject> => object(JSON.parse(await readFile(path, 'utf8')) as unknown, path);
 
 const trialDirectories = async (aggregatePath: string): Promise<readonly string[]> => {
@@ -54,7 +70,60 @@ const trialDirectories = async (aggregatePath: string): Promise<readonly string[
   return entries.filter((entry) => entry.isDirectory()).map((entry) => join(parent, entry.name)).sort();
 };
 
-const summarize = async (aggregatePath: string): Promise<JobSummary> => {
+const filesNamed = async (root: string, name: string): Promise<readonly string[]> => {
+  const found: string[] = [];
+  const visit = async (directory: string): Promise<void> => {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) await visit(path);
+      else if (entry.isFile() && entry.name === name) found.push(path);
+    }
+  };
+  await visit(root);
+  return found.sort();
+};
+
+const isCurrentSourceAceContextJsonLine = (line: string): boolean => {
+  try {
+    const event = object(JSON.parse(line) as unknown, 'Codex event');
+    const item = object(event.item, 'Codex event.item');
+    if (!isSuccessfulAceContextJsonLine(line)) return false;
+    const result = object(item.result, 'Codex event.item.result');
+    const structured = object(result.structured_content, 'Codex event.item.result.structured_content');
+    if (!Array.isArray(structured.evidence)) return false;
+    return structured.evidence.some((candidate) => {
+      if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) return false;
+      const evidence = candidate as JsonObject;
+      return evidence.freshness === 'current'
+        && typeof evidence.citation === 'string' && evidence.citation.length > 0
+        && typeof evidence.content === 'string' && evidence.content.length > 0;
+    });
+  } catch {
+    return false;
+  }
+};
+
+const providerReceipts = async (directory: string): Promise<ProviderReceiptSummary> => {
+  const traceFiles = await filesNamed(directory, 'provider-trace.jsonl');
+  const successful = new Set<string>();
+  for (const path of traceFiles) {
+    const content = await readFile(path, 'utf8');
+    for (const line of content.split('\n').filter((value) => value.trim().length > 0)) {
+      const event = object(JSON.parse(line) as unknown, path);
+      if (event.status === 'success' && typeof event.provider === 'string') successful.add(event.provider);
+      const forbidden = ['source', 'query', 'text', 'token', 'secret', 'authorization'];
+      if (forbidden.some((key) => key in event)) throw new Error(`${path}: unsafe provider trace field ${forbidden.find((key) => key in event)}`);
+    }
+  }
+  return {
+    traceFiles: traceFiles.map((path) => relative(process.cwd(), path)),
+    successfulProviders: [...successful].sort(),
+    valid: requiredProviders.every((provider) => successful.has(provider)),
+  };
+};
+
+const summarize = async (aggregatePath: string, configuration: Configuration): Promise<JobSummary> => {
   const aggregateContent = await readFile(aggregatePath, 'utf8');
   const aggregate = await readJson(aggregatePath);
   const stats = object(aggregate.stats, `${aggregatePath}.stats`);
@@ -76,31 +145,49 @@ const summarize = async (aggregatePath: string): Promise<JobSummary> => {
   const trials = await trialDirectories(aggregatePath);
   let successes = 0;
   let aceCalls = 0;
+  let currentSourceCalls = 0;
   const taskNames: string[] = [];
+  const receipts: ProviderReceiptSummary[] = [];
+  const perTask = new Map<string, { trials: number; successes: number; input: number; cached: number; output: number; cost: number; latencies: number[]; completeUsage: boolean }>();
   for (const directory of trials) {
     const trial = await readJson(join(directory, 'result.json'));
     const taskName = trial.task_name;
     if (typeof taskName !== 'string' || taskName.length === 0) throw new Error(`${directory}: missing task_name`);
     taskNames.push(taskName);
+    const task = perTask.get(taskName) ?? { trials: 0, successes: 0, input: 0, cached: 0, output: 0, cost: 0, latencies: [], completeUsage: true };
+    task.trials += 1;
     const exception = trial.exception_info;
-    const verifier = trial.verifier_result === null || trial.verifier_result === undefined
-      ? null
-      : object(trial.verifier_result, `${directory}.verifier_result`);
-    const rewards = verifier === null || verifier.rewards === null || verifier.rewards === undefined
-      ? null
-      : object(verifier.rewards, `${directory}.verifier_result.rewards`);
-    if ((exception === null || exception === undefined) && rewards !== null
-      && number(rewards.reward, `${directory}.reward`) === 1) {
+    const verifier = trial.verifier_result === null || trial.verifier_result === undefined ? null : object(trial.verifier_result, `${directory}.verifier_result`);
+    const rewards = verifier === null || verifier.rewards === null || verifier.rewards === undefined ? null : object(verifier.rewards, `${directory}.verifier_result.rewards`);
+    const trialSuccess = (exception === null || exception === undefined) && rewards !== null && number(rewards.reward, `${directory}.reward`) === 1;
+    if (trialSuccess) {
       successes += 1;
+      task.successes += 1;
     }
-    try {
-      const trace = await readFile(join(directory, 'agent', 'codex.txt'), 'utf8');
-      aceCalls += trace.split('\n').filter(isSuccessfulAceContextJsonLine).length;
-    } catch (error) {
+    const agentResult = trial.agent_result === null || trial.agent_result === undefined ? null : object(trial.agent_result, `${directory}.agent_result`);
+    if (agentResult === null) task.completeUsage = false;
+    else {
+      const input = optionalInteger(agentResult.n_input_tokens, `${directory}.agent_result.n_input_tokens`);
+      const cached = optionalInteger(agentResult.n_cache_tokens, `${directory}.agent_result.n_cache_tokens`);
+      const output = optionalInteger(agentResult.n_output_tokens, `${directory}.agent_result.n_output_tokens`);
+      const cost = optionalNumber(agentResult.cost_usd, `${directory}.agent_result.cost_usd`);
+      if (input === null || cached === null || output === null || cost === null) task.completeUsage = false;
+      else { task.input += input; task.cached += cached; task.output += output; task.cost += cost; }
+    }
+    const startedAt = typeof trial.started_at === 'string' ? Date.parse(trial.started_at) : Number.NaN;
+    const finishedAt = typeof trial.finished_at === 'string' ? Date.parse(trial.finished_at) : Number.NaN;
+    if (Number.isFinite(startedAt) && Number.isFinite(finishedAt) && finishedAt >= startedAt) task.latencies.push(finishedAt - startedAt);
+    let trace = '';
+    try { trace = await readFile(join(directory, 'agent', 'codex.txt'), 'utf8'); } catch (error) {
       if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error;
     }
+    aceCalls += trace.split('\n').filter(isSuccessfulAceContextJsonLine).length;
+    currentSourceCalls += trace.split('\n').filter(isCurrentSourceAceContextJsonLine).length;
+    receipts.push(await providerReceipts(directory));
+    perTask.set(taskName, task);
   }
   if (trials.length !== totalTrials) throw new Error(`${aggregatePath}: aggregate/trial count mismatch`);
+  if (configuration === 'native-codex' && (aceCalls !== 0 || currentSourceCalls !== 0)) throw new Error(`${aggregatePath}: native baseline unexpectedly called ACE MCP`);
   return {
     jobPath: aggregatePath,
     aggregateSha256: sha256(aggregateContent),
@@ -111,39 +198,60 @@ const summarize = async (aggregatePath: string): Promise<JobSummary> => {
     quality,
     inputTokens,
     cachedInputTokens,
-    outputTokens,
-    totalTokens: inputTokens === null || outputTokens === null ? null : inputTokens + outputTokens,
+    rawTotalTokens: inputTokens === null || outputTokens === null ? null : inputTokens + outputTokens,
     costUsd,
+    externalProviderCostUsd: 0,
     aceCalls,
-    taskNames: [...new Set(taskNames)].sort(),
+    currentSourceCalls,
+    taskNames: [...taskNames].sort(),
+    taskStats: [...perTask.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([taskName, task]) => {
+      const sorted = [...task.latencies].sort((left, right) => left - right);
+      return {
+        taskName,
+        trials: task.trials,
+        successes: task.successes,
+        failures: task.trials - task.successes,
+        inputTokens: task.completeUsage ? task.input : null,
+        cachedInputTokens: task.completeUsage ? task.cached : null,
+        outputTokens: task.completeUsage ? task.output : null,
+        rawTotalTokens: task.completeUsage ? task.input + task.output : null,
+        costUsd: task.completeUsage ? task.cost : null,
+        latencyMsMedian: sorted.length === 0 ? null : sorted[Math.floor(sorted.length / 2)],
+      };
+    }),
+    providerReceipts: receipts,
   };
 };
 
 const [nativePath, acePath, reportPath] = process.argv.slice(2);
-if (nativePath === undefined || acePath === undefined || reportPath === undefined) {
-  throw new Error('Usage: tsx scripts/harbor-retrieval-gate.ts <native-result.json> <ace-result.json> <report.json>');
-}
-
-const native = await summarize(nativePath);
-const ace = await summarize(acePath);
-const paired = native.trials === ace.trials && native.trials >= 3
-  && JSON.stringify(native.taskNames) === JSON.stringify(ace.taskNames);
-const qualityNonInferior = ace.successes / ace.trials >= native.successes / native.trials;
-const attributed = native.aceCalls === 0 && ace.aceCalls > 0;
+if (nativePath === undefined || acePath === undefined || reportPath === undefined) throw new Error('Usage: tsx scripts/harbor-retrieval-gate.ts <native-result.json> <ace-result.json> <report.json>');
+const native = await summarize(nativePath, 'native-codex');
+const ace = await summarize(acePath, 'codex-plus-ace');
+const receiptGate = ace.providerReceipts.length === ace.trials && ace.providerReceipts.every((receipt) => receipt.valid);
+const paired = native.trials === ace.trials && native.trials >= 9 && JSON.stringify(native.taskNames) === JSON.stringify(ace.taskNames);
+const qualityNonInferior = native.trials > 0 && ace.successes / ace.trials >= native.successes / native.trials;
+const attributed = native.aceCalls === 0 && ace.aceCalls > 0 && ace.currentSourceCalls === ace.aceCalls;
 const report = {
-  evidence: 'real-harbor-trials',
+  evidence: 'real-harbor-retrieval-trials',
   native,
   ace,
   paired,
   qualityNonInferior,
   aceInvocationsObserved: attributed,
-  measuredTokenRatio: native.totalTokens === null || ace.totalTokens === null || ace.totalTokens === 0
-    ? null : native.totalTokens / ace.totalTokens,
-  measuredCostRatio: native.costUsd === null || ace.costUsd === null || ace.costUsd === 0
-    ? null : native.costUsd / ace.costUsd,
-  target5xReached: paired && qualityNonInferior && attributed && ace.totalTokens !== null
-    && native.totalTokens !== null && ace.totalTokens > 0 && native.totalTokens / ace.totalTokens >= 5,
-  acceptance: paired && qualityNonInferior && attributed ? 'measured-not-necessarily-5x' : 'rejected',
+  providerReceiptsVerified: receiptGate,
+  rawTotalTokens: { native: native.rawTotalTokens, ace: ace.rawTotalTokens },
+  uncachedInputTokens: {
+    native: native.inputTokens === null || native.cachedInputTokens === null ? null : native.inputTokens - native.cachedInputTokens,
+    ace: ace.inputTokens === null || ace.cachedInputTokens === null ? null : ace.inputTokens - ace.cachedInputTokens,
+  },
+  costUsd: { native: native.costUsd, ace: ace.costUsd },
+  externalProviderCostUsd: { native: native.externalProviderCostUsd, ace: ace.externalProviderCostUsd },
+  savingsFactor: native.rawTotalTokens === null || ace.rawTotalTokens === null || ace.rawTotalTokens === 0 ? null : native.rawTotalTokens / ace.rawTotalTokens,
+  tokenReduction: native.rawTotalTokens === null || ace.rawTotalTokens === null || native.rawTotalTokens === 0 ? null : 1 - ace.rawTotalTokens / native.rawTotalTokens,
+  costSavingsFactor: native.costUsd === null || ace.costUsd === null || ace.costUsd === 0 ? null : native.costUsd / ace.costUsd,
+  costReduction: native.costUsd === null || ace.costUsd === null || native.costUsd === 0 ? null : 1 - ace.costUsd / native.costUsd,
+  target5xReached: paired && qualityNonInferior && attributed && receiptGate && ace.rawTotalTokens !== null && native.rawTotalTokens !== null && ace.rawTotalTokens > 0 && native.rawTotalTokens / ace.rawTotalTokens >= 5,
+  acceptance: paired && qualityNonInferior && attributed && receiptGate ? 'measured-not-necessarily-5x' : 'rejected',
 };
 await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n', 'utf8');
 process.stdout.write(JSON.stringify(report) + '\n');

@@ -1,0 +1,316 @@
+{
+  "evidence": "real-harbor-retrieval-trials",
+  "native": {
+    "jobPath": "artifacts/harbor-retrieval-native-paired-3x3-serial-abs/ace-retrieval-native-paired-3x3-serial/result.json",
+    "aggregateSha256": "0c2fc79efc82b7be62d13fbd9fe7fef39aa554a6febb2fe8ee49de2ea947f080",
+    "trials": 9,
+    "completed": 9,
+    "errors": 0,
+    "successes": 9,
+    "quality": 1,
+    "inputTokens": 871270,
+    "cachedInputTokens": 789760,
+    "rawTotalTokens": 891950,
+    "costUsd": 0.05691319999999999,
+    "externalProviderCostUsd": 0,
+    "aceCalls": 0,
+    "currentSourceCalls": 0,
+    "taskNames": [
+      "ace/cloud-policy-impact",
+      "ace/cloud-policy-impact",
+      "ace/cloud-policy-impact",
+      "ace/semantic-retry-impact",
+      "ace/semantic-retry-impact",
+      "ace/semantic-retry-impact",
+      "ace/shared-archive-impact",
+      "ace/shared-archive-impact",
+      "ace/shared-archive-impact"
+    ],
+    "taskStats": [
+      {
+        "taskName": "ace/cloud-policy-impact",
+        "trials": 3,
+        "successes": 3,
+        "failures": 0,
+        "inputTokens": 308018,
+        "cachedInputTokens": 287744,
+        "outputTokens": 7336,
+        "rawTotalTokens": 315354,
+        "costUsd": 0.01861288,
+        "latencyMsMedian": 46469
+      },
+      {
+        "taskName": "ace/semantic-retry-impact",
+        "trials": 3,
+        "successes": 3,
+        "failures": 0,
+        "inputTokens": 222401,
+        "cachedInputTokens": 190848,
+        "outputTokens": 3566,
+        "rawTotalTokens": 225967,
+        "costUsd": 0.014406760000000001,
+        "latencyMsMedian": 39010
+      },
+      {
+        "taskName": "ace/shared-archive-impact",
+        "trials": 3,
+        "successes": 3,
+        "failures": 0,
+        "inputTokens": 340851,
+        "cachedInputTokens": 311168,
+        "outputTokens": 9778,
+        "rawTotalTokens": 350629,
+        "costUsd": 0.02389356,
+        "latencyMsMedian": 53632
+      }
+    ],
+    "providerReceipts": [
+      {
+        "traceFiles": [],
+        "successfulProviders": [],
+        "valid": false
+      },
+      {
+        "traceFiles": [],
+        "successfulProviders": [],
+        "valid": false
+      },
+      {
+        "traceFiles": [],
+        "successfulProviders": [],
+        "valid": false
+      },
+      {
+        "traceFiles": [],
+        "successfulProviders": [],
+        "valid": false
+      },
+      {
+        "traceFiles": [],
+        "successfulProviders": [],
+        "valid": false
+      },
+      {
+        "traceFiles": [],
+        "successfulProviders": [],
+        "valid": false
+      },
+      {
+        "traceFiles": [],
+        "successfulProviders": [],
+        "valid": false
+      },
+      {
+        "traceFiles": [],
+        "successfulProviders": [],
+        "valid": false
+      },
+      {
+        "traceFiles": [],
+        "successfulProviders": [],
+        "valid": false
+      }
+    ]
+  },
+  "ace": {
+    "jobPath": "artifacts/harbor-retrieval-ace-paired-3x3-serial-abs3/ace-retrieval-ace-paired-3x3-serial/result.json",
+    "aggregateSha256": "a07c0aa121ebf52153fbd31280fac3bbf97756d2584584a4c75008029a9c6b60",
+    "trials": 9,
+    "completed": 9,
+    "errors": 0,
+    "successes": 9,
+    "quality": 1,
+    "inputTokens": 1550541,
+    "cachedInputTokens": 1389952,
+    "rawTotalTokens": 1571768,
+    "costUsd": 0.08538924,
+    "externalProviderCostUsd": 0,
+    "aceCalls": 9,
+    "currentSourceCalls": 9,
+    "taskNames": [
+      "ace/cloud-policy-impact",
+      "ace/cloud-policy-impact",
+      "ace/cloud-policy-impact",
+      "ace/semantic-retry-impact",
+      "ace/semantic-retry-impact",
+      "ace/semantic-retry-impact",
+      "ace/shared-archive-impact",
+      "ace/shared-archive-impact",
+      "ace/shared-archive-impact"
+    ],
+    "taskStats": [
+      {
+        "taskName": "ace/cloud-policy-impact",
+        "trials": 3,
+        "successes": 3,
+        "failures": 0,
+        "inputTokens": 510984,
+        "cachedInputTokens": 445440,
+        "outputTokens": 8045,
+        "rawTotalTokens": 519029,
+        "costUsd": 0.0316716,
+        "latencyMsMedian": 151230
+      },
+      {
+        "taskName": "ace/semantic-retry-impact",
+        "trials": 3,
+        "successes": 3,
+        "failures": 0,
+        "inputTokens": 578752,
+        "cachedInputTokens": 526976,
+        "outputTokens": 5441,
+        "rawTotalTokens": 584193,
+        "costUsd": 0.027423919999999997,
+        "latencyMsMedian": 147092
+      },
+      {
+        "taskName": "ace/shared-archive-impact",
+        "trials": 3,
+        "successes": 3,
+        "failures": 0,
+        "inputTokens": 460805,
+        "cachedInputTokens": 417536,
+        "outputTokens": 7741,
+        "rawTotalTokens": 468546,
+        "costUsd": 0.02629372,
+        "latencyMsMedian": 152152
+      }
+    ],
+    "providerReceipts": [
+      {
+        "traceFiles": [
+          "artifacts/harbor-retrieval-ace-paired-3x3-serial-abs3/ace-retrieval-ace-paired-3x3-serial/ace-cloud-policy-impact__VC8z5DC/artifacts/tmp/ace-artifacts/provider-trace.jsonl"
+        ],
+        "successfulProviders": [
+          "embedding",
+          "qdrant",
+          "tree_sitter",
+          "typescript_language_service"
+        ],
+        "valid": true
+      },
+      {
+        "traceFiles": [
+          "artifacts/harbor-retrieval-ace-paired-3x3-serial-abs3/ace-retrieval-ace-paired-3x3-serial/ace-cloud-policy-impact__xGP7TxZ/artifacts/tmp/ace-artifacts/provider-trace.jsonl"
+        ],
+        "successfulProviders": [
+          "embedding",
+          "qdrant",
+          "tree_sitter",
+          "typescript_language_service"
+        ],
+        "valid": true
+      },
+      {
+        "traceFiles": [
+          "artifacts/harbor-retrieval-ace-paired-3x3-serial-abs3/ace-retrieval-ace-paired-3x3-serial/ace-cloud-policy-impact__zPmzTdv/artifacts/tmp/ace-artifacts/provider-trace.jsonl"
+        ],
+        "successfulProviders": [
+          "embedding",
+          "qdrant",
+          "tree_sitter",
+          "typescript_language_service"
+        ],
+        "valid": true
+      },
+      {
+        "traceFiles": [
+          "artifacts/harbor-retrieval-ace-paired-3x3-serial-abs3/ace-retrieval-ace-paired-3x3-serial/ace-retrieval-impact__4oHEX6A/artifacts/tmp/ace-artifacts/provider-trace.jsonl"
+        ],
+        "successfulProviders": [
+          "embedding",
+          "qdrant",
+          "tree_sitter",
+          "typescript_language_service"
+        ],
+        "valid": true
+      },
+      {
+        "traceFiles": [
+          "artifacts/harbor-retrieval-ace-paired-3x3-serial-abs3/ace-retrieval-ace-paired-3x3-serial/ace-retrieval-impact__BqRmxje/artifacts/tmp/ace-artifacts/provider-trace.jsonl"
+        ],
+        "successfulProviders": [
+          "embedding",
+          "qdrant",
+          "tree_sitter",
+          "typescript_language_service"
+        ],
+        "valid": true
+      },
+      {
+        "traceFiles": [
+          "artifacts/harbor-retrieval-ace-paired-3x3-serial-abs3/ace-retrieval-ace-paired-3x3-serial/ace-retrieval-impact__mTaVkGb/artifacts/tmp/ace-artifacts/provider-trace.jsonl"
+        ],
+        "successfulProviders": [
+          "embedding",
+          "qdrant",
+          "tree_sitter",
+          "typescript_language_service"
+        ],
+        "valid": true
+      },
+      {
+        "traceFiles": [
+          "artifacts/harbor-retrieval-ace-paired-3x3-serial-abs3/ace-retrieval-ace-paired-3x3-serial/ace-shared-archive-impact__FtavQxQ/artifacts/tmp/ace-artifacts/provider-trace.jsonl"
+        ],
+        "successfulProviders": [
+          "embedding",
+          "qdrant",
+          "tree_sitter",
+          "typescript_language_service"
+        ],
+        "valid": true
+      },
+      {
+        "traceFiles": [
+          "artifacts/harbor-retrieval-ace-paired-3x3-serial-abs3/ace-retrieval-ace-paired-3x3-serial/ace-shared-archive-impact__SgB7hLj/artifacts/tmp/ace-artifacts/provider-trace.jsonl"
+        ],
+        "successfulProviders": [
+          "embedding",
+          "qdrant",
+          "tree_sitter",
+          "typescript_language_service"
+        ],
+        "valid": true
+      },
+      {
+        "traceFiles": [
+          "artifacts/harbor-retrieval-ace-paired-3x3-serial-abs3/ace-retrieval-ace-paired-3x3-serial/ace-shared-archive-impact__VkobbXX/artifacts/tmp/ace-artifacts/provider-trace.jsonl"
+        ],
+        "successfulProviders": [
+          "embedding",
+          "qdrant",
+          "tree_sitter",
+          "typescript_language_service"
+        ],
+        "valid": true
+      }
+    ]
+  },
+  "paired": true,
+  "qualityNonInferior": true,
+  "aceInvocationsObserved": true,
+  "providerReceiptsVerified": true,
+  "rawTotalTokens": {
+    "native": 891950,
+    "ace": 1571768
+  },
+  "uncachedInputTokens": {
+    "native": 81510,
+    "ace": 160589
+  },
+  "costUsd": {
+    "native": 0.05691319999999999,
+    "ace": 0.08538924
+  },
+  "externalProviderCostUsd": {
+    "native": 0,
+    "ace": 0
+  },
+  "savingsFactor": 0.5674819693491661,
+  "tokenReduction": -0.7621705252536577,
+  "costSavingsFactor": 0.6665148911033754,
+  "costReduction": -0.5003415727810072,
+  "target5xReached": false,
+  "acceptance": "measured-not-necessarily-5x"
+}

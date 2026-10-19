@@ -59,7 +59,7 @@ const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
     ACE_WORKSPACE_ID: 'real-provider-2000-line',
     ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
     ACE_QDRANT_URL: outage ? 'http://127.0.0.1:6339' : qdrantUrl,
-    ACE_ALLOW_LOCAL_FALLBACK: outage ? 'true' : 'false',
+    ACE_ALLOW_LOCAL_FALLBACK: 'false',
     ACE_EMBEDDING_WORKER: resolve(import.meta.dirname, 'fastembed-worker.sh'),
     ACE_TREE_SITTER_HELPER: resolve(import.meta.dirname, 'tree-sitter-structural.py'),
     ACE_TREE_SITTER_PYTHON: process.env.ACE_TREE_SITTER_PYTHON ?? resolve('.venv-system/bin/python'),
@@ -121,16 +121,15 @@ try {
   }
   const contextResponse = await contextRequest;
   const statusResponse = await request(4, { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'ace_workspace_status', arguments: { workspace_id: 'real-provider-2000-line' } } });
-  assert.equal(statusResponse.result?.structuredContent?.index_status, 'ready', JSON.stringify(statusResponse));
+  assert.equal(statusResponse.result?.structuredContent?.index_status, outage ? 'not_ready' : 'ready', JSON.stringify(statusResponse));
   const context = contextResponse.result?.structuredContent;
-  assert.equal(contextResponse.result?.isError, undefined, JSON.stringify(contextResponse));
   if (outage) {
-    assert.equal(context.complete, false, JSON.stringify(context));
-    assert.ok(context.partialSources.includes('qdrant'), JSON.stringify(context));
-    assert.ok(context.warnings.some((warning) => warning.includes('Qdrant unavailable')), JSON.stringify(context));
-    assert.ok(context.evidence.some((item) => item.freshness === 'current'), JSON.stringify(context));
-    console.log(JSON.stringify({ status: 'provider-pass', outage: true, complete: context.complete, warnings: context.warnings, partial_sources: context.partialSources }, null, 2));
+    assert.equal(contextResponse.result?.isError, true, JSON.stringify(contextResponse));
+    assert.equal(context.status, 'not_ready', JSON.stringify(context));
+    assert.equal(context.code, 'NOT_READY', JSON.stringify(context));
+    console.log(JSON.stringify({ status: 'provider-failure-is-honest', outage: true, complete: context.complete, code: context.code }, null, 2));
   } else {
+    assert.equal(contextResponse.result?.isError, undefined, JSON.stringify(contextResponse));
     if (race) {
       assert.equal(context.complete, false, JSON.stringify(context));
       assert.ok(context.partialSources.includes('code'), JSON.stringify(context));

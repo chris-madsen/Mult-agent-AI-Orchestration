@@ -12,6 +12,7 @@
     "probe:providers": "node scripts/provider-capability-probe.mjs",
     "report:harbor-smoke": "tsx scripts/render-harbor-smoke-report.ts",
     "report:harbor-paired": "tsx scripts/render-harbor-paired-report.ts",
+  "report:harbor-retrieval": "tsx scripts/render-harbor-retrieval-report.ts",
     "spike:embeddings": "tsx scripts/embedding-spike.ts",
     "recall:codex-history": "tsx scripts/recall-codex-history.ts",
     "probe:vertex": "bash scripts/vertex-rag-readonly-probe.sh",

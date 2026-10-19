@@ -33,6 +33,7 @@ export interface QdrantContextConfig {
   readonly semantics: SemanticAnalysisPort;
   readonly newRequestId: () => string;
   readonly generation?: number;
+  readonly indexKey?: string;
   readonly documentation?: DocumentationPort;
   readonly candidateLimit?: number;
 }
@@ -41,6 +42,7 @@ export const populateQdrantFromStructuralIndex = (
   index: CodeIndex,
   qdrant: CodeCandidatePort,
   embeddings: VectorEmbeddingPort,
+  indexKey?: string,
 ): Effect.Effect<Result<number, DomainError>> => Effect.gen(function* () {
   if (index.candidates.length === 0) {
     return err(domainError('UNSUPPORTED_PROVIDER', 'index', 'no verified structural candidates available for Qdrant'));
@@ -56,6 +58,7 @@ export const populateQdrantFromStructuralIndex = (
     const points: CodePoint[] = candidates.map((candidate, i) => ({
       candidate,
       vector: vectors.value[i] ?? [],
+      ...(indexKey === undefined ? {} : { indexKey }),
     }));
     const result = yield* qdrant.upsert(points);
     if (result._tag === 'Err') return result;
@@ -111,6 +114,7 @@ export const pruneQdrantOtherGenerations = (
   workspaceId: WorkspaceId,
   generation: number,
   allowedHosts: readonly string[] = [],
+  indexKey?: string,
 ): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
   const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
   if (endpoint._tag === 'Err') return endpoint;
@@ -123,7 +127,9 @@ export const pruneQdrantOtherGenerations = (
     body: {
       filter: {
         must: [{ key: 'workspace_id', match: { value: workspaceId } }],
-        must_not: [{ key: 'generation', match: { value: generation } }],
+        must_not: [indexKey === undefined
+          ? { key: 'generation', match: { value: generation } }
+          : { key: 'index_key', match: { value: indexKey } }],
       },
     },
   });
@@ -174,6 +180,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
       vector,
       limit: config.candidateLimit ?? 6,
       ...(config.generation === undefined ? {} : { generation: config.generation }),
+      ...(config.indexKey === undefined ? {} : { indexKey: config.indexKey }),
     });
     if (result._tag === 'Err') return result;
 

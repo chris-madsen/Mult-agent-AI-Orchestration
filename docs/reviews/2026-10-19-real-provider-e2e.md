@@ -30,8 +30,10 @@ use an API key or a local lexical fallback.
 The first fixture contained `service.ts` (`reconnect`, `disconnect`) and
 `consumer.ts` (`boot` calling `reconnect`). A second fixture contained exactly
 2000 source lines and a 25-line `retryAfterTransientFailure` function. The
-runtime populated the versioned collection
-a workspace+model-versioned collection; observation `generation` is stored in point payload and filtered on query.
+runtime uses a stable workspace+model-version collection and isolates each
+source snapshot with an opaque `index_key`; observation `generation` remains in
+the point payload for lifecycle evidence. This prevents equal observation
+epochs from mixing changed source snapshots.
 
 ## Provider evidence
 
@@ -68,14 +70,18 @@ evidence was labelled `current`.
 
 The restart gate reuses one workspace/state directory across two MCP processes. The collection name is stable for the workspace+embedding configuration; points carry the observation generation. After a dirty-tree edit, generation 2 is indexed and the obsolete generation 1 points are pruned after successful rebuild. Query filtering still requires the current generation.
 
-The outage gate forced Qdrant to an unavailable loopback port while enabling the
-explicit `ACE_ALLOW_LOCAL_FALLBACK=true` test switch. The response was
-`complete=false`, `partialSources=["code","qdrant"]`, retained current local
-source evidence, and warnings including `Qdrant unavailable:
-EXTERNAL_UNAVAILABLE` and the non-production status of the lexical fallback.
-This proves truthful degradation, not production semantic retrieval.
+The outage gate forced Qdrant to an unavailable loopback port with
+`ACE_ALLOW_LOCAL_FALLBACK=false`. The executable returned the honest
+`NOT_READY` provider failure rather than pretending to have semantic retrieval.
+The race gate separately proves stale/partial behavior, so configured-path
+success and unavailable-provider failure remain distinct.
 
-The official SDK **sub-gate** used `@modelcontextprotocol/client` and `StdioClientTransport` against the actual `ace-mcp` executable. It verifies initialization, tool listing/calls, errors, concurrency and cancellation propagation into the underlying Effect. This is SDK conformance evidence, **not the normative DBC-09 Codex-client proof**; an actual Codex→ACE invocation remains open.
+The official SDK client used `@modelcontextprotocol/client` and
+`StdioClientTransport` against the actual `ace-mcp` executable. It verifies
+initialization, tool listing/calls, errors, concurrency and cancellation
+propagation into the underlying Effect. The Harbor ACE arm additionally proves
+actual Codex→MCP→ACE invocation: 9/9 successful calls, current source evidence
+and provider receipts in all nine trials.
 
 The policy gate exercised the Vertex adapter and the unified gateway composition
 with the default local policy. `ace_context(include_docs=true)` returned a
@@ -88,6 +94,21 @@ The documentation-conflict **logic sub-gate** supplies a test DocumentationPort 
 The real semantic holdout gate (`npm run test:real-semantic`) exercised three
 behavior/RU↔EN queries through FastEmbed/ONNX, Qdrant, Tree-sitter and the
 TypeScript language service. All three expected candidates were surfaced within the bounded response cap; one distractor ranked first. The response cap is now six candidates by default (`ACE_CONTEXT_CANDIDATE_LIMIT`). This is experimental retrieval evidence, **not DBC-03 closure**, production model selection or a quality/5× claim.
+
+## Fresh paired Harbor evidence
+
+The final serial run used three tasks (`semantic retry`, `cloud-policy impact`,
+`shared archive impact`) with three repetitions per arm. Native and ACE each
+completed 9/9 trials with reward 1.0. The strict gate verified 9 ACE calls, 9
+current-source calls and all four required successful providers per ACE trial.
+The native arm used 891,950 raw total tokens and cost `$0.0569132`; ACE used
+1,571,768 raw total tokens and cost `$0.08538924`. The resulting savings factor
+is `0.567482x`, cost factor `0.666515x`, and `target5xReached=false`.
+
+This is a valid attribution-aware measurement, not evidence of token savings.
+The raw Harbor jobs remain under the local `artifacts/` evidence directory and
+the machine-readable gate is
+`benchmarks/reports/ace-retrieval-paired-3x3-final-indexkey.json`.
 
 ## Reproduction
 
@@ -112,8 +133,9 @@ is not used by this path.
 
 ## Remaining gates
 
-- A frozen retrieval-demanding holdout and Harbor paired agent run are not
-  represented here; no token saving or 5× claim follows from this smoke.
+- The current Harbor run is exploratory rather than a frozen production
+  holdout; its measurement is retained and is negative on tokens/cost.
 - The runtime does not upload code to Vertex or any external embedding API.
-- The same-name semantic gate now passes via `npm run test:real-same-name`;
-  DBC-04 is tested, but this is not production-provider approval.
+- The same-name semantic gate passes via `npm run test:real-same-name`; DBC-04
+  is exercised, but direct TypeScript LS is not yet owner-approved as the final
+  semantic provider.

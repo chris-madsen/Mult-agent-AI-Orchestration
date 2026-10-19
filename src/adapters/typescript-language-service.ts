@@ -3,18 +3,21 @@ import ts from 'typescript';
 import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
-import type { SemanticAnalysisPort, SemanticQuery } from '../application/ports.js';
+import type { ProviderTraceSink, SemanticAnalysisPort, SemanticQuery } from '../application/ports.js';
 import type {
   SemanticDefinition,
   SemanticDiagnostic,
   SemanticLocation,
   SemanticReference,
 } from '../domain/semantic.js';
+import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
 
 export interface TypeScriptLanguageServiceOptions {
   readonly rootPath: string;
   readonly files: Readonly<Record<string, string>>;
   readonly compilerOptions?: ts.CompilerOptions;
+  readonly providerVersion?: string;
+  readonly trace?: ProviderTraceSink;
 }
 
 const failure = (pathName: string, message: string): Result<never, DomainError> =>
@@ -84,12 +87,24 @@ const withQuery = <Value>(
   options: TypeScriptLanguageServiceOptions,
   runtime: ReturnType<typeof makeService>,
   query: SemanticQuery,
+  operationName: string,
   operation: (service: ts.LanguageService, fileName: string, position: number, files: ReadonlyMap<string, string>) => Result<Value, DomainError>,
 ): Effect.Effect<Result<Value, DomainError>> => Effect.sync(() => {
+    const startedAtMs = Date.now();
     const { service, files } = runtime;
     const valid = validateQuery(query, files, options.rootPath);
-    if (valid._tag === 'Err') return valid;
-    return operation(service, valid.value.fileName, valid.value.position, files);
+    const result = valid._tag === 'Err'
+      ? valid
+      : operation(service, valid.value.fileName, valid.value.position, files);
+    providerTraceEvent(options.trace ?? noopProviderTrace, {
+      provider: 'typescript_language_service',
+      providerVersion: options.providerVersion ?? `typescript/${ts.version}`,
+      operation: operationName,
+      status: result._tag === 'Ok' ? 'success' : 'failure',
+      durationMs: Math.max(0, Date.now() - startedAtMs),
+      ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
+    });
+    return result;
   });
 
 export const makeTypeScriptLanguageServicePort = (options: TypeScriptLanguageServiceOptions): SemanticAnalysisPort => {
@@ -97,14 +112,14 @@ export const makeTypeScriptLanguageServicePort = (options: TypeScriptLanguageSer
   // for all semantic calls in one verified index generation.
   const runtime = makeService(options);
   return {
-    definition: (query) => withQuery(options, runtime, query, (service, fileName, position, files) => {
+    definition: (query) => withQuery(options, runtime, query, 'definition', (service, fileName, position, files) => {
       const definitions = service.getDefinitionAtPosition(fileName, position) ?? [];
       return ok(definitions.flatMap((item): SemanticDefinition[] => {
         const location = locationFromSpan(options.rootPath, files, item.fileName, item.textSpan);
         return location === undefined ? [] : [{ location, name: item.name, kind: item.kind }];
       }));
     }),
-    references: (query) => withQuery(options, runtime, query, (service, fileName, position, files) => {
+    references: (query) => withQuery(options, runtime, query, 'references', (service, fileName, position, files) => {
       const references = service.getReferencesAtPosition(fileName, position) ?? [];
       const definitions = service.getDefinitionAtPosition(fileName, position) ?? [];
       const declarationSpans = new Set(definitions.map((item) =>
@@ -114,7 +129,7 @@ export const makeTypeScriptLanguageServicePort = (options: TypeScriptLanguageSer
         return location === undefined ? [] : [{ location, isDefinition: declarationSpans.has([path.resolve(item.fileName), item.textSpan.start, item.textSpan.length].join(':')) }];
       }));
     }),
-    typeInfo: (query) => withQuery(options, runtime, query, (service, fileName, position) => {
+    typeInfo: (query) => withQuery(options, runtime, query, 'type_info', (service, fileName, position) => {
       const info = service.getQuickInfoAtPosition(fileName, position);
       if (info === undefined) return ok(undefined);
       const display = ts.displayPartsToString(info.displayParts);
@@ -122,21 +137,31 @@ export const makeTypeScriptLanguageServicePort = (options: TypeScriptLanguageSer
       return ok(documentation.length === 0 ? { display } : { display, documentation });
     }),
     diagnostics: ({ repoPath }) => Effect.sync(() => {
+      const startedAtMs = Date.now();
       const { service, files } = runtime;
       const fileName = path.resolve(options.rootPath, repoPath);
-      if (!files.has(fileName)) return failure('repo_path', 'source file is not included in the language-service project');
-      const diagnostics = [...service.getSyntacticDiagnostics(fileName), ...service.getSemanticDiagnostics(fileName)];
-      return ok(diagnostics.map((diagnostic): SemanticDiagnostic => {
-        const location = diagnostic.start === undefined || diagnostic.length === undefined
-          ? undefined
-          : locationFromSpan(options.rootPath, files, fileName, { start: diagnostic.start, length: diagnostic.length });
-        return {
-          ...(location === undefined ? {} : { location }),
-          message: flattenMessage(diagnostic.messageText),
-          category: category(diagnostic.category),
-          code: diagnostic.code,
-        };
-      }));
+      const result = !files.has(fileName)
+        ? failure('repo_path', 'source file is not included in the language-service project')
+        : ok([...service.getSyntacticDiagnostics(fileName), ...service.getSemanticDiagnostics(fileName)].map((diagnostic): SemanticDiagnostic => {
+          const location = diagnostic.start === undefined || diagnostic.length === undefined
+            ? undefined
+            : locationFromSpan(options.rootPath, files, fileName, { start: diagnostic.start, length: diagnostic.length });
+          return {
+            ...(location === undefined ? {} : { location }),
+            message: flattenMessage(diagnostic.messageText),
+            category: category(diagnostic.category),
+            code: diagnostic.code,
+          };
+        }));
+      providerTraceEvent(options.trace ?? noopProviderTrace, {
+        provider: 'typescript_language_service',
+        providerVersion: options.providerVersion ?? `typescript/${ts.version}`,
+        operation: 'diagnostics',
+        status: result._tag === 'Ok' ? 'success' : 'failure',
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
+      });
+      return result;
     }),
   };
 };

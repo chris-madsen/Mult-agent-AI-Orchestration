@@ -11,6 +11,7 @@ import { buildLocalCodeIndex } from '../adapters/local-code-index.js';
 import { makeLocalContextProvider } from '../adapters/local-context-provider.js';
 import { makeNodeWorkspacePort } from '../adapters/node-workspace-port.js';
 import { makeProcessEmbeddingPort } from '../adapters/process-embedding.js';
+import { makeFileProviderTrace } from '../adapters/provider-trace.js';
 import { ensureQdrantCollection, makeQdrantContextProvider, populateQdrantFromStructuralIndex, pruneQdrantOtherGenerations } from '../adapters/qdrant-context-provider.js';
 import { makeTreeSitterStructuralPort } from '../adapters/tree-sitter-structural.js';
 import { makeTypeScriptLanguageServicePort } from '../adapters/typescript-language-service.js';
@@ -37,6 +38,8 @@ const optionalCommand = (value: string | undefined, fallback: string): string =>
 const commandBoundaryExists = (value: string): boolean => value.includes('/') ? existsSync(value) : true;
 
 const defaultEmbeddingModel = 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2';
+const defaultEmbeddingRevision = 'e8f8c211226b894fcb81acc59f3b34ba3efd5f42';
+const defaultEmbeddingPreprocessing = 'raw_text_v1';
 
 const gcloudAccessToken = (): string | undefined => {
   try {
@@ -109,12 +112,20 @@ const main = async (): Promise<void> => {
   if (registered._tag === 'Err') throw new Error(`${registered.error.code}: ${registered.error.message}`);
   const observed = await Effect.runPromise(observeWorkspace(ports, registered.value.workspaceId));
   if (observed._tag === 'Err') throw new Error(`${observed.error.code}: ${observed.error.message}`);
-  const generation = observed.value.observationEpoch;
+  const observationEpoch = observed.value.observationEpoch;
+  const sourceSnapshot = observed.value.lastObservation === undefined
+    ? `generation:${observationEpoch}`
+    : JSON.stringify({
+      headRevision: observed.value.lastObservation.headRevision,
+      files: observed.value.lastObservation.files.map((file) => [file.repoPath, file.digest, file.sizeBytes]),
+      removedPaths: observed.value.lastObservation.removedPaths,
+    });
   // No pretend success: the local lexical provider is a consciously enabled
   // degraded fallback, NOT the selected Qdrant/embeddings/AST/LSP production path.
   const allowLocalFallback = process.env.ACE_ALLOW_LOCAL_FALLBACK === 'true';
   const structuralHelper = process.env.ACE_TREE_SITTER_HELPER?.trim();
   const artifacts = makeFileArtifactStore(artifactDirectory);
+  const providerTrace = makeFileProviderTrace(process.env.ACE_PROVIDER_TRACE_FILE);
   const structuralPath = resolve(process.env.ACE_TREE_SITTER_HELPER?.trim() || 'scripts/tree-sitter-structural.py');
   const structuralPython = optionalCommand(process.env.ACE_TREE_SITTER_PYTHON, resolve('.venv-system/bin/python'));
   let context: ReturnType<typeof makeLocalContextProvider> | undefined;
@@ -126,15 +137,31 @@ const main = async (): Promise<void> => {
       .map((host) => host.trim())
       .filter((host) => host.length > 0);
     const embeddingModel = process.env.ACE_EMBEDDING_MODEL?.trim() || defaultEmbeddingModel;
+    const embeddingProvider = process.env.ACE_EMBEDDING_PROVIDER?.trim() || 'fastembed/onnx';
+    const embeddingRevision = process.env.ACE_EMBEDDING_MODEL_REVISION?.trim() || defaultEmbeddingRevision;
+    const embeddingArtifactDigest = process.env.ACE_EMBEDDING_ARTIFACT_DIGEST?.trim() || 'unverified';
+    const embeddingPreprocessing = process.env.ACE_EMBEDDING_PREPROCESSING?.trim() || defaultEmbeddingPreprocessing;
+    if (process.env.ACE_REQUIRE_PINNED_EMBEDDING === 'true'
+      && (!/^[a-f0-9]{40}$/u.test(embeddingRevision) || !/^[a-f0-9]{64}$/u.test(embeddingArtifactDigest))) {
+      throw new Error('ACE_REQUIRE_PINNED_EMBEDDING requires a model revision and 64-character artifact digest');
+    }
     const embeddingDimension = Number(process.env.ACE_EMBEDDING_DIMENSION ?? '384');
     if (!Number.isSafeInteger(embeddingDimension) || embeddingDimension < 1) throw new Error('ACE_EMBEDDING_DIMENSION must be a positive integer');
     const candidateLimit = Number(process.env.ACE_CONTEXT_CANDIDATE_LIMIT ?? '6');
     if (!Number.isSafeInteger(candidateLimit) || candidateLimit < 1 || candidateLimit > 20) throw new Error('ACE_CONTEXT_CANDIDATE_LIMIT must be an integer between 1 and 20');
     const workspaceKey = createHash('sha256').update(registered.value.workspaceId).digest('hex').slice(0, 12);
-    const modelKey = createHash('sha256').update(`${embeddingModel}|${embeddingDimension}`).digest('hex').slice(0, 12);
+    const modelKey = createHash('sha256').update(`${embeddingProvider}|${embeddingModel}|${embeddingRevision}|${embeddingArtifactDigest}|${embeddingPreprocessing}|${embeddingDimension}`).digest('hex').slice(0, 12);
+    // A model revision alone is not enough to isolate vectors: the same
+    // workspace id and observation epoch may be reused for a changed checkout
+    // or a paired fixture. Keep the collection stable, but isolate each
+    // snapshot by an opaque source index key.
+    const sourceKey = createHash('sha256').update(sourceSnapshot).digest('hex').slice(0, 12);
+    const generation = observationEpoch;
     const collection = process.env.ACE_QDRANT_COLLECTION?.trim() || `ace_code_${workspaceKey}_${modelKey}`;
     const embeddingWorker = process.env.ACE_EMBEDDING_WORKER?.trim()
-      || resolve('scripts/fastembed-worker.sh');
+      || resolve(embeddingProvider === 'sentence-transformers/pytorch'
+        ? 'scripts/sentence-transformers-worker.sh'
+        : 'scripts/fastembed-worker.sh');
     const inspected = await Effect.runPromise(ensureQdrantCollection(http, qdrantUrl, collection, embeddingDimension, qdrantAllowedHosts));
     if (inspected._tag === 'Err') {
       if (allowLocalFallback) {
@@ -164,7 +191,12 @@ const main = async (): Promise<void> => {
     } else if (!existsSync(embeddingWorker) || !existsSync(structuralPath) || !commandBoundaryExists(structuralPython)) {
       process.stderr.write('ace-mcp context NOT_READY: configured FastEmbed/Tree-sitter runtime files are missing\n');
     } else {
-      const embeddings = makeProcessEmbeddingPort({ command: embeddingWorker, dimension: embeddingDimension });
+      const embeddings = makeProcessEmbeddingPort({
+        command: embeddingWorker,
+        dimension: embeddingDimension,
+        providerVersion: `${embeddingProvider}|${embeddingModel}|${embeddingRevision}|${embeddingArtifactDigest}`,
+        trace: providerTrace,
+      });
       const closeEmbeddingWorker = (): void => embeddings.close();
       process.once('SIGTERM', closeEmbeddingWorker);
       process.once('SIGINT', closeEmbeddingWorker);
@@ -172,7 +204,17 @@ const main = async (): Promise<void> => {
       // input stream reaches EOF. Give in-flight retrieval a bounded grace
       // period before closing the long-lived embedding child.
       process.stdin.once('end', () => setTimeout(closeEmbeddingWorker, 5_000));
-      const structural = makeTreeSitterStructuralPort({ helperPath: structuralPath, pythonCommand: structuralPython });
+      const embeddingReady = await Effect.runPromise(embeddings.probe());
+      if (embeddingReady._tag === 'Err') {
+        embeddings.close();
+        throw new Error(`embedding provider preflight failed (${embeddingReady.error.code})`);
+      }
+      const structural = makeTreeSitterStructuralPort({
+        helperPath: structuralPath,
+        pythonCommand: structuralPython,
+        providerVersion: process.env.ACE_TREE_SITTER_VERSION?.trim() || 'tree-sitter/0.26.0',
+        trace: providerTrace,
+      });
       const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
         generation,
         structural,
@@ -182,28 +224,52 @@ const main = async (): Promise<void> => {
         process.stderr.write(`ace-mcp context NOT_READY: structural index failed (${built.error.code})\n`);
       } else {
         for (const warning of built.value.warnings) process.stderr.write(`ace retrieval warning: ${warning}\n`);
-        const indexed = await Effect.runPromise(populateQdrantFromStructuralIndex(built.value.index, makeQdrantCodeCandidatePort({ baseUrl: qdrantUrl, collection, http, allowedHosts: qdrantAllowedHosts }), embeddings));
+        const qdrant = makeQdrantCodeCandidatePort({
+          baseUrl: qdrantUrl,
+          collection,
+          http,
+          allowedHosts: qdrantAllowedHosts,
+          providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
+          trace: providerTrace,
+        });
+        const indexed = await Effect.runPromise(populateQdrantFromStructuralIndex(built.value.index, qdrant, embeddings, sourceKey));
         if (indexed._tag === 'Err') {
           embeddings.close();
           process.stderr.write(`ace-mcp context NOT_READY: Qdrant indexing failed (${indexed.error.code}: ${indexed.error.message})\n`);
         } else {
           const pruned = await Effect.runPromise(pruneQdrantOtherGenerations(
-            http, qdrantUrl, collection, registered.value.workspaceId, generation, qdrantAllowedHosts,
+            http, qdrantUrl, collection, registered.value.workspaceId, generation, qdrantAllowedHosts, sourceKey,
           ));
           if (pruned._tag === 'Err') process.stderr.write(`ace retrieval warning: obsolete Qdrant generation cleanup failed (${pruned.error.code})\n`);
           const sourceFiles = await readSourceFiles(files, registered.value.rootPath, built.value.indexedPaths);
-          const semantics = makeTypeScriptLanguageServicePort({ rootPath: registered.value.rootPath, files: sourceFiles });
+          const semantics = makeTypeScriptLanguageServicePort({
+            rootPath: registered.value.rootPath,
+            files: sourceFiles,
+            providerVersion: process.env.ACE_TYPESCRIPT_VERSION?.trim() || 'typescript/5.9.3',
+            trace: providerTrace,
+          });
+          const firstIndexedPath = built.value.indexedPaths[0];
+          if (firstIndexedPath === undefined) {
+            embeddings.close();
+            throw new Error('no source files passed the structural provider');
+          }
+          const languageServiceReady = await Effect.runPromise(semantics.diagnostics({ repoPath: firstIndexedPath }));
+          if (languageServiceReady._tag === 'Err') {
+            embeddings.close();
+            throw new Error(`TypeScript language service preflight failed (${languageServiceReady.error.code})`);
+          }
           const documentation = makeDocumentationProvider(registered.value.workspaceId, http);
           context = makeQdrantContextProvider({
             workspaceId: registered.value.workspaceId,
             rootPath: registered.value.rootPath,
             files,
-            qdrant: makeQdrantCodeCandidatePort({ baseUrl: qdrantUrl, collection, http, allowedHosts: qdrantAllowedHosts }),
+            qdrant,
             embeddings,
             artifacts,
             semantics,
             newRequestId: () => randomUUID(),
             generation,
+            indexKey: sourceKey,
             candidateLimit,
             ...(documentation === undefined ? {} : { documentation }),
           });
@@ -213,7 +279,7 @@ const main = async (): Promise<void> => {
     }
   } else if (allowLocalFallback) {
     const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
-      generation,
+      generation: observationEpoch,
       ...(structuralHelper === undefined || structuralHelper === ''
         ? {}
         : { structural: makeTreeSitterStructuralPort({ helperPath: resolve(structuralHelper) }) }),
