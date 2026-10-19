@@ -12,7 +12,7 @@ import { makeLocalContextProvider } from '../adapters/local-context-provider.js'
 import { makeNodeWorkspacePort } from '../adapters/node-workspace-port.js';
 import { makeProcessEmbeddingPort } from '../adapters/process-embedding.js';
 import { makeFileProviderTrace } from '../adapters/provider-trace.js';
-import { codeIndexKey, ensureQdrantCollection, makeQdrantContextProvider, pruneQdrantOtherGenerations, reuseOrPopulateQdrantSnapshot } from '../adapters/qdrant-context-provider.js';
+import { codeIndexKey, ensureQdrantCollection, makeQdrantContextProvider, reuseOrPopulateQdrantSnapshot } from '../adapters/qdrant-context-provider.js';
 import { makeTreeSitterStructuralPort } from '../adapters/tree-sitter-structural.js';
 import { makeTypeScriptLanguageServicePort } from '../adapters/typescript-language-service.js';
 import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
@@ -223,7 +223,7 @@ const main = async (): Promise<void> => {
         // Warm reuse is keyed from the exact structural candidate set actually
         // produced in this startup. It ignores observation epoch/timestamps,
         // but changes on source bytes, ranges, names or parser output.
-        const sourceKey = codeIndexKey(built.value.index);
+        const sourceKey = codeIndexKey(built.value.index, built.value.coverage);
         const qdrant = makeQdrantCodeCandidatePort({
           baseUrl: qdrantUrl,
           collection,
@@ -240,10 +240,9 @@ const main = async (): Promise<void> => {
           embeddings.close();
           process.stderr.write(`ace-mcp context NOT_READY: Qdrant indexing failed (${indexed.error.code}: ${indexed.error.message})\n`);
         } else {
-          const pruned = await Effect.runPromise(pruneQdrantOtherGenerations(
-            http, qdrantUrl, collection, registered.value.workspaceId, generation, qdrantAllowedHosts, sourceKey,
-          ));
-          if (pruned._tag === 'Err') process.stderr.write(`ace retrieval warning: obsolete Qdrant generation cleanup failed (${pruned.error.code})\n`);
+          // Never delete other snapshots automatically: another ACE process may
+          // still be serving one. Snapshot-scoped point IDs isolate readers;
+          // cleanup remains an explicit operator action until lease-aware GC.
           const sourceFiles = await readSourceFiles(files, registered.value.rootPath, built.value.indexedPaths);
           const semantics = makeTypeScriptLanguageServicePort({
             rootPath: registered.value.rootPath,
@@ -277,9 +276,10 @@ const main = async (): Promise<void> => {
             ...(indexed.value.reused ? {} : { generation }),
             indexKey: sourceKey,
             candidateLimit,
+            coverage: built.value.coverage,
             ...(documentation === undefined ? {} : { documentation }),
           });
-          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} collection=${collection}\n`);
+          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} collection=${collection}\n`);
         }
       }
     }
