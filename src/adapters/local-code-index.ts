@@ -8,6 +8,7 @@ import {
   indexCandidate,
   makeCandidateId,
   makeCodeCandidate,
+  type CandidateId,
   type CodeIndex,
   type Generation,
   type IndexCoverageFailure,
@@ -19,6 +20,12 @@ import type { StructuralAnalysisCachePort, StructuralAnalysisPort, WorkspaceFile
 import type { StructuralAnalysis } from '../domain/semantic.js';
 import type { ContentDigest, RepoPath, WorkspaceId } from '../domain/workspace.js';
 
+export interface FileIndexManifestEntry {
+  readonly repoPath: RepoPath;
+  readonly sourceDigest: ContentDigest;
+  readonly candidateIds: readonly CandidateId[];
+}
+
 export interface LocalCodeIndexBuild {
   readonly index: CodeIndex;
   readonly warnings: readonly string[];
@@ -26,6 +33,8 @@ export interface LocalCodeIndexBuild {
   readonly coverage: IndexCoverageSummary;
   readonly structuralCacheHits: number;
   readonly structuralCacheMisses: number;
+  /** Exact digest membership for every in-scope source successfully read. */
+  readonly fileManifest: readonly FileIndexManifestEntry[];
 }
 
 export interface LocalCodeIndexerOptions {
@@ -161,6 +170,7 @@ export const buildLocalCodeIndex = (
     const warnings: string[] = [];
     const indexedPaths: RepoPath[] = [];
     const coverageFailures: IndexCoverageFailure[] = [];
+    const fileManifest = new Map<RepoPath, { sourceDigest: ContentDigest; candidateIds: CandidateId[] }>();
     let attemptedPaths = 0;
     let policyExcludedPaths = 0;
     let outOfScopePaths = 0;
@@ -200,6 +210,10 @@ export const buildLocalCodeIndex = (
         coverageFailures.push({ repoPath: observation.repoPath, kind: 'read_failed', code: exact.error.code });
         continue;
       }
+      fileManifest.set(observation.repoPath, {
+        sourceDigest: exact.value.digest,
+        candidateIds: [],
+      });
       const source = Buffer.from(exact.value.bytes).toString('utf8');
       if (source.length === 0) continue;
       let spans: readonly Span[];
@@ -280,6 +294,7 @@ export const buildLocalCodeIndex = (
         const next = indexCandidate(index, candidate.value);
         if (next._tag === 'Err') return next;
         index = next.value;
+        fileManifest.get(observation.repoPath)?.candidateIds.push(candidate.value.candidateId);
       }
       indexedPaths.push(observation.repoPath);
     }
@@ -297,5 +312,12 @@ export const buildLocalCodeIndex = (
       },
       structuralCacheHits,
       structuralCacheMisses,
+      fileManifest: [...fileManifest.entries()]
+        .map(([repoPath, value]) => ({
+          repoPath,
+          sourceDigest: value.sourceDigest,
+          candidateIds: [...value.candidateIds].sort(),
+        }))
+        .sort((left, right) => left.repoPath.localeCompare(right.repoPath)),
     });
   });
