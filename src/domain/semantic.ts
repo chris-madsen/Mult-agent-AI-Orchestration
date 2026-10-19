@@ -11,6 +11,11 @@ export interface StructuralSymbol {
   readonly startColumn: number;
   readonly endLine: number;
   readonly endColumn: number;
+  /** Exact Tree-sitter identifier-node location; columns are UTF-8 bytes, one-based. */
+  readonly nameStartLine?: number;
+  readonly nameStartColumn?: number;
+  readonly nameEndLine?: number;
+  readonly nameEndColumn?: number;
 }
 
 export interface StructuralAnalysis {
@@ -74,6 +79,13 @@ export const makeStructuralAnalysis = (input: {
     }
     if (![symbol.startLine, symbol.startColumn, symbol.endLine, symbol.endColumn].every((value) => Number.isSafeInteger(value) && value >= 1)) {
       return err({ code: 'INVALID_RETRIEVAL', path: `symbols[${index}]`, message: 'invalid structural range' });
+    }
+    const nameCoordinates = [symbol.nameStartLine, symbol.nameStartColumn, symbol.nameEndLine, symbol.nameEndColumn];
+    const suppliedNameCoordinates = nameCoordinates.filter((value) => value !== undefined);
+    if (suppliedNameCoordinates.length !== 0
+      && (suppliedNameCoordinates.length !== 4
+        || !suppliedNameCoordinates.every((value) => Number.isSafeInteger(value) && (value as number) >= 1))) {
+      return err({ code: 'INVALID_RETRIEVAL', path: `symbols[${index}].name_range`, message: 'structural name range must be complete and positive' });
     }
   }
   return ok({ repoPath: input.repoPath.trim(), sourceDigest: input.sourceDigest as ContentDigest, symbols: input.symbols.map((symbol) => ({ ...symbol })), hasSyntaxErrors: input.hasSyntaxErrors });
