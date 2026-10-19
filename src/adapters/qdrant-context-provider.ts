@@ -57,8 +57,8 @@ export const populateQdrantFromStructuralIndex = (
   for (let offset = 0; offset < index.candidates.length; offset += 16) {
     const candidates = index.candidates.slice(offset, offset + 16);
     const missing = candidates.filter((candidate) => !seedVectors.has(candidate.candidateId));
-    const embedded = missing.length === 0
-      ? ok<readonly (readonly number[])[], DomainError>([])
+    const embedded: Result<readonly (readonly number[])[], DomainError> = missing.length === 0
+      ? ok([])
       : yield* embeddings.embedMany(missing.map((candidate) => candidate.text));
     if (embedded._tag === 'Err') return embedded;
     if (embedded.value.length !== missing.length) {
@@ -356,7 +356,7 @@ export const reuseOrPopulateQdrantSnapshot = (
   if (priorIndexKey !== undefined && priorIndexKey !== indexKey) {
     const prior = yield* readQdrantSnapshotVectors(http, baseUrl, collection, workspaceId, priorIndexKey, allowedHosts);
     if (prior._tag === 'Err') return prior;
-    const currentIds = new Set(index.candidates.map((candidate) => candidate.candidateId));
+    const currentIds = new Set<string>(index.candidates.map((candidate) => candidate.candidateId));
     seedVectors = new Map([...prior.value].filter(([candidateId]) => currentIds.has(candidateId)));
   }
   const indexed = yield* populateQdrantFromStructuralIndex(index, qdrant, embeddings, indexKey, seedVectors);
