@@ -4,6 +4,7 @@ import { err, isErr, ok, type Result } from '../domain/result.js';
 import { workspaceIdFrom, type WorkspaceServicePorts } from '../application/workspace-service.js';
 import type { ArtifactStore } from '../application/ports.js';
 import type { ContextBundle } from '../domain/retrieval.js';
+import { projectContextForDelivery, resolveDeliveryIntent } from '../domain/context-delivery.js';
 import type { MemorySearchResult } from '../domain/memory.js';
 import type { WorkspaceId } from '../domain/workspace.js';
 
@@ -57,6 +58,7 @@ export interface ContextProvider {
   readonly search: (input: {
     readonly workspaceId: WorkspaceId;
     readonly query: string;
+    readonly intent?: string;
     readonly includeDocs: boolean;
     readonly includeMemory: boolean;
   }) => Effect.Effect<Result<ContextBundle, DomainError>>;
@@ -104,11 +106,13 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
             const result = yield* ports.context.search({
               workspaceId: workspaceId.value,
               query: input.value.query,
+              ...(input.value.intent === undefined ? {} : { intent: input.value.intent }),
               includeDocs: input.value.include_docs ?? false,
               includeMemory: input.value.include_memory ?? false,
             });
             if (isErr(result)) return responseError(result);
-            return { status: 'ok', result: { ...result.value } };
+            const delivered = projectContextForDelivery(result.value, resolveDeliveryIntent(input.value.intent));
+            return { status: 'ok', result: { ...delivered } };
           }
           return notReady('unified_context');
         }
