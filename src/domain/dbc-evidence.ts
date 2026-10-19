@@ -40,8 +40,8 @@ const nonEmpty = (value: string): boolean => value.trim().length > 0;
 const secretLike = (value: string): boolean => {
   const normalized = value.trim();
   if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/u.test(normalized)) return true;
-  if (/(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|password)s*[:=]s*S+/iu.test(normalized)) return true;
-  if (/^ya29.[A-Za-z0-9._-]+$/u.test(normalized)) return true;
+  if (/(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|password)\s*[:=]\s*\S+/iu.test(normalized)) return true;
+  if (/^ya29\.[A-Za-z0-9._-]+$/u.test(normalized)) return true;
   if (/^gh[pousr]_[A-Za-z0-9]{20,}$/u.test(normalized)) return true;
   return false;
 };
