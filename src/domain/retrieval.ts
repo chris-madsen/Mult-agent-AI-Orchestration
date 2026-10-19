@@ -142,7 +142,7 @@ export const invalidatePath = (index: CodeIndex, repoPath: RepoPath): CodeIndex 
 });
 
 const queryTerms = (query: string): readonly string[] =>
-  [...new Set(query.toLocaleLowerCase().split(/[^a-z0-9_$.-]+/u).filter((term) => term.length > 1))];
+  [...new Set(query.toLocaleLowerCase().split(/[^\p{L}\p{N}_$.-]+/u).filter((term) => term.length > 0))];
 
 export const searchCode = (
   index: CodeIndex,
@@ -180,9 +180,11 @@ export const mergeEvidence = (
   warnings: readonly string[] = [],
   failedRequiredSources: readonly string[] = [],
 ): ContextBundle => {
+  // Deduplicate only genuinely identical evidence records; distinct proof,
+  // handles, claims and freshness must not be silently discarded.
   const byIdentity = new Map<string, RetrievalEvidence>();
   for (const item of evidence) {
-    const key = `${item.source}|${item.citation}|${item.sourceDigest ?? ''}|${item.content}`;
+    const key = JSON.stringify(item);
     if (!byIdentity.has(key)) byIdentity.set(key, item);
   }
   const conflictGroups = new Map<string, RetrievalEvidence[]>();
@@ -196,12 +198,14 @@ export const mergeEvidence = (
   for (const [conflictKey, group] of conflictGroups) {
     const sources = new Set(group.map((item) => item.source));
     const claims = new Set(group.map((item) => item.conflictValue ?? item.content));
-    if (!sources.has('code') || !sources.has('documentation') || claims.size < 2) continue;
+    // Contradictions across any two distinct source classes are relevant.
+    // Do not infer a conflict for differing claims inside a single source.
+    if (sources.size < 2 || claims.size < 2) continue;
     const evidenceIds = group.map((item) => item.evidenceId);
     conflicts.push({
       conflictKey,
       evidenceIds,
-      message: `documentation and current code disagree for ${conflictKey}`,
+      message: `evidence sources disagree for ${conflictKey}`,
     });
   }
   const conflictWarnings = conflicts.map((conflict) => `conflict: ${conflict.message}`);
@@ -213,7 +217,9 @@ export const mergeEvidence = (
     evidence: [...byIdentity.values()],
     warnings: allWarnings,
     partialSources,
-    complete: partialSources.length === 0 && allWarnings.length === 0,
+    // A warning or contradiction is informative; missing/failed required sources
+    // (partialSources) alone determine completeness.
+    complete: partialSources.length === 0,
     ...(conflicts.length === 0 ? {} : { conflicts }),
   };
 };
