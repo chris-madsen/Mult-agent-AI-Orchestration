@@ -16,6 +16,9 @@ const boundedPositiveInteger = (value: number | undefined, fallback: number): nu
 const nonNegativeInteger = (value: number | undefined, fallback: number): number =>
   value !== undefined && Number.isSafeInteger(value) && value >= 0 ? value : fallback;
 
+const delay = (milliseconds: number): Effect.Effect<void> =>
+  Effect.promise(() => new Promise<void>((resolve) => { setTimeout(resolve, milliseconds); }));
+
 /**
  * Delete derived graph data before tombstoning source truth, then prove that the
  * derived Graphiti episode is absent. A successful delete tool response alone is
@@ -46,7 +49,7 @@ export const deleteEpisodeWithProjection = (
     present = checked.value;
     if (!present) break;
     if (attempt < attempts && delayMs > 0) {
-      yield* Effect.promise(() => new Promise<void>((resolve) => { setTimeout(resolve, delayMs); }));
+      yield* delay(delayMs);
     }
   }
   if (present) {
