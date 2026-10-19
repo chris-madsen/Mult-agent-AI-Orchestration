@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -11,7 +11,7 @@ import { buildLocalCodeIndex } from '../adapters/local-code-index.js';
 import { makeLocalContextProvider } from '../adapters/local-context-provider.js';
 import { makeNodeWorkspacePort } from '../adapters/node-workspace-port.js';
 import { makeProcessEmbeddingPort } from '../adapters/process-embedding.js';
-import { ensureQdrantCollection, makeQdrantContextProvider, populateQdrantFromStructuralIndex } from '../adapters/qdrant-context-provider.js';
+import { ensureQdrantCollection, makeQdrantContextProvider, populateQdrantFromStructuralIndex, pruneQdrantOtherGenerations } from '../adapters/qdrant-context-provider.js';
 import { makeTreeSitterStructuralPort } from '../adapters/tree-sitter-structural.js';
 import { makeTypeScriptLanguageServicePort } from '../adapters/typescript-language-service.js';
 import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
@@ -70,10 +70,11 @@ const makeDocumentationProvider = (
   const project = process.env.ACE_VERTEX_PROJECT?.trim();
   const corpusId = process.env.ACE_VERTEX_CORPUS_ID?.trim();
   if (process.env.ACE_ENABLE_VERTEX !== 'true' || project === undefined || corpusId === undefined) return undefined;
+  const cloudOptIn = process.env.ACE_CLOUD_DOCS_OPT_IN === 'true';
   const policy = {
     ...defaultLocalPolicy(workspaceId),
-    cloudOptIn: true,
-    allowedCloudProviders: ['vertex'] as const,
+    cloudOptIn,
+    allowedCloudProviders: cloudOptIn ? ['vertex'] as const : [],
   };
   return makeVertexRagRetrievalPort({
     project,
@@ -120,13 +121,21 @@ const main = async (): Promise<void> => {
   if (process.env.ACE_ENABLE_EXPERIMENTAL_QDRANT === 'true') {
     const http = makeFetchHttpPort();
     const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
+    const qdrantAllowedHosts = (process.env.ACE_QDRANT_LOCAL_HOSTS ?? '')
+      .split(',')
+      .map((host) => host.trim())
+      .filter((host) => host.length > 0);
     const embeddingModel = process.env.ACE_EMBEDDING_MODEL?.trim() || defaultEmbeddingModel;
-    const collection = process.env.ACE_QDRANT_COLLECTION?.trim()
-      || `ace_code_paraphrase_multilingual_minilm_l12_v2_g${generation}`;
+    const embeddingDimension = Number(process.env.ACE_EMBEDDING_DIMENSION ?? '384');
+    if (!Number.isSafeInteger(embeddingDimension) || embeddingDimension < 1) throw new Error('ACE_EMBEDDING_DIMENSION must be a positive integer');
+    const candidateLimit = Number(process.env.ACE_CONTEXT_CANDIDATE_LIMIT ?? '6');
+    if (!Number.isSafeInteger(candidateLimit) || candidateLimit < 1 || candidateLimit > 20) throw new Error('ACE_CONTEXT_CANDIDATE_LIMIT must be an integer between 1 and 20');
+    const workspaceKey = createHash('sha256').update(registered.value.workspaceId).digest('hex').slice(0, 12);
+    const modelKey = createHash('sha256').update(`${embeddingModel}|${embeddingDimension}`).digest('hex').slice(0, 12);
+    const collection = process.env.ACE_QDRANT_COLLECTION?.trim() || `ace_code_${workspaceKey}_${modelKey}`;
     const embeddingWorker = process.env.ACE_EMBEDDING_WORKER?.trim()
       || resolve('scripts/fastembed-worker.sh');
-    const embeddingDimension = Number(process.env.ACE_EMBEDDING_DIMENSION ?? '384');
-    const inspected = await Effect.runPromise(ensureQdrantCollection(http, qdrantUrl, collection, embeddingDimension));
+    const inspected = await Effect.runPromise(ensureQdrantCollection(http, qdrantUrl, collection, embeddingDimension, qdrantAllowedHosts));
     if (inspected._tag === 'Err') {
       if (allowLocalFallback) {
         const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
@@ -152,8 +161,6 @@ const main = async (): Promise<void> => {
       } else {
         process.stderr.write(`ace-mcp context NOT_READY: qdrant collection check failed (${inspected.error.code})\n`);
       }
-    } else if (embeddingModel !== defaultEmbeddingModel && process.env.ACE_QDRANT_COLLECTION === undefined) {
-      process.stderr.write('ace-mcp context NOT_READY: a non-default embedding model requires an explicit versioned ACE_QDRANT_COLLECTION\n');
     } else if (!existsSync(embeddingWorker) || !existsSync(structuralPath) || !commandBoundaryExists(structuralPython)) {
       process.stderr.write('ace-mcp context NOT_READY: configured FastEmbed/Tree-sitter runtime files are missing\n');
     } else {
@@ -175,11 +182,15 @@ const main = async (): Promise<void> => {
         process.stderr.write(`ace-mcp context NOT_READY: structural index failed (${built.error.code})\n`);
       } else {
         for (const warning of built.value.warnings) process.stderr.write(`ace retrieval warning: ${warning}\n`);
-        const indexed = await Effect.runPromise(populateQdrantFromStructuralIndex(built.value.index, makeQdrantCodeCandidatePort({ baseUrl: qdrantUrl, collection, http }), embeddings));
+        const indexed = await Effect.runPromise(populateQdrantFromStructuralIndex(built.value.index, makeQdrantCodeCandidatePort({ baseUrl: qdrantUrl, collection, http, allowedHosts: qdrantAllowedHosts }), embeddings));
         if (indexed._tag === 'Err') {
           embeddings.close();
           process.stderr.write(`ace-mcp context NOT_READY: Qdrant indexing failed (${indexed.error.code}: ${indexed.error.message})\n`);
         } else {
+          const pruned = await Effect.runPromise(pruneQdrantOtherGenerations(
+            http, qdrantUrl, collection, registered.value.workspaceId, generation, qdrantAllowedHosts,
+          ));
+          if (pruned._tag === 'Err') process.stderr.write(`ace retrieval warning: obsolete Qdrant generation cleanup failed (${pruned.error.code})\n`);
           const sourceFiles = await readSourceFiles(files, registered.value.rootPath, built.value.indexedPaths);
           const semantics = makeTypeScriptLanguageServicePort({ rootPath: registered.value.rootPath, files: sourceFiles });
           const documentation = makeDocumentationProvider(registered.value.workspaceId, http);
@@ -187,12 +198,13 @@ const main = async (): Promise<void> => {
             workspaceId: registered.value.workspaceId,
             rootPath: registered.value.rootPath,
             files,
-            qdrant: makeQdrantCodeCandidatePort({ baseUrl: qdrantUrl, collection, http }),
+            qdrant: makeQdrantCodeCandidatePort({ baseUrl: qdrantUrl, collection, http, allowedHosts: qdrantAllowedHosts }),
             embeddings,
             artifacts,
             semantics,
             newRequestId: () => randomUUID(),
             generation,
+            candidateLimit,
             ...(documentation === undefined ? {} : { documentation }),
           });
           process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} collection=${collection}\n`);

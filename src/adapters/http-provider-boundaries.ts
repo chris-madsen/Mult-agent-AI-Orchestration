@@ -71,8 +71,32 @@ interface QdrantConfig {
   readonly baseUrl: string;
   readonly collection: string;
   readonly http: HttpPort;
+  /** Explicit local bridge aliases (for example a Docker host gateway). */
+  readonly allowedHosts?: readonly string[];
   readonly apiKey?: () => string | undefined;
 }
+
+export const validateLocalQdrantBaseUrl = (
+  baseUrl: string,
+  allowedHosts: readonly string[] = [],
+): Result<string, DomainError> => {
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return err(domainError('INVALID_INPUT', 'qdrant_url', 'Qdrant URL must be a valid absolute URL'));
+  }
+  const hostname = url.hostname.toLocaleLowerCase().replace(/^\[|\]$/gu, '');
+  const allowed = new Set(['localhost', '127.0.0.1', '::1', ...allowedHosts.map((host) => host.trim().toLocaleLowerCase())]);
+  if (url.protocol !== 'http:' || !allowed.has(hostname) || url.username !== '' || url.password !== '') {
+    return err(domainError(
+      'POLICY_DENIED',
+      'qdrant_url',
+      'Qdrant code index is local-only: use loopback HTTP or an explicitly allowlisted local bridge host',
+    ));
+  }
+  return ok(url.origin);
+};
 
 const candidateFromPayload = (point: Record<string, unknown>, workspaceId: WorkspaceId): Result<CodeCandidate, DomainError> => {
   const payload = object(point.payload);
@@ -149,12 +173,14 @@ const qdrantPointId = (candidateId: string): string => {
 
 export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidatePort => ({
   search: (input) => Effect.gen(function* () {
+    const endpoint = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
+    if (endpoint._tag === 'Err') return endpoint;
     if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 1000) {
       return err(domainError('INVALID_INPUT', 'limit', 'Qdrant limit must be between 1 and 1000'));
     }
     const responseResult = yield* config.http.request({
       method: 'POST',
-      url: `${config.baseUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(config.collection)}/points/query`,
+      url: `${endpoint.value}/collections/${encodeURIComponent(config.collection)}/points/query`,
       ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
       body: { query: input.vector, limit: input.limit, with_payload: true, with_vector: false,
         filter: { must: [
@@ -180,9 +206,11 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
     return ok(output);
   }),
   upsert: (points) => Effect.gen(function* () {
+    const endpoint = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
+    if (endpoint._tag === 'Err') return endpoint;
     const responseResult = yield* config.http.request({
       method: 'PUT',
-      url: `${config.baseUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(config.collection)}/points?wait=true`,
+      url: `${endpoint.value}/collections/${encodeURIComponent(config.collection)}/points?wait=true`,
       ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
       body: { points: points.map(qdrantPoint) },
     });
