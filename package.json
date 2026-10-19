@@ -37,7 +37,9 @@
     "test:real-graphiti-lifecycle": "tsx scripts/graphiti-real-lifecycle-e2e.ts",
     "vertex:import-synthetic": "bash scripts/vertex-synthetic-fixture-import.sh",
     "test:real-vertex-conflict": "tsx scripts/vertex-synthetic-conflict-e2e.ts",
-    "evidence:dbc": "tsx scripts/dbc-evidence-manifest.ts"
+    "evidence:dbc": "tsx scripts/dbc-evidence-manifest.ts",
+    "compare:semantic-tsls": "tsx scripts/typescript-ls-semantic-comparison.ts",
+    "gate:semantic-selection": "tsx scripts/semantic-provider-selection-gate.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",
