@@ -4,7 +4,10 @@ export type ProviderTraceName =
   | 'embedding'
   | 'qdrant'
   | 'tree_sitter'
-  | 'typescript_language_service';
+  | 'typescript_language_service'
+  | 'vertex_rag'
+  | 'graphiti'
+  | 'source_verification';
 
 /**
  * Safe runtime evidence.  This deliberately contains no source text, query,
