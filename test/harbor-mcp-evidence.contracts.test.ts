@@ -18,6 +18,12 @@ const event = (overrides: Record<string, unknown> = {}, eventType = 'item.comple
     result: {
       structured_content: {
         complete: true,
+        evidence: [{
+          source: 'code',
+          freshness: 'current',
+          proofClass: 'direct',
+          citation: 'fixture.ts:1-3',
+        }],
       },
     },
     ...overrides,
@@ -40,9 +46,16 @@ test('Harbor evidence preserves failed and partial ACE calls as observed but not
   assert.equal(isObservedAceContextEvent(partial), true);
   assert.equal(isSuccessfulAceContextEvent(partial), false);
 
-  const notReady = event({ result: { structured_content: { complete: true, status: 'not_ready' } } });
+  const notReady = event({ result: { structured_content: { complete: true, status: 'not_ready', evidence: [{ source: 'code', freshness: 'current', proofClass: 'direct' }] } } });
   assert.equal(isObservedAceContextEvent(notReady), true);
   assert.equal(isSuccessfulAceContextEvent(notReady), false);
+});
+
+test('Harbor attribution rejects complete-but-empty or unverified context', () => {
+  assert.equal(isObservedAceContextEvent(event({ result: { structured_content: { complete: true, evidence: [] } } })), true);
+  assert.equal(isSuccessfulAceContextEvent(event({ result: { structured_content: { complete: true, evidence: [] } } })), false);
+  assert.equal(isSuccessfulAceContextEvent(event({ result: { structured_content: { complete: true, evidence: [{ source: 'code', freshness: 'unknown', proofClass: 'uncertain' }] } } })), false);
+  assert.equal(isSuccessfulAceContextEvent(event({ result: { structured_content: { complete: true, evidence: [{ source: 'documentation', freshness: 'current', proofClass: 'direct' }] } } })), false);
 });
 
 test('Harbor evidence rejects non-terminal, unrelated and malformed events', () => {
