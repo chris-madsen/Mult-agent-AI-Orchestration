@@ -114,11 +114,21 @@ export const makeLocalContextProvider = (options: LocalContextProviderOptions) =
     ]);
     if (input.sourceRequirements === undefined) return ok(merged);
 
-    if (sourceIsRequested(requirements.code)) {
-      sourceCoverage = setSourceCoverage(sourceCoverage, 'code', 'partial', 'lexical_fallback_not_production_verified');
+    if (requirements.code.requirement !== 'not_requested' && requirements.code.allowed) {
+      sourceCoverage = setSourceCoverage(
+        sourceCoverage,
+        'code',
+        includeCode ? 'partial' : 'unavailable',
+        includeCode ? 'lexical_fallback_not_production_verified' : 'not_executed',
+      );
     }
-    if (sourceIsRequested(requirements.structural)) {
-      sourceCoverage = setSourceCoverage(sourceCoverage, 'structural', 'unavailable', 'semantic_provider_not_available_in_local_fallback');
+    if (requirements.structural.requirement !== 'not_requested' && requirements.structural.allowed) {
+      sourceCoverage = setSourceCoverage(
+        sourceCoverage,
+        'structural',
+        'unavailable',
+        includeCode ? 'semantic_provider_not_available_in_local_fallback' : 'not_executed',
+      );
     }
     if (sourceIsRequested(requirements.documentation)) {
       sourceCoverage = setSourceCoverage(sourceCoverage, 'documentation', 'unavailable', 'documentation_provider_not_available_in_local_fallback');
