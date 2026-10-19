@@ -2,8 +2,8 @@ import { Effect } from 'effect';
 import { admitMemoryEpisode, defaultMemoryAdmissionPolicy, type MemoryAdmission, type MemoryAdmissionPolicy } from '../domain/memory-admission.js';
 import { domainError, type DomainError, type DomainErrorCode } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
-import type { EpisodeId, SessionEpisode } from '../domain/memory.js';
-import type { GraphProjectionPort, MemoryArchivePort } from './ports.js';
+import { finishProjection, type EpisodeId, type ProjectionReceipt, type SessionEpisode } from '../domain/memory.js';
+import type { GraphProjectionPort, MemoryArchivePort, ProjectionOutboxPort } from './ports.js';
 
 export interface ProjectionSession {
   readonly projection: GraphProjectionPort;
@@ -25,6 +25,7 @@ export interface MemoryImportInput {
   readonly createProjection: () => Promise<ProjectionSession>;
   readonly extractorVersion: string;
   readonly admissionPolicy?: MemoryAdmissionPolicy;
+  readonly outbox?: ProjectionOutboxPort;
 }
 
 const errorFrom = (cause: unknown, path: string, message: string): DomainError =>
@@ -73,7 +74,29 @@ export const importMemoryEpisodes = async (input: MemoryImportInput): Promise<Re
         continue;
       }
 
+      let queued: ProjectionReceipt | undefined;
+      if (input.outbox !== undefined) {
+        const begun = await input.outbox.begin(episode.episodeId, input.extractorVersion);
+        if (begun._tag === 'Err') return begun;
+        queued = begun.value;
+        if (queued.status === 'projected') {
+          outcomes.push({
+            episodeId: episode.episodeId,
+            persisted: created,
+            admission,
+            projectionStatus: 'projected',
+          });
+          continue;
+        }
+      }
+
       if (projectionUnavailable !== undefined) {
+        if (queued !== undefined && input.outbox !== undefined) {
+          const incomplete = finishProjection(queued, 'incomplete');
+          const stored = await input.outbox.put(incomplete);
+          if (stored._tag === 'Err') return stored;
+          queued = incomplete;
+        }
         outcomes.push({
           episodeId: episode.episodeId,
           persisted: created,
@@ -89,6 +112,12 @@ export const importMemoryEpisodes = async (input: MemoryImportInput): Promise<Re
           session = await input.createProjection();
         } catch (cause) {
           projectionUnavailable = errorFrom(cause, 'graphiti', 'Graphiti projection session could not start');
+          if (queued !== undefined && input.outbox !== undefined) {
+            const incomplete = finishProjection(queued, 'incomplete');
+            const stored = await input.outbox.put(incomplete);
+            if (stored._tag === 'Err') return stored;
+            queued = incomplete;
+          }
           outcomes.push({
             episodeId: episode.episodeId,
             persisted: created,
@@ -111,6 +140,11 @@ export const importMemoryEpisodes = async (input: MemoryImportInput): Promise<Re
         }],
       }));
       if (projected._tag === 'Err') {
+        if (queued !== undefined && input.outbox !== undefined) {
+          const incomplete = finishProjection(queued, 'incomplete');
+          const stored = await input.outbox.put(incomplete);
+          if (stored._tag === 'Err') return stored;
+        }
         outcomes.push({
           episodeId: episode.episodeId,
           persisted: created,
@@ -119,6 +153,14 @@ export const importMemoryEpisodes = async (input: MemoryImportInput): Promise<Re
           projectionErrorCode: projected.error.code,
         });
         continue;
+      }
+      if (input.outbox !== undefined) {
+        const receipt: ProjectionReceipt = {
+          ...projected.value,
+          attempts: Math.max(projected.value.attempts, (queued?.attempts ?? 0) + 1),
+        };
+        const stored = await input.outbox.put(receipt);
+        if (stored._tag === 'Err') return stored;
       }
       outcomes.push({
         episodeId: episode.episodeId,
