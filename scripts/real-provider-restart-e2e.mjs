@@ -13,6 +13,7 @@ const state = join(root, 'state');
 await mkdir(workspace);
 const sourcePath = join(workspace, 'versioned.ts');
 const workspaceId = 'real-provider-restart';
+const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
 
 const digest = async () => createHash('sha256').update(await readFile(sourcePath)).digest('hex');
 
@@ -26,7 +27,7 @@ const runOnce = () => new Promise((resolveRun, rejectRun) => {
       ACE_STATE_DIR: state,
       ACE_WORKSPACE_ID: workspaceId,
       ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
-      ACE_QDRANT_URL: process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333',
+      ACE_QDRANT_URL: qdrantUrl,
       ACE_EMBEDDING_WORKER: resolve(import.meta.dirname, 'fastembed-worker.sh'),
       ACE_TREE_SITTER_HELPER: resolve(import.meta.dirname, 'tree-sitter-structural.py'),
       ACE_TREE_SITTER_PYTHON: process.env.ACE_TREE_SITTER_PYTHON ?? resolve('.venv-system/bin/python'),
@@ -91,7 +92,8 @@ try {
   assert.equal(first.response.result?.isError, undefined, JSON.stringify(first.response));
   assert.equal(firstContext.complete, true, JSON.stringify(firstContext));
   assert.equal(firstContext.evidence[0]?.sourceDigest, firstDigest);
-  assert.match(first.stderr, /generation=1 .*collection=.*_g1/);
+  const firstCollection = /generation=1 .*collection=([^\s]+)/u.exec(first.stderr)?.[1];
+  assert.ok(firstCollection, first.stderr);
 
   await writeFile(sourcePath, 'export function currentValue() { return "D2"; }\n');
   const secondDigest = await digest();
@@ -101,9 +103,41 @@ try {
   assert.equal(secondContext.complete, true, JSON.stringify(secondContext));
   assert.equal(secondContext.evidence[0]?.sourceDigest, secondDigest);
   assert.notEqual(secondDigest, firstDigest);
-  assert.match(second.stderr, /generation=2 .*collection=.*_g2/);
+  const secondCollection = /generation=2 .*collection=([^\s]+)/u.exec(second.stderr)?.[1];
+  assert.equal(secondCollection, firstCollection, 'collection is stable across observation generations');
 
-  console.log(JSON.stringify({ status: 'provider-pass', first_generation: 1, second_generation: 2, first_digest: firstDigest, second_digest: secondDigest }, null, 2));
+  const scrollGeneration = async (generation) => {
+    const response = await fetch(`${qdrantUrl}/collections/${encodeURIComponent(firstCollection)}/points/scroll`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        limit: 1,
+        with_payload: false,
+        with_vector: false,
+        filter: {
+          must: [
+            { key: 'workspace_id', match: { value: workspaceId } },
+            { key: 'generation', match: { value: generation } },
+          ],
+        },
+      }),
+    });
+    assert.equal(response.ok, true, await response.text());
+    const body = await response.json();
+    return body.result?.points ?? [];
+  };
+  assert.equal((await scrollGeneration(1)).length, 0, 'obsolete generation is pruned after successful rebuild');
+  assert.ok((await scrollGeneration(2)).length > 0, 'current generation remains indexed');
+
+  console.log(JSON.stringify({
+    status: 'provider-pass',
+    first_generation: 1,
+    second_generation: 2,
+    collection: firstCollection,
+    obsolete_generation_pruned: true,
+    first_digest: firstDigest,
+    second_digest: secondDigest,
+  }, null, 2));
 } finally {
   await rm(root, { recursive: true, force: true });
 }
