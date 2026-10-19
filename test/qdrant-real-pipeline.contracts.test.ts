@@ -170,5 +170,5 @@ test('DBC-14 documentation conflict preserves code and ADR provenance explicitly
   assert.equal(context.evidence.find((item) => item.source === 'documentation')?.sourceRevision, 'adr-r1');
   assert.equal(context.conflicts?.length, 1);
   assert.equal(context.conflicts?.[0]?.conflictKey, 'reconnect-policy');
-  assert.ok(context.warnings.some((warning) => warning.includes('documentation and current code disagree')));
+  assert.ok(context.warnings.some((warning) => warning.includes('evidence sources disagree')));
 });
