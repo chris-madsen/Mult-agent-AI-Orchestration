@@ -8,7 +8,9 @@ their result to a stable JSON boundary; it never executes source text.
 from __future__ import annotations
 
 import json
+import platform
 import sys
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from tree_sitter import Language, Parser
@@ -59,8 +61,29 @@ def symbols(node, source: bytes):
     return result
 
 
+def _package_version(name: str) -> str:
+    try:
+        return version(name)
+    except PackageNotFoundError:
+        return "missing"
+
+
 def main() -> int:
     request = json.load(sys.stdin)
+    if request.get("operation") == "identity":
+        print(
+            json.dumps(
+                {
+                    "provider": "tree-sitter",
+                    "protocol_schema": 2,
+                    "python": platform.python_version(),
+                    "tree_sitter": _package_version("tree-sitter"),
+                    "tree_sitter_typescript": _package_version("tree-sitter-typescript"),
+                },
+                separators=(",", ":"),
+            )
+        )
+        return 0
     path = request.get("path")
     source = request.get("source")
     if not isinstance(path, str) or not isinstance(source, str):

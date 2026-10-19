@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { Effect } from 'effect';
-import { makeTreeSitterStructuralPort } from '../src/adapters/tree-sitter-structural.js';
+import { makeTreeSitterStructuralPort, resolveTreeSitterProviderIdentity } from '../src/adapters/tree-sitter-structural.js';
 
 test('Tree-sitter structural adapter returns typed symbols with source provenance', async () => {
   const port = makeTreeSitterStructuralPort({
@@ -44,4 +46,37 @@ test('Tree-sitter adapter rejects invalid UTF-8 before provider execution', asyn
     assert.equal(result.error.code, 'INVALID_INPUT');
     assert.equal(result.error.path, 'source');
   }
+});
+
+
+test('Tree-sitter runtime identity binds package versions and exact helper bytes', async () => {
+  const pythonCommand = join(process.cwd(), '.venv-system/bin/python');
+  const originalHelper = join(process.cwd(), 'scripts/tree-sitter-structural.py');
+  const first = await Effect.runPromise(resolveTreeSitterProviderIdentity({
+    pythonCommand,
+    helperPath: originalHelper,
+  }));
+  assert.equal(first._tag, 'Ok');
+  if (first._tag === 'Err') return;
+  assert.match(first.value.fingerprint, /^[a-f0-9]{64}$/u);
+  assert.match(first.value.helperSha256, /^[a-f0-9]{64}$/u);
+  assert.equal(first.value.provider, 'tree-sitter');
+  assert.equal(first.value.protocolSchema, 2);
+  assert.notEqual(first.value.treeSitterVersion, 'missing');
+  assert.notEqual(first.value.grammarVersion, 'missing');
+
+  const root = await mkdtemp(join(tmpdir(), 'ace-tree-sitter-identity-'));
+  const copiedHelper = join(root, 'tree-sitter-structural.py');
+  const bytes = await readFile(originalHelper);
+  await writeFile(copiedHelper, Buffer.concat([bytes, Buffer.from('\n# identity digest mutation\n')]));
+  const second = await Effect.runPromise(resolveTreeSitterProviderIdentity({
+    pythonCommand,
+    helperPath: copiedHelper,
+  }));
+  assert.equal(second._tag, 'Ok');
+  if (second._tag === 'Err') return;
+  assert.notEqual(second.value.helperSha256, first.value.helperSha256);
+  assert.notEqual(second.value.fingerprint, first.value.fingerprint);
+  assert.equal(second.value.treeSitterVersion, first.value.treeSitterVersion);
+  assert.equal(second.value.grammarVersion, first.value.grammarVersion);
 });

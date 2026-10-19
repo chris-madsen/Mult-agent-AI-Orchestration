@@ -88,6 +88,19 @@ export interface StructuralAnalysisPort {
   }) => Effect.Effect<Result<StructuralAnalysis, DomainError>>;
 }
 
+export interface StructuralAnalysisCachePort {
+  readonly get: (input: {
+    readonly repoPath: RepoPath;
+    readonly sourceDigest: ContentDigest;
+    /** Explicit parser/runtime identity. Cache reuse is unsafe without it. */
+    readonly providerFingerprint: string;
+  }) => Effect.Effect<Result<StructuralAnalysis | undefined, DomainError>>;
+  readonly put: (input: {
+    readonly analysis: StructuralAnalysis;
+    readonly providerFingerprint: string;
+  }) => Effect.Effect<Result<void, DomainError>>;
+}
+
 export interface SemanticAnalysisPort {
   readonly definition: (input: SemanticQuery) => Effect.Effect<Result<readonly SemanticDefinition[], DomainError>>;
   readonly references: (input: SemanticQuery) => Effect.Effect<Result<readonly SemanticReference[], DomainError>>;

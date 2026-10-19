@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import { Effect } from 'effect';
 import { makeFileArtifactStore } from '../adapters/file-artifact-store.js';
 import { makeFileQdrantSnapshotState, type SnapshotLease } from '../adapters/file-qdrant-snapshot-state.js';
+import { makeFileStructuralAnalysisCache } from '../adapters/file-structural-analysis-cache.js';
 import { makeAsyncFileMemoryArchive } from '../adapters/file-memory-archive.js';
 import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
 import { makeHostWorkspacePort, makeMtlsHostHelperTransport } from '../adapters/host-worktree-helper.js';
@@ -23,7 +24,7 @@ import {
   pruneQdrantUnleasedSnapshots,
   reuseOrPopulateQdrantSnapshot,
 } from '../adapters/qdrant-context-provider.js';
-import { makeTreeSitterStructuralPort } from '../adapters/tree-sitter-structural.js';
+import { makeTreeSitterStructuralPort, resolveTreeSitterProviderIdentity } from '../adapters/tree-sitter-structural.js';
 import { makeTypeScriptLanguageServicePort } from '../adapters/typescript-language-service.js';
 import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
 import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
@@ -333,15 +334,27 @@ const main = async (): Promise<void> => {
       const embeddingFingerprint = createHash('sha256')
         .update(JSON.stringify(effectiveEmbedding), 'utf8')
         .digest('hex');
-      const structural = makeTreeSitterStructuralPort({
+      const structuralOptions = {
         helperPath: structuralPath,
         pythonCommand: structuralPython,
         providerVersion: process.env.ACE_TREE_SITTER_VERSION?.trim() || 'tree-sitter/0.26.0',
         trace: providerTrace,
-      });
+      };
+      const structuralIdentity = await Effect.runPromise(resolveTreeSitterProviderIdentity(structuralOptions));
+      const structuralCache = structuralIdentity._tag === 'Ok'
+        ? await makeFileStructuralAnalysisCache(resolve(stateDirectory, 'structural-cache'))
+        : undefined;
+      if (structuralIdentity._tag === 'Err') {
+        process.stderr.write(`ace retrieval warning: structural cache disabled because parser identity probe failed (${structuralIdentity.error.code})\n`);
+      }
+      const structural = makeTreeSitterStructuralPort(structuralOptions);
       const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
         generation,
         structural,
+        ...(structuralCache === undefined || structuralIdentity._tag === 'Err' ? {} : {
+          structuralCache,
+          structuralProviderFingerprint: structuralIdentity.value.fingerprint,
+        }),
       }));
       if (built._tag === 'Err') {
         embeddings.close();
@@ -477,7 +490,7 @@ const main = async (): Promise<void> => {
           readiness.unified_context = built.value.coverage.failedPaths === 0
             ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
             : { state: 'degraded', reason: 'index_coverage_partial' };
-          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} embedding_identity=${embeddingFingerprint.slice(0, 12)} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection}\n`);
+          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} structural_cache_hits=${built.value.structuralCacheHits} structural_cache_misses=${built.value.structuralCacheMisses} embedding_identity=${embeddingFingerprint.slice(0, 12)} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection}\n`);
         }
       }
     }
