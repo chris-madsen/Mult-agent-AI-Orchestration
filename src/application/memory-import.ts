@@ -1,6 +1,6 @@
 import { Effect } from 'effect';
 import { admitMemoryEpisode, defaultMemoryAdmissionPolicy, type MemoryAdmission, type MemoryAdmissionPolicy } from '../domain/memory-admission.js';
-import { domainError, type DomainError } from '../domain/errors.js';
+import { domainError, type DomainError, type DomainErrorCode } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import type { EpisodeId, SessionEpisode } from '../domain/memory.js';
 import type { GraphProjectionPort, MemoryArchivePort } from './ports.js';
@@ -12,9 +12,11 @@ export interface ProjectionSession {
 
 export interface MemoryImportOutcome {
   readonly episodeId: EpisodeId;
+  /** True only when this import created a new immutable archive record. */
   readonly persisted: boolean;
   readonly admission: MemoryAdmission;
   readonly projectionStatus?: 'pending' | 'projected' | 'incomplete' | 'tombstoned';
+  readonly projectionErrorCode?: DomainErrorCode;
 }
 
 export interface MemoryImportInput {
@@ -28,46 +30,112 @@ export interface MemoryImportInput {
 const errorFrom = (cause: unknown, path: string, message: string): DomainError =>
   domainError('EXTERNAL_UNAVAILABLE', path, cause instanceof Error ? `${message}: ${cause.message}` : message);
 
-/** Archives every episode, but lazily projects only admitted durable memory. */
+interface ArchivedEpisode {
+  readonly episode: SessionEpisode;
+  readonly created: boolean;
+  readonly admission: MemoryAdmission;
+}
+
+/**
+ * Two-phase import:
+ * 1. archive every original episode first;
+ * 2. only then attempt the derived Graphiti projection.
+ *
+ * A Graphiti/extractor outage must never prevent later originals from reaching
+ * the immutable archive. Projection failures are reported as incomplete
+ * outcomes and may be retried idempotently later.
+ */
 export const importMemoryEpisodes = async (input: MemoryImportInput): Promise<Result<readonly MemoryImportOutcome[], DomainError>> => {
-  let session: ProjectionSession | undefined;
-  const outcomes: MemoryImportOutcome[] = [];
   const policy = input.admissionPolicy ?? defaultMemoryAdmissionPolicy;
-  let failure: DomainError | undefined;
+  const archived: ArchivedEpisode[] = [];
+
+  // Phase 1: source truth first. Any archive failure is fatal because ACE cannot
+  // honestly claim the original history was preserved.
+  for (const episode of input.episodes) {
+    const saved = await input.archive.importEpisode(episode);
+    if (saved._tag === 'Err') return saved;
+    archived.push({
+      episode,
+      created: saved.value.created,
+      admission: admitMemoryEpisode(episode, policy),
+    });
+  }
+
+  const outcomes: MemoryImportOutcome[] = [];
+  let session: ProjectionSession | undefined;
+  let projectionUnavailable: DomainError | undefined;
+
   try {
-    for (const episode of input.episodes) {
-      const saved = await input.archive.importEpisode(episode);
-      if (saved._tag === 'Err') {
-        failure = saved.error;
-        break;
-      }
-      const admission = admitMemoryEpisode(episode, policy);
+    for (const item of archived) {
+      const { episode, created, admission } = item;
       if (admission.kind === 'archive_only') {
-        outcomes.push({ episodeId: episode.episodeId, persisted: saved.value.created, admission });
+        outcomes.push({ episodeId: episode.episodeId, persisted: created, admission });
         continue;
       }
-      session ??= await input.createProjection();
+
+      if (projectionUnavailable !== undefined) {
+        outcomes.push({
+          episodeId: episode.episodeId,
+          persisted: created,
+          admission,
+          projectionStatus: 'incomplete',
+          projectionErrorCode: projectionUnavailable.code,
+        });
+        continue;
+      }
+
+      if (session === undefined) {
+        try {
+          session = await input.createProjection();
+        } catch (cause) {
+          projectionUnavailable = errorFrom(cause, 'graphiti', 'Graphiti projection session could not start');
+          outcomes.push({
+            episodeId: episode.episodeId,
+            persisted: created,
+            admission,
+            projectionStatus: 'incomplete',
+            projectionErrorCode: projectionUnavailable.code,
+          });
+          continue;
+        }
+      }
+
       const projected = await Effect.runPromise(session.projection.project({
         episodeId: episode.episodeId,
+        occurredAtMs: episode.occurredAtMs,
         extractorVersion: input.extractorVersion,
-        claims: [{ original_digest: episode.contentDigest, text: episode.searchText, original_pointer: episode.sourcePointer }],
+        claims: [{
+          original_digest: episode.contentDigest,
+          text: episode.searchText,
+          original_pointer: episode.sourcePointer,
+        }],
       }));
       if (projected._tag === 'Err') {
-        failure = projected.error;
-        break;
+        outcomes.push({
+          episodeId: episode.episodeId,
+          persisted: created,
+          admission,
+          projectionStatus: 'incomplete',
+          projectionErrorCode: projected.error.code,
+        });
+        continue;
       }
-      outcomes.push({ episodeId: episode.episodeId, persisted: saved.value.created, admission, projectionStatus: projected.value.status });
+      outcomes.push({
+        episodeId: episode.episodeId,
+        persisted: created,
+        admission,
+        projectionStatus: projected.value.status,
+      });
     }
-  } catch (cause) {
-    failure = errorFrom(cause, 'memory_import', 'memory import failed');
   } finally {
     if (session !== undefined) {
       try {
         await session.close();
       } catch (cause) {
-        failure ??= errorFrom(cause, 'graphiti', 'Graphiti session close failed');
+        return err(errorFrom(cause, 'graphiti', 'Graphiti session close failed'));
       }
     }
   }
-  return failure === undefined ? ok(outcomes) : err(failure);
+
+  return ok(outcomes);
 };
