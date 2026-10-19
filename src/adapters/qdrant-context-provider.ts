@@ -327,6 +327,86 @@ export const pruneQdrantOtherGenerations = (
     : err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not prune obsolete index generations'));
 });
 
+export const listQdrantSnapshotKeys = (
+  http: HttpPort,
+  baseUrl: string,
+  collection: string,
+  workspaceId: WorkspaceId,
+  allowedHosts: readonly string[] = [],
+): Effect.Effect<Result<ReadonlySet<string>, DomainError>> => Effect.gen(function* () {
+  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
+  if (endpoint._tag === 'Err') return endpoint;
+  const keys = new Set<string>();
+  let offset: unknown;
+  for (let page = 0; page < 10_000; page += 1) {
+    const response = yield* http.request({
+      method: 'POST',
+      url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/scroll',
+      body: {
+        limit: 256,
+        with_payload: true,
+        with_vector: false,
+        filter: { must: [{ key: 'workspace_id', match: { value: workspaceId } }] },
+        ...(offset === undefined ? {} : { offset }),
+      },
+    });
+    if (response._tag === 'Err') return response;
+    if (response.value.status < 200 || response.value.status >= 300) {
+      return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not enumerate snapshot keys'));
+    }
+    const body = response.value.body as { result?: { points?: unknown; next_page_offset?: unknown } };
+    if (!Array.isArray(body?.result?.points)) {
+      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'snapshot enumeration requires points'));
+    }
+    for (const point of body.result.points) {
+      if (typeof point !== 'object' || point === null || Array.isArray(point)) continue;
+      const payload = (point as { payload?: unknown }).payload;
+      if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) continue;
+      const indexKey = (payload as { index_key?: unknown }).index_key;
+      if (typeof indexKey === 'string' && /^[a-f0-9]{64}$/u.test(indexKey)) keys.add(indexKey);
+    }
+    const next = body.result.next_page_offset;
+    if (next === undefined || next === null) break;
+    offset = next;
+    if (page === 9_999) {
+      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'snapshot enumeration pagination did not terminate'));
+    }
+  }
+  return ok(keys);
+});
+
+export const pruneQdrantUnleasedSnapshots = (
+  http: HttpPort,
+  baseUrl: string,
+  collection: string,
+  workspaceId: WorkspaceId,
+  retainedIndexKeys: ReadonlySet<string>,
+  allowedHosts: readonly string[] = [],
+): Effect.Effect<Result<readonly string[], DomainError>> => Effect.gen(function* () {
+  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
+  if (endpoint._tag === 'Err') return endpoint;
+  const listed = yield* listQdrantSnapshotKeys(http, baseUrl, collection, workspaceId, allowedHosts);
+  if (listed._tag === 'Err') return listed;
+  const deleted: string[] = [];
+  for (const indexKey of listed.value) {
+    if (retainedIndexKeys.has(indexKey)) continue;
+    const response = yield* http.request({
+      method: 'POST',
+      url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/delete?wait=true',
+      body: { filter: { must: [
+        { key: 'workspace_id', match: { value: workspaceId } },
+        { key: 'index_key', match: { value: indexKey } },
+      ] } },
+    });
+    if (response._tag === 'Err') return response;
+    if (response.value.status < 200 || response.value.status >= 300) {
+      return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not delete an unleased snapshot'));
+    }
+    deleted.push(indexKey);
+  }
+  return ok(deleted);
+});
+
 /** Tree-sitter uses one-based line/column coordinates here, but columns count UTF-8 bytes.
  * Re-slice authoritative workspace bytes and compare them with the Qdrant payload.
  * Qdrant ranking never confers source-of-truth status. */
