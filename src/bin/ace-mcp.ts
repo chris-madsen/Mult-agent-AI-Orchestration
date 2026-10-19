@@ -39,6 +39,8 @@ const commandBoundaryExists = (value: string): boolean => value.includes('/') ? 
 
 const defaultEmbeddingModel = 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2';
 const defaultEmbeddingRevision = 'e8f8c211226b894fcb81acc59f3b34ba3efd5f42';
+const defaultFastEmbedArtifactModel = 'qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q';
+const defaultFastEmbedArtifactRevision = 'faf4aa4225822f3bc6376869cb1164e8e3feedd0';
 const defaultEmbeddingPreprocessing = 'raw_text_v1';
 
 const gcloudAccessToken = (): string | undefined => {
@@ -132,18 +134,24 @@ const main = async (): Promise<void> => {
     const embeddingModel = process.env.ACE_EMBEDDING_MODEL?.trim() || defaultEmbeddingModel;
     const embeddingProvider = process.env.ACE_EMBEDDING_PROVIDER?.trim() || 'fastembed/onnx';
     const embeddingRevision = process.env.ACE_EMBEDDING_MODEL_REVISION?.trim() || defaultEmbeddingRevision;
+    const embeddingArtifactModel = process.env.ACE_EMBEDDING_ARTIFACT_MODEL?.trim()
+      || (embeddingProvider === 'fastembed/onnx' ? defaultFastEmbedArtifactModel : embeddingModel);
+    const embeddingArtifactRevision = process.env.ACE_EMBEDDING_ARTIFACT_REVISION?.trim()
+      || (embeddingProvider === 'fastembed/onnx' ? defaultFastEmbedArtifactRevision : embeddingRevision);
     const embeddingArtifactDigest = process.env.ACE_EMBEDDING_ARTIFACT_DIGEST?.trim() || 'unverified';
     const embeddingPreprocessing = process.env.ACE_EMBEDDING_PREPROCESSING?.trim() || defaultEmbeddingPreprocessing;
     if (process.env.ACE_REQUIRE_PINNED_EMBEDDING === 'true'
-      && (!/^[a-f0-9]{40}$/u.test(embeddingRevision) || !/^[a-f0-9]{64}$/u.test(embeddingArtifactDigest))) {
-      throw new Error('ACE_REQUIRE_PINNED_EMBEDDING requires a model revision and 64-character artifact digest');
+      && (!/^[a-f0-9]{40}$/u.test(embeddingRevision)
+        || !/^[a-f0-9]{40}$/u.test(embeddingArtifactRevision)
+        || !/^[a-f0-9]{64}$/u.test(embeddingArtifactDigest))) {
+      throw new Error('ACE_REQUIRE_PINNED_EMBEDDING requires model/artifact revisions and a 64-character artifact digest');
     }
     const embeddingDimension = Number(process.env.ACE_EMBEDDING_DIMENSION ?? '384');
     if (!Number.isSafeInteger(embeddingDimension) || embeddingDimension < 1) throw new Error('ACE_EMBEDDING_DIMENSION must be a positive integer');
     const candidateLimit = Number(process.env.ACE_CONTEXT_CANDIDATE_LIMIT ?? '6');
     if (!Number.isSafeInteger(candidateLimit) || candidateLimit < 1 || candidateLimit > 20) throw new Error('ACE_CONTEXT_CANDIDATE_LIMIT must be an integer between 1 and 20');
     const workspaceKey = createHash('sha256').update(registered.value.workspaceId).digest('hex').slice(0, 12);
-    const modelKey = createHash('sha256').update(`${embeddingProvider}|${embeddingModel}|${embeddingRevision}|${embeddingArtifactDigest}|${embeddingPreprocessing}|${embeddingDimension}`).digest('hex').slice(0, 12);
+    const modelKey = createHash('sha256').update(`${embeddingProvider}|${embeddingModel}|${embeddingRevision}|${embeddingArtifactModel}|${embeddingArtifactRevision}|${embeddingArtifactDigest}|${embeddingPreprocessing}|${embeddingDimension}`).digest('hex').slice(0, 12);
     const generation = observationEpoch;
     const collection = process.env.ACE_QDRANT_COLLECTION?.trim() || `ace_code_${workspaceKey}_${modelKey}`;
     const embeddingWorker = process.env.ACE_EMBEDDING_WORKER?.trim()
@@ -182,7 +190,7 @@ const main = async (): Promise<void> => {
       const embeddings = makeProcessEmbeddingPort({
         command: embeddingWorker,
         dimension: embeddingDimension,
-        providerVersion: `${embeddingProvider}|${embeddingModel}|${embeddingRevision}|${embeddingArtifactDigest}`,
+        providerVersion: `${embeddingProvider}|model=${embeddingModel}@${embeddingRevision}|artifact=${embeddingArtifactModel}@${embeddingArtifactRevision}#${embeddingArtifactDigest}`,
         trace: providerTrace,
       });
       const closeEmbeddingWorker = (): void => embeddings.close();
