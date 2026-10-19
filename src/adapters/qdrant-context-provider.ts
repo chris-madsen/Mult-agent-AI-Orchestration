@@ -89,7 +89,7 @@ export const ensureQdrantCollection = (
   const found = yield* http.request({ method: 'GET', url, headers });
   if (found._tag === 'Err') return found;
   if (found.value.status === 200) {
-    const body = found.value.body as { result?: { config?: { params?: { vectors?: { size?: number } } } } };
+    const body = found.value.body as { result?: { config?: { params?: { vectors?: { size?: number; distance?: string } } } } };
     const configured = body?.result?.config?.params?.vectors?.size;
     if (configured !== dimension || body?.result?.config?.params?.vectors?.distance !== 'Cosine') {
       return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant', 'collection vector size or distance is incompatible with cosine embeddings'));
