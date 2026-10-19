@@ -76,6 +76,9 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
     project: (input) => Effect.gen(function* () {
       const granted = authorize('memory_projection');
       if (granted._tag === 'Err') return granted;
+      if (!Number.isSafeInteger(input.occurredAtMs) || input.occurredAtMs < 0) {
+        return err(domainError('INVALID_MEMORY', 'occurred_at_ms', 'Graphiti reference time must be a non-negative safe integer'));
+      }
       // No auto-approval of extracted facts: Graphiti edges are derived projections.
       const episodeUuid = uuidFor(input.episodeId);
       const receipt = yield* invoke('add_memory', {
@@ -83,6 +86,7 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
         group_id: options.groupId,
         source: 'json',
         source_description: `ACE extractor ${input.extractorVersion} (proposed facts)`,
+        reference_time: new Date(input.occurredAtMs).toISOString(),
         episode_body: JSON.stringify({ claims: input.claims, approval: 'unverified' }),
       });
       if (receipt._tag === 'Err') return receipt;
