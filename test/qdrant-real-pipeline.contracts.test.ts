@@ -174,6 +174,47 @@ test('Qdrant→current filesystem→LSP→ContextBundle includes verified snippe
   assert.equal(context.evidence[0]?.content, source.toString('utf8').trim());
 });
 
+test('multiple Qdrant symbols from one file cause one initial read plus one final revalidation', async () => {
+  let exactReads = 0;
+  let storedSources = 0;
+  const qdrant: CodeCandidatePort = {
+    upsert: () => Effect.succeed(ok(undefined)),
+    search: () => Effect.succeed(ok([
+      { candidate, score: 1, freshness: 'unknown' as const },
+      { candidate: { ...candidate, candidateId: 'another-symbol' as never }, score: 0.8, freshness: 'unknown' as const },
+    ])),
+  };
+  const files: WorkspaceFilePort = {
+    canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+    snapshot: () => { throw new Error('no workspace-wide scan per retrieval'); },
+    readExact: () => { exactReads += 1; return Effect.succeed(ok({ bytes: source, digest: digest as never })); },
+  };
+  const artifacts: ArtifactStore = {
+    storeExact: () => { storedSources += 1; return Effect.succeed(ok({ handle: 'same-file-handle', digest: digest as never, sizeBytes: source.length })); },
+    readRange: () => Effect.succeed(err(domainError('ARTIFACT_NOT_FOUND', 'handle', 'not used'))),
+  };
+  const semantics: SemanticAnalysisPort = {
+    definition: () => Effect.succeed(ok([{
+      location: { repoPath: 'src/connection.ts', startLine: 1, startColumn: 17, endLine: 1, endColumn: 26 },
+      name: 'reconnect', kind: 'function',
+    }])),
+    references: () => Effect.succeed(ok([])),
+    typeInfo: () => Effect.succeed(ok(undefined)),
+    diagnostics: () => Effect.succeed(ok([])),
+  };
+  const provider = makeQdrantContextProvider({
+    workspaceId, rootPath: '/repo', files, qdrant, artifacts, semantics,
+    embeddings: { embedMany: () => Effect.succeed(ok([[0.2, 0.7]])) },
+    newRequestId: () => 'same-file-query',
+  });
+  const context = mustOk(await Effect.runPromise(provider.search({
+    workspaceId, query: 'reconnect function', includeDocs: false, includeMemory: false,
+  })));
+  assert.equal(exactReads, 2, 'initial source read and end-of-request freshness revalidation only');
+  assert.equal(storedSources, 1, 'exact original stored once per distinct file');
+  assert.equal(context.evidence.length, 2);
+  assert.ok(context.evidence.every((item) => item.freshness === 'current'));
+});
 test('DBC-14 documentation conflict preserves code and ADR provenance explicitly', async () => {
   const documentation: DocumentationPort = {
     search: () => Effect.succeed(ok([{
