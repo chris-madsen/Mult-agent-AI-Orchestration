@@ -216,6 +216,7 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
         status: result._tag === 'Ok' ? 'success' : 'failure',
         durationMs: Math.max(0, Date.now() - startedAtMs),
         collection: config.collection,
+        ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
         ...(input.generation === undefined ? {} : { generation: input.generation }),
         ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
       });
