@@ -21,14 +21,21 @@ export interface SessionEpisode {
   readonly tombstoned: boolean;
 }
 
-export type ProjectionStatus = 'pending' | 'projected' | 'incomplete' | 'tombstoned';
+export type ProjectionStatus = 'pending' | 'projected' | 'incomplete' | 'dead_letter' | 'tombstoned';
 
 export interface ProjectionReceipt {
   readonly key: ProjectionKey;
   readonly episodeId: EpisodeId;
   readonly extractorVersion: string;
   readonly status: ProjectionStatus;
+  /** Attempts in the current automatic retry cycle. */
   readonly attempts: number;
+  /** Monotonic lifetime attempt count retained across manual repairs. */
+  readonly totalAttempts?: number;
+  readonly nextAttemptAtMs?: number;
+  readonly lastErrorCode?: string;
+  readonly deadLetteredAtMs?: number;
+  readonly manualRepairCount?: number;
 }
 
 export type DecisionState = 'Proposed' | 'Accepted' | 'Rejected' | 'Superseded';
@@ -105,6 +112,86 @@ export const finishProjection = (
   receipt: ProjectionReceipt,
   status: Exclude<ProjectionStatus, 'pending'>,
 ): ProjectionReceipt => ({ ...receipt, status, attempts: receipt.attempts + 1 });
+
+
+export interface ProjectionRetryPolicy {
+  readonly maxAttempts: number;
+  readonly baseDelayMs: number;
+  readonly maxDelayMs: number;
+}
+
+export const defaultProjectionRetryPolicy: ProjectionRetryPolicy = {
+  maxAttempts: 5,
+  baseDelayMs: 1_000,
+  maxDelayMs: 60_000,
+};
+
+const validRetryPolicy = (policy: ProjectionRetryPolicy): boolean =>
+  Number.isSafeInteger(policy.maxAttempts) && policy.maxAttempts >= 1
+  && Number.isSafeInteger(policy.baseDelayMs) && policy.baseDelayMs >= 0
+  && Number.isSafeInteger(policy.maxDelayMs) && policy.maxDelayMs >= policy.baseDelayMs;
+
+export const projectionRetryDue = (receipt: ProjectionReceipt, nowMs: number): boolean =>
+  receipt.status === 'pending'
+  || (receipt.status === 'incomplete'
+    && (receipt.nextAttemptAtMs === undefined || receipt.nextAttemptAtMs <= nowMs));
+
+export const scheduleProjectionRetry = (
+  receipt: ProjectionReceipt,
+  nowMs: number,
+  errorCode: string,
+  policy: ProjectionRetryPolicy = defaultProjectionRetryPolicy,
+): Result<ProjectionReceipt, DomainError> => {
+  if (!validRetryPolicy(policy)) {
+    return err(domainError('INVALID_MEMORY', 'projection_retry_policy', 'projection retry policy is invalid'));
+  }
+  if (!Number.isSafeInteger(nowMs) || nowMs < 0 || !nonEmpty(errorCode)) {
+    return err(domainError('INVALID_MEMORY', 'projection_retry', 'retry timestamp and error code are required'));
+  }
+  if (receipt.status === 'projected' || receipt.status === 'tombstoned') {
+    return err(domainError('INVALID_MEMORY', 'projection_retry', 'terminal successful/tombstoned projection cannot be retried'));
+  }
+  const attempts = receipt.attempts + 1;
+  const totalAttempts = (receipt.totalAttempts ?? receipt.attempts) + 1;
+  if (attempts >= policy.maxAttempts) {
+    return ok({
+      ...receipt,
+      status: 'dead_letter',
+      attempts,
+      totalAttempts,
+      lastErrorCode: errorCode,
+      deadLetteredAtMs: nowMs,
+      nextAttemptAtMs: undefined,
+    });
+  }
+  const exponent = Math.max(0, attempts - 1);
+  const delay = Math.min(policy.maxDelayMs, policy.baseDelayMs * (2 ** exponent));
+  return ok({
+    ...receipt,
+    status: 'incomplete',
+    attempts,
+    totalAttempts,
+    lastErrorCode: errorCode,
+    nextAttemptAtMs: nowMs + delay,
+    deadLetteredAtMs: undefined,
+  });
+};
+
+export const repairProjection = (
+  receipt: ProjectionReceipt,
+): Result<ProjectionReceipt, DomainError> => {
+  if (receipt.status !== 'dead_letter' && receipt.status !== 'incomplete') {
+    return err(domainError('INVALID_MEMORY', 'projection_repair', 'only failed projection receipts may be manually repaired'));
+  }
+  return ok({
+    ...receipt,
+    status: 'pending',
+    attempts: 0,
+    nextAttemptAtMs: undefined,
+    deadLetteredAtMs: undefined,
+    manualRepairCount: (receipt.manualRepairCount ?? 0) + 1,
+  });
+};
 
 export const makeDecisionRecord = (input: Omit<DecisionRecord, 'state'> & { readonly state?: DecisionState }): Result<DecisionRecord, DomainError> => {
   if (!nonEmpty(input.subject) || !nonEmpty(input.proposal)) {
