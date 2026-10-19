@@ -3,7 +3,10 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { makeFileQdrantSnapshotState } from '../src/adapters/file-qdrant-snapshot-state.js';
+import {
+  diffSnapshotFileManifests,
+  makeFileQdrantSnapshotState,
+} from '../src/adapters/file-qdrant-snapshot-state.js';
 
 const workspaceId = 'snapshot-state-workspace' as never;
 const indexKey = 'a'.repeat(64);
@@ -12,6 +15,18 @@ const identity = {
   workspaceId,
   indexKey,
   candidateIds: ['candidate-b', 'candidate-a'],
+  fileManifest: [
+    {
+      repoPath: 'src/a.ts' as never,
+      sourceDigest: 'c'.repeat(64) as never,
+      candidateIds: ['candidate-a' as never],
+    },
+    {
+      repoPath: 'src/b.ts' as never,
+      sourceDigest: 'd'.repeat(64) as never,
+      candidateIds: ['candidate-b' as never],
+    },
+  ],
   coverage: {
     attemptedPaths: 2,
     indexedPaths: 2,
@@ -37,9 +52,24 @@ test('Qdrant snapshot manifest is reusable only after atomic publication', async
   assert.equal(published._tag, 'Ok');
   if (published._tag === 'Ok') assert.equal(published.value, true);
 
-  const changedMembership = await state.isPublished({ ...identity, candidateIds: ['candidate-a'] });
+  const changedMembership = await state.isPublished({
+    ...identity,
+    candidateIds: ['candidate-a'],
+    fileManifest: identity.fileManifest.map((file) => file.repoPath === 'src/b.ts'
+      ? { ...file, candidateIds: [] }
+      : file),
+  });
   assert.equal(changedMembership._tag, 'Ok');
   if (changedMembership._tag === 'Ok') assert.equal(changedMembership.value, false);
+
+  const changedFileDigest = await state.isPublished({
+    ...identity,
+    fileManifest: identity.fileManifest.map((file) => file.repoPath === 'src/a.ts'
+      ? { ...file, sourceDigest: 'e'.repeat(64) as never }
+      : file),
+  });
+  assert.equal(changedFileDigest._tag, 'Ok');
+  if (changedFileDigest._tag === 'Ok') assert.equal(changedFileDigest.value, false);
 });
 
 test('snapshot leases retain all active keys until each owner closes explicitly', async () => {
@@ -134,4 +164,45 @@ test('corrupt lease metadata blocks garbage collection rather than being silentl
   const active = await state.activeIndexKeys(workspaceId);
   assert.equal(active._tag, 'Err');
   if (active._tag === 'Err') assert.equal(active.error.code, 'PERSISTENCE_FAILED');
+});
+
+
+test('per-file snapshot delta distinguishes content edits, unique renames, additions and deletions', () => {
+  const previous = [
+    { repoPath: 'src/stable.ts' as never, sourceDigest: '1'.repeat(64) as never, candidateIds: ['stable-old' as never] },
+    { repoPath: 'src/edit.ts' as never, sourceDigest: '2'.repeat(64) as never, candidateIds: ['edit-old' as never] },
+    { repoPath: 'src/rename-old.ts' as never, sourceDigest: '3'.repeat(64) as never, candidateIds: ['rename-old' as never] },
+    { repoPath: 'src/delete.ts' as never, sourceDigest: '4'.repeat(64) as never, candidateIds: [] },
+  ];
+  const current = [
+    { repoPath: 'src/stable.ts' as never, sourceDigest: '1'.repeat(64) as never, candidateIds: ['stable-old' as never] },
+    { repoPath: 'src/edit.ts' as never, sourceDigest: '5'.repeat(64) as never, candidateIds: ['edit-new' as never] },
+    { repoPath: 'src/rename-new.ts' as never, sourceDigest: '3'.repeat(64) as never, candidateIds: ['rename-new' as never] },
+    { repoPath: 'src/add.ts' as never, sourceDigest: '6'.repeat(64) as never, candidateIds: [] },
+  ];
+
+  assert.deepEqual(diffSnapshotFileManifests(previous, current), {
+    added: ['src/add.ts'],
+    changed: ['src/edit.ts'],
+    deleted: ['src/delete.ts'],
+    renamed: [{
+      from: 'src/rename-old.ts',
+      to: 'src/rename-new.ts',
+      sourceDigest: '3'.repeat(64),
+    }],
+    unchanged: ['src/stable.ts'],
+  });
+});
+
+test('ambiguous same-digest copies are not guessed as renames', () => {
+  const digest = '7'.repeat(64) as never;
+  const delta = diffSnapshotFileManifests([
+    { repoPath: 'src/a.ts' as never, sourceDigest: digest, candidateIds: [] },
+    { repoPath: 'src/b.ts' as never, sourceDigest: digest, candidateIds: [] },
+  ], [
+    { repoPath: 'src/c.ts' as never, sourceDigest: digest, candidateIds: [] },
+  ]);
+  assert.deepEqual(delta.renamed, []);
+  assert.deepEqual(delta.deleted, ['src/a.ts', 'src/b.ts']);
+  assert.deepEqual(delta.added, ['src/c.ts']);
 });

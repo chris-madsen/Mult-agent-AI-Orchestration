@@ -66,6 +66,12 @@ export interface IndexCoverageFailure {
   readonly code?: string;
 }
 
+export interface IndexFileIdentity {
+  readonly repoPath: RepoPath;
+  readonly sourceDigest: ContentDigest;
+  readonly candidateIds: readonly CandidateId[];
+}
+
 export interface IndexCoverageSummary {
   readonly attemptedPaths: number;
   readonly indexedPaths: number;

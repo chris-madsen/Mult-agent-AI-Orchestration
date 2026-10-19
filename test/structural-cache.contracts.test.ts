@@ -7,6 +7,7 @@ import test from 'node:test';
 import { Effect } from 'effect';
 import { makeFileStructuralAnalysisCache } from '../src/adapters/file-structural-analysis-cache.js';
 import { buildLocalCodeIndex } from '../src/adapters/local-code-index.js';
+import { codeIndexKey } from '../src/adapters/qdrant-context-provider.js';
 import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
 import { makeStructuralAnalysis } from '../src/domain/semantic.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
@@ -116,4 +117,59 @@ test('structural cache is disabled rather than ambiguously keyed without a verif
   }));
   assert.equal(result._tag, 'Err');
   if (result._tag === 'Err') assert.equal(result.error.code, 'INVALID_INPUT');
+});
+
+
+test('comment-only zero-symbol file participates in snapshot identity', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'ace-zero-symbol-manifest-'));
+  const root = join(parent, 'repo');
+  const sourcePath = join(root, 'notes.ts');
+  await mkdir(root, { recursive: true });
+  await writeFile(sourcePath, '// retrieval note v1\n', 'utf8');
+  const files = makeNodeWorkspacePort({ allowedRoots: [parent] });
+  const structural: StructuralAnalysisPort = {
+    extract: (input) => {
+      const sourceDigest = createHash('sha256').update(input.source).digest('hex');
+      return Effect.succeed(ok({
+        repoPath: input.repoPath,
+        sourceDigest: sourceDigest as never,
+        symbols: [],
+        hasSyntaxErrors: false,
+      }));
+    },
+  };
+  const first = await Effect.runPromise(buildLocalCodeIndex(files, workspace.value, root, {
+    generation: 1,
+    structural,
+  }));
+  assert.equal(first._tag, 'Ok');
+  if (first._tag === 'Err') throw new Error(first.error.message);
+  assert.equal(first.value.index.candidates.length, 0);
+  assert.equal(first.value.fileManifest.length, 1);
+  assert.equal(first.value.fileManifest[0]?.repoPath, 'notes.ts');
+  assert.equal(first.value.fileManifest[0]?.candidateIds.length, 0);
+  const providerFingerprint = 'f'.repeat(64);
+  const firstKey = codeIndexKey(
+    first.value.index,
+    first.value.coverage,
+    providerFingerprint,
+    first.value.fileManifest,
+  );
+
+  await writeFile(sourcePath, '// retrieval note v2\n', 'utf8');
+  const second = await Effect.runPromise(buildLocalCodeIndex(files, workspace.value, root, {
+    generation: 2,
+    structural,
+  }));
+  assert.equal(second._tag, 'Ok');
+  if (second._tag === 'Err') throw new Error(second.error.message);
+  assert.equal(second.value.index.candidates.length, 0);
+  const secondKey = codeIndexKey(
+    second.value.index,
+    second.value.coverage,
+    providerFingerprint,
+    second.value.fileManifest,
+  );
+  assert.notEqual(second.value.fileManifest[0]?.sourceDigest, first.value.fileManifest[0]?.sourceDigest);
+  assert.notEqual(secondKey, firstKey, 'zero-symbol source byte changes must invalidate warm snapshot reuse');
 });
