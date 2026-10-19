@@ -48,3 +48,7 @@ Graphiti может требовать графовый backend и модель�
 
 - https://github.com/getzep/graphiti
 - ADR-007, ADR-009
+
+## Owner confirmation — 2026-10-19
+
+**Graphiti + FalkorDB local-first is the accepted storage/privacy direction.** Raw Codex sessions and extracted facts stay local unless explicitly authorized for a particular cloud project and data class. Graphiti may need extraction-LLM, embedding and reranker backends: do not infer that a local FalkorDB alone proves extraction is local. Codex must probe actual processing/inference endpoints and enforce outbound policy; select/test a real local extraction backend using existing components and pin its model/version. No mandatory Ollama service. Preserve source pointers and pending/processed distinctions; test projection acknowledgements, restart reconciliation, temporal search and derived deletion. Missing extraction backend means honest `not_ready`, not synthetic success.
