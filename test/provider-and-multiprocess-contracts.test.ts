@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { Effect } from 'effect';
 import { makeVertexRagRetrievalPort } from '../src/adapters/vertex-rag.js';
+import { makeQdrantCodeCandidatePort } from '../src/adapters/http-provider-boundaries.js';
 import { makeFileArtifactStore } from '../src/adapters/file-artifact-store.js';
 import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
 import { makeQdrantContextProvider } from '../src/adapters/qdrant-context-provider.js';
@@ -141,6 +142,37 @@ test('Vertex empty Europe corpus is a valid empty result, never invented documen
   assert.deepEqual(result, []);
 });
 
+test('Qdrant code payload is local-only and rejects external HTTPS before network', async () => {
+  let requests = 0;
+  const qdrant = makeQdrantCodeCandidatePort({
+    baseUrl: 'https://vector.example.com',
+    collection: 'ace-code',
+    http: { request: () => { requests += 1; return Effect.succeed(ok({ status: 200, body: {} })); } },
+  });
+  const result = await Effect.runPromise(qdrant.search({ workspaceId: ws, vector: [1], limit: 1, generation: 1 }));
+  assert.equal(result._tag, 'Err');
+  if (result._tag === 'Err') assert.equal(result.error.code, 'POLICY_DENIED');
+  assert.equal(requests, 0);
+});
+
+test('Vertex blocks secret-like documentation queries before outbound HTTP even when cloud opt-in is enabled', async () => {
+  let requests = 0;
+  const provider = makeVertexRagRetrievalPort({
+    project: 'ace-dev',
+    location: 'europe-west4',
+    corpusId: 'abc',
+    policy: { ...defaultLocalPolicy(ws), cloudOptIn: true, allowedCloudProviders: ['vertex'] },
+    accessToken: () => 'token',
+    http: { request: () => { requests += 1; return Effect.succeed(ok({ status: 200, body: {} })); } },
+  });
+  const result = await Effect.runPromise(provider.search({
+    workspaceId: ws,
+    query: 'please inspect api_key=super-secret-value-123456789',
+    topK: 3,
+  }));
+  assert.equal(result._tag, 'Err');
+  assert.equal(requests, 0);
+});
 test('DBC-11 independent archive instances preserve shared blobs during deletion', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ace-process-archive-'));
   const a = await makeAsyncFileMemoryArchive(root);
