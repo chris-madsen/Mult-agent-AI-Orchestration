@@ -1,5 +1,8 @@
 # ACE post-merge correctness and acceptance plan
 
+> **Этот план объединён в [единый рабочий план](./2026-10-19-unified-ace-correctness-and-production-plan.md).** Для новых задач используйте единый backlog; этот файл сохранён для истории и проверки источников. Он не является самостоятельной очередью выполнения.
+
+
 Date: 2026-10-19
 Baseline reviewed: `2a4c2f79d958ed8babd28dd14ef339ac0fb9c180` (main after PR #8).
 Status: proposed execution plan; no task below is claimed complete.
