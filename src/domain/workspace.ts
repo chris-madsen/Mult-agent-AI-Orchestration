@@ -20,6 +20,8 @@ export interface WorkingTreeVersion {
   readonly observationEpoch: number;
   readonly files: readonly FileObservation[];
   readonly removedPaths: readonly RepoPath[];
+  /** Git is optional for plain folders, but an unavailable/corrupt Git state is never silently accepted. */
+  readonly gitStatus?: 'available' | 'not_repository';
 }
 
 export interface WorkspaceRecord {
@@ -34,6 +36,7 @@ export interface WorkspaceSnapshot {
   readonly headRevision: string;
   readonly files: readonly FileObservation[];
   readonly removedPaths: readonly RepoPath[];
+  readonly gitStatus?: 'available' | 'not_repository';
 }
 
 export const makeWorkspaceId = (value: string): Result<WorkspaceId, DomainError> =>
@@ -65,9 +68,10 @@ export const makeWorkingTreeVersion = (
   observationEpoch: number,
   files: readonly FileObservation[],
   removedPaths: readonly RepoPath[] = [],
+  gitStatus?: 'available' | 'not_repository',
 ): Result<WorkingTreeVersion, DomainError> => {
   if (observationEpoch < 1 || !Number.isSafeInteger(observationEpoch)) {
     return err(domainError('INVALID_INPUT', 'observation_epoch', 'observation epoch must be a positive integer'));
   }
-  return ok({ headRevision, observationEpoch, files: [...files], removedPaths: [...removedPaths] });
+  return ok({ headRevision, observationEpoch, files: [...files], removedPaths: [...removedPaths], ...(gitStatus === undefined ? {} : { gitStatus }) });
 };

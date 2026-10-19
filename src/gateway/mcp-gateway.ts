@@ -177,6 +177,7 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
               observation_epoch: workspace.value.observationEpoch,
               index_status: ports.context === undefined ? 'not_ready' : 'ready',
               freshness: workspace.value.lastObservation === undefined ? 'unknown' : 'observed',
+              git_status: workspace.value.lastObservation?.gitStatus ?? 'unknown',
             },
           };
         }
