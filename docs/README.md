@@ -1,6 +1,14 @@
 # Adaptive Context Engine (ACE) — DDD Architecture + OpenSpec SDD Blueprint
 
-**Version:** v1.0 proposed · **Date:** 2026-10-17 · **Status:** Architecture draft and implementation specifications; no code implemented in this package.
+**Version:** evolving implementation · **Updated:** 2026-10-20 · **Status:** active TypeScript + Effect implementation with real local retrieval, memory, provider and acceptance slices; full unified production approval is still evidence-gated.
+
+## Runtime status
+
+The statement that this repository contains only a blueprint is obsolete. The current implementation includes the official MCP runtime, exact workspace/artifact reads, Qdrant retrieval, embedding-worker and Tree-sitter identity checks, TypeScript Language Service confirmation, temporal-memory archive/Graphiti integration, deterministic source routing, Vertex/Harbor acceptance tooling, snapshot/retry recovery, and evidence-backed release gates.
+
+Use [`operations/ace-configuration-and-readiness-matrix.md`](operations/ace-configuration-and-readiness-matrix.md) for the authoritative runtime/configuration meanings. A provider flag enables a code path; it does not by itself constitute production approval.
+
+Use [`plans/2026-10-19-unified-ace-correctness-and-production-plan.md`](plans/2026-10-19-unified-ace-correctness-and-production-plan.md) for remaining work and [`plans/unified-production-release-preflight.md`](plans/unified-production-release-preflight.md) for the full release evidence contract.
 
 ## Deliverables
 
@@ -36,7 +44,7 @@ FSM is deliberately used for `ContextRequest`, `IndexGeneration`, `SessionArchiv
 3. PRD v1.0 for product intent, interpreted through later ADR clarifications.
 4. Proposed DDD architecture and OpenSpec implementation blueprints (revisable).
 
-The package does not claim to have achieved a 5× reduction or validated production integrations. Those are product hypotheses and future experiments.
+The package does not claim to have achieved a 5× reduction. Several real integration paths now exist, but full production promotion remains conditional on retained provider/deployment/benchmark evidence and explicit owner approval for the exact release commit.
 
 ## Authoritative sources for SDD / components
 
