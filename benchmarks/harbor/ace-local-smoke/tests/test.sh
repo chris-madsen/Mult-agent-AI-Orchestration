@@ -14,10 +14,19 @@ from pathlib import Path
 def complete_context_result(item):
     result = item.get('result')
     structured_content = result.get('structured_content') if isinstance(result, dict) else None
+    evidence = structured_content.get('evidence', []) if isinstance(structured_content, dict) else []
+    verified_code = any(
+        isinstance(entry, dict)
+        and entry.get('source') == 'code'
+        and entry.get('freshness') == 'current'
+        and entry.get('proofClass') == 'direct'
+        for entry in evidence
+    )
     return (
         isinstance(structured_content, dict)
         and structured_content.get('complete') is True
         and structured_content.get('status') not in ('not_ready', 'error')
+        and verified_code
     )
 
 seen_native_call = False
