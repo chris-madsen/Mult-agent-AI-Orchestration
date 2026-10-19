@@ -66,9 +66,9 @@ export interface RetrievalEvidence {
   readonly originalSpanLines?: number;
   /** Handle for authorized, byte-exact full-source expansion via ace_expand. */
   readonly expansionHandle?: string;
-  /** Byte offset of verified symbol inside the exact full-file artifact. */
+  /** Exact verified AST span offset in the original artifact (UTF-8 bytes). */
   readonly expansionCursor?: string;
-  /** Byte count to expand just the selected verified AST span. */
+  /** Exact span byte count. Use with expansionCursor to avoid expanding entire files. */
   readonly expansionMaxBytes?: number;
 }
 
