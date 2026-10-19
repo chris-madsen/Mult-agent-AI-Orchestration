@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { isObservedAceContextJsonLine, isSuccessfulAceContextJsonLine } from '../src/domain/harbor-mcp-evidence.js';
+import { assessHarborAcceptance } from '../src/domain/harbor-evaluation-policy.js';
 
 type JsonObject = Readonly<Record<string, unknown>>;
 type Configuration = 'native-codex' | 'codex-plus-ace';
@@ -256,7 +257,16 @@ const attributed = native.aceObservedCalls === 0 && ace.aceCalls > 0 && ace.curr
 // effectiveness claim regardless of the ratio.
 const evaluationDesign = 'forced-tool-use';
 const providerCorrelationVerified = false;
-const validDiagnostic = paired && qualityNonInferior && attributed && receiptGate;
+const acceptance = assessHarborAcceptance({
+  paired,
+  qualityNonInferior,
+  actualAceCallObserved: ace.aceObservedCalls > 0 && native.aceObservedCalls === 0,
+  codeEvidenceObserved: attributed,
+  providerOperationsObserved: receiptGate,
+  forcedToolUse: true,
+  providerRequestCorrelationVerified: providerCorrelationVerified,
+  completeCostTelemetry: false,
+});
 const report = {
   evidence: 'real-harbor-retrieval-trials',
   native,
@@ -282,7 +292,7 @@ const report = {
   costSavingsFactor: native.costUsd === null || ace.costUsd === null || ace.costUsd === 0 ? null : native.costUsd / ace.costUsd,
   costReduction: native.costUsd === null || ace.costUsd === null || native.costUsd === 0 ? null : 1 - ace.costUsd / native.costUsd,
   target5xReached: false, // a forced tool invocation cannot close DBC-12
-  acceptance: validDiagnostic ? 'diagnostic-only' : 'rejected',
+  acceptance,
   productionAcceptance: 'rejected',
   limitations: [
     'ACE was forced by an extra instruction, so natural tool-choice savings were not tested.',
