@@ -49,11 +49,11 @@ export interface SemanticSelectionVerdict {
   readonly measurementAccepted: boolean;
   readonly productionApproved: boolean;
   readonly status:
-    | 'COMPARISON_INVALID'
-    | 'MEASUREMENT_FAIL'
-    | 'MEASUREMENT_PASS_APPROVAL_PENDING'
-    | 'PRODUCTION_APPROVED'
-    | 'REJECTED';
+  | 'COMPARISON_INVALID'
+  | 'MEASUREMENT_FAIL'
+  | 'MEASUREMENT_PASS_APPROVAL_PENDING'
+  | 'PRODUCTION_APPROVED'
+  | 'REJECTED';
   readonly failures: readonly string[];
 }
 
