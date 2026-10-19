@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "fixtureVersion": "semantic-provider-matched-v1",
+  "cases": [
+    {
+      "id": "same-name-user-save",
+      "namePath": "/UserRepository/save",
+      "declarationFile": "src/large-fixture.ts",
+      "declarationNeedle": "save(user: string): string",
+      "declarationSymbol": "save",
+      "queryFile": "src/large-fixture.ts",
+      "queryNeedle": "return userRepo.save('user-1');",
+      "querySymbol": "save",
+      "expectedReferences": [
+        {
+          "repoPath": "src/large-fixture.ts",
+          "needle": "return userRepo.save('user-1');",
+          "symbol": "save"
+        }
+      ]
+    },
+    {
+      "id": "same-name-audit-save",
+      "namePath": "/AuditRepository/save",
+      "declarationFile": "src/large-fixture.ts",
+      "declarationNeedle": "save(event: string): string",
+      "declarationSymbol": "save",
+      "queryFile": "src/large-fixture.ts",
+      "queryNeedle": "return auditRepo.save('audit-1');",
+      "querySymbol": "save",
+      "expectedReferences": [
+        {
+          "repoPath": "src/large-fixture.ts",
+          "needle": "return auditRepo.save('audit-1');",
+          "symbol": "save"
+        }
+      ]
+    },
+    {
+      "id": "same-line-beta",
+      "namePath": "/beta",
+      "declarationFile": "src/large-fixture.ts",
+      "declarationNeedle": "export function alpha(): string { return 'alpha'; } export function beta(): string",
+      "declarationSymbol": "beta",
+      "queryFile": "src/large-fixture.ts",
+      "queryNeedle": "export function callBeta(): string { return beta(); }",
+      "querySymbol": "beta",
+      "expectedReferences": [
+        {
+          "repoPath": "src/large-fixture.ts",
+          "needle": "export function callBeta(): string { return beta(); }",
+          "symbol": "beta"
+        }
+      ]
+    },
+    {
+      "id": "unicode-method",
+      "namePath": "/Сервис/сохранить",
+      "declarationFile": "src/large-fixture.ts",
+      "declarationNeedle": "сохранить(значение: string): string",
+      "declarationSymbol": "сохранить",
+      "queryFile": "src/large-fixture.ts",
+      "queryNeedle": "export function вызватьСохранение(): string { return сервис.сохранить('данные🙂'); }",
+      "querySymbol": "сохранить",
+      "expectedReferences": [
+        {
+          "repoPath": "src/large-fixture.ts",
+          "needle": "export function вызватьСохранение(): string { return сервис.сохранить('данные🙂'); }",
+          "symbol": "сохранить"
+        }
+      ]
+    },
+    {
+      "id": "nested-shadow",
+      "namePath": "/outerScope/shadowTarget",
+      "declarationFile": "src/large-fixture.ts",
+      "declarationNeedle": "function shadowTarget(): string { return 'inner'; }",
+      "declarationSymbol": "shadowTarget",
+      "queryFile": "src/large-fixture.ts",
+      "queryNeedle": "return shadowTarget() + ':inner-call';",
+      "querySymbol": "shadowTarget",
+      "expectedReferences": [
+        {
+          "repoPath": "src/large-fixture.ts",
+          "needle": "return shadowTarget() + ':inner-call';",
+          "symbol": "shadowTarget"
+        }
+      ]
+    },
+    {
+      "id": "top-level-shadow",
+      "namePath": "/shadowTarget",
+      "declarationFile": "src/large-fixture.ts",
+      "declarationNeedle": "export function shadowTarget(): string { return 'outer'; }",
+      "declarationSymbol": "shadowTarget",
+      "queryFile": "src/large-fixture.ts",
+      "queryNeedle": "export function callOuterShadow(): string { return shadowTarget() + ':outer-call'; }",
+      "querySymbol": "shadowTarget",
+      "expectedReferences": [
+        {
+          "repoPath": "src/large-fixture.ts",
+          "needle": "export function callOuterShadow(): string { return shadowTarget() + ':outer-call'; }",
+          "symbol": "shadowTarget"
+        }
+      ]
+    }
+  ],
+  "diagnosticFiles": [
+    "src/broken.ts"
+  ],
+  "unscoredCoverage": [
+    "overloads",
+    "import-alias/re-export resolution"
+  ],
+  "notes": [
+    "The fixture intentionally contains overloads and an import alias even though v1 scores only cases with provider-independent exact-location oracles."
+  ]
+}
