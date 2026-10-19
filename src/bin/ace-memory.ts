@@ -36,7 +36,7 @@ const run = async (): Promise<void> => {
     policy: defaultLocalPolicy(workspace.value),
   });
   if (operation === 'delete') {
-    const episodeId = makeEpisodeId(subject);
+    const episodeId = makeEpisodeId(subject as string);
     if (episodeId._tag === 'Err') throw new Error(episodeId.error.message);
     const graphiti = await createGraphiti();
     try {
