@@ -48,9 +48,7 @@ For the real local retrieval experiment, first forward the k3s service and set
 `ACE_TREE_SITTER_HELPER=$PWD/scripts/tree-sitter-structural.py` and
 `ACE_TREE_SITTER_PYTHON=$PWD/.venv-system/bin/python`. The bootstrap is read-only,
 indexes only allowlisted source extensions and excludes dependency/build
-directories. Vertex documentation is separately opt-in with
-`ACE_ENABLE_VERTEX=true`, `ACE_VERTEX_PROJECT`, `ACE_VERTEX_CORPUS_ID` and the
-Europe default `ACE_VERTEX_LOCATION=europe-west4`.
+directories. Vertex documentation requires both provider configuration and an explicit outbound data opt-in: `ACE_ENABLE_VERTEX=true`, `ACE_CLOUD_DOCS_OPT_IN=true`, `ACE_VERTEX_PROJECT`, `ACE_VERTEX_CORPUS_ID`, with Europe default `ACE_VERTEX_LOCATION=europe-west4`. Secret-like queries are denied before HTTP.
 
 With k3s Qdrant forwarded to localhost, the real gates are reproducible with
 `npm run test:real-provider` (2000-line precision, current digest, exact
