@@ -118,6 +118,11 @@ export interface ProjectionOutboxPort {
   readonly list: () => Promise<Result<readonly ProjectionReceipt[], DomainError>>;
 }
 
+export interface GraphProjectionStatePort {
+  /** True only when the derived Graphiti episode still exists. */
+  readonly isPresent: (episodeId: EpisodeId) => Effect.Effect<Result<boolean, DomainError>>;
+}
+
 export interface GraphProjectionPort {
   readonly project: (input: {
     readonly episodeId: EpisodeId;

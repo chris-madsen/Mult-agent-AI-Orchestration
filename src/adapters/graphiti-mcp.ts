@@ -13,7 +13,7 @@ import {
   type ProjectionReceipt,
   type SessionEpisode,
 } from '../domain/memory.js';
-import type { GraphProjectionPort, MemorySearchPort } from '../application/ports.js';
+import type { GraphProjectionPort, GraphProjectionStatePort, MemorySearchPort } from '../application/ports.js';
 import type { WorkspaceId } from '../domain/workspace.js';
 import type { AsyncMemoryArchivePort } from './file-memory-archive.js';
 
@@ -159,9 +159,7 @@ const stripOriginal = (episode: SessionEpisode, includeOriginal: boolean): Memor
 export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<{
   readonly projection: GraphProjectionPort;
   readonly memory?: MemorySearchPort;
-  readonly projectionState: {
-    readonly isPresent: (episodeId: EpisodeId) => Effect.Effect<Result<boolean, DomainError>>;
-  };
+  readonly projectionState: GraphProjectionStatePort;
   readonly close: () => Promise<void>;
 }> => {
   if (options.groupId.trim().length === 0) throw new Error('Graphiti group_id is required');

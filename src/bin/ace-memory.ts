@@ -40,7 +40,12 @@ const run = async (): Promise<void> => {
     if (episodeId._tag === 'Err') throw new Error(episodeId.error.message);
     const graphiti = await createGraphiti();
     try {
-      const deleted = await Effect.runPromise(deleteEpisodeWithProjection(archive, graphiti.projection, episodeId.value));
+      const deleted = await Effect.runPromise(deleteEpisodeWithProjection(
+        archive,
+        graphiti.projection,
+        graphiti.projectionState,
+        episodeId.value,
+      ));
       if (deleted._tag === 'Err') throw new Error(deleted.error.message);
       process.stdout.write(JSON.stringify({ episode_id: episodeId.value, purged: true }) + '\n');
     } finally {
