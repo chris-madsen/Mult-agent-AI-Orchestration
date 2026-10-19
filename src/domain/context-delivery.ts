@@ -62,10 +62,9 @@ export const contextTransportText = (bundle: ContextCarrier): string => {
     const mode = item.contentDelivery === 'expand'
       ? ` [exact body via ace_expand(handle${span})]`
       : '';
-    const line = item.source === 'code' && typeof item.content === 'string' && item.content.length > 0
-      ? ` — ${item.content.split(/\r?\n/u)[0]?.trim() ?? ''}`
-      : '';
-    return [`- ${item.citation}${mode}${line}`];
+    // Do not mirror snippet text here: structuredContent owns verified code
+    // bodies. Text is a compact navigation map only.
+    return [`- ${item.citation}${mode}`];
   });
   const warnings = Array.isArray(bundle.warnings) ? bundle.warnings : [];
   return [
