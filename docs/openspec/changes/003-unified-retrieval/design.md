@@ -47,3 +47,11 @@ Read `docs/architecture/01-strategic-ddd.md` through `05-contracts-and-deploymen
 ## Open Questions / Blocking Spikes
 
 Refer to `docs/architecture/05-contracts-and-deployment.md` §11. Do not silently settle undecided providers, transports or mount patterns. Escalate material choices to the owner through a new ADR.
+
+## Owner-directed spike and Vertex execution (2026-10-19)
+
+- **Embeddings**: run real local candidates without Ollama; Qdrant FastEmbed / ONNX is an initial comparison option, not an approved model. Record model digest/preprocessing and Qdrant generation; compare against a strong lexical baseline and preserve failures. Cloud private-source embeddings require separate opt-in.
+- **LSP**: Codex must compare Serena and direct TS Language Service on matched correctness, freshness and latency fixtures, as ADR-004 already specifies. No premature provider selection.
+- **Vertex auth**: on the owner's development host the `gcloud` CLI is already authenticated. Start with `gcloud config get-value project`, `gcloud auth print-access-token` and `npm run probe:vertex`. Do not demand re-login merely to call REST. For container/CI runtimes provide explicitly authorized short-lived credentials or ADC without persisting tokens. A CLI sign-in does NOT itself grant private-content upload permission or guarantee access to a RAG corpus.
+- **Empty corpus**: report not-ready for document retrieval, not 'Vertex configured'. Inspect actual IAM and list of corpora first. Creation/import of synthetic/public fixture corpus requires explicit resource/cost approval; after authorization test real `retrieveContexts`, versioned citations, denial and timeout.
+- **No testing freeze**: Codex is authorized to install candidates and conduct real exploratory Qdrant/AST/LSP/Harbor tests before sign-off of a *production* provider; never label those experiments production-ready.
