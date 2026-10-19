@@ -102,7 +102,9 @@ def evaluate(
     encode,
     runtime: dict[str, object],
 ) -> dict[str, object]:
-    dataset = json.loads(DATASET.read_text(encoding="utf-8"))
+    dataset_bytes = DATASET.read_bytes()
+    dataset = json.loads(dataset_bytes.decode("utf-8"))
+    dataset_sha256 = hashlib.sha256(dataset_bytes).hexdigest()
     candidate_ids = list(dataset["candidates"].keys())
     candidate_texts = [dataset["candidates"][key] for key in candidate_ids]
     started = time.perf_counter()
@@ -123,9 +125,20 @@ def evaluate(
             ((candidate_id, cosine(query_vector, vector)) for candidate_id, vector in zip(candidate_ids, candidate_vectors, strict=True)),
             key=lambda item: item[1], reverse=True,
         )
+        relevant_rank = next(
+            (index + 1 for index, item in enumerate(ranked) if item[0] == case["relevant"]),
+            None,
+        )
+        if relevant_rank is None:
+            raise RuntimeError(f"relevant candidate is absent from ranking: {case['relevant']}")
         observations.append({
-            "query": case["query"], "relevant": case["relevant"], "top1": ranked[0][0],
-            "top3": [item[0] for item in ranked[:3]], "scores": ranked[:5],
+            "query": case["query"],
+            "relevant": case["relevant"],
+            "relevant_rank": relevant_rank,
+            "top1": ranked[0][0],
+            "top3": [item[0] for item in ranked[:3]],
+            "top5": [item[0] for item in ranked[:5]],
+            "scores": ranked[:5],
         })
     relevant_count = len(observations)
     sorted_query_ms = sorted(query_ms)
@@ -134,12 +147,28 @@ def evaluate(
         artifact["model_id"] = FASTEMBED_ARTIFACT_ID
     return {
         "provider": provider, "model": model_id, "revision": revision,
-        "dimensions": dimensions, "case_count": relevant_count, "index_ms": index_ms,
+        "dimensions": dimensions,
+        "case_count": relevant_count,
+        "dataset_sha256": dataset_sha256,
+        "index_ms": index_ms,
+        "index_candidates_per_second": (
+            len(candidate_texts) / (index_ms / 1000)
+            if index_ms > 0
+            else None
+        ),
         "query_ms_median": statistics.median(query_ms),
         "query_ms_p95": sorted_query_ms[max(0, math.ceil(len(query_ms) * 0.95) - 1)],
         "query_ms_max": max(query_ms),
-        "recall_at_1": sum(row["top1"] == row["relevant"] for row in observations) / relevant_count,
-        "recall_at_3": sum(row["relevant"] in row["top3"] for row in observations) / relevant_count,
+        "recall_at_1": sum(row["relevant_rank"] <= 1 for row in observations) / relevant_count,
+        "recall_at_3": sum(row["relevant_rank"] <= 3 for row in observations) / relevant_count,
+        "recall_at_5": sum(row["relevant_rank"] <= 5 for row in observations) / relevant_count,
+        "mrr": sum(1.0 / row["relevant_rank"] for row in observations) / relevant_count,
+        "ndcg_at_5": sum(
+            (1.0 / math.log2(row["relevant_rank"] + 1))
+            if row["relevant_rank"] <= 5
+            else 0.0
+            for row in observations
+        ) / relevant_count,
         "results": observations,
         "artifact": artifact,
         "source_model": model_id,
@@ -224,15 +253,38 @@ def main() -> None:
     winner = None
     if successful:
         winner = min(successful, key=lambda candidate: (
-            -float(candidate["recall_at_3"]), -float(candidate["recall_at_1"]),
-            float(candidate["query_ms_p95"]), float(candidate["model_load_ms"]),
-            int(candidate.get("max_rss_bytes") or 2**63), str(candidate["provider"]),
+            -float(candidate["recall_at_5"]),
+            -float(candidate["ndcg_at_5"]),
+            -float(candidate["mrr"]),
+            -float(candidate["recall_at_3"]),
+            -float(candidate["recall_at_1"]),
+            float(candidate["query_ms_p95"]),
+            float(candidate["model_load_ms"]),
+            int(candidate.get("max_rss_bytes") or 2**63),
+            str(candidate["provider"]),
         ))["provider"]
     output = {
         "status": "comparison-complete" if len(successful) == 2 else "comparison-incomplete",
-        "selection_policy": ["recall_at_3", "recall_at_1", "query_ms_p95", "model_load_ms", "max_rss_bytes", "provider_name"],
-        "dataset": DATASET.relative_to(ROOT).as_posix(), "model": MODEL_ID, "revision": MODEL_REVISION,
-        "candidates": candidates, "winner": winner,
+        "evidence_stage": "development_spike",
+        "production_approved": False,
+        "selection_policy": [
+            "recall_at_5",
+            "ndcg_at_5",
+            "mrr",
+            "recall_at_3",
+            "recall_at_1",
+            "query_ms_p95",
+            "model_load_ms",
+            "max_rss_bytes",
+            "provider_name",
+        ],
+        "dataset": DATASET.relative_to(ROOT).as_posix(),
+        "dataset_sha256": hashlib.sha256(DATASET.read_bytes()).hexdigest(),
+        "model": MODEL_ID,
+        "revision": MODEL_REVISION,
+        "candidates": candidates,
+        "winner": winner,
+        "winner_meaning": "best measured candidate on this development fixture only; not production approval",
     }
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
