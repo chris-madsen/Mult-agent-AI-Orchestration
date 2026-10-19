@@ -13,9 +13,10 @@ import {
   type ProjectionReceipt,
   type SessionEpisode,
 } from '../domain/memory.js';
-import type { GraphProjectionPort, GraphProjectionStatePort, MemorySearchPort } from '../application/ports.js';
+import type { GraphProjectionPort, GraphProjectionStatePort, MemorySearchPort, ProviderTraceSink } from '../application/ports.js';
 import type { WorkspaceId } from '../domain/workspace.js';
 import type { AsyncMemoryArchivePort } from './file-memory-archive.js';
+import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
 
 export interface GraphitiMcpOptions {
   readonly command: string;
@@ -25,6 +26,8 @@ export interface GraphitiMcpOptions {
   readonly policy: ProjectDataPolicy;
   /** Required to expose provenance-safe memory search. */
   readonly archive?: AsyncMemoryArchivePort;
+  readonly trace?: ProviderTraceSink;
+  readonly providerVersion?: string;
 }
 
 export const graphitiEpisodeUuid = (id: string): string => {
@@ -232,7 +235,9 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
   };
 
   const memory: MemorySearchPort | undefined = options.archive === undefined ? undefined : {
-    search: (input) => Effect.tryPromise({
+    search: (input) => {
+      const startedAtMs = Date.now();
+      const operation = Effect.tryPromise({
       try: async (): Promise<Result<MemorySearchResult, DomainError>> => {
         if (input.workspaceId !== options.workspaceId) {
           return err(domainError('POLICY_DENIED', 'workspace_id', 'Graphiti memory provider belongs to another workspace'));
@@ -286,8 +291,21 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
           ...(input.asOfMs === undefined ? {} : { asOfMs: input.asOfMs }),
         });
       },
-      catch: () => domainError('EXTERNAL_UNAVAILABLE', 'graphiti', 'Graphiti memory search failed'),
-    }).pipe(Effect.catchAll((cause) => Effect.succeed(err(cause)))),
+        catch: () => domainError('EXTERNAL_UNAVAILABLE', 'graphiti', 'Graphiti memory search failed'),
+      }).pipe(Effect.catchAll((cause) => Effect.succeed(err(cause))));
+      return Effect.map(operation, (result) => {
+        providerTraceEvent(options.trace ?? noopProviderTrace, {
+          provider: 'graphiti',
+          providerVersion: options.providerVersion ?? 'graphiti-mcp/unknown',
+          operation: 'search_memory_facts',
+          status: result._tag === 'Ok' ? 'success' : 'failure',
+          durationMs: Math.max(0, Date.now() - startedAtMs),
+          ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
+          ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
+        });
+        return result;
+      });
+    },
   };
 
   const projectionState = {
