@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "status": "development_fixture_not_release_holdout",
+  "description": "Versioned behavior-first development fixture. W03 release holdout must be separate, multi-repository and unseen.",
+  "cases": [
+    {
+      "id": "payment-retry-limit",
+      "query": "find the retry limit that prevents duplicate charges after gateway failures",
+      "relevantCandidateIds": [
+        "payments-retry-limit"
+      ],
+      "critical": true
+    },
+    {
+      "id": "connection-retry-limit",
+      "query": "find the reconnect budget for transient transport failures",
+      "relevantCandidateIds": [
+        "connections-retry-limit"
+      ],
+      "critical": true
+    },
+    {
+      "id": "read-current-bytes",
+      "query": "read the exact current bytes of a workspace source file",
+      "relevantCandidateIds": [
+        "read-exact"
+      ],
+      "critical": true
+    },
+    {
+      "id": "write-workspace-file",
+      "query": "where are workspace bytes persisted to a file",
+      "relevantCandidateIds": [
+        "write-exact"
+      ],
+      "critical": false
+    },
+    {
+      "id": "ru-read-bytes",
+      "query": "получить точные текущие байты файла рабочего дерева",
+      "relevantCandidateIds": [
+        "read-exact"
+      ],
+      "critical": true
+    },
+    {
+      "id": "ru-remove-memory",
+      "query": "удалить производный эпизод памяти перед удалением оригинала",
+      "relevantCandidateIds": [
+        "remove-episode"
+      ],
+      "critical": true
+    },
+    {
+      "id": "memory-search",
+      "query": "find historical project decisions in temporal memory",
+      "relevantCandidateIds": [
+        "search-memory"
+      ],
+      "critical": false
+    },
+    {
+      "id": "user-save",
+      "query": "persist a user record through its repository",
+      "relevantCandidateIds": [
+        "save-user"
+      ],
+      "critical": false
+    },
+    {
+      "id": "user-parse",
+      "query": "turn a serialized user payload into a User value",
+      "relevantCandidateIds": [
+        "parse-user"
+      ],
+      "critical": false
+    },
+    {
+      "id": "source-hash",
+      "query": "compute the digest that proves source bytes are unchanged",
+      "relevantCandidateIds": [
+        "hash-content"
+      ],
+      "critical": true
+    },
+    {
+      "id": "behavior-not-name",
+      "query": "which code path retries a charge after a payment provider timeout",
+      "relevantCandidateIds": [
+        "payments-retry"
+      ],
+      "critical": true
+    },
+    {
+      "id": "distractor-same-concept",
+      "query": "which code reconnects the transport after a transient failure",
+      "relevantCandidateIds": [
+        "connections-retry"
+      ],
+      "critical": true
+    }
+  ]
+}

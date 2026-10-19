@@ -40,7 +40,9 @@
     "evidence:dbc": "tsx scripts/dbc-evidence-manifest.ts",
     "gate:embedding-selection": "tsx scripts/embedding-selection-gate.ts",
     "compare:semantic-tsls": "tsx scripts/typescript-ls-semantic-comparison.ts",
-    "gate:semantic-selection": "tsx scripts/semantic-provider-selection-gate.ts"
+    "gate:semantic-selection": "tsx scripts/semantic-provider-selection-gate.ts",
+    "report:retrieval-quality": "tsx scripts/retrieval-quality-report.ts",
+    "gate:retrieval-quality": "tsx scripts/retrieval-quality-gate.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",
