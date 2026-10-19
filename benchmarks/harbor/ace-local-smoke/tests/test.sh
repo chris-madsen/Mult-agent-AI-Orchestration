@@ -13,7 +13,7 @@ def complete_context_result(item):
     return (
         isinstance(structured_content, dict)
         and structured_content.get('complete') is True
-        and structured_content.get('status') != 'not_ready'
+        and structured_content.get('status') not in ('not_ready', 'error')
     )
 
 seen_native_call = False
@@ -24,7 +24,8 @@ for line in Path('/logs/agent/codex.txt').read_text().splitlines():
         continue
     item = event.get('item', {})
     seen_native_call = seen_native_call or (
-        item.get('type') == 'mcp_tool_call'
+        event.get('type') == 'item.completed'
+        and item.get('type') == 'mcp_tool_call'
         and item.get('server') == 'ace'
         and item.get('tool') == 'ace_context'
         and item.get('status') == 'completed'
