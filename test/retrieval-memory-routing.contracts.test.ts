@@ -300,6 +300,51 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
   assert.equal(memory.status, 'ok');
 });
 
+test('RTE-04 workspace status distinguishes ready, degraded, disabled and not-ready capabilities', async () => {
+  const store: WorkspaceStore = {
+    get: () => Effect.succeed(ok({
+      workspaceId,
+      rootPath: '/repo',
+      observationEpoch: 4,
+      createdAtMs: 1,
+    })),
+    findByRoot: () => Effect.succeed(ok(undefined)),
+    save: () => Effect.succeed(ok(undefined)),
+  };
+  const files: WorkspaceFilePort = {
+    canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+    snapshot: () => Effect.succeed(ok({ headRevision: 'head', files: [], removedPaths: [] })),
+    readExact: () => Effect.succeed({ _tag: 'Err', error: { code: 'FILE_NOT_FOUND', path: 'file', message: 'not used' } }),
+  };
+  const artifacts: ArtifactStore = {
+    storeExact: () => Effect.succeed({ _tag: 'Err', error: { code: 'PERSISTENCE_FAILED', path: 'artifact', message: 'not used' } }),
+    readRange: () => Effect.succeed({ _tag: 'Err', error: { code: 'ARTIFACT_NOT_FOUND', path: 'artifact', message: 'not used' } }),
+  };
+  const readiness = {
+    worktree: { state: 'ready' as const, reason: 'authenticated_host_helper_ready' },
+    code_retrieval: { state: 'degraded' as const, reason: 'index_coverage_partial' },
+    unified_context: { state: 'degraded' as const, reason: 'index_coverage_partial' },
+    project_memory: { state: 'not_ready' as const, reason: 'graphiti_startup_failed' },
+    documentation: { state: 'disabled' as const, reason: 'cloud_docs_opt_in_false' },
+  };
+  const gateway = makeMcpGateway({
+    clock: { nowMs: () => 1 },
+    ids: { newWorkspaceId: () => 'workspace', newRequestId: () => 'request' },
+    files,
+    store,
+    artifacts,
+    readiness: () => readiness,
+  });
+  const response = await Effect.runPromise(gateway.handle({
+    name: 'ace_workspace_status',
+    arguments: { workspace_id: workspaceId },
+  }));
+  assert.equal(response.status, 'ok');
+  if (response.status !== 'ok') return;
+  assert.equal(response.result.index_status, 'degraded');
+  assert.deepEqual(response.result.capabilities, readiness);
+});
+
 test('EXT-01 Qdrant boundary maps valid points but never claims freshness', async () => {
   const requests: string[] = [];
   const http: HttpPort = {
