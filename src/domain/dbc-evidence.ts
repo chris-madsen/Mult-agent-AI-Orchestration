@@ -50,7 +50,8 @@ const validateArtifact = (
   artifact: DbcArtifactEvidence,
   index: number,
 ): Result<DbcArtifactEvidence, DomainError> => {
-  if (!nonEmpty(artifact.path) || artifact.path.startsWith('/') || artifact.path.includes('..')) {
+  if (!nonEmpty(artifact.path) || artifact.path.startsWith('/') || artifact.path.includes('\\')
+    || artifact.path.split('/').some((segment) => segment === '..' || segment === '.' || segment.length === 0)) {
     return err(domainError('INVALID_BENCHMARK', `artifacts[${index}].path`, 'artifact path must be non-empty and repository-relative'));
   }
   if (!sha256(artifact.sha256)) {
