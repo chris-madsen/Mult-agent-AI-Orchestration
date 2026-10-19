@@ -102,6 +102,7 @@ const withQuery = <Value>(
       operation: operationName,
       status: result._tag === 'Ok' ? 'success' : 'failure',
       durationMs: Math.max(0, Date.now() - startedAtMs),
+      ...(query.requestId === undefined ? {} : { requestId: query.requestId }),
       ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
     });
     return result;
