@@ -2080,11 +2080,11 @@ export function вызватьСохранение(): string { return серви
 
 export function outerScope(): string {
   function shadowTarget(): string { return 'inner'; }
-  return shadowTarget();
+  return shadowTarget() + ':inner-call';
 }
 
 export function shadowTarget(): string { return 'outer'; }
-export function callOuterShadow(): string { return shadowTarget(); }
+export function callOuterShadow(): string { return shadowTarget() + ':outer-call'; }
 
 export function formatValue(value: string): string;
 export function formatValue(value: number): string;
