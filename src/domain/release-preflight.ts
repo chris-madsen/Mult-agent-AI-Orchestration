@@ -1,5 +1,10 @@
 import { domainError, type DomainError } from './errors.js';
 import { err, ok, type Result } from './result.js';
+import {
+  dbcAcceptanceSummary,
+  makeDbcEvidenceManifest,
+  type DbcEvidenceRecord,
+} from './dbc-evidence.js';
 
 export type ReleaseCapability = 'code' | 'documentation' | 'memory';
 
@@ -56,23 +61,23 @@ const nonEmpty = (value: string): boolean => value.trim().length > 0;
 const dbcFailures = (dbc: unknown, currentCommit: string): readonly string[] => {
   const root = record(dbc);
   const records = root?.records;
-  if (root?.schemaVersion !== 1 || !Array.isArray(records) || records.length !== 14) {
+  const generatedAt = root?.generatedAt;
+  if (root?.schemaVersion !== 1 || !Array.isArray(records) || typeof generatedAt !== 'string') {
     return ['dbc_manifest_incomplete'];
   }
-  const ids = new Set<string>();
+  const validated = makeDbcEvidenceManifest(records as DbcEvidenceRecord[], generatedAt);
+  if (validated._tag === 'Err') return ['dbc_manifest_invalid'];
+  const summary = dbcAcceptanceSummary(validated.value);
   const failures: string[] = [];
-  for (const raw of records) {
-    const item = record(raw);
-    const id = typeof item?.dbcId === 'string' ? item.dbcId : 'unknown';
-    if (!/^DBC-(?:0[1-9]|1[0-4])$/u.test(id) || ids.has(id)) {
-      failures.push('dbc_manifest_invalid_ids');
-      continue;
+  if (!summary.allPassed) {
+    for (const item of validated.value.records) {
+      if (item.verdict !== 'PASS') failures.push(`dbc_not_passed:${item.dbcId}`);
     }
-    ids.add(id);
-    if (item?.verdict !== 'PASS') failures.push(`dbc_not_passed:${id}`);
-    if (item?.sourceCommit !== currentCommit) failures.push(`dbc_wrong_commit:${id}`);
+    if (validated.value.records.length !== 14) failures.push('dbc_manifest_incomplete');
   }
-  if (ids.size !== 14) failures.push('dbc_manifest_incomplete');
+  for (const item of validated.value.records) {
+    if (item.sourceCommit !== currentCommit) failures.push(`dbc_wrong_commit:${item.dbcId}`);
+  }
   return failures;
 };
 
