@@ -32,3 +32,29 @@ test('projection outbox survives restart and keeps one logical receipt per episo
     assert.equal(all.value[0]?.status, 'projected');
   }
 });
+
+
+test('projection outbox persists backoff, dead-letter and manual-repair metadata across restart', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-projection-dead-letter-'));
+  const first = await makeFileProjectionOutbox(root);
+  const episodeId = 'episode-dead-letter' as never;
+  const begun = await first.begin(episodeId, 'extractor-v2');
+  assert.equal(begun._tag, 'Ok');
+  if (begun._tag === 'Err') throw new Error(begun.error.message);
+
+  const dead = {
+    ...begun.value,
+    status: 'dead_letter' as const,
+    attempts: 5,
+    totalAttempts: 8,
+    lastErrorCode: 'EXTERNAL_UNAVAILABLE',
+    deadLetteredAtMs: 1234,
+    manualRepairCount: 2,
+  };
+  assert.equal((await first.put(dead))._tag, 'Ok');
+
+  const restarted = await makeFileProjectionOutbox(root);
+  const loaded = await restarted.get(dead.key);
+  assert.equal(loaded._tag, 'Ok');
+  if (loaded._tag === 'Ok') assert.deepEqual(loaded.value, dead);
+});
