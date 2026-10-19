@@ -136,8 +136,13 @@ export const makeFileQdrantSnapshotState = async (rootPath: string): Promise<Fil
           if (latest === undefined || stored.updatedAtMs > latest.updatedAtMs) latest = stored;
         }
         if (latest === undefined) return ok(undefined);
-        const { schemaVersion: _schemaVersion, status: _status, updatedAtMs: _updatedAtMs, ...identity } = latest;
-        return ok(identity);
+        return ok({
+          workspaceId: latest.workspaceId,
+          indexKey: latest.indexKey,
+          candidateIds: latest.candidateIds,
+          coverage: latest.coverage,
+          providerFingerprint: latest.providerFingerprint,
+        });
       } catch (cause) {
         return (cause as NodeJS.ErrnoException).code === 'ENOENT'
           ? ok(undefined)
