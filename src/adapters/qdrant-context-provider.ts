@@ -26,6 +26,15 @@ import type {
   WorkspaceFilePort,
 } from '../application/ports.js';
 import type { RepoPath, WorkspaceId } from '../domain/workspace.js';
+import {
+  initialSourceCoverage,
+  legacySourceRequirements,
+  requiredIncompleteSources,
+  setSourceCoverage,
+  sourceCoverageComplete,
+  sourceIsRequested,
+  type SourceRequirements,
+} from '../domain/source-coverage.js';
 import { validateLocalQdrantBaseUrl } from './http-provider-boundaries.js';
 import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
 
@@ -559,6 +568,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
     readonly includeCode?: boolean;
     readonly includeDocs: boolean;
     readonly includeMemory: boolean;
+    readonly sourceRequirements?: SourceRequirements;
   }): Effect.Effect<Result<ContextBundle, DomainError>> => Effect.gen(function* () {
     if (input.workspaceId !== config.workspaceId) {
       return err(domainError('POLICY_DENIED', 'workspace_id', 'Qdrant provider belongs to another workspace'));
@@ -566,27 +576,46 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
     const requestId = makeRequestId(config.newRequestId());
     if (requestId._tag === 'Err') return requestId;
     const includeCode = input.includeCode ?? true;
-    let rankedResults: readonly RankedCandidate[] = [];
-    if (includeCode) {
-      const vectors = yield* config.embeddings.embedMany([input.query], requestId.value);
-      if (vectors._tag === 'Err') return vectors;
-      const vector = vectors.value[0];
-      if (vector === undefined) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'empty query vector'));
-      const result = yield* config.qdrant.search({
-        workspaceId: input.workspaceId,
-        vector,
-        limit: config.candidateLimit ?? 6,
-        ...(config.generation === undefined ? {} : { generation: config.generation }),
-        ...(config.indexKey === undefined ? {} : { indexKey: config.indexKey }),
-        requestId: requestId.value,
-      });
-      if (result._tag === 'Err') return result;
-      rankedResults = result.value;
-    }
-
+    const requirements = input.sourceRequirements ?? legacySourceRequirements({
+      includeCode,
+      includeDocs: input.includeDocs,
+      includeMemory: input.includeMemory,
+    });
+    const managedCoverage = input.sourceRequirements !== undefined;
+    let sourceCoverage = initialSourceCoverage(requirements);
     const evidence: RetrievalEvidence[] = [];
     const warnings: string[] = [];
     const failed: string[] = [];
+    let codeProviderError: DomainError | undefined;
+    let rankedResults: readonly RankedCandidate[] = [];
+    if (includeCode) {
+      const vectors = yield* config.embeddings.embedMany([input.query], requestId.value);
+      if (vectors._tag === 'Err') {
+        codeProviderError = vectors.error;
+      } else {
+        const vector = vectors.value[0];
+        if (vector === undefined) {
+          codeProviderError = domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'empty query vector');
+        } else {
+          const result = yield* config.qdrant.search({
+            workspaceId: input.workspaceId,
+            vector,
+            limit: config.candidateLimit ?? 6,
+            ...(config.generation === undefined ? {} : { generation: config.generation }),
+            ...(config.indexKey === undefined ? {} : { indexKey: config.indexKey }),
+            requestId: requestId.value,
+          });
+          if (result._tag === 'Err') codeProviderError = result.error;
+          else rankedResults = result.value;
+        }
+      }
+      if (codeProviderError !== undefined) {
+        if (!managedCoverage) return err(codeProviderError);
+        warnings.push('code retrieval unavailable: ' + codeProviderError.code);
+        failed.push('code', 'lsp');
+      }
+    }
+
     const fullSources = new Map<RepoPath, { readonly bytes: Uint8Array; readonly digest: string; readonly handle: string }>();
 
     const initialFailures = new Map<RepoPath, string>();
@@ -679,7 +708,11 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
 
     if (input.includeDocs) {
       if (config.documentation === undefined) {
-        warnings.push('documentation provider not configured'); failed.push('documentation');
+        warnings.push('documentation provider not configured');
+        failed.push('documentation');
+        if (managedCoverage && sourceIsRequested(requirements.documentation)) {
+          sourceCoverage = setSourceCoverage(sourceCoverage, 'documentation', 'unavailable', 'provider_not_configured');
+        }
       } else {
         const documents = yield* config.documentation.search({
           workspaceId: input.workspaceId,
@@ -690,14 +723,30 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
         if (documents._tag === 'Err') {
           warnings.push('Vertex documentation unavailable: ' + documents.error.code);
           failed.push('documentation');
+          if (managedCoverage && sourceIsRequested(requirements.documentation)) {
+            sourceCoverage = setSourceCoverage(
+              sourceCoverage,
+              'documentation',
+              documents.error.code === 'POLICY_DENIED' ? 'denied' : 'unavailable',
+              documents.error.code,
+            );
+          }
         } else {
           evidence.push(...documents.value);
           if (documents.value.length === 0) {
             warnings.push('Vertex documentation corpus returned no contexts');
             failed.push('documentation');
+            if (managedCoverage && sourceIsRequested(requirements.documentation)) {
+              sourceCoverage = setSourceCoverage(sourceCoverage, 'documentation', 'empty', 'no_contexts');
+            }
+          } else if (documents.value.some((item) => item.freshness !== 'current')) {
+            failed.push('documentation');
+            if (managedCoverage && sourceIsRequested(requirements.documentation)) {
+              sourceCoverage = setSourceCoverage(sourceCoverage, 'documentation', 'partial', 'freshness_not_current');
+            }
+          } else if (managedCoverage && sourceIsRequested(requirements.documentation)) {
+            sourceCoverage = setSourceCoverage(sourceCoverage, 'documentation', 'satisfied');
           }
-          // Vertex cloud RAG chunks are not verified against current workspace documents.
-          if (documents.value.some((item) => item.freshness !== 'current')) failed.push('documentation');
         }
       }
     }
@@ -705,6 +754,9 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
       if (config.memory === undefined) {
         warnings.push('memory provider not configured');
         failed.push('memory');
+        if (managedCoverage && sourceIsRequested(requirements.memory)) {
+          sourceCoverage = setSourceCoverage(sourceCoverage, 'memory', 'unavailable', 'provider_not_configured');
+        }
       } else {
         const memories = yield* config.memory.search({
           workspaceId: input.workspaceId,
@@ -715,7 +767,18 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
         if (memories._tag === 'Err') {
           warnings.push('temporal memory unavailable: ' + memories.error.code);
           failed.push('memory');
+          if (managedCoverage && sourceIsRequested(requirements.memory)) {
+            sourceCoverage = setSourceCoverage(
+              sourceCoverage,
+              'memory',
+              memories.error.code === 'POLICY_DENIED' ? 'denied' : 'unavailable',
+              memories.error.code,
+            );
+          }
         } else {
+          if (managedCoverage && sourceIsRequested(requirements.memory)) {
+            sourceCoverage = setSourceCoverage(sourceCoverage, 'memory', 'satisfied');
+          }
           for (const [index, hit] of memories.value.hits.entries()) {
             const evidenceId = makeEvidenceId('memory-' + (index + 1));
             if (evidenceId._tag === 'Err') return evidenceId;
@@ -768,6 +831,34 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
       }
     }
     const merged = mergeEvidence(requestId.value, input.query, evidence, warnings, failed);
-    return ok(config.coverage === undefined ? merged : { ...merged, indexCoverage: config.coverage });
+    if (!managedCoverage) {
+      return ok(config.coverage === undefined ? merged : { ...merged, indexCoverage: config.coverage });
+    }
+
+    if (requirements.code.requirement !== 'not_requested' && requirements.code.allowed) {
+      sourceCoverage = setSourceCoverage(
+        sourceCoverage,
+        'code',
+        !includeCode || codeProviderError !== undefined ? 'unavailable' : failed.includes('code') ? 'partial' : 'satisfied',
+        !includeCode ? 'not_executed' : codeProviderError?.code,
+      );
+    }
+    if (requirements.structural.requirement !== 'not_requested' && requirements.structural.allowed) {
+      sourceCoverage = setSourceCoverage(
+        sourceCoverage,
+        'structural',
+        !includeCode || codeProviderError !== undefined ? 'unavailable' : failed.includes('lsp') ? 'partial' : 'satisfied',
+        !includeCode ? 'not_executed' : codeProviderError?.code,
+      );
+    }
+    const incomplete = requiredIncompleteSources(sourceCoverage);
+    const covered = {
+      ...merged,
+      sourceCoverage,
+      partialSources: incomplete,
+      complete: sourceCoverageComplete(sourceCoverage),
+      ...(config.coverage === undefined ? {} : { indexCoverage: config.coverage }),
+    };
+    return ok(covered);
   }),
 });

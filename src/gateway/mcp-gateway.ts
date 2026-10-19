@@ -7,6 +7,11 @@ import type { ContextBundle } from '../domain/retrieval.js';
 import { projectContextForDelivery, resolveDeliveryIntent } from '../domain/context-delivery.js';
 import type { WorkspaceId } from '../domain/workspace.js';
 import { deterministicRoute } from '../domain/routing.js';
+import {
+  resolveSourceRequirements,
+  sourceIsRequested,
+  type SourceRequirements,
+} from '../domain/source-coverage.js';
 
 const ContextInput = Schema.Struct({
   workspace_id: Schema.String,
@@ -72,6 +77,7 @@ export interface ContextProvider {
     readonly includeCode?: boolean;
     readonly includeDocs: boolean;
     readonly includeMemory: boolean;
+    readonly sourceRequirements?: SourceRequirements;
   }) => Effect.Effect<Result<ContextBundle, DomainError>>;
 }
 
@@ -113,16 +119,23 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
               privateCode: true,
               jevOptIn: false,
             });
-            const routeNeedsCode = route.sources.includes('code') || route.sources.includes('structural');
+            const sourceRequirements = resolveSourceRequirements(route.sources, {
+              ...(input.value.include_code === undefined ? {} : { includeCode: input.value.include_code }),
+              ...(input.value.include_docs === undefined ? {} : { includeDocs: input.value.include_docs }),
+              ...(input.value.include_memory === undefined ? {} : { includeMemory: input.value.include_memory }),
+            });
             const result = yield* ports.context.search({
               workspaceId: workspaceId.value,
               query: input.value.query,
               ...(input.value.intent === undefined ? {} : { intent: input.value.intent }),
-              // Explicit caller booleans override planner choice. The planner is
-              // only a default and cannot override an explicit privacy choice.
-              includeCode: input.value.include_code ?? routeNeedsCode,
-              includeDocs: input.value.include_docs ?? route.sources.includes('documentation'),
-              includeMemory: input.value.include_memory ?? route.sources.includes('memory'),
+              // Caller overrides are represented separately from provider
+              // outcomes. Required branches determine completeness; optional
+              // branches may enrich a bundle without turning an outage into a
+              // false required failure.
+              includeCode: sourceIsRequested(sourceRequirements.code),
+              includeDocs: sourceIsRequested(sourceRequirements.documentation),
+              includeMemory: sourceIsRequested(sourceRequirements.memory),
+              sourceRequirements,
             });
             if (isErr(result)) return responseError(result);
             const delivered = projectContextForDelivery(result.value, resolveDeliveryIntent(input.value.intent));

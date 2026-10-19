@@ -43,6 +43,7 @@ import {
   type SessionEpisode,
 } from '../src/domain/memory.js';
 import { compareRoutes, deterministicRoute, routeEvidence, selectRoute, unsupportedJevRouter } from '../src/domain/routing.js';
+import type { SourceRequirements } from '../src/domain/source-coverage.js';
 import { makeMcpGateway } from '../src/gateway/mcp-gateway.js';
 import type { ArtifactStore, HttpPort, WorkspaceFilePort, WorkspaceStore } from '../src/application/ports.js';
 
@@ -262,7 +263,12 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
     storeExact: () => Effect.succeed({ _tag: 'Err', error: { code: 'PERSISTENCE_FAILED', path: 'artifact', message: 'not used' } }),
     readRange: () => Effect.succeed({ _tag: 'Err', error: { code: 'ARTIFACT_NOT_FOUND', path: 'artifact', message: 'not used' } }),
   };
-  let lastContextInput: { readonly includeCode?: boolean; readonly includeDocs: boolean; readonly includeMemory: boolean } | undefined;
+  let lastContextInput: {
+    readonly includeCode?: boolean;
+    readonly includeDocs: boolean;
+    readonly includeMemory: boolean;
+    readonly sourceRequirements?: SourceRequirements;
+  } | undefined;
   const gateway = makeMcpGateway({
     clock: { nowMs: () => 1 },
     ids: { newWorkspaceId: () => 'workspace', newRequestId: () => 'request' },
@@ -281,7 +287,18 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
     includeCode: lastContextInput.includeCode,
     includeDocs: lastContextInput.includeDocs,
     includeMemory: lastContextInput.includeMemory,
-  }, { includeCode: true, includeDocs: false, includeMemory: false });
+    sourceRequirements: lastContextInput.sourceRequirements,
+  }, {
+    includeCode: true,
+    includeDocs: false,
+    includeMemory: false,
+    sourceRequirements: {
+      code: { requirement: 'required', allowed: true },
+      structural: { requirement: 'optional', allowed: true },
+      documentation: { requirement: 'not_requested', allowed: true },
+      memory: { requirement: 'not_requested', allowed: true },
+    },
+  });
 
   await Effect.runPromise(gateway.handle({
     name: 'ace_context',
@@ -291,7 +308,18 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
     includeCode: lastContextInput.includeCode,
     includeDocs: lastContextInput.includeDocs,
     includeMemory: lastContextInput.includeMemory,
-  }, { includeCode: false, includeDocs: true, includeMemory: true });
+    sourceRequirements: lastContextInput.sourceRequirements,
+  }, {
+    includeCode: false,
+    includeDocs: true,
+    includeMemory: true,
+    sourceRequirements: {
+      code: { requirement: 'not_requested', allowed: true },
+      structural: { requirement: 'not_requested', allowed: true },
+      documentation: { requirement: 'required', allowed: true },
+      memory: { requirement: 'required', allowed: true },
+    },
+  });
 
   await Effect.runPromise(gateway.handle({
     name: 'ace_context',
@@ -306,7 +334,18 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
     includeCode: lastContextInput.includeCode,
     includeDocs: lastContextInput.includeDocs,
     includeMemory: lastContextInput.includeMemory,
-  }, { includeCode: false, includeDocs: false, includeMemory: false });
+    sourceRequirements: lastContextInput.sourceRequirements,
+  }, {
+    includeCode: false,
+    includeDocs: false,
+    includeMemory: false,
+    sourceRequirements: {
+      code: { requirement: 'not_requested', allowed: true },
+      structural: { requirement: 'not_requested', allowed: true },
+      documentation: { requirement: 'required', allowed: false },
+      memory: { requirement: 'required', allowed: false },
+    },
+  });
 
   await Effect.runPromise(gateway.handle({
     name: 'ace_context',
@@ -322,7 +361,18 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
     includeCode: lastContextInput.includeCode,
     includeDocs: lastContextInput.includeDocs,
     includeMemory: lastContextInput.includeMemory,
-  }, { includeCode: true, includeDocs: false, includeMemory: false });
+    sourceRequirements: lastContextInput.sourceRequirements,
+  }, {
+    includeCode: true,
+    includeDocs: false,
+    includeMemory: false,
+    sourceRequirements: {
+      code: { requirement: 'optional', allowed: true },
+      structural: { requirement: 'optional', allowed: true },
+      documentation: { requirement: 'required', allowed: false },
+      memory: { requirement: 'required', allowed: false },
+    },
+  });
 
   const memory = await Effect.runPromise(gateway.handle({ name: 'ace_memory_search', arguments: { workspace_id: workspaceId, query: 'decision' } }));
   assert.equal(memory.status, 'ok');
