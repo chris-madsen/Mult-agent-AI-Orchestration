@@ -6,6 +6,7 @@ import type { ArtifactStore, MemorySearchPort } from '../application/ports.js';
 import type { ContextBundle } from '../domain/retrieval.js';
 import { projectContextForDelivery, resolveDeliveryIntent } from '../domain/context-delivery.js';
 import type { WorkspaceId } from '../domain/workspace.js';
+import { deterministicRoute } from '../domain/routing.js';
 
 const ContextInput = Schema.Struct({
   workspace_id: Schema.String,
@@ -96,12 +97,20 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
           const workspace = yield* ports.store.get(workspaceId.value);
           if (isErr(workspace)) return responseError(workspace);
           if (ports.context !== undefined) {
+            const route = deterministicRoute({
+              requestId: ports.ids.newRequestId(),
+              query: input.value.query,
+              privateCode: true,
+              jevOptIn: false,
+            });
             const result = yield* ports.context.search({
               workspaceId: workspaceId.value,
               query: input.value.query,
               ...(input.value.intent === undefined ? {} : { intent: input.value.intent }),
-              includeDocs: input.value.include_docs ?? false,
-              includeMemory: input.value.include_memory ?? false,
+              // Explicit caller booleans override planner choice. The planner is
+              // only a default and cannot override an explicit privacy choice.
+              includeDocs: input.value.include_docs ?? route.sources.includes('documentation'),
+              includeMemory: input.value.include_memory ?? route.sources.includes('memory'),
             });
             if (isErr(result)) return responseError(result);
             const delivered = projectContextForDelivery(result.value, resolveDeliveryIntent(input.value.intent));
