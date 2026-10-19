@@ -30,4 +30,4 @@ Remaining gates are owner review of the provider/model approval and a larger
 frozen holdout. The measured overhead is intentionally not hidden or converted
 into a claimed saving.
 
-See [2026-10-19-ace-efficiency-benchmark-audit.md](../../docs/reviews/2026-10-19-benchmark-methodology-audit.md) for the specific audit and required corrected experiment.
+See [2026-10-19-ace-efficiency-benchmark-audit.md](../../docs/reviews/2026-10-19-ace-efficiency-benchmark-audit.md) for the specific audit and required corrected experiment.
