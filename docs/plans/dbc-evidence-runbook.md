@@ -15,6 +15,8 @@ A test result and a production claim are different things. Every DBC record is o
 
 The generator reads the current Git commit itself. Do not copy an older SHA into an evidence report.
 
+Evidence metadata is also scanned for credential-like values. Describe authorization scope (for example, `local-only` or `Vertex read-only corpus scope`) but never paste bearer tokens, API keys, passwords, private keys, or authorization headers into a draft.
+
 ## Draft format
 
 Create a temporary draft such as:
