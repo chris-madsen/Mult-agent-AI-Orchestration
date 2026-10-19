@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DATASET = ROOT / "benchmarks/retrieval/embedding-provider-comparison-labels.json"
+DEFAULT_DATASET = ROOT / "benchmarks/retrieval/embedding-provider-comparison-labels.json"
 OUTPUT = ROOT / "benchmarks/reports/embedding-provider-comparison-rerun.json"
 MODEL_ID = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 MODEL_REVISION = "e8f8c211226b894fcb81acc59f3b34ba3efd5f42"
@@ -101,8 +101,9 @@ def evaluate(
     artifact_revision: str | None,
     encode,
     runtime: dict[str, object],
+    dataset_path: Path,
 ) -> dict[str, object]:
-    dataset_bytes = DATASET.read_bytes()
+    dataset_bytes = dataset_path.read_bytes()
     dataset = json.loads(dataset_bytes.decode("utf-8"))
     dataset_sha256 = hashlib.sha256(dataset_bytes).hexdigest()
     candidate_ids = list(dataset["candidates"].keys())
@@ -186,7 +187,7 @@ def current_memory_bytes() -> int | None:
         return None
 
 
-def run_provider(provider: str) -> dict[str, object]:
+def run_provider(provider: str, dataset_path: Path) -> dict[str, object]:
     if provider == "fastembed/onnx":
         from fastembed import TextEmbedding
         os.environ.setdefault("FASTEMBED_CACHE_PATH", str(FASTEMBED_CACHE))
@@ -199,6 +200,7 @@ def run_provider(provider: str) -> dict[str, object]:
             {"python": platform.python_version(), "fastembed": package_version("fastembed"),
              "onnxruntime": package_version("onnxruntime"), "numpy": package_version("numpy"),
              "preprocessing": "raw_text_v1; fastembed model defaults"},
+            dataset_path,
         )
     elif provider == "sentence-transformers/pytorch":
         from sentence_transformers import SentenceTransformer
@@ -211,6 +213,7 @@ def run_provider(provider: str) -> dict[str, object]:
             {"python": platform.python_version(), "sentence-transformers": package_version("sentence-transformers"),
              "torch": package_version("torch"), "transformers": package_version("transformers"),
              "numpy": package_version("numpy"), "preprocessing": "raw_text_v1; normalize_embeddings=false"},
+            dataset_path,
         )
     else:
         raise ValueError(f"unsupported provider: {provider}")
@@ -219,8 +222,15 @@ def run_provider(provider: str) -> dict[str, object]:
     return result
 
 
-def run_candidate(provider: str, python_command: str) -> dict[str, object]:
-    command = [python_command, str(Path(__file__).resolve()), "--provider", provider]
+def run_candidate(provider: str, python_command: str, dataset_path: Path) -> dict[str, object]:
+    command = [
+        python_command,
+        str(Path(__file__).resolve()),
+        "--provider",
+        provider,
+        "--dataset",
+        str(dataset_path),
+    ]
     environment = os.environ.copy()
     environment["HF_HUB_OFFLINE"] = "1"
     started = time.perf_counter()
@@ -242,13 +252,29 @@ def run_candidate(provider: str, python_command: str) -> dict[str, object]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--provider", choices=["fastembed/onnx", "sentence-transformers/pytorch"])
+    parser.add_argument("--dataset", default=str(DEFAULT_DATASET))
+    parser.add_argument(
+        "--evidence-stage",
+        choices=["development_spike", "frozen_holdout"],
+        default="development_spike",
+    )
     args = parser.parse_args()
+    dataset_path = Path(args.dataset).resolve()
+    try:
+        relative_dataset = dataset_path.relative_to(ROOT).as_posix()
+    except ValueError as error:
+        raise ValueError("embedding comparison dataset must be repository-contained") from error
+    if not dataset_path.is_file():
+        raise FileNotFoundError(f"embedding comparison dataset does not exist: {dataset_path}")
     if args.provider:
-        print(json.dumps(run_provider(args.provider), ensure_ascii=False))
+        print(json.dumps(run_provider(args.provider, dataset_path), ensure_ascii=False))
         return
     fast_python = os.environ.get("ACE_EMBEDDING_FAST_PYTHON", str(ROOT / ".venv-embedding-fast/bin/python"))
     st_python = os.environ.get("ACE_EMBEDDING_ST_PYTHON", str(ROOT / ".venv-embedding-st/bin/python"))
-    candidates = [run_candidate("fastembed/onnx", fast_python), run_candidate("sentence-transformers/pytorch", st_python)]
+    candidates = [
+        run_candidate("fastembed/onnx", fast_python, dataset_path),
+        run_candidate("sentence-transformers/pytorch", st_python, dataset_path),
+    ]
     successful = [candidate for candidate in candidates if candidate["status"] == "success"]
     winner = None
     if successful:
@@ -265,7 +291,7 @@ def main() -> None:
         ))["provider"]
     output = {
         "status": "comparison-complete" if len(successful) == 2 else "comparison-incomplete",
-        "evidence_stage": "development_spike",
+        "evidence_stage": args.evidence_stage,
         "production_approved": False,
         "selection_policy": [
             "recall_at_5",
@@ -278,8 +304,8 @@ def main() -> None:
             "max_rss_bytes",
             "provider_name",
         ],
-        "dataset": DATASET.relative_to(ROOT).as_posix(),
-        "dataset_sha256": hashlib.sha256(DATASET.read_bytes()).hexdigest(),
+        "dataset": relative_dataset,
+        "dataset_sha256": hashlib.sha256(dataset_path.read_bytes()).hexdigest(),
         "model": MODEL_ID,
         "revision": MODEL_REVISION,
         "candidates": candidates,
