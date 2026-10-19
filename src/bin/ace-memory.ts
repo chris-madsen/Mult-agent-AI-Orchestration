@@ -8,7 +8,16 @@ import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
 import { defaultLocalPolicy } from '../domain/policy.js';
 import { makeWorkspaceId } from '../domain/workspace.js';
 import { deleteEpisodeWithProjection } from '../application/retained-memory.js';
-import { makeEpisodeId } from '../domain/memory.js';
+import {
+  deadLetterProjection,
+  defaultProjectionRetryPolicy,
+  makeEpisodeId,
+  projectionRetryDue,
+  recordProjectionEnqueue,
+  repairProjection,
+  scheduleProjectionRetry,
+  type ProjectionRetryPolicy,
+} from '../domain/memory.js';
 import { importMemoryEpisodes } from '../application/memory-import.js';
 import { defaultMemoryAdmissionPolicy } from '../domain/memory-admission.js';
 
@@ -19,8 +28,8 @@ const required = (key: string): string => {
 };
 const run = async (): Promise<void> => {
   const [operation, subject] = process.argv.slice(2);
-  if (operation !== 'import' && operation !== 'delete' && operation !== 'reconcile') {
-    throw new Error('Usage: ace-memory import <codex-history.jsonl> | delete <episode-id> | reconcile');
+  if (operation !== 'import' && operation !== 'delete' && operation !== 'reconcile' && operation !== 'repair') {
+    throw new Error('Usage: ace-memory import <codex-history.jsonl> | delete <episode-id> | reconcile | repair <episode-id>');
   }
   if (operation !== 'reconcile' && !subject) throw new Error('source path / episode ID required');
   const workspace = makeWorkspaceId(required('ACE_WORKSPACE_ID'));
@@ -35,6 +44,41 @@ const run = async (): Promise<void> => {
     workspaceId: workspace.value,
     policy: defaultLocalPolicy(workspace.value),
   });
+
+  const integerEnv = (name: string, fallback: number): number => {
+    const raw = process.env[name]?.trim();
+    if (raw === undefined || raw.length === 0) return fallback;
+    const value = Number(raw);
+    if (!Number.isSafeInteger(value) || value < 0) throw new Error(name + ' must be a non-negative integer');
+    return value;
+  };
+  const retryPolicy: ProjectionRetryPolicy = {
+    maxAttempts: integerEnv('ACE_MEMORY_PROJECTION_MAX_ATTEMPTS', defaultProjectionRetryPolicy.maxAttempts),
+    baseDelayMs: integerEnv('ACE_MEMORY_PROJECTION_BASE_DELAY_MS', defaultProjectionRetryPolicy.baseDelayMs),
+    maxDelayMs: integerEnv('ACE_MEMORY_PROJECTION_MAX_DELAY_MS', defaultProjectionRetryPolicy.maxDelayMs),
+  };
+  if (retryPolicy.maxAttempts < 1 || retryPolicy.maxDelayMs < retryPolicy.baseDelayMs) {
+    throw new Error('projection retry policy requires maxAttempts >= 1 and maxDelayMs >= baseDelayMs');
+  }
+  const verificationDelayMs = integerEnv('ACE_MEMORY_PROJECTION_VERIFY_DELAY_MS', retryPolicy.baseDelayMs);
+
+  if (operation === 'repair') {
+    const episodeId = makeEpisodeId(subject as string);
+    if (episodeId._tag === 'Err') throw new Error(episodeId.error.message);
+    const receipts = await outbox.list();
+    if (receipts._tag === 'Err') throw new Error(receipts.error.message);
+    let repaired = 0;
+    for (const receipt of receipts.value.filter((item) =>
+      item.episodeId === episodeId.value && (item.status === 'dead_letter' || item.status === 'incomplete'))) {
+      const reset = repairProjection(receipt);
+      if (reset._tag === 'Err') throw new Error(reset.error.message);
+      const stored = await outbox.put(reset.value);
+      if (stored._tag === 'Err') throw new Error(stored.error.message);
+      repaired += 1;
+    }
+    process.stdout.write(JSON.stringify({ episode_id: episodeId.value, repaired_projection_receipts: repaired }) + '\n');
+    return;
+  }
   if (operation === 'delete') {
     const episodeId = makeEpisodeId(subject as string);
     if (episodeId._tag === 'Err') throw new Error(episodeId.error.message);
@@ -67,18 +111,44 @@ const run = async (): Promise<void> => {
       let projected = 0;
       let retried = 0;
       let missingOriginal = 0;
+      let deferred = 0;
+      let deadLettered = 0;
       for (const receipt of receipts.value) {
-        if (receipt.status === 'projected' || receipt.status === 'tombstoned') continue;
+        if (receipt.status === 'projected' || receipt.status === 'tombstoned' || receipt.status === 'dead_letter') continue;
+        const nowMs = Date.now();
+        if (!projectionRetryDue(receipt, nowMs)) {
+          deferred += 1;
+          continue;
+        }
         const present = await Effect.runPromise(graphiti.projectionState.isPresent(receipt.episodeId));
         if (present._tag === 'Err') throw new Error(present.error.message);
         if (present.value) {
-          const stored = await outbox.put({ ...receipt, status: 'projected' });
+          const stored = await outbox.put({
+            ...receipt,
+            status: 'projected',
+            nextAttemptAtMs: undefined,
+            deadLetteredAtMs: undefined,
+            lastErrorCode: undefined,
+          });
           if (stored._tag === 'Err') throw new Error(stored.error.message);
           projected += 1;
           continue;
         }
+        if (receipt.attempts >= retryPolicy.maxAttempts) {
+          const dead = deadLetterProjection(receipt, nowMs, 'PROJECTION_NOT_MATERIALIZED');
+          if (dead._tag === 'Err') throw new Error(dead.error.message);
+          const stored = await outbox.put(dead.value);
+          if (stored._tag === 'Err') throw new Error(stored.error.message);
+          deadLettered += 1;
+          continue;
+        }
         const original = await archive.readEpisode(receipt.episodeId);
         if (original._tag === 'Err') {
+          const failed = scheduleProjectionRetry(receipt, nowMs, original.error.code, retryPolicy);
+          if (failed._tag === 'Err') throw new Error(failed.error.message);
+          const stored = await outbox.put(failed.value);
+          if (stored._tag === 'Err') throw new Error(stored.error.message);
+          if (failed.value.status === 'dead_letter') deadLettered += 1;
           missingOriginal += 1;
           continue;
         }
@@ -93,18 +163,16 @@ const run = async (): Promise<void> => {
           }],
         }));
         if (retry._tag === 'Err') {
-          const stored = await outbox.put({
-            ...receipt,
-            status: 'incomplete',
-            attempts: receipt.attempts + 1,
-          });
+          const failed = scheduleProjectionRetry(receipt, nowMs, retry.error.code, retryPolicy);
+          if (failed._tag === 'Err') throw new Error(failed.error.message);
+          const stored = await outbox.put(failed.value);
           if (stored._tag === 'Err') throw new Error(stored.error.message);
+          if (failed.value.status === 'dead_letter') deadLettered += 1;
           continue;
         }
-        const stored = await outbox.put({
-          ...retry.value,
-          attempts: Math.max(retry.value.attempts, receipt.attempts + 1),
-        });
+        const enqueued = recordProjectionEnqueue(receipt, retry.value, nowMs, verificationDelayMs);
+        if (enqueued._tag === 'Err') throw new Error(enqueued.error.message);
+        const stored = await outbox.put(enqueued.value);
         if (stored._tag === 'Err') throw new Error(stored.error.message);
         retried += 1;
       }
@@ -112,6 +180,8 @@ const run = async (): Promise<void> => {
         reconciled_projected: projected,
         retried_pending: retried,
         missing_original: missingOriginal,
+        deferred_by_backoff: deferred,
+        newly_dead_lettered: deadLettered,
       }) + '\n');
     } finally {
       await graphiti.close();
