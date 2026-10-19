@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "status": "frozen",
+  "source_pointer": "synthetic://graphiti-lifecycle-v1/decision",
+  "occurred_at": "2026-10-19T12:00:00.000Z",
+  "content": "ACE synthetic decision: private conversation memory must remain local and Graphiti projections must preserve original episode provenance.\n",
+  "search_text": "We decided that private conversation memory remains local and Graphiti facts preserve original episode provenance.",
+  "query": "What decision was made about private conversation memory and provenance?"
+}
