@@ -31,7 +31,7 @@ The first fixture contained `service.ts` (`reconnect`, `disconnect`) and
 `consumer.ts` (`boot` calling `reconnect`). A second fixture contained exactly
 2000 source lines and a 25-line `retryAfterTransientFailure` function. The
 runtime populated the versioned collection
-`ace_code_paraphrase_multilingual_minilm_l12_v2_g1`.
+a workspace+model-versioned collection; observation `generation` is stored in point payload and filtered on query.
 
 ## Provider evidence
 
@@ -66,10 +66,7 @@ retrieval was in flight, and observed `complete=false`, `partialSources=["code"]
 and `stale index or AST slice disagrees with current original bytes`. No stale
 evidence was labelled `current`.
 
-The restart gate reused one workspace/state directory across two MCP processes.
-The first run used generation 1 and D1; after a dirty-tree edit, the second run
-used generation 2 and returned only D2. Its versioned collection was `_g2`, so
-the old generation was not silently upgraded or queried as current.
+The restart gate reuses one workspace/state directory across two MCP processes. The collection name is stable for the workspace+embedding configuration; points carry the observation generation. After a dirty-tree edit, generation 2 is indexed and the obsolete generation 1 points are pruned after successful rebuild. Query filtering still requires the current generation.
 
 The outage gate forced Qdrant to an unavailable loopback port while enabling the
 explicit `ACE_ALLOW_LOCAL_FALLBACK=true` test switch. The response was
@@ -78,12 +75,7 @@ source evidence, and warnings including `Qdrant unavailable:
 EXTERNAL_UNAVAILABLE` and the non-production status of the lexical fallback.
 This proves truthful degradation, not production semantic retrieval.
 
-The official SDK conformance gate used `@modelcontextprotocol/client` and
-`StdioClientTransport` against the actual `ace-mcp` executable. It verified the
-initialization handshake, the four-tool listing, concurrent workspace-status
-calls, protocol-level unknown-tool failure, and request cancellation through a
-linked official in-memory transport. No hand-written JSON-RPC path was used for
-this production conformance check.
+The official SDK **sub-gate** used `@modelcontextprotocol/client` and `StdioClientTransport` against the actual `ace-mcp` executable. It verifies initialization, tool listing/calls, errors, concurrency and cancellation propagation into the underlying Effect. This is SDK conformance evidence, **not the normative DBC-09 Codex-client proof**; an actual Codex→ACE invocation remains open.
 
 The policy gate exercised the Vertex adapter and the unified gateway composition
 with the default local policy. `ace_context(include_docs=true)` returned a
@@ -91,17 +83,11 @@ partial bundle with `POLICY_DENIED`, while the counting HTTP port observed zero
 outbound requests; the companion audit contract retained only safe reason and
 correlation fields, never source or token payloads.
 
-The DBC-14 composition fixture supplied an explicit ADR claim and current-code
-claim under the same conflict key. The bundle retained both classifications,
-source revisions and timestamps, emitted a structured conflict plus warning,
-and set `complete=false`; no documentation claim was promoted to current code
-truth.
+The documentation-conflict **logic sub-gate** supplies a test DocumentationPort claim and a current-code claim under the same conflict key. It proves preservation and conflict marking, but **does not close DBC-14** until real approved Vertex documentation with citation/revision evidence conflicts with current code.
 
 The real semantic holdout gate (`npm run test:real-semantic`) exercised three
 behavior/RU↔EN queries through FastEmbed/ONNX, Qdrant, Tree-sitter and the
-TypeScript language service. All three expected candidates were surfaced
-(recall@12=3/3); one read/write lexical distractor ranked first. This is
-retrieval evidence, not a production model selection or quality/5× claim.
+TypeScript language service. All three expected candidates were surfaced within the bounded response cap; one distractor ranked first. The response cap is now six candidates by default (`ACE_CONTEXT_CANDIDATE_LIMIT`). This is experimental retrieval evidence, **not DBC-03 closure**, production model selection or a quality/5× claim.
 
 ## Reproduction
 
