@@ -567,7 +567,11 @@ export interface ComparisonReport {
   readonly runMetrics: readonly ComparisonRunMetric[];
   readonly totalRuns: number;
   readonly successfulRuns: number;
+  /** Fraction passing quality among fully recorded (graded) runs only. */
   readonly qualityPassRate: Measurement<number>;
+  readonly completionRate: Measurement<number>;
+  readonly abortedRate: Measurement<number>;
+  readonly incompleteRate: Measurement<number>;
   readonly limitations: readonly string[];
   readonly evidenceHash: string;
   readonly releasedAtMs: number;
@@ -612,7 +616,10 @@ export const makeComparisonReport = (input: ComparisonReportInput): Result<Compa
     totalTokens: run.usageLedger?.totals.totalTokens ?? unknown('usage_unavailable'),
     costUsd: run.usageLedger?.totals.costUsd ?? unknown('cost_unavailable'),
   }));
-  const successfulRuns = runMetrics.filter((run) => run.state === 'Recorded' && run.quality === 'passed').length;
+  const recordedRuns = runMetrics.filter((run) => run.state === 'Recorded');
+  const successfulRuns = recordedRuns.filter((run) => run.quality === 'passed').length;
+  const abortedRuns = runMetrics.filter((run) => run.state === 'Aborted').length;
+  const incompleteRuns = runMetrics.filter((run) => run.state === 'RecordedIncomplete').length;
   return ok({
     reportId: reportId.value,
     suiteId: input.suite.suiteId,
@@ -621,7 +628,12 @@ export const makeComparisonReport = (input: ComparisonReportInput): Result<Compa
     runMetrics,
     totalRuns: runMetrics.length,
     successfulRuns,
-    qualityPassRate: known(successfulRuns / runMetrics.length),
+    qualityPassRate: recordedRuns.length === 0
+      ? unknown('no_fully_recorded_quality_results')
+      : known(successfulRuns / recordedRuns.length),
+    completionRate: known(recordedRuns.length / runMetrics.length),
+    abortedRate: known(abortedRuns / runMetrics.length),
+    incompleteRate: known(incompleteRuns / runMetrics.length),
     limitations: [...input.limitations],
     evidenceHash: input.evidenceHash,
     releasedAtMs: input.releasedAtMs,
