@@ -21,9 +21,9 @@
 
 The development-only npm advisories are retained as a baseline finding; no forced upgrade was applied without a dependency compatibility decision.
 
-## Vertex read-only probe
+## Vertex probe and owner-authorized Europe test corpus
 
-The authenticated local `gcloud` session was used only for the repository read-only probe. The project identifier is intentionally omitted from this committed report. One active authentication account was detected; identity and access tokens were not recorded.
+The authenticated local `gcloud` session was used for the probe and for creation of the Europe test corpus **with explicit owner authorization**. The creation is in-scope and the corpus must be retained. One active authentication account was detected; identity and access tokens were not recorded.
 
 | Region | HTTP | Corpus count | Verdict |
 |---|---:|---:|---|
@@ -63,8 +63,8 @@ The PyTorch result is the strongest result on this tiny holdout but is slower an
 1. Do not select Ollama or any other embedding provider by default. The exploratory comparison is recorded separately; preserve failed candidates and the deterministic hash vector as a test double only.
 2. The measured FastEmbed multilingual candidate is wired for exploratory Qdrant E2E in a model-versioned collection. Production selection still requires the larger holdout, model/license/digest review and owner approval.
 3. Compare Serena with direct TypeScript Language Service on identical fixtures before making a production LSP recommendation.
-4. The Vertex Europe corpus is intentionally empty. The authenticated corpus/retrieveContexts validation is recorded in `2026-10-19-vertex-gcloud-corpus-validation.md`; fixture import and citation/version probes still require owner authorization.
-5. Check Graphiti MCP extraction with an approved LLM/inference provider; FalkorDB health alone is not Graphiti extraction evidence.
+4. The Vertex Europe corpus is intentionally empty and owner-authorized. The authenticated corpus/retrieveContexts validation is recorded in `2026-10-19-vertex-gcloud-corpus-validation.md`; keep the corpus. Private-document upload remains separately permissioned.
+5. Continue Graphiti MCP extraction immediately with a supported **local-only experimental** LLM/inference configuration selected by Codex; no additional owner model choice is required for the experiment. FalkorDB health alone is not Graphiti extraction evidence.
 6. Begin Harbor exploratory paired runs only after the actual MCP/provider composition and trace parser are available.
 
 No production-readiness or 5× claim is made by this baseline.
