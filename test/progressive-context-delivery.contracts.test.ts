@@ -75,11 +75,17 @@ test('MCP navigation text is not another full JSON copy and gives actionable exa
 });
 
 test('long first-ranked functions use explicit on-demand delivery, never silent truncation', () => {
-  const longFirst: ContextBundle = { ...bundle, evidence: [evidence[2] as RetrievalEvidence] };
+  const longFirst: ContextBundle = {
+    ...bundle,
+    evidence: [{ ...evidence[2] as RetrievalEvidence, expansionCursor: '123', expansionMaxBytes: 2048 }],
+  };
   const projected = projectContextForDelivery(longFirst, 'locate');
   assert.equal(projected.evidence[0]?.contentDelivery, 'expand');
   assert.equal(projected.evidence[0]?.expansionHandle, 'exact-original-handle-2');
   assert.equal(projected.evidence[0]?.originalSpanLines, bodies[2]?.split('\n').length);
+  assert.equal(projected.evidence[0]?.expansionCursor, '123');
+  assert.equal(projected.evidence[0]?.expansionMaxBytes, 2048);
+  assert.match(contextTransportText(projected as unknown as Readonly<Record<string, unknown>>), /cursor=123, max_bytes=2048/);
 });
 
 test('actual official MCP transport does not mirror the entire structured ContextBundle as text', async () => {
