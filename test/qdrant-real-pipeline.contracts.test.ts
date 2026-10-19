@@ -73,7 +73,6 @@ test('warm Qdrant snapshot reuse does not re-embed or upsert current source', as
       assert.equal(request.url.endsWith('/points/count'), true);
       assert.deepEqual((request.body?.filter as { must: unknown[] }).must, [
         { key: 'workspace_id', match: { value: workspaceId } },
-        { key: 'generation', match: { value: 1 } },
         { key: 'index_key', match: { value: 'snapshot-digest' } },
       ]);
       return Effect.succeed(ok({ status: 200, body: { result: { count: 1 } } }));
@@ -114,7 +113,7 @@ test('Qdrant warm reuse rebuilds on different count and fails closed on count ou
   assert.equal(upserts, 1);
   const offline: HttpPort = { request: () => Effect.succeed(err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'offline'))) };
   const failed = await Effect.runPromise(hasExactQdrantSnapshot(
-    offline, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 1, 'snapshot-digest', 1,
+    offline, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'snapshot-digest', 1,
   ));
   assert.equal(failed._tag, 'Err');
 });
