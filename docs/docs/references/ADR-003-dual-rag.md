@@ -51,3 +51,7 @@
 - https://docs.cloud.google.com/vertex-ai/generative-ai/docs/samples/generativeaionvertexai-rag-import-files
 - https://qdrant.tech/documentation/search/hybrid-queries/
 - ADR-004, ADR-007, ADR-009
+
+## Owner clarification — 2026-10-19: Ollama is not required
+
+The selected code retrieval engine is **Qdrant**, not a model-serving wrapper. **Ollama is explicitly not selected or required.** Genuine code embeddings can be produced by a ready-made *local* inference library such as **Qdrant FastEmbed / ONNX Runtime**, with model and inference backend evaluated separately. These are candidates, not a silently approved production model. Codex may run real local candidate E2E and benchmark now; decide production model after measured recall, latency, multi-language behavior, throughput, resource usage, licensing and full agent quality/cost. Keep a distinct Qdrant collection/generation when models, dimensions or preprocessing change. See proposed ADR-013 and ADR-007.

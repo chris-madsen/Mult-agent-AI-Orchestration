@@ -52,3 +52,7 @@ RAG отвечает за discovery, но не доказывает, что ко
 - https://github.com/oraios/serena
 - https://github.com/sourcegraph/scip-typescript
 - ADR-003, ADR-006
+
+## Owner instruction — 2026-10-19
+
+**Do not preselect an LSP or write a new ADR simply to choose one.** Codex must execute the existing ADR-004 experimental comparison: **Serena versus direct TypeScript Language Service**. Install both on comparable TS/JS fixtures; verify same-name definitions/references, writes vs definitions, types, diagnostics, source freshness, unsupported/dynamic cases, version/licensing and runtime overhead. Compare full agent task success, tool calls, latency and total token/cost. Retain failing cases and submit a reasoned selection to the owner; neither candidate becomes production-approved solely by being implemented. Experiments themselves are approved before final provider selection.

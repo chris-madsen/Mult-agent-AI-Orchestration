@@ -3,7 +3,7 @@
 **State: NOT IMPLEMENTED. All checkboxes intentionally unchecked.** Prior port-level `[x]` markers do not satisfy these end-to-end acceptance criteria.
 
 ## Architecture/approval
-- [ ] Owner reviews ADR-012, real embedding provider, exact LSP choice, data policy and provider licenses/versions.
+- [x] Owner approved ADR-012's six acceptance rules on 2026-10-19. **Separate open approvals remain:** production embedding model/runtime, exact LSP winner, cloud data handling and provider license/version evidence.
 - [ ] Establish valid Codex/official MCP SDK integration and conformance contract; remove homemade transport from production bootstrap after migration.
 - [ ] Pin real Qdrant, semantic embedding, Tree-sitter grammar and selected LSP; no SHA256 vector as semantic provider.
 
@@ -34,3 +34,18 @@
 - [ ] Run paired Harbor retrieval-demanding tests (at least more than one fixture task), count ACE calls and external provider costs, include failed trials; never claim 5× from trivial/zero-call smoke.
 - [ ] Run OpenSpec CLI strict validation, typecheck, lint, unit, real-provider integration and Codex agent E2E; attach outputs or label unknown.
 - [ ] Owner reviews actual provider trace, benchmark and all mandatory contracts before declaring `production-ready`; no `controlled exception` can close a failed mandatory gate.
+
+## Decision vs test-gate clarification — 2026-10-19
+
+The owner **permits exploratory integration and benchmarks immediately**. Unchecked production gates above must remain unchecked until their actual proof, but their incompleteness **does not freeze development**. In particular:
+
+- [x] Owner explicitly approved ADR-012 (six acceptance rules) on 2026-10-19; approval is separate from demonstrating success or 5×.
+- [ ] Codex evaluates real local embedding model/runtime candidates without requiring Ollama, then recommends a measured production choice (ADR-013 evaluation protocol Accepted; final model pending).
+- [ ] Codex completes the Serena vs direct TypeScript Language Service comparison in Accepted ADR-004 before designating one as approved.
+- [ ] Codex runs Vertex IAM/corpus/citation probes via existing host `gcloud` login. Corpus write/import and private-document cloud transmission require separate explicit authorization.
+- [ ] Codex verifies local-first Graphiti + FalkorDB ingestion/extraction/recall/deletion with no unapproved cloud dialogue transfer.
+- [ ] Codex actually executes Harbor paired retrieval-intensive trials, preserving failures, costs, ACE call counts and quality. **5× is a measurement hypothesis, not an entry condition**.
+
+## Authoritative next execution plan
+
+Codex must begin with [`CODEX-EXECUTION-PLAN.md`](CODEX-EXECUTION-PLAN.md), then use this task list and the two normative spec deltas as acceptance gates. Owner approval of ADR-012 is complete; **all real-provider / agent / Harbor contract tests remain unchecked until executed and evidenced**.

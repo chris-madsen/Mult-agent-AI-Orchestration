@@ -1,12 +1,12 @@
 # ADR-012 — Production capability gates, build-versus-buy and Meyer contracts
 
-**Status: Proposed — requires owner review.** Date: 2026-10-18. Does not amend previously accepted ADR-001/003/004/005/009 without review.
+**Status: Accepted — explicit owner approval on 2026-10-19.** Original proposal: 2026-10-18. This acceptance policy does not silently supersede earlier approved technical provider decisions.
 
 ## Context
 
 The repository implements validated DDD ports, a regex symbol index, deterministic hash vectors and a hand-rolled MCP transport. Real Qdrant/AST/LSP/Vertex/Graphiti adapters exist, but the running MCP bootstrap does not compose them. This is accurately labelled partial in parts of the README, yet the project's core capability cannot be accepted from port-level checkboxes and smoke tests.
 
-## Proposed decision
+## Accepted decision
 
 1. A **capability** is production-complete only when the runtime entrypoint composes approved real dependencies and a reproducible end-to-end test proves actual behavior and failure handling.
 2. Default to **selected mature implementations** (official MCP TypeScript SDK, Tree-sitter/ast-grep, Qdrant plus measured genuine embeddings, approved language service, Graphiti, Harbor). Custom algorithms/protocol implementations need a new owner-approved ADR with benchmarking/conformance justification.
@@ -27,4 +27,17 @@ More honest incomplete status and earlier integration failures; less false confi
 
 ## Verification and adoption
 
-Owner reviews this ADR in PR; implement `006-production-retrieval-vertical-slice` and required E2E/fitness tests before accepting retrieval as done. Existing docs that say "partially implemented" remain historically true. No false claim that this ADR has already been accepted.
+Owner explicitly approved all six acceptance rules on 2026-10-19; implement `006-production-retrieval-vertical-slice` and required E2E/fitness tests before accepting retrieval as done. Existing docs that say "partially implemented" remain historically true. Acceptance of this ADR does not establish that runtime, E2E or 5× acceptance has passed.
+
+## Owner sign-off checklist (approved — 2026-10-19)
+
+This ADR is a **policy for accepting capabilities**, not a claim that any real provider is ready or that the 5× goal has been reached. Review compatibility with Accepted ADR-001/003/004/005/006/007/009 and explicitly confirm:
+
+- [x] Real runtime composition and provider E2E required before production-complete.
+- [x] Proven mature engines and maintained official protocols preferred to bespoke substitutes.
+- [x] Explicit experimental/fallback/test-only status; mocks cannot pass production gates.
+- [x] Meyer preconditions, postconditions, invariants, frame conditions and exceptional postconditions must be observable.
+- [x] Separate design/adapter/provider-E2E/agent-E2E/benchmark/owner states; no unchecked blocker passed by "controlled exception".
+- [x] Fair Harbor paired test with source/provenance and total tokens/cost; never claim 5× without evidence.
+
+**Approval was explicitly granted by the owner on 2026-10-19 in the architecture decision conversation.** No unit test or implementation PR could substitute for that approval. **Testing is not blocked by this approval:** Codex may immediately install candidate providers, compare LSPs, use public/synthetic fixtures, and run exploratory Harbor. Only final production promotion requires the owner decision and evidence.

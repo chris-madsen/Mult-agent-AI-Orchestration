@@ -48,3 +48,11 @@
 ## Отложено
 
 Полная observability (OTel, Prometheus/Grafana, Langfuse и т. п.), широкая multi-agent поддержка, enterprise AIOps и подробный Kubernetes topology design. Отложено **не означает запрещено**.
+
+## Owner clarification — 2026-10-19 (after PR #2)
+
+- **Ollama rejected as required/selected ACE dependency**. Embedding model and inference backend remain evidence-gated; Codex may compare real local candidates, e.g. Qdrant FastEmbed/ONNX, before production approval. Proposed experiment ADR-013.
+- **LSP selection is still open by design**: Codex performs the Serena versus direct TypeScript Language Service comparison required by ADR-004. No new ADR predetermines the outcome.
+- **Graphiti + FalkorDB local-first** confirmed; no automatic cloud processing of raw dialogue or extraction payloads. Concrete local inference remains to be verified under ADR-005/007.
+- **Vertex RAG** continues as selected docs engine; use already-signed-in host `gcloud CLI` for REST/IAM/corpus read-only probes. No automatic private document import or billable corpus creation. Sign-in is not the same as approved data policy.
+- **ADR-012 still Proposed** pending express owner approval of six acceptance rules. Spikes/E2E/Harbor may proceed immediately; 5× remains a target to test rather than a precondition to running tests.
