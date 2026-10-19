@@ -38,7 +38,9 @@
     "vertex:import-synthetic": "bash scripts/vertex-synthetic-fixture-import.sh",
     "test:real-vertex-conflict": "tsx scripts/vertex-synthetic-conflict-e2e.ts",
     "evidence:dbc": "tsx scripts/dbc-evidence-manifest.ts",
-    "gate:embedding-selection": "tsx scripts/embedding-selection-gate.ts"
+    "gate:embedding-selection": "tsx scripts/embedding-selection-gate.ts",
+    "report:retrieval-quality": "tsx scripts/retrieval-quality-report.ts",
+    "gate:retrieval-quality": "tsx scripts/retrieval-quality-gate.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",
