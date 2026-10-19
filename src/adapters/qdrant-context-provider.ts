@@ -91,8 +91,8 @@ export const ensureQdrantCollection = (
   if (found.value.status === 200) {
     const body = found.value.body as { result?: { config?: { params?: { vectors?: { size?: number } } } } };
     const configured = body?.result?.config?.params?.vectors?.size;
-    if (configured !== dimension) {
-      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant', 'collection vector dimension does not match approved embedding provider'));
+    if (configured !== dimension || body?.result?.config?.params?.vectors?.distance !== 'Cosine') {
+      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant', 'collection vector size or distance is incompatible with cosine embeddings'));
     }
     return ok(undefined);
   }
@@ -269,15 +269,28 @@ export const exactUtf8ByteRange = (
   range: { readonly startLine: number; readonly endLine: number; readonly startColumn?: number; readonly endColumn?: number },
 ): { readonly offset: number; readonly length: number } | undefined => {
   if (range.startColumn === undefined || range.endColumn === undefined) return undefined;
+  if (![range.startLine, range.endLine, range.startColumn, range.endColumn]
+    .every((value) => Number.isSafeInteger(value) && (value as number) >= 1)
+    || range.startLine > range.endLine) return undefined;
   const raw = Buffer.from(bytes);
   const lineOffsets = [0];
   for (let i = 0; i < raw.length; i += 1) if (raw[i] === 10) lineOffsets.push(i + 1);
   const a = lineOffsets[range.startLine - 1];
   const b = lineOffsets[range.endLine - 1];
   if (a === undefined || b === undefined) return undefined;
-  const from = a + range.startColumn - 1;
-  const until = b + range.endColumn - 1;
-  if (from < 0 || until <= from || until > raw.length) return undefined;
+  // An untrusted column must not spill into another line.
+  const startLineEnd = lineOffsets[range.startLine] === undefined
+    ? raw.length : (lineOffsets[range.startLine] as number) - 1;
+  const endLineEnd = lineOffsets[range.endLine] === undefined
+    ? raw.length : (lineOffsets[range.endLine] as number) - 1;
+  const from = a + (range.startColumn as number) - 1;
+  const until = b + (range.endColumn as number) - 1;
+  if (from < a || from >= startLineEnd || until < b || until > endLineEnd || until <= from) return undefined;
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(raw.subarray(from, until));
+  } catch {
+    return undefined;
+  }
   return { offset: from, length: until - from };
 };
 
@@ -426,20 +439,6 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
       });
     }
 
-    // A second exact read guards against edits during the multi-provider call.
-    for (const [path, original] of fullSources) {
-      const current = yield* config.files.readExact(config.rootPath, path);
-      if (current._tag === 'Err' || current.value.digest !== original.digest) {
-        warnings.push(path + ': source changed during retrieval');
-        failed.push('code');
-        for (let i = 0; i < evidence.length; i += 1) {
-          if (evidence[i]?.citation.startsWith(path + ':')) {
-            const existing = evidence[i];
-            if (existing !== undefined) evidence[i] = { ...existing, freshness: 'changed_during_request', proofClass: 'uncertain' };
-          }
-        }
-      }
-    }
     if (input.includeDocs) {
       if (config.documentation === undefined) {
         warnings.push('documentation provider not configured'); failed.push('documentation');
@@ -460,6 +459,20 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
       }
     }
     if (input.includeMemory) { warnings.push('memory provider not configured'); failed.push('memory'); }
+    // Revalidate as the LAST I/O step, after even slow Vertex/document calls.
+    for (const [path, original] of fullSources) {
+      const current = yield* config.files.readExact(config.rootPath, path);
+      if (current._tag === 'Err' || current.value.digest !== original.digest) {
+        warnings.push(path + ': source changed during retrieval');
+        failed.push('code');
+        for (let i = 0; i < evidence.length; i += 1) {
+          if (evidence[i]?.citation.startsWith(path + ':')) {
+            const existing = evidence[i];
+            if (existing !== undefined) evidence[i] = { ...existing, freshness: 'changed_during_request', proofClass: 'uncertain' };
+          }
+        }
+      }
+    }
     return ok(mergeEvidence(requestId.value, input.query, evidence, warnings, failed));
   }),
 });
