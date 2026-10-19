@@ -3,19 +3,20 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promise
 import { join } from 'node:path';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
-import type { IndexCoverageSummary } from '../domain/retrieval.js';
+import type { IndexCoverageSummary, IndexFileIdentity } from '../domain/retrieval.js';
 import type { WorkspaceId } from '../domain/workspace.js';
 
 export interface SnapshotManifestIdentity {
   readonly workspaceId: WorkspaceId;
   readonly indexKey: string;
   readonly candidateIds: readonly string[];
+  readonly fileManifest: readonly IndexFileIdentity[];
   readonly coverage: IndexCoverageSummary;
   readonly providerFingerprint: string;
 }
 
 interface StoredSnapshotManifest extends SnapshotManifestIdentity {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly status: 'building' | 'published';
   readonly updatedAtMs: number;
 }
@@ -76,6 +77,12 @@ const defaultProcessStatus = (processId: number): SnapshotLeaseProcessStatus => 
 const normalizedIdentity = (identity: SnapshotManifestIdentity): SnapshotManifestIdentity => ({
   ...identity,
   candidateIds: [...identity.candidateIds].sort(),
+  fileManifest: [...identity.fileManifest]
+    .map((file) => ({
+      ...file,
+      candidateIds: [...file.candidateIds].sort(),
+    }))
+    .sort((left, right) => left.repoPath.localeCompare(right.repoPath)),
   coverage: {
     ...identity.coverage,
     failures: [...identity.coverage.failures]
@@ -86,12 +93,80 @@ const normalizedIdentity = (identity: SnapshotManifestIdentity): SnapshotManifes
 
 const sameIdentity = (stored: StoredSnapshotManifest, expected: SnapshotManifestIdentity): boolean => {
   const normalized = normalizedIdentity(expected);
-  return stored.schemaVersion === 2
+  return stored.schemaVersion === 3
     && stored.workspaceId === normalized.workspaceId
     && stored.indexKey === normalized.indexKey
     && stored.providerFingerprint === normalized.providerFingerprint
     && JSON.stringify(stored.candidateIds) === JSON.stringify(normalized.candidateIds)
+    && JSON.stringify(stored.fileManifest) === JSON.stringify(normalized.fileManifest)
     && JSON.stringify(stored.coverage) === JSON.stringify(normalized.coverage);
+};
+
+export interface SnapshotFileRename {
+  readonly from: string;
+  readonly to: string;
+  readonly sourceDigest: string;
+}
+
+export interface SnapshotFileDelta {
+  readonly added: readonly string[];
+  readonly changed: readonly string[];
+  readonly deleted: readonly string[];
+  readonly renamed: readonly SnapshotFileRename[];
+  readonly unchanged: readonly string[];
+}
+
+const sameFileIdentity = (left: IndexFileIdentity, right: IndexFileIdentity): boolean =>
+  left.sourceDigest === right.sourceDigest
+  && JSON.stringify([...left.candidateIds].sort()) === JSON.stringify([...right.candidateIds].sort());
+
+export const diffSnapshotFileManifests = (
+  previous: readonly IndexFileIdentity[],
+  current: readonly IndexFileIdentity[],
+): SnapshotFileDelta => {
+  const oldByPath = new Map(previous.map((file) => [file.repoPath, file] as const));
+  const newByPath = new Map(current.map((file) => [file.repoPath, file] as const));
+  const unchanged: string[] = [];
+  const changed: string[] = [];
+  const deletedCandidates: IndexFileIdentity[] = [];
+  const addedCandidates: IndexFileIdentity[] = [];
+
+  for (const oldFile of previous) {
+    const next = newByPath.get(oldFile.repoPath);
+    if (next === undefined) deletedCandidates.push(oldFile);
+    else if (sameFileIdentity(oldFile, next)) unchanged.push(oldFile.repoPath);
+    else changed.push(oldFile.repoPath);
+  }
+  for (const newFile of current) {
+    if (!oldByPath.has(newFile.repoPath)) addedCandidates.push(newFile);
+  }
+
+  const oldByDigest = new Map<string, IndexFileIdentity[]>();
+  const newByDigest = new Map<string, IndexFileIdentity[]>();
+  for (const file of deletedCandidates) oldByDigest.set(file.sourceDigest, [...(oldByDigest.get(file.sourceDigest) ?? []), file]);
+  for (const file of addedCandidates) newByDigest.set(file.sourceDigest, [...(newByDigest.get(file.sourceDigest) ?? []), file]);
+
+  const renamed: SnapshotFileRename[] = [];
+  const renamedFrom = new Set<string>();
+  const renamedTo = new Set<string>();
+  for (const [digest, oldFiles] of oldByDigest) {
+    const newFiles = newByDigest.get(digest) ?? [];
+    if (oldFiles.length !== 1 || newFiles.length !== 1) continue;
+    const from = oldFiles[0];
+    const to = newFiles[0];
+    if (from === undefined || to === undefined) continue;
+    renamed.push({ from: from.repoPath, to: to.repoPath, sourceDigest: digest });
+    renamedFrom.add(from.repoPath);
+    renamedTo.add(to.repoPath);
+  }
+
+  return {
+    added: addedCandidates.map((file) => file.repoPath).filter((path) => !renamedTo.has(path)).sort(),
+    changed: changed.sort(),
+    deleted: deletedCandidates.map((file) => file.repoPath).filter((path) => !renamedFrom.has(path)).sort(),
+    renamed: renamed.sort((left, right) => left.from.localeCompare(right.from)),
+    unchanged: unchanged.sort(),
+  };
 };
 
 export const makeFileQdrantSnapshotState = async (
@@ -108,10 +183,27 @@ export const makeFileQdrantSnapshotState = async (
   const leasePath = (workspaceId: WorkspaceId, indexKey: string): string =>
     join(leasesRoot, workspaceKey(workspaceId), indexKey);
 
-  const validate = (identity: SnapshotManifestIdentity): Result<SnapshotManifestIdentity, DomainError> =>
-    validIndexKey(identity.indexKey) && /^[a-f0-9]{64}$/u.test(identity.providerFingerprint)
-      ? ok(normalizedIdentity(identity))
-      : err(domainError('INVALID_INPUT', 'snapshot_identity', 'snapshot keys and provider fingerprint must be SHA-256 hex'));
+  const validate = (identity: SnapshotManifestIdentity): Result<SnapshotManifestIdentity, DomainError> => {
+    if (!validIndexKey(identity.indexKey) || !/^[a-f0-9]{64}$/u.test(identity.providerFingerprint)) {
+      return err(domainError('INVALID_INPUT', 'snapshot_identity', 'snapshot keys and provider fingerprint must be SHA-256 hex'));
+    }
+    const paths = new Set<string>();
+    const candidateIds = new Set(identity.candidateIds);
+    for (const file of identity.fileManifest) {
+      if (paths.has(file.repoPath)
+        || !/^[a-f0-9]{64}$/u.test(file.sourceDigest)
+        || file.candidateIds.some((candidateId) => !candidateIds.has(candidateId))
+        || new Set(file.candidateIds).size !== file.candidateIds.length) {
+        return err(domainError(
+          'INVALID_INPUT',
+          'snapshot_file_manifest',
+          'file manifest requires unique paths, SHA-256 digests, and candidate IDs belonging to the snapshot',
+        ));
+      }
+      paths.add(file.repoPath);
+    }
+    return ok(normalizedIdentity(identity));
+  };
 
   const writeManifest = async (
     identity: SnapshotManifestIdentity,
@@ -124,7 +216,7 @@ export const makeFileQdrantSnapshotState = async (
     const temporary = `${path}.${randomUUID()}.tmp`;
     const stored: StoredSnapshotManifest = {
       ...checked.value,
-      schemaVersion: 2,
+      schemaVersion: 3,
       status,
       updatedAtMs: options.nowMs?.() ?? Date.now(),
     };
@@ -161,7 +253,7 @@ export const makeFileQdrantSnapshotState = async (
         let latest: StoredSnapshotManifest | undefined;
         for (const entry of entries) {
           const stored = JSON.parse(await readFile(join(root, entry), 'utf8')) as StoredSnapshotManifest;
-          if (stored.schemaVersion !== 2 || stored.status !== 'published'
+          if (stored.schemaVersion !== 3 || stored.status !== 'published'
             || stored.workspaceId !== workspaceId
             || stored.providerFingerprint !== providerFingerprint
             || stored.indexKey === excludeIndexKey
@@ -173,6 +265,7 @@ export const makeFileQdrantSnapshotState = async (
           workspaceId: latest.workspaceId,
           indexKey: latest.indexKey,
           candidateIds: latest.candidateIds,
+          fileManifest: latest.fileManifest,
           coverage: latest.coverage,
           providerFingerprint: latest.providerFingerprint,
         });
