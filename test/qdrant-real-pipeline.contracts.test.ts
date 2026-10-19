@@ -5,6 +5,7 @@ import { Effect } from 'effect';
 import {
   codeIndexKey,
   ensureQdrantCollection,
+  exactUtf8ByteRange,
   hasExactQdrantSnapshot,
   reuseOrPopulateQdrantSnapshot,
   makeQdrantContextProvider,
@@ -349,4 +350,90 @@ test('DBC-14 documentation conflict preserves code and ADR provenance explicitly
   assert.equal(context.conflicts?.length, 1);
   assert.equal(context.conflicts?.[0]?.conflictKey, 'reconnect-policy');
   assert.ok(context.warnings.some((warning) => warning.includes('evidence sources disagree')));
+});
+
+test('Qdrant existing collection must use cosine distance even with matching vector dimensions', async () => {
+  const check = (distance: string): HttpPort => ({
+    request: () => Effect.succeed(ok({ status: 200, body: {
+      result: { config: { params: { vectors: { size: 384, distance } } } },
+    } })),
+  });
+  const ready = (distance: string) => Effect.runPromise(ensureQdrantCollection(
+    check(distance), 'http://127.0.0.1:6333', 'ace-test', 384,
+  ));
+  assert.equal((await ready('Cosine'))._tag, 'Ok');
+  assert.equal((await ready('Dot'))._tag, 'Err');
+  assert.equal((await ready('Euclid'))._tag, 'Err');
+});
+
+test('Qdrant byte-range verification rejects cross-line columns and split UTF-8 sequences', () => {
+  const bytes = Buffer.from('abc\nxyz\n');
+  assert.deepEqual(exactUtf8ByteRange(bytes, { startLine: 1, startColumn: 1, endLine: 1, endColumn: 4 }), { offset: 0, length: 3 });
+  assert.equal(exactUtf8ByteRange(bytes, { startLine: 1, startColumn: 6, endLine: 2, endColumn: 2 }), undefined);
+  assert.equal(exactUtf8ByteRange(bytes, { startLine: 1, startColumn: 1, endLine: 1, endColumn: 6 }), undefined);
+  assert.equal(exactUtf8ByteRange(bytes, { startLine: 2, startColumn: 1, endLine: 1, endColumn: 4 }), undefined);
+  const unicode = Buffer.from('éclair\n');
+  assert.equal(exactUtf8ByteRange(unicode, { startLine: 1, startColumn: 2, endLine: 1, endColumn: 3 }), undefined);
+});
+
+// A slow optional provider must not open a post-verification edit window.
+test('DBC-05 final worktree revalidation runs after documentation retrieval', async () => {
+  let edited = false;
+  let reads = 0;
+  const changed = Buffer.from('export function reconnect(): string { return "changed"; }\n');
+  const changedDigest = createHash('sha256').update(changed).digest('hex');
+  const files: WorkspaceFilePort = {
+    canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+    snapshot: () => { throw new Error('not used'); },
+    readExact: () => {
+      reads += 1;
+      return Effect.succeed(ok(edited
+        ? { bytes: changed, digest: changedDigest as never }
+        : { bytes: source, digest: digest as never }));
+    },
+  };
+  const qdrant: CodeCandidatePort = {
+    upsert: () => Effect.succeed(ok(undefined)),
+    search: () => Effect.succeed(ok([{ candidate, score: 0.99, freshness: 'unknown' as const }])),
+  };
+  const artifacts: ArtifactStore = {
+    storeExact: () => Effect.succeed(ok({ handle: 'docs-race', digest: digest as never, sizeBytes: source.length })),
+    readRange: () => Effect.succeed(err(domainError('ARTIFACT_NOT_FOUND', 'handle', 'not needed'))),
+  };
+  const semantics: SemanticAnalysisPort = {
+    definition: () => Effect.succeed(ok([{
+      location: { repoPath: 'src/connection.ts', startLine: 1, startColumn: 17, endLine: 1, endColumn: 26 },
+      name: 'reconnect', kind: 'function',
+    }])),
+    references: () => Effect.succeed(ok([])),
+    typeInfo: () => Effect.succeed(ok(undefined)),
+    diagnostics: () => Effect.succeed(ok([])),
+  };
+  const documentation: DocumentationPort = {
+    search: () => {
+      edited = true;
+      return Effect.succeed(ok([{
+        evidenceId: 'document-during-edit' as never,
+        source: 'documentation',
+        citation: 'docs/reconnect.md',
+        content: 'Document remains available',
+        proofClass: 'direct',
+        freshness: 'current',
+      }]));
+    },
+  };
+  const provider = makeQdrantContextProvider({
+    workspaceId, rootPath: '/repo', files, qdrant, artifacts, semantics, documentation,
+    embeddings: { embedMany: () => Effect.succeed(ok([[1, 0]])) },
+    newRequestId: () => 'docs-race-request',
+  });
+  const result = mustOk(await Effect.runPromise(provider.search({
+    workspaceId, query: 'reconnect', includeDocs: true, includeMemory: false,
+  })));
+  assert.equal(reads, 2);
+  assert.equal(result.complete, false);
+  assert.ok(result.partialSources.includes('code'));
+  assert.equal(result.partialSources.includes('documentation'), false);
+  assert.equal(result.evidence.find((item) => item.source === 'code')?.freshness, 'changed_during_request');
+  assert.equal(result.evidence.find((item) => item.source === 'code')?.proofClass, 'uncertain');
 });
