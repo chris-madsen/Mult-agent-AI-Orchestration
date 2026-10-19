@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Effect } from 'effect';
 import { authorizeOutbound, type ProjectDataPolicy } from '../domain/policy.js';
 import { domainError, type DomainError } from '../domain/errors.js';
@@ -137,7 +138,14 @@ const candidateFromPayload = (point: Record<string, unknown>, workspaceId: Works
     ...(typeof payload.symbol_name === 'string' ? { symbolName: payload.symbol_name } : {}),
     ...(typeof payload.semantic_line === 'number' && Number.isSafeInteger(payload.semantic_line)
       && typeof payload.semantic_byte_column === 'number' && Number.isSafeInteger(payload.semantic_byte_column)
-      ? { semanticAnchor: { line: payload.semantic_line, byteColumn: payload.semantic_byte_column } }
+      && typeof payload.semantic_end_line === 'number' && Number.isSafeInteger(payload.semantic_end_line)
+      && typeof payload.semantic_end_byte_column === 'number' && Number.isSafeInteger(payload.semantic_end_byte_column)
+      ? { semanticAnchor: {
+        line: payload.semantic_line,
+        byteColumn: payload.semantic_byte_column,
+        endLine: payload.semantic_end_line,
+        endByteColumn: payload.semantic_end_byte_column,
+      } }
       : {}),
     ...(typeof payload.conflict_key === 'string' ? { conflictKey: payload.conflict_key } : {}),
     ...(typeof payload.conflict_value === 'string' ? { conflictValue: payload.conflict_value } : {}),
@@ -149,7 +157,7 @@ const candidateFromPayload = (point: Record<string, unknown>, workspaceId: Works
 };
 
 const qdrantPoint = (point: CodePoint): Readonly<Record<string, unknown>> => ({
-  id: qdrantPointId(point.candidate.candidateId),
+  id: qdrantPointId(point),
   vector: point.vector,
   payload: {
     candidate_id: point.candidate.candidateId,
@@ -163,6 +171,8 @@ const qdrantPoint = (point: CodePoint): Readonly<Record<string, unknown>> => ({
     ...(point.candidate.semanticAnchor === undefined ? {} : {
       semantic_line: point.candidate.semanticAnchor.line,
       semantic_byte_column: point.candidate.semanticAnchor.byteColumn,
+      semantic_end_line: point.candidate.semanticAnchor.endLine,
+      semantic_end_byte_column: point.candidate.semanticAnchor.endByteColumn,
     }),
     ...(point.candidate.conflictKey === undefined ? {} : { conflict_key: point.candidate.conflictKey }),
     ...(point.candidate.conflictValue === undefined ? {} : { conflict_value: point.candidate.conflictValue }),
@@ -174,8 +184,11 @@ const qdrantPoint = (point: CodePoint): Readonly<Record<string, unknown>> => ({
   },
 });
 
-const qdrantPointId = (candidateId: string): string => {
-  const hex = candidateId.replace(/[^a-f0-9]/giu, '').padEnd(32, '0').slice(0, 32);
+const qdrantPointId = (point: CodePoint): string => {
+  const hex = createHash('sha256')
+    .update([point.candidate.workspaceId, point.indexKey ?? 'unscoped', point.candidate.candidateId].join('\0'))
+    .digest('hex')
+    .slice(0, 32);
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 };
 
