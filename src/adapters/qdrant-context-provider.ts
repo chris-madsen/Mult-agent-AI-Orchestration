@@ -173,6 +173,34 @@ export const codeIndexKey = (index: CodeIndex): string => {
   return createHash('sha256').update(JSON.stringify(stable), 'utf8').digest('hex');
 };
 
+const clearQdrantSnapshot = (
+  http: HttpPort,
+  baseUrl: string,
+  collection: string,
+  workspaceId: WorkspaceId,
+  indexKey: string,
+  allowedHosts: readonly string[] = [],
+): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
+  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
+  if (endpoint._tag === 'Err') return endpoint;
+  const response = yield* http.request({
+    method: 'POST',
+    url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/delete?wait=true',
+    body: {
+      filter: {
+        must: [
+          { key: 'workspace_id', match: { value: workspaceId } },
+          { key: 'index_key', match: { value: indexKey } },
+        ],
+      },
+    },
+  });
+  if (response._tag === 'Err') return response;
+  return response.value.status >= 200 && response.value.status < 300
+    ? ok(undefined)
+    : err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not clear incomplete current snapshot'));
+});
+
 export const reuseOrPopulateQdrantSnapshot = (
   index: CodeIndex,
   qdrant: CodeCandidatePort,
@@ -189,6 +217,11 @@ export const reuseOrPopulateQdrantSnapshot = (
   );
   if (checked._tag === 'Err') return checked;
   if (checked.value) return ok({ count: index.candidates.length, reused: true });
+  // A mismatched count can be a partially written or contaminated snapshot.
+  // Remove only this exact workspace+snapshot partition before rebuilding so
+  // surplus points cannot survive under the same cryptographic index key.
+  const cleared = yield* clearQdrantSnapshot(http, baseUrl, collection, workspaceId, indexKey, allowedHosts);
+  if (cleared._tag === 'Err') return cleared;
   const indexed = yield* populateQdrantFromStructuralIndex(index, qdrant, embeddings, indexKey);
   if (indexed._tag === 'Err') return indexed;
   return ok({ count: indexed.value, reused: false });
