@@ -15,6 +15,7 @@ test('provider trace is append-only safe JSONL without source or token payloads'
     operation: 'query_points',
     status: 'success',
     durationMs: 12,
+    requestId: 'ace-request-123',
     collection: 'ace_code_workspace_model',
     generation: 7,
     vectorDimension: 384,
@@ -24,6 +25,7 @@ test('provider trace is append-only safe JSONL without source or token payloads'
   assert.equal(event.provider, 'qdrant');
   assert.equal(event.status, 'success');
   assert.equal(event.vectorDimension, 384);
+  assert.equal(event.requestId, 'ace-request-123');
   assert.equal(Object.hasOwn(event, 'source'), false);
   assert.equal(Object.hasOwn(event, 'query'), false);
   assert.equal(Object.hasOwn(event, 'token'), false);
