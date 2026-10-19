@@ -83,7 +83,7 @@ test('warm Qdrant snapshot reuse does not re-embed or upsert current source', as
     search: () => Effect.succeed(ok([])),
   };
   const embeddings = {
-    embedMany: (_input: readonly string[]) => { embeds += 1; return Effect.succeed(ok([[1, 2]])); },
+    embedMany: () => { embeds += 1; return Effect.succeed(ok([[1, 2]])); },
   };
   const index = mustOk(createCodeIndex(1, [candidate]));
   const ready = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
