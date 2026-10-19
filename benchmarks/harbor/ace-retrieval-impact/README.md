@@ -8,6 +8,8 @@ The old trivial TODO smoke is **not** a substitute. The deterministic task can b
 
 ## Three-arm benchmark protocol
 
+Set `ACE_HARNESS_ROOT` to the absolute repository root before starting Harbor. The job configs use that variable for the read-only `/ace` bind mount; no developer-machine path is committed.
+
 Use the same frozen task manifest, model, reasoning budget, and verifier in all arms:
 
 1. **Native natural:** `benchmarks/harbor/ace-suite/retrieval-native-paired-job.json` (no ACE MCP).
