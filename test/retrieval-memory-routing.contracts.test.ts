@@ -43,6 +43,7 @@ import {
   type SessionEpisode,
 } from '../src/domain/memory.js';
 import { compareRoutes, deterministicRoute, routeEvidence, selectRoute, unsupportedJevRouter } from '../src/domain/routing.js';
+import type { SourceRequirements } from '../src/domain/source-coverage.js';
 import { makeMcpGateway } from '../src/gateway/mcp-gateway.js';
 import type { ArtifactStore, HttpPort, WorkspaceFilePort, WorkspaceStore } from '../src/application/ports.js';
 
@@ -266,7 +267,7 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
     readonly includeCode?: boolean;
     readonly includeDocs: boolean;
     readonly includeMemory: boolean;
-    readonly sourceRequirements?: Readonly<Record<string, string>>;
+    readonly sourceRequirements?: SourceRequirements;
   } | undefined;
   const gateway = makeMcpGateway({
     clock: { nowMs: () => 1 },
