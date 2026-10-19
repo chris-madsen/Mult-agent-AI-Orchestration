@@ -218,7 +218,7 @@ test('multiple Qdrant symbols from one file cause one initial read plus one fina
   })));
   assert.equal(exactReads, 2, 'initial source read and end-of-request freshness revalidation only');
   assert.equal(storedSources, 1, 'exact original stored once per distinct file');
-  assert.equal(context.evidence.length, 1, 'identical source spans deduplicate at ContextBundle merge');
+  assert.equal(context.evidence.length, 2, 'distinct evidence IDs remain visible under the merged core provenance contract');
   assert.ok(context.evidence.every((item) => item.freshness === 'current'));
 });
 test('DBC-14 documentation conflict preserves code and ADR provenance explicitly', async () => {
