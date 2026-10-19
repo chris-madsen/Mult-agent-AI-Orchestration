@@ -43,7 +43,7 @@ export interface HttpPort {
  * selected here; provider choice requires an approved, measured spike.
  */
 export interface VectorEmbeddingPort {
-  readonly embedMany: (input: readonly string[]) => Effect.Effect<Result<readonly (readonly number[])[], DomainError>>;
+  readonly embedMany: (input: readonly string[], requestId?: string) => Effect.Effect<Result<readonly (readonly number[])[], DomainError>>;
 }
 
 export interface ProviderTraceSink {
@@ -66,6 +66,8 @@ export interface CodeCandidatePort {
     readonly generation?: number;
     /** Current source snapshot key, preventing equal epochs from mixing. */
     readonly indexKey?: string;
+    /** Correlates query-time provider work to one ACE ContextBundle. */
+    readonly requestId?: string;
   }) => Effect.Effect<Result<readonly RankedCandidate[], DomainError>>;
   readonly upsert: (points: readonly CodePoint[]) => Effect.Effect<Result<void, DomainError>>;
 }
@@ -96,6 +98,8 @@ export interface SemanticQuery {
   readonly repoPath: string;
   readonly line: number;
   readonly column: number;
+  /** Correlates semantic provider work to one ACE ContextBundle. */
+  readonly requestId?: string;
 }
 
 export interface GraphProjectionPort {
