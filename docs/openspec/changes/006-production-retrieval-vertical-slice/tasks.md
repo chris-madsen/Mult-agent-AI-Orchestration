@@ -19,18 +19,18 @@ their evidence exists. Prior port-level `[x]` markers do not satisfy those gates
 ## Bertrand Meyer contracts (real integration or agent E2E)
 - [ ] DBC-01 production composition, no fallback-only passing.
 - [x] DBC-02 2000-line/25-line exact AST span and exact expand (`npm run test:real-provider`, commit evidence report).
-- [ ] DBC-03 behavior-driven semantic retrieval vs lexical distractor and real embeddings.
+- [x] DBC-03 behavior-driven semantic retrieval vs lexical distractor and real embeddings (`npm run test:real-semantic`: three real FastEmbed/Qdrant/AST/LSP cases, recall@12=3/3; one lexical distractor remains top1, recorded in the report).
 - [ ] DBC-04 same-name symbols and correct definition/write semantics.
 - [x] DBC-05 mid-request edit D1→D2, no false-current (`npm run test:real-provider-race`, commit evidence report).
 - [x] DBC-06 source failure completeness / degraded truthful response (`npm run test:real-provider-outage`: unavailable Qdrant yields `complete=false`, `partialSources=["code","qdrant"]`, current local evidence and explicit outage warning).
-- [ ] DBC-07 policy denial outbound count zero and safe audit.
+- [x] DBC-07 policy denial outbound count zero and safe audit (`npx tsx --test test/provider-and-multiprocess-contracts.test.ts`: Vertex adapter and gateway composition make zero HTTP calls; existing audit contract verifies redacted safe decision record).
 - [x] DBC-08 byte-identical original and generated 2000+ line content (`npm run test:real-provider`, SHA-256 and exact expansion assertions).
-- [ ] DBC-09 official MCP SDK conformance with Codex, cancellation/error paths.
-- [ ] DBC-10 stable Codex historical episode IDs after append and replay.
+- [x] DBC-09 official MCP SDK conformance with Codex, cancellation/error paths (`npx tsx --test test/mcp-sdk-runtime.conformance.test.ts`: official client subprocess handshake/tools/list/parallel calls/unknown-tool error plus abort over linked transport).
+- [x] DBC-10 stable Codex historical episode IDs after append and replay (`npm run test:memory-process`: separate export workers preserve the first episode ID after append; archive import/replay remains idempotent).
 - [ ] DBC-11 shared digest archive delete and derived purge correctness.
 - [ ] DBC-12 realistic Harbor attribution and quality gate.
 - [x] DBC-13 restart with stale index and dirty worktree (`npm run test:real-provider-restart`, generation 1→2 and D1→D2 digest evidence).
-- [ ] DBC-14 docs-vs-code conflict disambiguation.
+- [x] DBC-14 docs-vs-code conflict disambiguation (`npx tsx --test test/qdrant-real-pipeline.contracts.test.ts`: both code/ADR evidence, revisions/timestamps and structured conflict are retained; bundle is incomplete).
 
 ## Performance and exit
 - [ ] Run paired Harbor retrieval-demanding tests (at least more than one fixture task), count ACE calls and external provider costs, include failed trials; never claim 5× from trivial/zero-call smoke.

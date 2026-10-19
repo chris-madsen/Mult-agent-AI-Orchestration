@@ -19,14 +19,41 @@ const toToolResult = (response: GatewayResponse) => {
   };
 };
 
+const cancelledToolResult = () => ({
+  isError: true,
+  content: [{ type: 'text' as const, text: 'ACE request cancelled' }],
+  structuredContent: { status: 'error', code: 'REQUEST_CANCELLED' },
+});
+
 // The official v2 SDK owns framing, protocol initialization, request validation,
 // cancellation and stdio lifecycle. Do not reimplement the protocol in ACE.
 export const createAceServer = (gateway: McpGatewayLike): McpServer => {
   const server = new McpServer({ name: 'ace-harness', version: '0.1.0' });
-  const run = async (name: string, args: unknown) => {
+  const run = async (name: string, args: unknown, signal?: AbortSignal) => {
+    if (signal?.aborted === true) return cancelledToolResult();
+    const operation = Effect.runPromise(gateway.handle({ name, arguments: args }));
     try {
-      const response = await Effect.runPromise(gateway.handle({ name, arguments: args }));
-      return toToolResult(response);
+      const response = await new Promise<GatewayResponse | undefined>((resolve, reject) => {
+        let settled = false;
+        const onAbort = (): void => {
+          if (settled) return;
+          settled = true;
+          resolve(undefined);
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+        operation.then((value) => {
+          if (settled) return;
+          settled = true;
+          signal?.removeEventListener('abort', onAbort);
+          resolve(value);
+        }, (error: unknown) => {
+          if (settled) return;
+          settled = true;
+          signal?.removeEventListener('abort', onAbort);
+          reject(error);
+        });
+      });
+      return response === undefined ? cancelledToolResult() : toToolResult(response);
     } catch {
       // The thrown failure is an ACE error, not an invitation to leak a stack trace.
       return {
@@ -45,7 +72,7 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
       include_docs: z.boolean().optional(),
       include_memory: z.boolean().optional(),
     }),
-  }, async (args) => run('ace_context', args));
+  }, async (args, extra) => run('ace_context', args, extra.mcpReq.signal));
 
   server.registerTool('ace_expand', {
     description: 'Read an exact stored artifact byte range without silent truncation.',
@@ -54,12 +81,12 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
       cursor: z.string().optional(),
       max_bytes: z.number().int().positive().optional(),
     }),
-  }, async (args) => run('ace_expand', args));
+  }, async (args, extra) => run('ace_expand', args, extra.mcpReq.signal));
 
   server.registerTool('ace_workspace_status', {
     description: 'Report the workspace observation and provider readiness status.',
     inputSchema: z.object({ workspace_id: z.string().min(1) }),
-  }, async (args) => run('ace_workspace_status', args));
+  }, async (args, extra) => run('ace_workspace_status', args, extra.mcpReq.signal));
 
   server.registerTool('ace_memory_search', {
     description: 'Search source-attributed project memory when a memory provider is configured.',
@@ -69,7 +96,7 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
       as_of: z.string().optional(),
       include_original: z.boolean().optional(),
     }),
-  }, async (args) => run('ace_memory_search', args));
+  }, async (args, extra) => run('ace_memory_search', args, extra.mcpReq.signal));
 
   return server;
 };

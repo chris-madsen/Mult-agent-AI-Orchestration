@@ -14,6 +14,7 @@ import { domainError } from '../src/domain/errors.js';
 import type {
   ArtifactStore,
   CodeCandidatePort,
+  DocumentationPort,
   HttpPort,
   SemanticAnalysisPort,
   WorkspaceFilePort,
@@ -37,6 +38,8 @@ const candidate = mustOk(makeCodeCandidate({
   sourceDigest: digest as never,
   generation: 1 as never,
   indexedAtMs: 1234,
+  conflictKey: 'reconnect-policy',
+  conflictValue: 'current code retries immediately',
 }));
 
 test('Qdrant collection bootstrap is additive and rejects mismatched dimensions', async () => {
@@ -112,4 +115,60 @@ test('Qdrant→current filesystem→LSP→ContextBundle includes verified snippe
   assert.equal(context.evidence[0]?.freshness, 'current');
   assert.equal(context.evidence[0]?.expansionHandle, 'full-file-handle');
   assert.equal(context.evidence[0]?.content, source.toString('utf8').trim());
+});
+
+test('DBC-14 documentation conflict preserves code and ADR provenance explicitly', async () => {
+  const documentation: DocumentationPort = {
+    search: () => Effect.succeed(ok([{
+      evidenceId: 'documentation-evidence' as never,
+      source: 'documentation',
+      citation: 'docs/adr-reconnect.md#policy',
+      content: 'ADR states reconnect waits for operator confirmation.',
+      proofClass: 'derived',
+      freshness: 'unknown',
+      sourceRevision: 'adr-r1',
+      sourceTimestampMs: 1000,
+      conflictKey: 'reconnect-policy',
+      conflictValue: 'ADR requires operator confirmation',
+    }])),
+  };
+  const files: WorkspaceFilePort = {
+    canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+    snapshot: () => { throw new Error('query must not snapshot repository'); },
+    readExact: () => Effect.succeed(ok({ bytes: source, digest: digest as never })),
+  };
+  const artifacts: ArtifactStore = {
+    storeExact: () => Effect.succeed(ok({ handle: 'conflict-file-handle', digest: digest as never, sizeBytes: source.length })),
+    readRange: () => Effect.succeed(err(domainError('ARTIFACT_NOT_FOUND', 'handle', 'not needed'))),
+  };
+  const semantics: SemanticAnalysisPort = {
+    definition: () => Effect.succeed(ok([{
+      location: { repoPath: 'src/connection.ts', startLine: 1, startColumn: 17, endLine: 1, endColumn: 26 },
+      name: 'reconnect', kind: 'function',
+    }])),
+    references: () => Effect.succeed(ok([])),
+    typeInfo: () => Effect.succeed(ok(undefined)),
+    diagnostics: () => Effect.succeed(ok([])),
+  };
+  const qdrant: CodeCandidatePort = {
+    upsert: () => Effect.succeed(ok(undefined)),
+    search: () => Effect.succeed(ok([{ candidate, score: 0.99, freshness: 'unknown' as const }])),
+  };
+  const embeddings = {
+    embedMany: (input: readonly string[]) => Effect.succeed(ok(input.map(() => [0.2, 0.7]))),
+  };
+  const provider = makeQdrantContextProvider({
+    workspaceId, rootPath: '/repo', files, qdrant, embeddings, artifacts, semantics, documentation,
+    newRequestId: () => 'conflict-request',
+  });
+  const context = mustOk(await Effect.runPromise(provider.search({
+    workspaceId, query: 'reconnect policy', includeDocs: true, includeMemory: false,
+  })));
+  assert.equal(context.complete, false);
+  assert.equal(context.evidence.length, 2);
+  assert.equal(context.evidence.find((item) => item.source === 'code')?.sourceRevision, digest);
+  assert.equal(context.evidence.find((item) => item.source === 'documentation')?.sourceRevision, 'adr-r1');
+  assert.equal(context.conflicts?.length, 1);
+  assert.equal(context.conflicts?.[0]?.conflictKey, 'reconnect-policy');
+  assert.ok(context.warnings.some((warning) => warning.includes('documentation and current code disagree')));
 });

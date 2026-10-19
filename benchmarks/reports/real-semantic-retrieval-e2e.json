@@ -1,0 +1,28 @@
+{
+  "status": "provider-pass",
+  "dataset": "inline_stage1_holdout_v1",
+  "provider": "FastEmbed/ONNX sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "cases": [
+    {
+      "query": "persist a user record",
+      "citation": "users.ts:2-2",
+      "top1": "users.ts:2-2",
+      "evidence_count": 10
+    },
+    {
+      "query": "read current workspace file bytes",
+      "citation": "workspace-files.ts:1-1",
+      "top1": "workspace-files.ts:2-2",
+      "evidence_count": 10
+    },
+    {
+      "query": "удалить старый эпизод графа",
+      "citation": "episodes.ts:1-1",
+      "top1": "episodes.ts:1-1",
+      "evidence_count": 10
+    }
+  ],
+  "recallAt12": 1,
+  "top1Accuracy": 0.6666666666666666,
+  "note": "Exploratory three-case real-provider gate; the larger frozen holdout and production model approval remain open."
+}

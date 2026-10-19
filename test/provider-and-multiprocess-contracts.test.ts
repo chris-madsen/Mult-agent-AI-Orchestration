@@ -6,12 +6,16 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { Effect } from 'effect';
 import { makeVertexRagRetrievalPort } from '../src/adapters/vertex-rag.js';
+import { makeFileArtifactStore } from '../src/adapters/file-artifact-store.js';
+import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
+import { makeQdrantContextProvider } from '../src/adapters/qdrant-context-provider.js';
 import { makeAsyncFileMemoryArchive } from '../src/adapters/file-memory-archive.js';
 import { makeEpisodeId, type SessionEpisode } from '../src/domain/memory.js';
 import { defaultLocalPolicy } from '../src/domain/policy.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
 import { ok, type Result } from '../src/domain/result.js';
 import type { HttpPort } from '../src/application/ports.js';
+import { makeMcpGateway } from '../src/gateway/mcp-gateway.js';
 
 const value = <T, E>(result: Result<T, E>): T => {
   assert.equal(result._tag, 'Ok');
@@ -39,6 +43,65 @@ test('DBC-07 Vertex cloud denial makes zero outbound calls', async () => {
   const result = await Effect.runPromise(provider.search({ workspaceId: ws, query: 'architecture', topK: 3 }));
   assert.equal(result._tag, 'Err');
   assert.equal(requests, 0);
+});
+
+test('DBC-07 runtime context keeps Vertex denial partial and makes zero outbound calls', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-runtime-policy-'));
+  const workspaceId = value(makeWorkspaceId('runtime-policy-denial'));
+  let requests = 0;
+  const http: HttpPort = {
+    request: () => {
+      requests += 1;
+      return Effect.succeed(ok({ status: 200, body: {} }));
+    },
+  };
+  const documentation = makeVertexRagRetrievalPort({
+    project: 'ace-dev', location: 'europe-west4', corpusId: 'empty',
+    policy: defaultLocalPolicy(workspaceId), accessToken: () => 'must-not-be-used', http,
+  });
+  const files = makeNodeWorkspacePort({ allowedRoots: [root] });
+  const context = makeQdrantContextProvider({
+    workspaceId,
+    rootPath: root,
+    files,
+    qdrant: {
+      search: () => Effect.succeed(ok([])),
+      upsert: () => Effect.succeed(ok(undefined)),
+    },
+    embeddings: { embedMany: (input) => Effect.succeed(ok(input.map(() => [1]))) },
+    artifacts: makeFileArtifactStore(join(root, 'artifacts')),
+    semantics: {
+      definition: () => Effect.succeed(ok([])),
+      references: () => Effect.succeed(ok([])),
+      typeInfo: () => Effect.succeed(ok(undefined)),
+      diagnostics: () => Effect.succeed(ok([])),
+    },
+    documentation,
+    newRequestId: () => 'policy-request-1',
+  });
+  const gateway = makeMcpGateway({
+    clock: { nowMs: () => 1 },
+    ids: { newWorkspaceId: () => workspaceId, newRequestId: () => 'gateway-request-1' },
+    files,
+    store: {
+      get: () => Effect.succeed(ok({ workspaceId, rootPath: root, observationEpoch: 1, createdAtMs: 1 })),
+      findByRoot: () => Effect.succeed(ok(undefined)),
+      save: () => Effect.succeed(ok(undefined)),
+    },
+    artifacts: makeFileArtifactStore(join(root, 'gateway-artifacts')),
+    context,
+  });
+
+  const response = await Effect.runPromise(gateway.handle({
+    name: 'ace_context',
+    arguments: { workspace_id: workspaceId, query: 'architecture', include_docs: true },
+  }));
+  assert.equal(response.status, 'ok');
+  if (response.status !== 'ok') return;
+  assert.equal(requests, 0);
+  assert.equal(response.result.complete, false);
+  assert.ok(response.result.partialSources.includes('documentation'));
+  assert.ok(response.result.warnings.some((warning) => warning.includes('POLICY_DENIED')));
 });
 
 test('Vertex v1beta1 retrieval uses real retrieveContexts wire shape and provenance', async () => {

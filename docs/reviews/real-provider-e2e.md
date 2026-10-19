@@ -70,6 +70,31 @@ source evidence, and warnings including `Qdrant unavailable:
 EXTERNAL_UNAVAILABLE` and the non-production status of the lexical fallback.
 This proves truthful degradation, not production semantic retrieval.
 
+The official SDK conformance gate used `@modelcontextprotocol/client` and
+`StdioClientTransport` against the actual `ace-mcp` executable. It verified the
+initialization handshake, the four-tool listing, concurrent workspace-status
+calls, protocol-level unknown-tool failure, and request cancellation through a
+linked official in-memory transport. No hand-written JSON-RPC path was used for
+this production conformance check.
+
+The policy gate exercised the Vertex adapter and the unified gateway composition
+with the default local policy. `ace_context(include_docs=true)` returned a
+partial bundle with `POLICY_DENIED`, while the counting HTTP port observed zero
+outbound requests; the companion audit contract retained only safe reason and
+correlation fields, never source or token payloads.
+
+The DBC-14 composition fixture supplied an explicit ADR claim and current-code
+claim under the same conflict key. The bundle retained both classifications,
+source revisions and timestamps, emitted a structured conflict plus warning,
+and set `complete=false`; no documentation claim was promoted to current code
+truth.
+
+The real semantic holdout gate (`npm run test:real-semantic`) exercised three
+behavior/RU↔EN queries through FastEmbed/ONNX, Qdrant, Tree-sitter and the
+TypeScript language service. All three expected candidates were surfaced
+(recall@12=3/3); one read/write lexical distractor ranked first. This is
+retrieval evidence, not a production model selection or quality/5× claim.
+
 ## Reproduction
 
 The local k3s service is ClusterIP, so host-side tests use an explicit,

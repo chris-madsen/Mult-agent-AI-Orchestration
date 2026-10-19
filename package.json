@@ -19,6 +19,8 @@
     "test:real-provider-race": "npm run build && ACE_REAL_PROVIDER_RACE=true node scripts/real-provider-e2e.mjs",
     "test:real-provider-outage": "npm run build && ACE_REAL_PROVIDER_OUTAGE=true node scripts/real-provider-e2e.mjs",
     "test:real-provider-restart": "npm run build && node scripts/real-provider-restart-e2e.mjs",
+    "test:memory-process": "npm run build && node scripts/memory-process-e2e.mjs",
+    "test:real-semantic": "npm run build && node scripts/real-semantic-retrieval-e2e.mjs",
     "probe:jev": "bash scripts/jev-readonly-probe.sh",
     "test": "npm run check && tsx --test test/*.test.ts",
     "memory:sync": "npm run build && node dist/bin/ace-memory.js",

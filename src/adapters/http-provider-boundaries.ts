@@ -112,6 +112,8 @@ const candidateFromPayload = (point: Record<string, unknown>, workspaceId: Works
         ? { endColumn: payload.end_column } : {}),
     },
     ...(typeof payload.symbol_name === 'string' ? { symbolName: payload.symbol_name } : {}),
+    ...(typeof payload.conflict_key === 'string' ? { conflictKey: payload.conflict_key } : {}),
+    ...(typeof payload.conflict_value === 'string' ? { conflictValue: payload.conflict_value } : {}),
     text: text.value,
     sourceDigest: safeDigest.value,
     generation: generation.value as CodeCandidate['generation'],
@@ -131,6 +133,8 @@ const qdrantPoint = (point: CodePoint): Readonly<Record<string, unknown>> => ({
     ...(point.candidate.range.startColumn === undefined ? {} : { start_column: point.candidate.range.startColumn }),
     ...(point.candidate.range.endColumn === undefined ? {} : { end_column: point.candidate.range.endColumn }),
     ...(point.candidate.symbolName === undefined ? {} : { symbol_name: point.candidate.symbolName }),
+    ...(point.candidate.conflictKey === undefined ? {} : { conflict_key: point.candidate.conflictKey }),
+    ...(point.candidate.conflictValue === undefined ? {} : { conflict_value: point.candidate.conflictValue }),
     text: point.candidate.text,
     source_digest: point.candidate.sourceDigest,
     generation: point.candidate.generation,
@@ -225,7 +229,18 @@ export const makeVertexDocumentationPort = (config: VertexConfig): Documentation
       if (content._tag === 'Err') return content;
       const evidenceId = stringField(document, 'evidence_id');
       if (evidenceId._tag === 'Err') return evidenceId;
-      evidence.push({ evidenceId: evidenceId.value as RetrievalEvidence['evidenceId'], source: 'documentation', citation: citation.value, content: content.value, proofClass: 'direct', freshness: 'current' });
+      evidence.push({
+        evidenceId: evidenceId.value as RetrievalEvidence['evidenceId'],
+        source: 'documentation',
+        citation: citation.value,
+        content: content.value,
+        proofClass: 'direct',
+        freshness: 'current',
+        ...(typeof document.conflict_key === 'string' ? { conflictKey: document.conflict_key } : {}),
+        ...(typeof document.conflict_value === 'string' ? { conflictValue: document.conflict_value } : {}),
+        ...(typeof document.source_revision === 'string' ? { sourceRevision: document.source_revision } : {}),
+        ...(typeof document.source_timestamp_ms === 'number' ? { sourceTimestampMs: document.source_timestamp_ms } : {}),
+      });
     }
     return ok(evidence);
   }),

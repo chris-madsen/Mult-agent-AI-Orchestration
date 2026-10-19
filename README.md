@@ -61,6 +61,11 @@ the observation generation and never serves the previous Qdrant generation.
 `npm run test:real-provider-outage` verifies an unavailable Qdrant is reported
 as partial with an explicit warning and does not masquerade as production
 semantic retrieval.
+`npm run test:real-semantic` runs the three-case behavior/RU↔EN exploratory
+holdout through real FastEmbed/Qdrant/AST/LSP and writes its metrics to
+`benchmarks/reports/real-semantic-retrieval-e2e.json`.
+`npm run test:memory-process` checks stable history IDs and cross-process
+archive reference safety without requiring an inference model.
 
 No production-approved embedding model/LSP, Graphiti extraction, Harbor quality
 gate or 5× improvement is claimed until the documented provider spikes and owner
