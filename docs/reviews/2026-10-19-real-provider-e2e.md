@@ -105,7 +105,7 @@ The native arm used 891,950 raw total tokens and cost `$0.0569132`; ACE used
 1,571,768 raw total tokens and cost `$0.08538924`. The resulting savings factor
 is `0.567482x`, cost factor `0.666515x`, and `target5xReached=false`.
 
-This is a valid attribution-aware measurement, not evidence of token savings.
+This is a **forced-use diagnostic with negative measured Codex tokens/cost**, not a validated production DBC-12 attribution claim. Provider trace events were not linked by request ID to the nine Codex `ace_context` calls, and local infrastructure costs were not metered. The previous 'valid attribution-aware' wording is superseded by the benchmark methodology audit.
 The raw Harbor jobs remain under the local `artifacts/` evidence directory and
 the machine-readable gate is
 `benchmarks/reports/ace-retrieval-paired-3x3-final-indexkey.json`.
