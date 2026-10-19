@@ -45,7 +45,7 @@ export const normalizeHarborJob = (
     }
     tasks.push(task.path.trim());
   }
-  const extraRaw = root.extra_instructions ?? [];
+  const extraRaw = root?.extra_instructions ?? [];
   if (!Array.isArray(extraRaw) || !extraRaw.every((entry) => typeof entry === 'string')) {
     return err(domainError('INVALID_BENCHMARK', 'harbor_job.extra_instructions', 'extra instructions must be a string array'));
   }
