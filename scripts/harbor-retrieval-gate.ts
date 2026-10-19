@@ -1,23 +1,29 @@
 import { createHash } from 'node:crypto';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
-import { isObservedAceContextJsonLine, isSuccessfulAceContextJsonLine } from '../src/domain/harbor-mcp-evidence.js';
+import { isObservedAceContextJsonLine, isSuccessfulAceContextJsonLine, successfulAceContextRequestIdJsonLine } from '../src/domain/harbor-mcp-evidence.js';
 import { assessHarborAcceptance } from '../src/domain/harbor-evaluation-policy.js';
 
 type JsonObject = Readonly<Record<string, unknown>>;
 type Configuration = 'native-codex' | 'codex-plus-ace';
-const requiredProviderOperations = [
+const requiredCorrelatedProviderOperations = [
   'embedding:embed_many',
   'qdrant:query_points',
-  'tree_sitter:extract',
   'typescript_language_service:definition',
+] as const;
+const requiredProviderOperations = [
+  ...requiredCorrelatedProviderOperations,
+  'tree_sitter:extract',
 ] as const;
 
 interface ProviderReceiptSummary {
   readonly traceFiles: readonly string[];
   readonly successfulProviders: readonly string[];
   readonly successfulOperations: readonly string[];
+  readonly correlatedRequestIds: readonly string[];
+  readonly missingRequestIds: readonly string[];
   readonly valid: boolean;
+  readonly correlated: boolean;
 }
 
 interface JobSummary {
@@ -93,27 +99,47 @@ const filesNamed = async (root: string, name: string): Promise<readonly string[]
   return found.sort();
 };
 
-const providerReceipts = async (directory: string): Promise<ProviderReceiptSummary> => {
+const providerReceipts = async (
+  directory: string,
+  expectedRequestIds: readonly string[],
+): Promise<ProviderReceiptSummary> => {
   const traceFiles = await filesNamed(directory, 'provider-trace.jsonl');
   const successful = new Set<string>();
   const operations = new Set<string>();
+  const operationsByRequest = new Map<string, Set<string>>();
   for (const path of traceFiles) {
     const content = await readFile(path, 'utf8');
     for (const line of content.split('\n').filter((value) => value.trim().length > 0)) {
       const event = object(JSON.parse(line) as unknown, path);
-      if (event.status === 'success' && typeof event.provider === 'string' && typeof event.operation === 'string') {
-        successful.add(event.provider);
-        operations.add(event.provider + ':' + event.operation);
-      }
       const forbidden = ['source', 'query', 'text', 'token', 'secret', 'authorization'];
       if (forbidden.some((key) => key in event)) throw new Error(`${path}: unsafe provider trace field ${forbidden.find((key) => key in event)}`);
+      if (event.status === 'success' && typeof event.provider === 'string' && typeof event.operation === 'string') {
+        const operation = event.provider + ':' + event.operation;
+        successful.add(event.provider);
+        operations.add(operation);
+        if (typeof event.requestId === 'string' && event.requestId.length > 0) {
+          const requestOperations = operationsByRequest.get(event.requestId) ?? new Set<string>();
+          requestOperations.add(operation);
+          operationsByRequest.set(event.requestId, requestOperations);
+        }
+      }
     }
   }
+  const expected = [...new Set(expectedRequestIds)];
+  const correlatedRequestIds = expected.filter((requestId) => {
+    const requestOperations = operationsByRequest.get(requestId);
+    return requestOperations !== undefined
+      && requiredCorrelatedProviderOperations.every((operation) => requestOperations.has(operation));
+  });
+  const correlated = expected.length > 0 && correlatedRequestIds.length === expected.length;
   return {
     traceFiles: traceFiles.map((path) => relative(process.cwd(), path)),
     successfulProviders: [...successful].sort(),
     successfulOperations: [...operations].sort(),
+    correlatedRequestIds,
+    missingRequestIds: expected.filter((requestId) => !correlatedRequestIds.includes(requestId)),
     valid: requiredProviderOperations.every((operation) => operations.has(operation)),
+    correlated,
   };
 };
 
@@ -176,11 +202,15 @@ const summarize = async (aggregatePath: string, configuration: Configuration): P
     try { trace = await readFile(join(directory, 'agent', 'codex.txt'), 'utf8'); } catch (error) {
       if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error;
     }
-    aceCalls += trace.split('\n').filter(isSuccessfulAceContextJsonLine).length;
-    aceObservedCalls += trace.split('\n').filter(isObservedAceContextJsonLine).length;
+    const traceLines = trace.split('\n');
+    const successfulRequestIds = traceLines
+      .map(successfulAceContextRequestIdJsonLine)
+      .filter((requestId): requestId is string => requestId !== undefined);
+    aceCalls += traceLines.filter(isSuccessfulAceContextJsonLine).length;
+    aceObservedCalls += traceLines.filter(isObservedAceContextJsonLine).length;
     // Completed ACE evidence requires current/direct code. A progressive outline may omit inline content.
-    currentSourceCalls += trace.split('\n').filter(isSuccessfulAceContextJsonLine).length;
-    receipts.push(await providerReceipts(directory));
+    currentSourceCalls += successfulRequestIds.length;
+    receipts.push(await providerReceipts(directory, successfulRequestIds));
     perTask.set(taskName, task);
   }
   if (trials.length !== totalTrials) throw new Error(`${aggregatePath}: aggregate/trial count mismatch`);
@@ -243,11 +273,9 @@ const receiptGate = ace.providerReceipts.length === ace.trials && ace.providerRe
 const paired = native.trials === ace.trials && native.trials >= 9 && JSON.stringify(native.taskNames) === JSON.stringify(ace.taskNames);
 const qualityNonInferior = native.trials > 0 && ace.successes / ace.trials >= native.successes / native.trials;
 const attributed = native.aceObservedCalls === 0 && ace.aceCalls > 0 && ace.currentSourceCalls === ace.aceCalls;
-// This is a deliberately FORCED tool-use experiment: the ACE arm's additional
-// instruction requires an extra call. Provider operations are uncorrelated
-// with individual MCP request IDs. Do not promote this to a production DBC-12
-// effectiveness claim regardless of the ratio.
-const providerCorrelationVerified = false;
+const providerCorrelationVerified = receiptGate
+  && ace.aceCalls > 0
+  && ace.providerReceipts.every((receipt) => receipt.correlated);
 const acceptance = assessHarborAcceptance({
   paired,
   qualityNonInferior,
@@ -273,7 +301,7 @@ const report = {
   completeAceCallsObserved: attributed,
   providerOperationsObserved: receiptGate,
   providerCorrelationVerified,
-  providerReceiptsVerified: false, // no per-request provider correlation
+  providerReceiptsVerified: receiptGate && providerCorrelationVerified,
   costScope: 'codex-reported-usage-only; local infrastructure cost unmeasured',
   rawTotalTokens: { native: native.rawTotalTokens, ace: ace.rawTotalTokens },
   uncachedInputTokens: {
@@ -294,7 +322,7 @@ const report = {
       ? 'ACE was forced by an extra instruction, so natural tool-choice savings were not tested.'
       : 'The ACE job config has no mandatory tool-call instruction, but actual tool-choice and cost attribution still require raw trace review.',
     'Only three small tasks repeated three times; this is not a large-repository long-horizon workload.',
-    'Provider operations are observed in each trial, not tied to an individual request/citation.',
+    ...(providerCorrelationVerified ? [] : ['One or more successful ACE requests lack request-ID-correlated embedding/Qdrant/LSP operations.']),
     'Local embedding, Qdrant, Tree-sitter and TypeScript LS CPU/RAM cost and index setup are not metered.',
     'Raw totals include cached input tokens; Codex cost represents its reported usage only.',
   ],
