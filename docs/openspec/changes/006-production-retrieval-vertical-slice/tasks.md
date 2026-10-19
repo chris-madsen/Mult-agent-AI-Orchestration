@@ -22,14 +22,14 @@ their evidence exists. Prior port-level `[x]` markers do not satisfy those gates
 - [ ] DBC-03 behavior-driven semantic retrieval vs lexical distractor and real embeddings.
 - [ ] DBC-04 same-name symbols and correct definition/write semantics.
 - [x] DBC-05 mid-request edit D1→D2, no false-current (`npm run test:real-provider-race`, commit evidence report).
-- [ ] DBC-06 source failure completeness / degraded truthful response.
+- [x] DBC-06 source failure completeness / degraded truthful response (`npm run test:real-provider-outage`: unavailable Qdrant yields `complete=false`, `partialSources=["code","qdrant"]`, current local evidence and explicit outage warning).
 - [ ] DBC-07 policy denial outbound count zero and safe audit.
 - [x] DBC-08 byte-identical original and generated 2000+ line content (`npm run test:real-provider`, SHA-256 and exact expansion assertions).
 - [ ] DBC-09 official MCP SDK conformance with Codex, cancellation/error paths.
 - [ ] DBC-10 stable Codex historical episode IDs after append and replay.
 - [ ] DBC-11 shared digest archive delete and derived purge correctness.
 - [ ] DBC-12 realistic Harbor attribution and quality gate.
-- [ ] DBC-13 restart with stale index and dirty worktree.
+- [x] DBC-13 restart with stale index and dirty worktree (`npm run test:real-provider-restart`, generation 1→2 and D1→D2 digest evidence).
 - [ ] DBC-14 docs-vs-code conflict disambiguation.
 
 ## Performance and exit

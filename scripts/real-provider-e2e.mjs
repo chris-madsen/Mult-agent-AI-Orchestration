@@ -48,6 +48,7 @@ const sourceDigest = createHash('sha256').update(sourceBytes).digest('hex');
 
 const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
 const race = process.env.ACE_REAL_PROVIDER_RACE === 'true';
+const outage = process.env.ACE_REAL_PROVIDER_OUTAGE === 'true';
 const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
   cwd: resolve(import.meta.dirname, '..'),
   env: {
@@ -57,7 +58,8 @@ const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
     ACE_STATE_DIR: join(root, 'state'),
     ACE_WORKSPACE_ID: 'real-provider-2000-line',
     ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
-    ACE_QDRANT_URL: qdrantUrl,
+    ACE_QDRANT_URL: outage ? 'http://127.0.0.1:6339' : qdrantUrl,
+    ACE_ALLOW_LOCAL_FALLBACK: outage ? 'true' : 'false',
     ACE_EMBEDDING_WORKER: resolve(import.meta.dirname, 'fastembed-worker.sh'),
     ACE_TREE_SITTER_HELPER: resolve(import.meta.dirname, 'tree-sitter-structural.py'),
     ACE_TREE_SITTER_PYTHON: process.env.ACE_TREE_SITTER_PYTHON ?? resolve('.venv-system/bin/python'),
@@ -112,8 +114,8 @@ const request = (id, message) => new Promise((resolveResponse, reject) => {
 try {
   await request(1, { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2026-07-28', capabilities: {}, clientInfo: { name: 'ace-real-provider-e2e', version: '1' } } });
   child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
-  const contextRequest = request(2, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'ace_context', arguments: { workspace_id: 'real-provider-2000-line', query: 'retry an operation after a transient failure' } } });
-  if (race) {
+  const contextRequest = request(2, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'ace_context', arguments: { workspace_id: 'real-provider-2000-line', query: outage ? 'retryAfterTransientFailure' : 'retry an operation after a transient failure' } } });
+  if (!outage && race) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
     await writeFile(sourcePath, `${source.replace('return result;', 'return result + \'-changed\';')}`);
   }
@@ -122,43 +124,49 @@ try {
   assert.equal(statusResponse.result?.structuredContent?.index_status, 'ready', JSON.stringify(statusResponse));
   const context = contextResponse.result?.structuredContent;
   assert.equal(contextResponse.result?.isError, undefined, JSON.stringify(contextResponse));
-  if (race) {
+  if (outage) {
     assert.equal(context.complete, false, JSON.stringify(context));
-    assert.ok(context.partialSources.includes('code'), JSON.stringify(context));
-    assert.ok(context.warnings.some((warning) => warning.includes('stale') || warning.includes('changed')), JSON.stringify(context));
+    assert.ok(context.partialSources.includes('qdrant'), JSON.stringify(context));
+    assert.ok(context.warnings.some((warning) => warning.includes('Qdrant unavailable')), JSON.stringify(context));
+    assert.ok(context.evidence.some((item) => item.freshness === 'current'), JSON.stringify(context));
+    console.log(JSON.stringify({ status: 'provider-pass', outage: true, complete: context.complete, warnings: context.warnings, partial_sources: context.partialSources }, null, 2));
   } else {
-    assert.equal(context.complete, true, JSON.stringify(context));
-  }
-  const evidence = context.evidence.find((item) => item.content.includes('retryAfterTransientFailure'));
-  if (race) {
-    assert.ok(evidence === undefined || evidence.freshness !== 'current', JSON.stringify(context));
-    console.log(JSON.stringify({ status: 'provider-pass', race: true, complete: context.complete, warnings: context.warnings, partial_sources: context.partialSources }, null, 2));
-  } else {
-    assert.ok(evidence, JSON.stringify(context));
-    assert.equal(evidence.freshness, 'current');
-    assert.equal(evidence.sourceDigest, sourceDigest);
-    assert.equal(evidence.citation, 'service.ts:1-25');
-    assert.equal(evidence.content.split('\n').length, 25);
-    assert.ok(evidence.expansionHandle);
+    if (race) {
+      assert.equal(context.complete, false, JSON.stringify(context));
+      assert.ok(context.partialSources.includes('code'), JSON.stringify(context));
+      assert.ok(context.warnings.some((warning) => warning.includes('stale') || warning.includes('changed')), JSON.stringify(context));
+      const evidence = context.evidence.find((item) => item.content.includes('retryAfterTransientFailure'));
+      assert.ok(evidence === undefined || evidence.freshness !== 'current', JSON.stringify(context));
+      console.log(JSON.stringify({ status: 'provider-pass', race: true, complete: context.complete, warnings: context.warnings, partial_sources: context.partialSources }, null, 2));
+    } else {
+      assert.equal(context.complete, true, JSON.stringify(context));
+      const evidence = context.evidence.find((item) => item.content.includes('retryAfterTransientFailure'));
+      assert.ok(evidence, JSON.stringify(context));
+      assert.equal(evidence.freshness, 'current');
+      assert.equal(evidence.sourceDigest, sourceDigest);
+      assert.equal(evidence.citation, 'service.ts:1-25');
+      assert.equal(evidence.content.split('\n').length, 25);
+      assert.ok(evidence.expansionHandle);
 
-    const expansionResponse = await request(3, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'ace_expand', arguments: { handle: evidence.expansionHandle } } });
-    const expansion = expansionResponse.result?.structuredContent;
-    const expanded = Buffer.from(expansion.content_base64, 'base64');
-    assert.equal(expansionResponse.result?.isError, undefined, JSON.stringify(expansionResponse));
-    assert.equal(expansion.digest, sourceDigest);
-    assert.equal(expansion.total_bytes, sourceBytes.byteLength);
-    assert.deepEqual(expanded, sourceBytes);
+      const expansionResponse = await request(3, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'ace_expand', arguments: { handle: evidence.expansionHandle } } });
+      const expansion = expansionResponse.result?.structuredContent;
+      const expanded = Buffer.from(expansion.content_base64, 'base64');
+      assert.equal(expansionResponse.result?.isError, undefined, JSON.stringify(expansionResponse));
+      assert.equal(expansion.digest, sourceDigest);
+      assert.equal(expansion.total_bytes, sourceBytes.byteLength);
+      assert.deepEqual(expanded, sourceBytes);
 
-    console.log(JSON.stringify({
-      status: 'provider-pass',
-      fixture: '2000-line TypeScript source / 25-line target function',
-      qdrant: qdrantUrl,
-      citation: evidence.citation,
-      freshness: evidence.freshness,
-      source_digest: sourceDigest,
-      expansion_bytes: expanded.byteLength,
-      complete: context.complete,
-    }, null, 2));
+      console.log(JSON.stringify({
+        status: 'provider-pass',
+        fixture: '2000-line TypeScript source / 25-line target function',
+        qdrant: qdrantUrl,
+        citation: evidence.citation,
+        freshness: evidence.freshness,
+        source_digest: sourceDigest,
+        expansion_bytes: expanded.byteLength,
+        complete: context.complete,
+      }, null, 2));
+    }
   }
 } finally {
   child.stdin.end();

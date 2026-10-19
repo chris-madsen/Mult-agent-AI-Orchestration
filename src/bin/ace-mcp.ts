@@ -103,26 +103,50 @@ const main = async (): Promise<void> => {
   if (registered._tag === 'Err') throw new Error(`${registered.error.code}: ${registered.error.message}`);
   const observed = await Effect.runPromise(observeWorkspace(ports, registered.value.workspaceId));
   if (observed._tag === 'Err') throw new Error(`${observed.error.code}: ${observed.error.message}`);
+  const generation = observed.value.observationEpoch;
   // No pretend success: the local lexical provider is a consciously enabled
   // degraded fallback, NOT the selected Qdrant/embeddings/AST/LSP production path.
   const allowLocalFallback = process.env.ACE_ALLOW_LOCAL_FALLBACK === 'true';
   const structuralHelper = process.env.ACE_TREE_SITTER_HELPER?.trim();
   const artifacts = makeFileArtifactStore(artifactDirectory);
+  const structuralPath = resolve(process.env.ACE_TREE_SITTER_HELPER?.trim() || 'scripts/tree-sitter-structural.py');
+  const structuralPython = optionalPath(process.env.ACE_TREE_SITTER_PYTHON, '.venv-system/bin/python');
   let context: ReturnType<typeof makeLocalContextProvider> | undefined;
   if (process.env.ACE_ENABLE_EXPERIMENTAL_QDRANT === 'true') {
     const http = makeFetchHttpPort();
     const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
     const embeddingModel = process.env.ACE_EMBEDDING_MODEL?.trim() || defaultEmbeddingModel;
     const collection = process.env.ACE_QDRANT_COLLECTION?.trim()
-      || 'ace_code_paraphrase_multilingual_minilm_l12_v2_g1';
+      || `ace_code_paraphrase_multilingual_minilm_l12_v2_g${generation}`;
     const embeddingWorker = process.env.ACE_EMBEDDING_WORKER?.trim()
       || resolve('scripts/fastembed-worker.sh');
     const embeddingDimension = Number(process.env.ACE_EMBEDDING_DIMENSION ?? '384');
-    const structuralPath = resolve(process.env.ACE_TREE_SITTER_HELPER?.trim() || 'scripts/tree-sitter-structural.py');
-    const structuralPython = optionalPath(process.env.ACE_TREE_SITTER_PYTHON, '.venv-system/bin/python');
     const inspected = await Effect.runPromise(ensureQdrantCollection(http, qdrantUrl, collection, embeddingDimension));
     if (inspected._tag === 'Err') {
-      process.stderr.write(`ace-mcp context NOT_READY: qdrant collection check failed (${inspected.error.code})\n`);
+      if (allowLocalFallback) {
+        const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
+          generation,
+          ...(!existsSync(structuralPath) || !existsSync(structuralPython) ? {} : {
+            structural: makeTreeSitterStructuralPort({ helperPath: structuralPath, pythonCommand: structuralPython }),
+          }),
+        }));
+        if (built._tag === 'Err') {
+          process.stderr.write(`ace-mcp context NOT_READY: qdrant failed and degraded index failed (${built.error.code})\n`);
+        } else {
+          context = makeLocalContextProvider({
+            workspaceId: registered.value.workspaceId,
+            rootPath: registered.value.rootPath,
+            index: built.value.index,
+            files,
+            newRequestId: () => randomUUID(),
+            failedSources: ['qdrant'],
+            additionalWarnings: [`Qdrant unavailable: ${inspected.error.code}`],
+          });
+          process.stderr.write(`ace-mcp degraded retrieval workspace_id=${registered.value.workspaceId} generation=${generation} reason=qdrant_unavailable\n`);
+        }
+      } else {
+        process.stderr.write(`ace-mcp context NOT_READY: qdrant collection check failed (${inspected.error.code})\n`);
+      }
     } else if (embeddingModel !== defaultEmbeddingModel && process.env.ACE_QDRANT_COLLECTION === undefined) {
       process.stderr.write('ace-mcp context NOT_READY: a non-default embedding model requires an explicit versioned ACE_QDRANT_COLLECTION\n');
     } else if (!existsSync(embeddingWorker) || !existsSync(structuralPath) || !existsSync(structuralPython)) {
@@ -138,7 +162,7 @@ const main = async (): Promise<void> => {
       process.stdin.once('end', () => setTimeout(closeEmbeddingWorker, 5_000));
       const structural = makeTreeSitterStructuralPort({ helperPath: structuralPath, pythonCommand: structuralPython });
       const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
-        generation: 1,
+        generation,
         structural,
       }));
       if (built._tag === 'Err') {
@@ -163,16 +187,16 @@ const main = async (): Promise<void> => {
             artifacts,
             semantics,
             newRequestId: () => randomUUID(),
-            generation: 1,
+            generation,
             ...(documentation === undefined ? {} : { documentation }),
           });
-          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} collection=${collection}\n`);
+          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} collection=${collection}\n`);
         }
       }
     }
   } else if (allowLocalFallback) {
     const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
-      generation: 1,
+      generation,
       ...(structuralHelper === undefined || structuralHelper === ''
         ? {}
         : { structural: makeTreeSitterStructuralPort({ helperPath: resolve(structuralHelper) }) }),

@@ -58,6 +58,18 @@ retrieval was in flight, and observed `complete=false`, `partialSources=["code"]
 and `stale index or AST slice disagrees with current original bytes`. No stale
 evidence was labelled `current`.
 
+The restart gate reused one workspace/state directory across two MCP processes.
+The first run used generation 1 and D1; after a dirty-tree edit, the second run
+used generation 2 and returned only D2. Its versioned collection was `_g2`, so
+the old generation was not silently upgraded or queried as current.
+
+The outage gate forced Qdrant to an unavailable loopback port while enabling the
+explicit `ACE_ALLOW_LOCAL_FALLBACK=true` test switch. The response was
+`complete=false`, `partialSources=["code","qdrant"]`, retained current local
+source evidence, and warnings including `Qdrant unavailable:
+EXTERNAL_UNAVAILABLE` and the non-production status of the lexical fallback.
+This proves truthful degradation, not production semantic retrieval.
+
 ## Reproduction
 
 The local k3s service is ClusterIP, so host-side tests use an explicit,

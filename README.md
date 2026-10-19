@@ -56,6 +56,11 @@ With k3s Qdrant forwarded to localhost, the real gates are reproducible with
 `npm run test:real-provider` (2000-line precision, current digest, exact
 expansion and workspace readiness) and `npm run test:real-provider-race`
 (mid-request edit must become partial/stale, never current).
+`npm run test:real-provider-restart` verifies a dirty-worktree restart advances
+the observation generation and never serves the previous Qdrant generation.
+`npm run test:real-provider-outage` verifies an unavailable Qdrant is reported
+as partial with an explicit warning and does not masquerade as production
+semantic retrieval.
 
 No production-approved embedding model/LSP, Graphiti extraction, Harbor quality
 gate or 5× improvement is claimed until the documented provider spikes and owner
