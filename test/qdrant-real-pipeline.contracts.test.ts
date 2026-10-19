@@ -204,6 +204,41 @@ test('Qdrant→current filesystem→LSP→ContextBundle includes verified snippe
   assert.equal(context.evidence[0]?.content, source.toString('utf8').trim());
 });
 
+test('LSP disagreement keeps exact code visible only as uncertain partial evidence', async () => {
+  const qdrant: CodeCandidatePort = {
+    upsert: () => Effect.succeed(ok(undefined)),
+    search: () => Effect.succeed(ok([{ candidate, score: 0.95, freshness: 'unknown' as const }])),
+  };
+  const files: WorkspaceFilePort = {
+    canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+    snapshot: () => { throw new Error('query must not snapshot repository'); },
+    readExact: () => Effect.succeed(ok({ bytes: source, digest: digest as never })),
+  };
+  const artifacts: ArtifactStore = {
+    storeExact: () => Effect.succeed(ok({ handle: 'exact-file', digest: digest as never, sizeBytes: source.length })),
+    readRange: () => Effect.succeed(err(domainError('ARTIFACT_NOT_FOUND', 'handle', 'not used'))),
+  };
+  const semantics: SemanticAnalysisPort = {
+    definition: () => Effect.succeed(ok([])),
+    references: () => Effect.succeed(ok([])),
+    typeInfo: () => Effect.succeed(ok(undefined)),
+    diagnostics: () => Effect.succeed(ok([])),
+  };
+  const provider = makeQdrantContextProvider({
+    workspaceId, rootPath: '/repo', files, qdrant, artifacts, semantics,
+    embeddings: { embedMany: () => Effect.succeed(ok([[0.2, 0.7]])) },
+    newRequestId: () => 'lsp-disagreement',
+  });
+  const context = mustOk(await Effect.runPromise(provider.search({
+    workspaceId, query: 'retry database connection', includeDocs: false, includeMemory: false,
+  })));
+  assert.equal(context.complete, false);
+  assert.ok(context.partialSources.includes('lsp'));
+  assert.equal(context.evidence[0]?.freshness, 'current');
+  assert.equal(context.evidence[0]?.proofClass, 'uncertain');
+  assert.equal(context.evidence[0]?.content, candidate.text);
+});
+
 test('multiple Qdrant symbols from one file cause one initial read plus one final revalidation', async () => {
   let exactReads = 0;
   let storedSources = 0;
