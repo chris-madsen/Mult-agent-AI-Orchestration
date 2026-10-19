@@ -164,6 +164,8 @@ export const codeIndexKey = (index: CodeIndex): string => {
       candidate.repoPath,
       candidate.sourceDigest,
       candidate.symbolName ?? null,
+      candidate.semanticAnchor?.line ?? null,
+      candidate.semanticAnchor?.byteColumn ?? null,
       candidate.range.startLine,
       candidate.range.startColumn ?? null,
       candidate.range.endLine,
@@ -279,6 +281,28 @@ export const exactUtf8ByteRange = (
   return { offset: from, length: until - from };
 };
 
+const utf16ColumnAtUtf8Byte = (
+  bytes: Uint8Array,
+  line: number,
+  byteColumn: number,
+): number | undefined => {
+  if (!Number.isSafeInteger(line) || line < 1 || !Number.isSafeInteger(byteColumn) || byteColumn < 1) return undefined;
+  const raw = Buffer.from(bytes);
+  const lineOffsets = [0];
+  for (let i = 0; i < raw.length; i += 1) if (raw[i] === 10) lineOffsets.push(i + 1);
+  const start = lineOffsets[line - 1];
+  if (start === undefined) return undefined;
+  const end = lineOffsets[line] === undefined ? raw.length : (lineOffsets[line] as number) - 1;
+  const target = start + byteColumn - 1;
+  if (target < start || target > end) return undefined;
+  try {
+    const prefix = new TextDecoder('utf-8', { fatal: true }).decode(raw.subarray(start, target));
+    return prefix.length + 1;
+  } catch {
+    return undefined;
+  }
+};
+
 export const exactUtf8Span = (
   bytes: Uint8Array,
   range: { readonly startLine: number; readonly endLine: number; readonly startColumn?: number; readonly endColumn?: number },
@@ -361,17 +385,18 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
       if (evidenceId._tag === 'Err') return evidenceId;
       // Even a partial response must never present an unverified indexed snippet as direct evidence.
       if (!verified || verifiedText === undefined) continue;
-      const symbolLocationLine = Buffer.from(full.bytes).toString('utf8').split('\n')[candidate.range.startLine - 1] ?? '';
-      const symbolOffset = candidate.symbolName === undefined ? -1 : symbolLocationLine.indexOf(candidate.symbolName);
+      const semanticColumn = candidate.semanticAnchor === undefined
+        ? undefined
+        : utf16ColumnAtUtf8Byte(full.bytes, candidate.semanticAnchor.line, candidate.semanticAnchor.byteColumn);
       let lspConfirmed = false;
-      if (symbolOffset < 0) {
-        warnings.push(candidate.repoPath + ': symbol identifier was not found at the syntax node start');
+      if (candidate.semanticAnchor === undefined || semanticColumn === undefined) {
+        warnings.push(candidate.repoPath + ': exact structural identifier anchor is unavailable');
         failed.push('lsp');
       } else {
         const definitions = yield* config.semantics.definition({
           repoPath: candidate.repoPath,
-          line: candidate.range.startLine,
-          column: symbolOffset + 1,
+          line: candidate.semanticAnchor.line,
+          column: semanticColumn,
           requestId: requestId.value,
         });
         if (definitions._tag === 'Err') {
