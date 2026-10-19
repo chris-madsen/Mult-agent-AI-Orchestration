@@ -77,6 +77,7 @@ export interface DocumentationPort {
     readonly workspaceId: WorkspaceId;
     readonly query: string;
     readonly topK: number;
+    readonly requestId?: string;
   }) => Effect.Effect<Result<readonly ContextBundle['evidence'][number][], DomainError>>;
 }
 
@@ -108,6 +109,7 @@ export interface MemorySearchPort {
     readonly query: string;
     readonly asOfMs?: number;
     readonly includeOriginal: boolean;
+    readonly requestId?: string;
   }) => Effect.Effect<Result<MemorySearchResult, DomainError>>;
 }
 

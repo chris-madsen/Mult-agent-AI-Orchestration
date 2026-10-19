@@ -16,11 +16,14 @@ import { createCodeIndex, makeCandidateId, makeCodeCandidate } from '../src/doma
 import { makeWorkspaceId } from '../src/domain/workspace.js';
 import { err, ok, type Result } from '../src/domain/result.js';
 import { domainError } from '../src/domain/errors.js';
+import type { ProviderTraceEvent } from '../src/domain/provider-trace.js';
 import type {
   ArtifactStore,
   CodeCandidatePort,
   DocumentationPort,
   HttpPort,
+  MemorySearchPort,
+  ProviderTraceSink,
   SemanticAnalysisPort,
   WorkspaceFilePort,
 } from '../src/application/ports.js';
@@ -718,4 +721,71 @@ test('new snapshot reuses vectors only for unchanged candidate IDs from a compat
   assert.deepEqual(embeddingInputs, [changed.text]);
   assert.equal(upserted.length, 2);
   assert.deepEqual(upserted.find((point) => point.candidate.candidateId === candidate.candidateId)?.vector, [0.1, 0.9]);
+});
+
+
+test('one ACE request id correlates docs, memory and final source verification without payload logging', async () => {
+  const requestId = 'cross-provider-request';
+  let docsRequestId: string | undefined;
+  let memoryRequestId: string | undefined;
+  const events: ProviderTraceEvent[] = [];
+  const trace: ProviderTraceSink = { record: (event) => { events.push(event); } };
+  const documentation: DocumentationPort = {
+    search: (input) => {
+      docsRequestId = input.requestId;
+      return Effect.succeed(ok([]));
+    },
+  };
+  const memory: MemorySearchPort = {
+    search: (input) => {
+      memoryRequestId = input.requestId;
+      return Effect.succeed(ok({ hits: [], conflicts: [] }));
+    },
+  };
+  const provider = makeQdrantContextProvider({
+    workspaceId,
+    rootPath: '/repo',
+    files: {
+      canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+      snapshot: () => { throw new Error('not used'); },
+      readExact: () => Effect.succeed(ok({ bytes: source, digest: digest as never })),
+    },
+    qdrant: {
+      upsert: () => Effect.succeed(ok(undefined)),
+      search: () => Effect.succeed(ok([{ candidate, score: 1, freshness: 'unknown' as const }])),
+    },
+    embeddings: { embedMany: () => Effect.succeed(ok([[1, 0]])) },
+    artifacts: {
+      storeExact: () => Effect.succeed(ok({ handle: 'trace-file', digest: digest as never, sizeBytes: source.length })),
+      readRange: () => Effect.succeed(err(domainError('ARTIFACT_NOT_FOUND', 'handle', 'not used'))),
+    },
+    semantics: {
+      definition: () => Effect.succeed(ok([{
+        location: { repoPath: 'src/connection.ts', startLine: 1, startColumn: 17, endLine: 1, endColumn: 26 },
+        name: 'reconnect',
+      }])),
+      references: () => Effect.succeed(ok([])),
+      typeInfo: () => Effect.succeed(ok(undefined)),
+      diagnostics: () => Effect.succeed(ok([])),
+    },
+    documentation,
+    memory,
+    trace,
+    newRequestId: () => requestId,
+  });
+  const result = mustOk(await Effect.runPromise(provider.search({
+    workspaceId,
+    query: 'why reconnect architecture',
+    includeDocs: true,
+    includeMemory: true,
+  })));
+  assert.equal(result.requestId, requestId);
+  assert.equal(docsRequestId, requestId);
+  assert.equal(memoryRequestId, requestId);
+  const verification = events.find((event) => event.provider === 'source_verification');
+  assert.equal(verification?.requestId, requestId);
+  assert.equal(verification?.status, 'success');
+  const serialized = JSON.stringify(events);
+  assert.equal(serialized.includes('why reconnect architecture'), false);
+  assert.equal(serialized.includes(candidate.text), false);
 });

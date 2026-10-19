@@ -19,12 +19,14 @@ import type {
   DocumentationPort,
   HttpPort,
   MemorySearchPort,
+  ProviderTraceSink,
   SemanticAnalysisPort,
   VectorEmbeddingPort,
   WorkspaceFilePort,
 } from '../application/ports.js';
 import type { RepoPath, WorkspaceId } from '../domain/workspace.js';
 import { validateLocalQdrantBaseUrl } from './http-provider-boundaries.js';
+import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
 
 export interface QdrantContextConfig {
   readonly workspaceId: WorkspaceId;
@@ -41,6 +43,7 @@ export interface QdrantContextConfig {
   readonly memory?: MemorySearchPort;
   readonly candidateLimit?: number;
   readonly coverage?: IndexCoverageSummary;
+  readonly trace?: ProviderTraceSink;
 }
 
 export const populateQdrantFromStructuralIndex = (
@@ -671,7 +674,12 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
       if (config.documentation === undefined) {
         warnings.push('documentation provider not configured'); failed.push('documentation');
       } else {
-        const documents = yield* config.documentation.search({ workspaceId: input.workspaceId, query: input.query, topK: 5 });
+        const documents = yield* config.documentation.search({
+          workspaceId: input.workspaceId,
+          query: input.query,
+          topK: 5,
+          requestId: requestId.value,
+        });
         if (documents._tag === 'Err') {
           warnings.push('Vertex documentation unavailable: ' + documents.error.code);
           failed.push('documentation');
@@ -695,6 +703,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
           workspaceId: input.workspaceId,
           query: input.query,
           includeOriginal: false,
+          requestId: requestId.value,
         });
         if (memories._tag === 'Err') {
           warnings.push('temporal memory unavailable: ' + memories.error.code);
@@ -726,8 +735,21 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
     }
     // Revalidate as the LAST I/O step, after even slow Vertex/document calls.
     for (const [path, original] of fullSources) {
+      const verificationStartedAtMs = Date.now();
       const current = yield* config.files.readExact(config.rootPath, path);
-      if (current._tag === 'Err' || current.value.digest !== original.digest) {
+      const verifiedCurrent = current._tag === 'Ok' && current.value.digest === original.digest;
+      providerTraceEvent(config.trace ?? noopProviderTrace, {
+        provider: 'source_verification',
+        providerVersion: 'workspace-file/v1',
+        operation: 'read_exact_final',
+        status: verifiedCurrent ? 'success' : 'failure',
+        durationMs: Math.max(0, Date.now() - verificationStartedAtMs),
+        requestId: requestId.value,
+        ...(!verifiedCurrent ? {
+          errorCode: current._tag === 'Err' ? current.error.code : 'DIGEST_MISMATCH',
+        } : {}),
+      });
+      if (!verifiedCurrent) {
         warnings.push(path + ': source changed during retrieval');
         failed.push('code');
         for (let i = 0; i < evidence.length; i += 1) {
