@@ -108,8 +108,10 @@ export const ensureQdrantCollection = (
 });
 
 /**
- * Warm-start reuse is safe only for an exact workspace + observation generation
- * + source-snapshot key. A count mismatch forces a complete rebuild; a failed
+ * Warm-start reuse is safe only for an exact workspace + source-snapshot key.
+ * Observation epochs change on every scan even when bytes do not, so they
+ * MUST NOT be used as the warm-cache identity. A count mismatch forces a
+ * complete rebuild; a failed
  * count request does not quietly claim the index is healthy.
  *
  * Every returned snippet is still re-read from the authoritative worktree.
@@ -119,15 +121,13 @@ export const hasExactQdrantSnapshot = (
   baseUrl: string,
   collection: string,
   workspaceId: WorkspaceId,
-  generation: number,
   indexKey: string,
   expectedCount: number,
   allowedHosts: readonly string[] = [],
 ): Effect.Effect<Result<boolean, DomainError>> => Effect.gen(function* () {
   const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
   if (endpoint._tag === 'Err') return endpoint;
-  if (!Number.isSafeInteger(generation) || generation < 1 || indexKey.length === 0
-    || !Number.isSafeInteger(expectedCount) || expectedCount <= 0) {
+  if (indexKey.length === 0 || !Number.isSafeInteger(expectedCount) || expectedCount <= 0) {
     return err(domainError('INVALID_INPUT', 'snapshot', 'snapshot identity and expected positive candidate count are required'));
   }
   const response = yield* http.request({
@@ -138,7 +138,6 @@ export const hasExactQdrantSnapshot = (
       filter: {
         must: [
           { key: 'workspace_id', match: { value: workspaceId } },
-          { key: 'generation', match: { value: generation } },
           { key: 'index_key', match: { value: indexKey } },
         ],
       },
@@ -169,7 +168,7 @@ export const reuseOrPopulateQdrantSnapshot = (
   allowedHosts: readonly string[] = [],
 ): Effect.Effect<Result<{ readonly count: number; readonly reused: boolean }, DomainError>> => Effect.gen(function* () {
   const checked = yield* hasExactQdrantSnapshot(
-    http, baseUrl, collection, workspaceId, generation, indexKey, index.candidates.length, allowedHosts,
+    http, baseUrl, collection, workspaceId, indexKey, index.candidates.length, allowedHosts,
   );
   if (checked._tag === 'Err') return checked;
   if (checked.value) return ok({ count: index.candidates.length, reused: true });
