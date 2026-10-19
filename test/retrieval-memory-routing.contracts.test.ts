@@ -90,6 +90,24 @@ test('RVC-02 context merge deduplicates but exposes non-current evidence', () =>
   assert.ok(bundle.warnings.some((warning) => warning.includes('LSP')));
 });
 
+test('CORE-01 warnings and verified cross-source conflicts do not masquerade as missing evidence', () => {
+  const request = mustOk(makeRequestId('core-evidence'));
+  const code = { ...evidenceFromCandidate({ candidate: candidate(), score: 100, freshness: 'current' as const }, 'code-1' as never), conflictKey: 'retry-limit', conflictValue: '3' };
+  const document = { ...code, evidenceId: 'document-1' as never, source: 'documentation' as const, citation: 'ADR:retry', conflictValue: '5' };
+  const merged = mergeEvidence(request, 'retry-limit', [code, document], ['informational']);
+  assert.equal(merged.complete, true);
+  assert.equal(merged.conflicts?.length, 1);
+  assert.deepEqual(merged.partialSources, []);
+  assert.ok(merged.warnings.some((warning) => warning.startsWith('conflict:')));
+  const differentProof = { ...code, evidenceId: 'code-derived' as never, proofClass: 'derived' as const, expansionHandle: 'handle-2' };
+  assert.equal(mergeEvidence(request, 'retry', [code, differentProof]).evidence.length, 2);
+});
+
+test('CORE-02 short and Unicode lexical identifiers remain searchable', () => {
+  const index = mustOk(createCodeIndex(1, [candidate('export function x() { return "мир"; }')]));
+  assert.equal(searchCode(index, workspaceId, 'x', { digestFor: () => undefined }).length, 1);
+  assert.equal(searchCode(index, workspaceId, 'мир', { digestFor: () => undefined }).length, 1);
+});
 test('RVC-03 filesystem indexer uses exact workspace reads and exposes stale source after mutation', async () => {
   const parent = await mkdtemp(join(tmpdir(), 'ace-index-'));
   const root = join(parent, 'repo');
@@ -171,6 +189,7 @@ test('MVC-02 decision promotion requires confirmation and preserves successor hi
   assert.equal(superseded.state, 'Superseded');
   assert.equal(superseded.successorId, 'decision-b');
   assert.equal(mustErr(makeDecisionRecord({ ...record, state: 'Accepted' })).code, 'INVALID_MEMORY');
+  assert.equal(mustErr(transitionDecision(accepted, { type: 'supersede', atMs: 1_700_000_000_002, successorId: accepted.decisionId })).code, 'INVALID_MEMORY');
 });
 
 test('MVC-03 memory search is as-of and reports conflicting accepted claims', () => {

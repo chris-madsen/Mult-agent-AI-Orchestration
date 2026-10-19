@@ -70,6 +70,7 @@ export const observeWorkspace = (
       nextEpoch,
       snapshot.value.files,
       snapshot.value.removedPaths,
+      snapshot.value.gitStatus,
     );
     if (isErr(version)) return version;
     const updated: WorkspaceRecord = {

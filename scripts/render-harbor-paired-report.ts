@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { isSuccessfulAceContextJsonLine } from '../src/domain/harbor-mcp-evidence.js';
+import { isObservedAceContextJsonLine, isSuccessfulAceContextJsonLine } from '../src/domain/harbor-mcp-evidence.js';
 
 interface HarborAggregateStats {
   readonly n_completed_trials: number;
@@ -47,7 +47,9 @@ interface ConfigurationSummary {
   readonly totalTokens: number;
   readonly costUsd: number;
   readonly trialsWithRewardOne: number;
+  readonly observedAceContextCalls: number;
   readonly successfulAceContextCalls: number;
+  readonly unsuccessfulAceContextCalls: number;
 }
 
 const asRecord = (value: unknown, path: string): Record<string, unknown> => {
@@ -116,9 +118,9 @@ const trialDirectories = async (aggregatePath: string): Promise<readonly string[
   return entries.filter((entry) => entry.isDirectory()).map((entry) => join(resolve(aggregatePath, '..'), entry.name)).sort();
 };
 
-const readTrials = async (aggregatePath: string): Promise<readonly { readonly trial: HarborTrial; readonly mcpCalls: number }[]> => {
+const readTrials = async (aggregatePath: string): Promise<readonly { readonly trial: HarborTrial; readonly observedCalls: number; readonly successfulCalls: number }[]> => {
   const directories = await trialDirectories(aggregatePath);
-  const trials: { readonly trial: HarborTrial; readonly mcpCalls: number }[] = [];
+  const trials: { readonly trial: HarborTrial; readonly observedCalls: number; readonly successfulCalls: number }[] = [];
   for (const directory of directories) {
     const resultPath = join(directory, 'result.json');
     let trial: HarborTrial;
@@ -127,12 +129,14 @@ const readTrials = async (aggregatePath: string): Promise<readonly { readonly tr
     } catch {
       continue;
     }
-    let mcpCalls = 0;
+    let observedCalls = 0;
+    let successfulCalls = 0;
     try {
       const log = await readFile(join(directory, 'agent', 'codex.txt'), 'utf8');
       for (const line of log.split('\n')) {
         try {
-          if (isSuccessfulAceContextJsonLine(line)) mcpCalls += 1;
+          if (isObservedAceContextJsonLine(line)) observedCalls += 1;
+          if (isSuccessfulAceContextJsonLine(line)) successfulCalls += 1;
         } catch {
           // Non-JSON Codex stderr lines are retained but are not MCP evidence.
         }
@@ -140,7 +144,7 @@ const readTrials = async (aggregatePath: string): Promise<readonly { readonly tr
     } catch {
       // Missing logs are validated by the configuration-specific evidence rule.
     }
-    trials.push({ trial, mcpCalls });
+    trials.push({ trial, observedCalls, successfulCalls });
   }
   return trials;
 };
@@ -156,8 +160,9 @@ const summarize = async (configuration: ConfigurationSummary['configuration'], a
   if (trials.length !== 5 || trials.some(({ trial }) => trial.exception_info !== null && trial.exception_info !== undefined)) throw new Error(`${aggregatePath}: every trial must have a result without exception`);
   const trialsWithRewardOne = trials.filter(({ trial }) => trial.verifier_result?.rewards?.reward === 1).length;
   if (trialsWithRewardOne !== 5) throw new Error(`${aggregatePath}: every trial must have verifier reward 1.0`);
-  const successfulAceContextCalls = trials.reduce((sum, item) => sum + item.mcpCalls, 0);
-  if (configuration === 'native-codex' && successfulAceContextCalls !== 0) throw new Error(`${aggregatePath}: native baseline unexpectedly called ACE MCP`);
+  const observedAceContextCalls = trials.reduce((sum, item) => sum + item.observedCalls, 0);
+  const successfulAceContextCalls = trials.reduce((sum, item) => sum + item.successfulCalls, 0);
+  if (configuration === 'native-codex' && observedAceContextCalls !== 0) throw new Error(`${aggregatePath}: native baseline unexpectedly called ACE MCP`);
   const inputTokens = nullableNumber(stats.n_input_tokens, `${aggregatePath}.stats.n_input_tokens`);
   const cachedInputTokens = nullableNumber(stats.n_cache_tokens, `${aggregatePath}.stats.n_cache_tokens`);
   const outputTokens = nullableNumber(stats.n_output_tokens, `${aggregatePath}.stats.n_output_tokens`);
@@ -176,7 +181,9 @@ const summarize = async (configuration: ConfigurationSummary['configuration'], a
     totalTokens: inputTokens + outputTokens,
     costUsd: nullableNumber(stats.cost_usd, `${aggregatePath}.stats.cost_usd`),
     trialsWithRewardOne,
+    observedAceContextCalls,
     successfulAceContextCalls,
+    unsuccessfulAceContextCalls: observedAceContextCalls - successfulAceContextCalls,
   };
 };
 
@@ -186,6 +193,12 @@ const main = async (): Promise<void> => {
   const [nativePath = 'artifacts/harbor-native-natural-repeat5-serial/ace-local-smoke-native-natural-repeat5-serial/result.json', acePath = 'artifacts/harbor-ace-natural-repeat5-serial/ace-local-smoke-ace-natural-repeat5-serial/result.json', outputDirectory = 'benchmarks/reports'] = process.argv.slice(2);
   const native = await summarize('native-codex', nativePath);
   const ace = await summarize('codex-plus-ace', acePath);
+  const aceCallLimitation = ace.observedAceContextCalls === 0
+    ? 'The natural paired ACE arm made no ACE MCP calls; retrieval efficiency remains unmeasured.'
+    : ace.successfulAceContextCalls === 0
+      ? `The ACE arm made ${ace.observedAceContextCalls} ACE context call(s), but none returned a complete successful ContextBundle; they are retained as partial/failed evidence and cannot establish retrieval benefit.`
+      : `The ACE arm made ${ace.observedAceContextCalls} ACE context call(s), including ${ace.successfulAceContextCalls} complete successful call(s); this one-task smoke still cannot establish general retrieval efficiency.`;
+
   const report = {
     report_id: 'ace-local-smoke-natural-paired-repeat5',
     suite_id: 'ace-harness-local-paired',
@@ -202,7 +215,7 @@ const main = async (): Promise<void> => {
     limitations: [
       'This is one deterministic fixture task repeated five times, not a general coding benchmark.',
       'Both configurations achieved the same quality outcome; no quality advantage is established.',
-      'The natural paired task made no ACE MCP calls in either arm; retrieval efficiency remains unmeasured.',
+      aceCallLimitation,
       'Serena, independent MCP and long-horizon memory extraction are not included in this comparison.',
       'The measured ACE overhead is provider-reported Codex usage/cost only; no external provider cost was present.',
       'No 5x improvement claim is permitted.',
@@ -215,16 +228,20 @@ const main = async (): Promise<void> => {
     '- Holdout: `true`',
     '- Trials per configuration: `5`',
     '',
-    '| Configuration | Quality mean | Pass@5 | Input tokens | Output tokens | Total tokens | Cost USD | ACE calls |',
-    '|---|---:|---:|---:|---:|---:|---:|---:|',
-    ...[native, ace].map((item) => `| ${item.configuration} | ${item.qualityMean} | ${item.passAt5} | ${item.inputTokens} | ${item.outputTokens} | ${item.totalTokens} | ${item.costUsd} | ${item.successfulAceContextCalls} |`),
+    '| Configuration | Quality mean | Pass@5 | Input tokens | Output tokens | Total tokens | Cost USD | ACE observed | ACE complete | ACE partial/failed |',
+    '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
+    ...[native, ace].map((item) => `| ${item.configuration} | ${item.qualityMean} | ${item.passAt5} | ${item.inputTokens} | ${item.outputTokens} | ${item.totalTokens} | ${item.costUsd} | ${item.observedAceContextCalls} | ${item.successfulAceContextCalls} | ${item.unsuccessfulAceContextCalls} |`),
     '',
     '## Interpretation',
     '',
     `- Quality delta (ACE - native): ${report.deltas.quality_mean}.`,
     `- Token delta (ACE - native): ${report.deltas.total_tokens}.`,
     `- Cost ratio (ACE/native): ${report.deltas.cost_ratio_ace_over_native.toFixed(3)}.`,
-    '- ACE MCP was available but not called in the natural paired task; this measures no-regression behavior, not retrieval quality or a speedup.',
+    ace.observedAceContextCalls === 0
+      ? '- ACE MCP was available but not called in the natural paired task; this measures no-regression behavior, not retrieval quality or a speedup.'
+      : ace.successfulAceContextCalls === 0
+        ? `- ACE MCP was called ${ace.observedAceContextCalls} time(s), but every call was partial/failed; no ACE retrieval benefit is attributable.`
+        : `- ACE MCP was called ${ace.observedAceContextCalls} time(s), with ${ace.successfulAceContextCalls} complete successful call(s); this smoke remains too narrow for a general speedup claim.`,
     '',
     '## Evidence',
     '',
@@ -235,8 +252,8 @@ const main = async (): Promise<void> => {
     '',
   ].join('\n');
   const csv = [
-    'configuration,trials,completed,errors,quality_mean,pass_at_5,input_tokens,cached_input_tokens,output_tokens,total_tokens,cost_usd,successful_ace_context_calls,aggregate_sha256',
-    ...[native, ace].map((item) => [item.configuration, item.trials, item.completed, item.errors, item.qualityMean, item.passAt5, item.inputTokens, item.cachedInputTokens, item.outputTokens, item.totalTokens, item.costUsd, item.successfulAceContextCalls, item.aggregateSha256].map(csvCell).join(',')),
+    'configuration,trials,completed,errors,quality_mean,pass_at_5,input_tokens,cached_input_tokens,output_tokens,total_tokens,cost_usd,observed_ace_context_calls,successful_ace_context_calls,unsuccessful_ace_context_calls,aggregate_sha256',
+    ...[native, ace].map((item) => [item.configuration, item.trials, item.completed, item.errors, item.qualityMean, item.passAt5, item.inputTokens, item.cachedInputTokens, item.outputTokens, item.totalTokens, item.costUsd, item.observedAceContextCalls, item.successfulAceContextCalls, item.unsuccessfulAceContextCalls, item.aggregateSha256].map(csvCell).join(',')),
   ].join('\n') + '\n';
   await mkdir(outputDirectory, { recursive: true });
   await Promise.all([

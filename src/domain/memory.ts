@@ -67,6 +67,11 @@ export const makeEpisode = (input: SessionEpisode): Result<SessionEpisode, Domai
     return err(domainError('INVALID_MEMORY', 'episode', 'session id and source pointer are required'));
   }
   if (input.content.length === 0) return err(domainError('INVALID_MEMORY', 'content', 'episode content must not be empty'));
+  // Platform-independent domain validation: the archive adapter verifies
+  // SHA-256 binding to the exact bytes at the persistence boundary (DBC-09).
+  if (!/^[a-f0-9]{64}$/u.test(input.contentDigest)) {
+    return err(domainError('INVALID_MEMORY', 'content_digest', 'episode requires a lowercase SHA-256 digest'));
+  }
   if (!Number.isSafeInteger(input.occurredAtMs) || !Number.isSafeInteger(input.importedAtMs)) {
     return err(domainError('INVALID_MEMORY', 'timestamp', 'episode timestamps must be safe integers'));
   }
@@ -125,6 +130,9 @@ export const transitionDecision = (record: DecisionRecord, event: DecisionEvent)
   }
   if (event.type === 'confirm') return ok({ ...record, state: 'Accepted' });
   if (event.type === 'reject') return ok({ ...record, state: 'Rejected', validToMs: event.atMs });
+  if (event.successorId === record.decisionId || !nonEmpty(event.successorId)) {
+    return err(domainError('INVALID_MEMORY', 'successor_id', 'successor must be a non-empty different decision'));
+  }
   return ok({ ...record, state: 'Superseded', validToMs: event.atMs, successorId: event.successorId });
 };
 

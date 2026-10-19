@@ -48,7 +48,7 @@ export const makeLocalContextProvider = (options: LocalContextProviderOptions) =
         ? { digest: current.value.digest }
         : { error: current.error.code });
     }
-    const evidence = ranked.flatMap((item, index) => {
+    let evidence = ranked.flatMap((item, index) => {
       const evidenceId = makeEvidenceId(`code-${index + 1}`);
       if (evidenceId._tag === 'Err') return [];
       const checkedSource = checked.get(item.candidate.repoPath);
@@ -57,7 +57,26 @@ export const makeLocalContextProvider = (options: LocalContextProviderOptions) =
         : checkedSource.digest === item.candidate.sourceDigest ? 'current' : 'stale';
       return [evidenceFromCandidate({ ...item, freshness }, evidenceId.value)];
     });
+    // Revalidate every selected path at the end of the entire retrieval
+    // request. A digest changing after the first verification invalidates
+    // current evidence; no uncertain result is promoted as verified source.
+    const changedPaths = new Set<string>();
+    for (const [path, earlier] of checked) {
+      const finalRead = yield* options.files.readExact(options.rootPath, path as typeof ranked[number]['candidate']['repoPath']);
+      if (finalRead._tag === 'Err' || earlier.digest === undefined || finalRead.value.digest !== earlier.digest) {
+        changedPaths.add(path);
+      }
+    }
+    if (changedPaths.size > 0) {
+      evidence = evidence.map((item) => {
+        const path = item.citation.slice(0, item.citation.lastIndexOf(':'));
+        return changedPaths.has(path)
+          ? { ...item, freshness: 'changed_during_request' as const, proofClass: 'uncertain' as const }
+          : item;
+      });
+    }
     const warnings = [
+      ...[...changedPaths].map((path) => path + ': source changed during context request'),
       ...(options.additionalWarnings ?? []),
       'Local lexical fallback is not a production Qdrant + semantic retrieval implementation',
       ...[...checked.entries()].filter(([, result]) => result.error !== undefined).map(([path, result]) => path + ': ' + result.error),
