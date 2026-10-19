@@ -52,7 +52,13 @@ test('Qdrant snapshot manifest is reusable only after atomic publication', async
   assert.equal(published._tag, 'Ok');
   if (published._tag === 'Ok') assert.equal(published.value, true);
 
-  const changedMembership = await state.isPublished({ ...identity, candidateIds: ['candidate-a'] });
+  const changedMembership = await state.isPublished({
+    ...identity,
+    candidateIds: ['candidate-a'],
+    fileManifest: identity.fileManifest.map((file) => file.repoPath === 'src/b.ts'
+      ? { ...file, candidateIds: [] }
+      : file),
+  });
   assert.equal(changedMembership._tag, 'Ok');
   if (changedMembership._tag === 'Ok') assert.equal(changedMembership.value, false);
 
