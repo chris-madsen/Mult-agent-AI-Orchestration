@@ -82,6 +82,7 @@ const readSourceFiles = async (
 const makeDocumentationProvider = (
   workspaceId: WorkspaceId,
   http: ReturnType<typeof makeFetchHttpPort>,
+  providerTrace: ReturnType<typeof makeFileProviderTrace>,
 ) => {
   const project = process.env.ACE_VERTEX_PROJECT?.trim();
   const corpusId = process.env.ACE_VERTEX_CORPUS_ID?.trim();
@@ -99,6 +100,8 @@ const makeDocumentationProvider = (
     accessToken: gcloudAccessToken,
     policy,
     http,
+    trace: providerTrace,
+    providerVersion: process.env.ACE_VERTEX_PROVIDER_VERSION?.trim() || 'vertex-rag/v1beta1',
   });
 };
 
@@ -179,6 +182,8 @@ const main = async (): Promise<void> => {
         workspaceId: registered.value.workspaceId,
         policy: defaultLocalPolicy(registered.value.workspaceId),
         archive,
+        trace: providerTrace,
+        providerVersion: process.env.ACE_GRAPHITI_VERSION?.trim() || 'graphiti-mcp/unknown',
       });
       memory = graphiti.memory;
       closeMemory = graphiti.close;
@@ -410,7 +415,7 @@ const main = async (): Promise<void> => {
             embeddings.close();
             throw new Error(`TypeScript language service preflight failed (${languageServiceReady.error.code})`);
           }
-          const documentation = makeDocumentationProvider(registered.value.workspaceId, http);
+          const documentation = makeDocumentationProvider(registered.value.workspaceId, http, providerTrace);
           context = makeQdrantContextProvider({
             workspaceId: registered.value.workspaceId,
             rootPath: registered.value.rootPath,
@@ -427,6 +432,7 @@ const main = async (): Promise<void> => {
             indexKey: sourceKey,
             candidateLimit,
             coverage: built.value.coverage,
+            trace: providerTrace,
             ...(documentation === undefined ? {} : { documentation }),
             ...(memory === undefined ? {} : { memory }),
           });
