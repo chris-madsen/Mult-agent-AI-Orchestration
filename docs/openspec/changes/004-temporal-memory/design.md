@@ -46,3 +46,7 @@ Read `docs/architecture/01-strategic-ddd.md` through `05-contracts-and-deploymen
 ## Open Questions / Blocking Spikes
 
 Refer to `docs/architecture/05-contracts-and-deployment.md` §11. Do not silently settle undecided providers, transports or mount patterns. Escalate material choices to the owner through a new ADR.
+
+## Owner local-first confirmation — 2026-10-19
+
+Graphiti + FalkorDB are selected as local-first temporal memory infrastructure. Raw Codex dialogues, derived claims and extraction payloads stay local without a separate cloud opt-in; FalkorDB locality alone does **not** prove inference locality. Codex should identify and run a real supported local Graphiti extraction/inference backend (without forcing Ollama), verify outbound traffic, projection completion vs pending state, temporal search with original citations, crash/restart reconciliation, shared-blob deletion and graph purge. Do not claim production E2E if that local backend cannot run.
