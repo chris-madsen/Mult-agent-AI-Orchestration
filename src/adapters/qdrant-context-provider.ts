@@ -64,8 +64,9 @@ export const populateQdrantFromStructuralIndex = (
   return ok(count);
 });
 
-// Index creation never deletes or silently replaces an existing collection.
-// The vector dimension must match the approved embedding provider.
+// Collection bootstrap never replaces an existing collection. After a successful
+// rebuild, obsolete generations for the same workspace may be pruned explicitly.
+// Vector dimension must match the configured experimental embedding provider.
 export const ensureQdrantCollection = (
   http: HttpPort,
   baseUrl: string,
