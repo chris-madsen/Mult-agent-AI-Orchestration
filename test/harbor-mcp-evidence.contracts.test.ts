@@ -75,3 +75,14 @@ test('Harbor evidence rejects non-terminal, unrelated and malformed events', () 
   assert.equal(isSuccessfulAceContextJsonLine('not-json'), false);
   assert.equal(successfulAceContextRequestIdJsonLine('not-json'), undefined);
 });
+
+test('DBC-12 does not count a completed MCP tool error as a successful context response', () => {
+  const good = event();
+  const item = good.item as Record<string, unknown>;
+  const original = item.result as Record<string, unknown>;
+  const failed = event({ result: { ...original, isError: true } });
+  assert.equal(isObservedAceContextEvent(failed), true);
+  assert.equal(isSuccessfulAceContextEvent(failed), false);
+  assert.equal(successfulAceContextRequestId(failed), undefined);
+  assert.equal(isSuccessfulAceContextEvent(event({ result: { ...original, is_error: true } })), false);
+});
