@@ -234,7 +234,7 @@ const main = async (): Promise<void> => {
         });
         const indexed = await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
           built.value.index, qdrant, embeddings, http, qdrantUrl, collection,
-          registered.value.workspaceId, generation, sourceKey, qdrantAllowedHosts,
+          registered.value.workspaceId, sourceKey, qdrantAllowedHosts,
         ));
         if (indexed._tag === 'Err') {
           embeddings.close();
