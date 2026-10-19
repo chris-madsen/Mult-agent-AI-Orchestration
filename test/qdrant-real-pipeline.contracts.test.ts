@@ -87,7 +87,7 @@ test('warm Qdrant snapshot reuse does not re-embed or upsert current source', as
   };
   const index = mustOk(createCodeIndex(1, [candidate]));
   const ready = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
-    index, qdrant, embeddings, http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 1, 'snapshot-digest',
+    index, qdrant, embeddings, http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'snapshot-digest',
   )));
   assert.deepEqual(ready, { count: 1, reused: true });
   assert.equal(requests, 1);
@@ -107,7 +107,7 @@ test('Qdrant warm reuse rebuilds on different count and fails closed on count ou
   };
   const http: HttpPort = { request: () => Effect.succeed(ok({ status: 200, body: { result: { count: 0 } } })) };
   const rebuilt = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
-    index, qdrant, embeddings, http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 1, 'snapshot-digest',
+    index, qdrant, embeddings, http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'snapshot-digest',
   )));
   assert.deepEqual(rebuilt, { count: 1, reused: false });
   assert.equal(upserts, 1);
