@@ -6,7 +6,8 @@ import { importMemoryEpisodes } from '../src/application/memory-import.js';
 import type { AsyncMemoryArchivePort } from '../src/adapters/file-memory-archive.js';
 import { admitMemoryEpisode } from '../src/domain/memory-admission.js';
 import { evaluateMemoryEconomics } from '../src/domain/memory-economics.js';
-import { ok } from '../src/domain/result.js';
+import { err, ok } from '../src/domain/result.js';
+import { domainError } from '../src/domain/errors.js';
 import { makeEpisodeId, type EpisodeId, type ProjectionReceipt, type SessionEpisode } from '../src/domain/memory.js';
 import type { GraphProjectionPort } from '../src/application/ports.js';
 import { makeWorkspaceId, type ContentDigest } from '../src/domain/workspace.js';
@@ -57,11 +58,14 @@ const inMemoryArchive = (): { readonly archive: AsyncMemoryArchivePort; readonly
   return { archive, episodes };
 };
 
-const projectionSession = (calls: { created: number; projected: number }): { projection: GraphProjectionPort; close: () => Promise<void> } => {
+interface ProjectionCalls { created: number; projected: number; occurredAtMs?: number }
+
+const projectionSession = (calls: ProjectionCalls): { projection: GraphProjectionPort; close: () => Promise<void> } => {
   calls.created += 1;
   const projection: GraphProjectionPort = {
     project: (input) => {
       calls.projected += 1;
+      calls.occurredAtMs = input.occurredAtMs;
       const receipt: ProjectionReceipt = {
         key: `${input.episodeId}:${input.extractorVersion}` as never,
         episodeId: input.episodeId,
@@ -109,13 +113,15 @@ test('MAC-02 durable decision is projected once while raw episode remains archiv
     assert.equal(result.value[0]?.projectionStatus, 'pending');
   }
   assert.equal(local.episodes.size, 1);
-  assert.deepEqual(calls, { created: 1, projected: 1 });
+  assert.equal(calls.created, 1);
+  assert.equal(calls.projected, 1);
+  assert.equal(calls.occurredAtMs, 1_700_000_000_000);
 });
 
 test('MAC-03 explicit archive-only annotation wins over a decision-like sentence', () => {
   assert.deepEqual(admitMemoryEpisode(episode('annotated', 'We decided to use the local index.', 'archive_only')), {
     kind: 'archive_only',
-    reason: 'ordinary_transcript',
+    reason: 'explicit_archive_only',
   });
 });
 
@@ -144,4 +150,44 @@ test('MAC-05 economics stays unknown until Graphiti reports provider token usage
 test('MAC-06 invalid economics counters fail closed', () => {
   const invalid = evaluateMemoryEconomics({ ingestionInputTokens: -1, reuseCount: 0 });
   assert.equal(invalid._tag, 'Err');
+});
+
+
+test('MAC-07 Russian durable decision is admitted without requiring an owner-side annotation', () => {
+  assert.deepEqual(
+    admitMemoryEpisode(episode('ru-decision', 'Мы решили использовать локальный Graphiti backend и не отправлять диалоги в облако.')),
+    { kind: 'project', reason: 'durable_decision' },
+  );
+});
+
+test('MAC-08 Graphiti failure never prevents later originals from being archived', async () => {
+  const local = inMemoryArchive();
+  let projectionCalls = 0;
+  const failedProjection: GraphProjectionPort = {
+    project: () => {
+      projectionCalls += 1;
+      return Effect.succeed(err(domainError('EXTERNAL_UNAVAILABLE', 'graphiti', 'injected extraction failure')));
+    },
+    purge: () => Effect.succeed(ok(undefined)),
+  };
+  const result = await importMemoryEpisodes({
+    episodes: [
+      episode('decision-fails', 'We decided to use Qdrant for this retrieval experiment.'),
+      episode('later-original', 'Opened another source file after the decision.'),
+      episode('later-decision', 'We decided to keep Graphiti local-first.'),
+    ],
+    archive: local.archive,
+    createProjection: async () => ({ projection: failedProjection, close: async () => undefined }),
+    extractorVersion: 'test-extractor',
+  });
+
+  assert.equal(result._tag, 'Ok');
+  assert.equal(local.episodes.size, 3, 'all raw episodes are archived before derived projection');
+  assert.equal(projectionCalls, 2, 'later admitted memories are attempted even after an earlier extraction failure');
+  if (result._tag === 'Ok') {
+    assert.equal(result.value[0]?.projectionStatus, 'incomplete');
+    assert.equal(result.value[0]?.projectionErrorCode, 'EXTERNAL_UNAVAILABLE');
+    assert.equal(result.value[1]?.admission.kind, 'archive_only');
+    assert.equal(result.value[2]?.projectionStatus, 'incomplete');
+  }
 });
