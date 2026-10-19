@@ -227,6 +227,10 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
           failed.push('documentation');
         } else {
           evidence.push(...documents.value);
+          if (documents.value.length === 0) {
+            warnings.push('Vertex documentation corpus returned no contexts');
+            failed.push('documentation');
+          }
           // Vertex cloud RAG chunks are not verified against current workspace documents.
           if (documents.value.some((item) => item.freshness !== 'current')) failed.push('documentation');
         }

@@ -67,6 +67,17 @@ test('Vertex v1beta1 retrieval uses real retrieveContexts wire shape and provena
   assert.equal(result[0]?.freshness, 'unknown');
 });
 
+test('Vertex empty Europe corpus is a valid empty result, never invented documentation', async () => {
+  const workspaceId = value(makeWorkspaceId('vertex-empty-europe'));
+  const provider = makeVertexRagRetrievalPort({
+    project: 'poetic-emblem-494722-v2', location: 'europe-west4', corpusId: '2305843009213693952',
+    accessToken: () => 'token', policy: { ...defaultLocalPolicy(workspaceId), cloudOptIn: true, allowedCloudProviders: ['vertex'] },
+    http: { request: () => Effect.succeed(ok({ status: 200, body: {} })) },
+  });
+  const result = value(await Effect.runPromise(provider.search({ workspaceId, query: 'synthetic readiness probe', topK: 3 })));
+  assert.deepEqual(result, []);
+});
+
 test('DBC-11 independent archive instances preserve shared blobs during deletion', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ace-process-archive-'));
   const a = await makeAsyncFileMemoryArchive(root);

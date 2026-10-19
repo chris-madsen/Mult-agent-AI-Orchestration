@@ -34,8 +34,12 @@ const integerField = (value: Record<string, unknown>, key: string): Result<numbe
     ? ok(value[key])
     : err(domainError('INVALID_EXTERNAL_RESPONSE', key, `external response field ${key} must be a positive integer`));
 
-const externalFailure = (response: HttpResponse, provider: string): Result<never, DomainError> =>
-  err(domainError('EXTERNAL_UNAVAILABLE', provider, `external provider returned HTTP ${response.status}`));
+const externalFailure = (response: HttpResponse, provider: string): Result<never, DomainError> => {
+  const body = object(response.body);
+  const status = object(body?.status);
+  const detail = typeof status?.error === 'string' ? `: ${status.error.slice(0, 240)}` : '';
+  return err(domainError('EXTERNAL_UNAVAILABLE', provider, `external provider returned HTTP ${response.status}${detail}`));
+};
 
 const successful = (response: HttpResponse): boolean => response.status >= 200 && response.status < 300;
 

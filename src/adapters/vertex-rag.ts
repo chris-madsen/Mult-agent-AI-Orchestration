@@ -53,7 +53,8 @@ export const makeVertexRagRetrievalPort = (config: VertexRagConfig): Documentati
     }
     const group = (outer as { contexts?: unknown }).contexts;
     const contexts = typeof group === 'object' && group !== null && !Array.isArray(group)
-      ? (group as { contexts?: unknown }).contexts : undefined;
+      ? (group as { contexts?: unknown }).contexts
+      : Object.keys(outer as Record<string, unknown>).length === 0 ? [] : undefined;
     if (!Array.isArray(contexts)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'vertex', 'contexts.contexts must be array'));
     const results: RetrievalEvidence[] = [];
     for (const [i, raw] of contexts.entries()) {

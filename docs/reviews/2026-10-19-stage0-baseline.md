@@ -3,7 +3,7 @@
 **Date:** 2026-10-19
 **Source revision:** `d4c8411` (`main`)
 **Plan:** `docs/openspec/changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md`
-**Status:** baseline complete; local backends are provisioned, while provider selection and real-data evidence remain explicit gates.
+**Status:** baseline complete; local backends are provisioned and an exploratory real-provider retrieval slice is evidenced. Production selection and real-data gates remain open.
 
 ## Reproducibility
 
@@ -61,9 +61,9 @@ The PyTorch result is the strongest result on this tiny holdout but is slower an
 ## Explicit blockers and next actions
 
 1. Do not select Ollama or any other embedding provider by default. The exploratory comparison is recorded separately; preserve failed candidates and the deterministic hash vector as a test double only.
-2. Select an embedding candidate only after the measured report, model/license/digest review, and owner approval; then wire it to Qdrant with model-versioned collections.
+2. The measured FastEmbed multilingual candidate is wired for exploratory Qdrant E2E in a model-versioned collection. Production selection still requires the larger holdout, model/license/digest review and owner approval.
 3. Compare Serena with direct TypeScript Language Service on identical fixtures before making a production LSP recommendation.
-4. Keep the Vertex Europe corpus empty until the owner authorizes a corpus fixture import; then run real citation/version/denial/timeout probes.
+4. The Vertex Europe corpus is intentionally empty. The authenticated corpus/retrieveContexts validation is recorded in `2026-10-19-vertex-gcloud-corpus-validation.md`; fixture import and citation/version probes still require owner authorization.
 5. Check Graphiti MCP extraction with an approved LLM/inference provider; FalkorDB health alone is not Graphiti extraction evidence.
 6. Begin Harbor exploratory paired runs only after the actual MCP/provider composition and trace parser are available.
 
