@@ -1,6 +1,6 @@
 # ADR-013 — Genuine embeddings without a mandatory model-serving wrapper
 
-**Status: Proposed — production model/runtime selection remains open.** Date: 2026-10-19. The owner explicitly rejected adding Ollama as a selected or mandatory ACE dependency.
+**Status: Accepted (evaluation protocol only) — owner approval on 2026-10-19; production model/runtime selection remains open.** Date: 2026-10-19. The owner explicitly rejected adding Ollama as a selected or mandatory ACE dependency.
 
 ## Context
 
@@ -27,6 +27,6 @@ A mandatory Ollama server; custom embeddings; fake SHA-256 semantic vectors; dec
 
 ## References
 
-ADR-003, ADR-004, ADR-007, ADR-009, ADR-012 (Proposed).
+ADR-003, ADR-004, ADR-007, ADR-009, ADR-012 (Accepted).
 - https://qdrant.tech/documentation/tutorials-basics/generate-embeddings-fastembed/
 - https://qdrant.github.io/fastembed/
