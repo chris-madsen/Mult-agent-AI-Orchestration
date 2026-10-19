@@ -22,7 +22,7 @@ const [packageLock, sbomBytes, provenanceBytes, licenseBytes] = await Promise.al
   readFile(resolve(licenseArg as string)),
 ]);
 
-const audit = spawnSync('npm', ['audit', '--omit=dev', '--json'], {
+const audit = spawnSync('npm', ['audit', '--omit=dev', '--audit-level=high', '--json'], {
   cwd: process.cwd(),
   encoding: 'utf8',
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -53,7 +53,7 @@ const verdict = evaluateSupplyChainEvidence({
   sbomSha256: hash(sbomBytes),
   sbom,
   productionAudit: auditReport,
-  auditCommand: 'npm audit --omit=dev --json',
+  auditCommand: 'npm audit --omit=dev --audit-level=high --json',
   imageProvenance,
   licenseReview,
 });
@@ -73,7 +73,7 @@ const output = {
     productionAudit: {
       path: relative(process.cwd(), resolve(auditOutputArg as string)),
       sha256: hash(Buffer.from(JSON.stringify(auditReport, null, 2) + '\n', 'utf8')),
-      command: 'npm audit --omit=dev --json',
+      command: 'npm audit --omit=dev --audit-level=high --json',
       exitCode: audit.status,
     },
   },
