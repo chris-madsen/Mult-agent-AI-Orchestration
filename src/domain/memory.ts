@@ -153,10 +153,12 @@ export const scheduleProjectionRetry = (
   const attempts = receipt.attempts + 1;
   const totalAttempts = (receipt.totalAttempts ?? receipt.attempts) + 1;
   const {
-    nextAttemptAtMs: _nextAttemptAtMs,
-    deadLetteredAtMs: _deadLetteredAtMs,
+    nextAttemptAtMs: discardedNextAttemptAtMs,
+    deadLetteredAtMs: discardedDeadLetteredAtMs,
     ...retryBase
   } = receipt;
+  void discardedNextAttemptAtMs;
+  void discardedDeadLetteredAtMs;
   if (attempts >= policy.maxAttempts) {
     return ok({
       ...retryBase,
@@ -200,11 +202,14 @@ export const recordProjectionEnqueue = (
   const attempts = receipt.attempts + 1;
   const totalAttempts = (receipt.totalAttempts ?? receipt.attempts) + 1;
   const {
-    nextAttemptAtMs: _nextAttemptAtMs,
-    deadLetteredAtMs: _deadLetteredAtMs,
-    lastErrorCode: _lastErrorCode,
+    nextAttemptAtMs: discardedNextAttemptAtMs,
+    deadLetteredAtMs: discardedDeadLetteredAtMs,
+    lastErrorCode: discardedLastErrorCode,
     ...enqueueBase
   } = receipt;
+  void discardedNextAttemptAtMs;
+  void discardedDeadLetteredAtMs;
+  void discardedLastErrorCode;
   return ok({
     ...enqueueBase,
     status: providerReceipt.status,
@@ -225,7 +230,8 @@ export const deadLetterProjection = (
   if (receipt.status === 'projected' || receipt.status === 'tombstoned') {
     return err(domainError('INVALID_MEMORY', 'projection_dead_letter', 'successful/tombstoned projection cannot be dead-lettered'));
   }
-  const { nextAttemptAtMs: _nextAttemptAtMs, ...deadBase } = receipt;
+  const { nextAttemptAtMs: discardedNextAttemptAtMs, ...deadBase } = receipt;
+  void discardedNextAttemptAtMs;
   return ok({
     ...deadBase,
     status: 'dead_letter',
@@ -241,10 +247,12 @@ export const repairProjection = (
     return err(domainError('INVALID_MEMORY', 'projection_repair', 'only failed projection receipts may be manually repaired'));
   }
   const {
-    nextAttemptAtMs: _nextAttemptAtMs,
-    deadLetteredAtMs: _deadLetteredAtMs,
+    nextAttemptAtMs: discardedNextAttemptAtMs,
+    deadLetteredAtMs: discardedDeadLetteredAtMs,
     ...repairBase
   } = receipt;
+  void discardedNextAttemptAtMs;
+  void discardedDeadLetteredAtMs;
   return ok({
     ...repairBase,
     status: 'pending',
