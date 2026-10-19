@@ -64,7 +64,7 @@ export const populateQdrantFromStructuralIndex = (
     if (embedded.value.length !== missing.length) {
       return err(domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'embedding batch size mismatch'));
     }
-    const generated = new Map(missing.map((candidate, index) => [candidate.candidateId, embedded.value[index] ?? []] as const));
+    const generated = new Map(missing.map((candidate, vectorIndex) => [candidate.candidateId, embedded.value[vectorIndex] ?? []] as const));
     const points: CodePoint[] = [];
     for (const candidate of candidates) {
       const vector = seedVectors.get(candidate.candidateId) ?? generated.get(candidate.candidateId);
