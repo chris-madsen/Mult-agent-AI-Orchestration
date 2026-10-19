@@ -10,6 +10,7 @@ import {
   type CodeIndex,
   type ContextBundle,
   type IndexCoverageSummary,
+  type IndexFileIdentity,
   type RankedCandidate,
   type RetrievalEvidence,
 } from '../domain/retrieval.js';
@@ -185,6 +186,7 @@ export const codeIndexKey = (
   index: CodeIndex,
   coverage?: IndexCoverageSummary,
   providerFingerprint?: string,
+  fileManifest: readonly IndexFileIdentity[] = [],
 ): string => {
   const stable = [...index.candidates]
     .sort((left, right) => left.candidateId.localeCompare(right.candidateId))
@@ -213,8 +215,20 @@ export const codeIndexKey = (
       .map((failure) => [failure.repoPath, failure.kind, failure.code ?? null])
       .sort((left, right) => String(left[0]).localeCompare(String(right[0]))),
   };
+  const files = [...fileManifest]
+    .map((file) => ({
+      repoPath: file.repoPath,
+      sourceDigest: file.sourceDigest,
+      candidateIds: [...file.candidateIds].sort(),
+    }))
+    .sort((left, right) => left.repoPath.localeCompare(right.repoPath));
   return createHash('sha256')
-    .update(JSON.stringify({ stable, coverage: coverageIdentity ?? null, providerFingerprint: providerFingerprint ?? null }), 'utf8')
+    .update(JSON.stringify({
+      stable,
+      files,
+      coverage: coverageIdentity ?? null,
+      providerFingerprint: providerFingerprint ?? null,
+    }), 'utf8')
     .digest('hex');
 };
 
