@@ -11,7 +11,7 @@ import type {
 } from '../domain/workspace.js';
 import type { Result } from '../domain/result.js';
 import type { ContextBundle, CodeCandidate, RankedCandidate } from '../domain/retrieval.js';
-import type { EpisodeId, ProjectionReceipt, SessionEpisode } from '../domain/memory.js';
+import type { EpisodeId, MemorySearchResult, ProjectionReceipt, SessionEpisode } from '../domain/memory.js';
 import type {
   SemanticDefinition,
   SemanticDiagnostic,
@@ -100,6 +100,15 @@ export interface SemanticQuery {
   readonly column: number;
   /** Correlates semantic provider work to one ACE ContextBundle. */
   readonly requestId?: string;
+}
+
+export interface MemorySearchPort {
+  readonly search: (input: {
+    readonly workspaceId: WorkspaceId;
+    readonly query: string;
+    readonly asOfMs?: number;
+    readonly includeOriginal: boolean;
+  }) => Effect.Effect<Result<MemorySearchResult, DomainError>>;
 }
 
 export interface GraphProjectionPort {
