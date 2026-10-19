@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { Effect } from 'effect';
+import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
+import { createAceServer } from '../src/transport/mcp-sdk-stdio.js';
 import { createHash } from 'node:crypto';
 import { projectContextForDelivery, contextTransportText, resolveDeliveryIntent } from '../src/domain/context-delivery.js';
 import type { ContextBundle, RetrievalEvidence } from '../src/domain/retrieval.js';
@@ -70,4 +73,35 @@ test('long first-ranked functions use explicit on-demand delivery, never silent 
   assert.equal(projected.evidence[0]?.contentDelivery, 'expand');
   assert.equal(projected.evidence[0]?.expansionHandle, 'exact-original-handle-2');
   assert.equal(projected.evidence[0]?.originalSpanLines, bodies[2]?.split('\n').length);
+});
+
+test('actual official MCP transport does not mirror the entire structured ContextBundle as text', async () => {
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const projected = projectContextForDelivery(bundle, 'locate');
+  const server = createAceServer({
+    handle: () => Effect.succeed({ status: 'ok' as const, result: { ...projected } }),
+  });
+  const client = new Client({ name: 'progressive-context-client', version: '1.0.0' });
+  await server.connect(serverTransport);
+  try {
+    await client.connect(clientTransport);
+    const response = await client.callTool({
+      name: 'ace_context', arguments: { workspace_id: 'fixture', query: 'find handler' },
+    });
+    assert.equal(response.isError, undefined);
+    const structured = response.structuredContent as unknown as ContextBundle;
+    assert.equal(structured.evidence.length, 6);
+    assert.equal(structured.evidence[0]?.content, bodies[0]);
+    assert.equal(structured.evidence[4]?.contentDelivery, 'expand');
+    assert.equal(structured.evidence[4]?.expansionHandle, 'exact-original-handle-4');
+    const textual = response.content[0];
+    assert.equal(textual?.type, 'text');
+    if (textual?.type !== 'text') return;
+    assert.match(textual.text, /ACE source map/);
+    assert.doesNotMatch(textual.text, /Uint8Array\(100\)/);
+    assert.ok(Buffer.byteLength(textual.text) < Buffer.byteLength(JSON.stringify(structured)));
+  } finally {
+    await client.close();
+    await server.close();
+  }
 });
