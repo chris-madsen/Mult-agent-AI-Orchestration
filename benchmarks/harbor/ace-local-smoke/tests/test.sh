@@ -1,7 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
-test "$(cat /workspace/fixture.txt)" = "ACE smoke fixture: DONE"
+python3 - <<'PY'
+from pathlib import Path
+expected = 'export function smokeFixtureStatus(): string {\n  return "ACE smoke fixture: DONE";\n}\n'
+assert Path('/workspace/fixture.ts').read_text() == expected
+PY
 test -s /logs/agent/codex.txt
 python3 - <<'PY'
 import json
