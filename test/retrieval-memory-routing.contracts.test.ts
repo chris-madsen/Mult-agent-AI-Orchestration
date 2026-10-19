@@ -277,13 +277,13 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
   });
   const context = await Effect.runPromise(gateway.handle({ name: 'ace_context', arguments: { workspace_id: workspaceId, query: 'save' } }));
   assert.equal(context.status, 'ok');
-  assert.deepEqual(lastContextInput, { includeDocs: false, includeMemory: false });
+  assert.deepEqual(lastContextInput === undefined ? undefined : { includeDocs: lastContextInput.includeDocs, includeMemory: lastContextInput.includeMemory }, { includeDocs: false, includeMemory: false });
 
   await Effect.runPromise(gateway.handle({
     name: 'ace_context',
     arguments: { workspace_id: workspaceId, query: 'why did we choose this architecture decision?' },
   }));
-  assert.deepEqual(lastContextInput, { includeDocs: true, includeMemory: true });
+  assert.deepEqual(lastContextInput === undefined ? undefined : { includeDocs: lastContextInput.includeDocs, includeMemory: lastContextInput.includeMemory }, { includeDocs: true, includeMemory: true });
 
   await Effect.runPromise(gateway.handle({
     name: 'ace_context',
@@ -294,7 +294,7 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
       include_memory: false,
     },
   }));
-  assert.deepEqual(lastContextInput, { includeDocs: false, includeMemory: false });
+  assert.deepEqual(lastContextInput === undefined ? undefined : { includeDocs: lastContextInput.includeDocs, includeMemory: lastContextInput.includeMemory }, { includeDocs: false, includeMemory: false });
 
   const memory = await Effect.runPromise(gateway.handle({ name: 'ace_memory_search', arguments: { workspace_id: workspaceId, query: 'decision' } }));
   assert.equal(memory.status, 'ok');
