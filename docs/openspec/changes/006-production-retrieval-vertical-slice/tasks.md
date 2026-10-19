@@ -1,8 +1,8 @@
 # Tasks — Production retrieval vertical slice
 
-**State: REAL PROVIDER + AGENT E2E MEASURED; production approval pending.** The
-configured code-retrieval path and paired Harbor evidence are implemented and
-verified. Semantic-quality, cross-source and owner-approval gates remain
+**State: REAL PROVIDER + FORCED-USE HARBOR DIAGNOSTIC; DBC-12 NOT CLOSED.** The
+configured retrieval path has real-provider evidence, but per-request provider correlation,
+natural agent choice, amortized warm retrieval, and total local infrastructure costs have not been verified. Semantic-quality, cross-source and owner-approval gates remain
 explicitly open; prior port-level `[x]` markers do not satisfy those gates.
 
 ## Architecture/approval
@@ -29,12 +29,12 @@ explicitly open; prior port-level `[x]` markers do not satisfy those gates.
 - [x] DBC-09 official MCP SDK conformance with **Codex**, cancellation/error paths. The official TypeScript client covers handshake/list/call/error/concurrency/cancellation, and Harbor proves actual Codex→MCP→ACE calls.
 - [x] DBC-10 stable Codex historical episode IDs after append and replay (`npm run test:memory-process`: separate export workers preserve the first episode ID after append; archive import/replay remains idempotent).
 - [ ] DBC-11 shared digest archive delete and derived purge correctness.
-- [x] DBC-12 realistic Harbor attribution and quality gate (three retrieval-demanding tasks, 3×3 serial paired trials, ACE calls and provider receipts verified; result is measured but below 1×).
+- [ ] DBC-12 realistic Harbor attribution and quality gate. A 3-task × 3-repeat **forced-use diagnostic** found 9/9 quality per arm and 0.567× raw-token ratio; provider operations were not correlated with individual MCP requests, local compute costs were not measured, and natural agent choice was not tested. Do not count this as normative attribution closure.
 - [x] DBC-13 restart with stale index and dirty worktree (`npm run test:real-provider-restart`, generation 1→2 and D1→D2 digest evidence).
 - [ ] DBC-14 docs-vs-code conflict disambiguation. **Logic sub-gate passed:** a test DocumentationPort preserves both claims and emits a structured conflict, but the normative scenario still needs real approved Vertex documentation with citations versus current code.
 
 ## Performance and exit
-- [x] Run paired Harbor retrieval-demanding tests (at least more than one fixture task), count ACE calls and external provider costs, include failed trials; never claim 5× from trivial/zero-call smoke.
+- [ ] Run paired **natural-use** Harbor retrieval-demanding tests on a frozen larger repository/workload, count observed/complete/failed ACE calls, attribute provider traces to requests, meter end-to-end local and agent costs, and preserve failures. The existing forced-use 3×3 trial is diagnostic evidence, not the full required test.
 - [x] Run OpenSpec CLI strict validation, typecheck, lint, unit, real-provider integration and Codex agent E2E; attach outputs or label unknown.
 - [ ] Owner reviews actual provider trace, benchmark and all mandatory contracts before declaring `production-ready`; no `controlled exception` can close a failed mandatory gate.
 
@@ -47,7 +47,7 @@ The owner **permits exploratory integration and benchmarks immediately**. Unchec
 - [ ] Codex completes the Serena vs direct TypeScript Language Service comparison in Accepted ADR-004 before designating one as approved.
 - [ ] Codex runs Vertex IAM/corpus/citation probes via existing host `gcloud` login. The owner-authorized `ace-europe-stage2` corpus exists and must be retained; real citation retrieval remains open. Private-document transmission remains separately permissioned.
 - [ ] Codex verifies local-first Graphiti + FalkorDB ingestion/extraction/recall/deletion with no unapproved cloud dialogue transfer. **No owner model-selection wait:** Codex is authorized to choose/install a supported local-only experimental inference backend and proceed.
-- [x] Codex actually executes Harbor paired retrieval-intensive trials, preserving failures, costs, ACE call counts and quality. **5× is a measurement hypothesis, not an entry condition**.
+- [ ] Codex completes **natural-use** Harbor paired retrieval-intensive trials. The forced-use 3×3 diagnostic already ran and is preserved, but does not prove attributable savings. **5× is a measurement hypothesis, not an entry condition**.
 
 ## Authoritative next execution plan
 
