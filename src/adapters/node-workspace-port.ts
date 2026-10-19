@@ -24,10 +24,9 @@ const nodeErrorCode = (cause: unknown): string | undefined => {
   return typeof code === 'string' ? code : undefined;
 };
 
-const isExternalCommandFailure = (cause: unknown): boolean => {
-  if (nodeErrorCode(cause) !== undefined) return true;
-  if (typeof cause !== 'object' || cause === null || !('code' in cause)) return false;
-  return typeof cause.code === 'number';
+const isNotGitRepository = (cause: unknown): boolean => {
+  if (typeof cause !== 'object' || cause === null || !('stderr' in cause)) return false;
+  return typeof cause.stderr === 'string' && /not a git repository/iu.test(cause.stderr);
 };
 
 const errorResult = <Value>(code: Parameters<typeof domainError>[0], path: string, message: string): Result<Value, ReturnType<typeof domainError>> =>
@@ -77,18 +76,12 @@ const walkFiles = async (
   return files.sort((left, right) => left.repoPath.localeCompare(right.repoPath));
 };
 
-const gitList = async (rootPath: string, args: readonly string[]): Promise<Set<string> | undefined> => {
-  try {
-    const result = await execFileAsync('git', [...args], { cwd: rootPath, encoding: 'utf8' });
-    return new Set(
-      result.stdout
-        .split('\0')
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0),
-    );
-  } catch {
-    return undefined;
-  }
+const gitList = async (rootPath: string, args: readonly string[]): Promise<Set<string>> => {
+  // Git errors inside a repository are not equivalent to a non-Git directory.
+  // Failing closed prevents corrupt/permission-denied metadata from masquerading
+  // as an empty tracked/deleted set.
+  const result = await execFileAsync('git', [...args], { cwd: rootPath, encoding: 'utf8' });
+  return new Set(result.stdout.split('\0').filter((value) => value.length > 0));
 };
 
 const gitPaths = (values: ReadonlySet<string> | undefined): Result<RepoPath[], ReturnType<typeof domainError>> => {
@@ -158,20 +151,30 @@ export const makeNodeWorkspacePort = (options: NodeWorkspacePortOptions): Worksp
     snapshot: (rootPath, observedAtMs) =>
       recoverResult(Effect.tryPromise<Result<WorkspaceSnapshot, DomainError>, DomainError>({
         try: async () => {
+          let headRevision: string;
           try {
-            const headResult = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: rootPath });
-            const headRevision = headResult.stdout.trim() || 'unavailable';
+            const headResult = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: rootPath, encoding: 'utf8' });
+            headRevision = headResult.stdout.trim();
+            if (!/^[a-f0-9]{40,64}$/iu.test(headRevision)) {
+              return errorResult('SNAPSHOT_FAILED', 'git', 'Git HEAD revision is invalid or unavailable');
+            }
+          } catch (cause) {
+            if (!isNotGitRepository(cause)) {
+              return errorResult('SNAPSHOT_FAILED', 'git', 'Git HEAD could not be observed (permission, executable or state failure)');
+            }
+            const files = await walkFiles(rootPath, rootPath, observedAtMs, excluded, undefined);
+            return ok({ headRevision: 'unavailable', files, removedPaths: [], gitStatus: 'not_repository' });
+          }
+          try {
             const trackedPaths = await gitList(rootPath, ['ls-files', '-z']);
             const deletedPaths = await gitList(rootPath, ['ls-files', '--deleted', '-z']);
             const files = await walkFiles(rootPath, rootPath, observedAtMs, excluded, trackedPaths);
             const removedPaths = gitPaths(deletedPaths);
-            return removedPaths._tag === 'Ok' ? ok({ headRevision, files, removedPaths: removedPaths.value }) : removedPaths;
-          } catch (cause) {
-            if (isExternalCommandFailure(cause)) {
-              const files = await walkFiles(rootPath, rootPath, observedAtMs, excluded, undefined);
-              return ok({ headRevision: 'unavailable', files, removedPaths: [] });
-            }
-            return errorResult('SNAPSHOT_FAILED', 'workspace', 'workspace snapshot failed');
+            return removedPaths._tag === 'Ok'
+              ? ok({ headRevision, files, removedPaths: removedPaths.value, gitStatus: 'available' })
+              : removedPaths;
+          } catch {
+            return errorResult('SNAPSHOT_FAILED', 'git', 'Git file state could not be observed completely');
           }
         },
         catch: () => makePortError('SNAPSHOT_FAILED', 'workspace', 'workspace snapshot failed'),
