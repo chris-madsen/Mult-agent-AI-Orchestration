@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "status": "frozen_after_initial_commit",
+  "description": "Synthetic EN/RU memory-admission holdout. Future tuning must add a new fixture version rather than rewriting labels.",
+  "samples": [
+    {
+      "id": "en-decision-settled",
+      "language": "en",
+      "category": "durable_decision",
+      "text": "We settled on Qdrant as the local code index for this project.",
+      "expected": "project",
+      "critical": true
+    },
+    {
+      "id": "en-constraint-local",
+      "language": "en",
+      "category": "durable_constraint",
+      "text": "Private session text stays local-only; cloud extraction is prohibited.",
+      "expected": "project",
+      "critical": true
+    },
+    {
+      "id": "en-preference-want",
+      "language": "en",
+      "category": "user_preference",
+      "text": "For code review I want concise diffs instead of whole-file dumps.",
+      "expected": "project",
+      "critical": false
+    },
+    {
+      "id": "en-open-remains",
+      "language": "en",
+      "category": "unresolved_question",
+      "text": "The Serena versus TypeScript Language Service question remains open.",
+      "expected": "project",
+      "critical": true
+    },
+    {
+      "id": "en-selected-provider",
+      "language": "en",
+      "category": "durable_decision",
+      "text": "We selected TypeScript Language Service as the semantic provider for the current vertical slice.",
+      "expected": "project",
+      "critical": true
+    },
+    {
+      "id": "ru-decision-settled",
+      "language": "ru",
+      "category": "durable_decision",
+      "text": "В итоге остановились на Qdrant для локального поиска по коду.",
+      "expected": "project",
+      "critical": true
+    },
+    {
+      "id": "ru-constraint-local",
+      "language": "ru",
+      "category": "durable_constraint",
+      "text": "Диалоги остаются только локально; облачная обработка запрещена.",
+      "expected": "project",
+      "critical": true
+    },
+    {
+      "id": "ru-preference-want",
+      "language": "ru",
+      "category": "user_preference",
+      "text": "Для отчётов хочу короткий Markdown вместо длинных логов.",
+      "expected": "project",
+      "critical": false
+    },
+    {
+      "id": "ru-open-remains",
+      "language": "ru",
+      "category": "unresolved_question",
+      "text": "Вопрос Serena против TS LS всё ещё открыт.",
+      "expected": "project",
+      "critical": true
+    },
+    {
+      "id": "ru-choice-fell",
+      "language": "ru",
+      "category": "durable_decision",
+      "text": "Выбор пал на TypeScript Language Service как основной semantic provider.",
+      "expected": "project",
+      "critical": true
+    },
+    {
+      "id": "en-ordinary-opened",
+      "language": "en",
+      "category": "ordinary_transcript",
+      "text": "I opened src/foo.ts and read the reconnect function.",
+      "expected": "archive_only",
+      "critical": false
+    },
+    {
+      "id": "en-ci-status",
+      "language": "en",
+      "category": "ordinary_transcript",
+      "text": "The tests passed on CI at 12:30 and the log had 127 cases.",
+      "expected": "archive_only",
+      "critical": false
+    },
+    {
+      "id": "en-qdrant-observation",
+      "language": "en",
+      "category": "ordinary_transcript",
+      "text": "Qdrant returned six results for the query during this run.",
+      "expected": "archive_only",
+      "critical": false
+    },
+    {
+      "id": "en-architecture-word",
+      "language": "en",
+      "category": "ordinary_transcript",
+      "text": "This architecture diagram is 800 pixels wide in the generated documentation.",
+      "expected": "archive_only",
+      "critical": false
+    },
+    {
+      "id": "en-policy-word",
+      "language": "en",
+      "category": "ordinary_transcript",
+      "text": "I searched the policy file for the word timeout and copied the matching line.",
+      "expected": "archive_only",
+      "critical": false
+    },
+    {
+      "id": "ru-architecture-file",
+      "language": "ru",
+      "category": "ordinary_transcript",
+      "text": "Открыл файл architecture.md и прочитал заголовок документа.",
+      "expected": "archive_only",
+      "critical": false
+    },
+    {
+      "id": "ru-policy-word",
+      "language": "ru",
+      "category": "ordinary_transcript",
+      "text": "В тесте встречается слово политика, но это просто строка в фикстуре.",
+      "expected": "archive_only",
+      "critical": false
+    },
+    {
+      "id": "en-todo-count",
+      "language": "en",
+      "category": "ordinary_transcript",
+      "text": "The repository currently contains 14 TODO comments.",
+      "expected": "archive_only",
+      "critical": false
+    },
+    {
+      "id": "ru-todo-count",
+      "language": "ru",
+      "category": "ordinary_transcript",
+      "text": "Посчитали 14 TODO в репозитории и записали число в отчёт.",
+      "expected": "archive_only",
+      "critical": false
+    },
+    {
+      "id": "en-plain-inspection",
+      "language": "en",
+      "category": "ordinary_transcript",
+      "text": "The parser produced an empty diagnostics array for the current file.",
+      "expected": "archive_only",
+      "critical": false
+    }
+  ]
+}
