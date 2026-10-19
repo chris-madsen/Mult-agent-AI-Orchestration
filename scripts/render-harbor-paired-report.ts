@@ -193,6 +193,12 @@ const main = async (): Promise<void> => {
   const [nativePath = 'artifacts/harbor-native-natural-repeat5-serial/ace-local-smoke-native-natural-repeat5-serial/result.json', acePath = 'artifacts/harbor-ace-natural-repeat5-serial/ace-local-smoke-ace-natural-repeat5-serial/result.json', outputDirectory = 'benchmarks/reports'] = process.argv.slice(2);
   const native = await summarize('native-codex', nativePath);
   const ace = await summarize('codex-plus-ace', acePath);
+  const aceCallLimitation = ace.observedAceContextCalls === 0
+    ? 'The natural paired ACE arm made no ACE MCP calls; retrieval efficiency remains unmeasured.'
+    : ace.successfulAceContextCalls === 0
+      ? `The ACE arm made ${ace.observedAceContextCalls} ACE context call(s), but none returned a complete successful ContextBundle; they are retained as partial/failed evidence and cannot establish retrieval benefit.`
+      : `The ACE arm made ${ace.observedAceContextCalls} ACE context call(s), including ${ace.successfulAceContextCalls} complete successful call(s); this one-task smoke still cannot establish general retrieval efficiency.`;
+
   const report = {
     report_id: 'ace-local-smoke-natural-paired-repeat5',
     suite_id: 'ace-harness-local-paired',
@@ -209,7 +215,7 @@ const main = async (): Promise<void> => {
     limitations: [
       'This is one deterministic fixture task repeated five times, not a general coding benchmark.',
       'Both configurations achieved the same quality outcome; no quality advantage is established.',
-      'The natural paired task made no ACE MCP calls in either arm; retrieval efficiency remains unmeasured.',
+      aceCallLimitation,
       'Serena, independent MCP and long-horizon memory extraction are not included in this comparison.',
       'The measured ACE overhead is provider-reported Codex usage/cost only; no external provider cost was present.',
       'No 5x improvement claim is permitted.',
@@ -231,7 +237,11 @@ const main = async (): Promise<void> => {
     `- Quality delta (ACE - native): ${report.deltas.quality_mean}.`,
     `- Token delta (ACE - native): ${report.deltas.total_tokens}.`,
     `- Cost ratio (ACE/native): ${report.deltas.cost_ratio_ace_over_native.toFixed(3)}.`,
-    '- ACE MCP was available but not called in the natural paired task; this measures no-regression behavior, not retrieval quality or a speedup.',
+    ace.observedAceContextCalls === 0
+      ? '- ACE MCP was available but not called in the natural paired task; this measures no-regression behavior, not retrieval quality or a speedup.'
+      : ace.successfulAceContextCalls === 0
+        ? `- ACE MCP was called ${ace.observedAceContextCalls} time(s), but every call was partial/failed; no ACE retrieval benefit is attributable.`
+        : `- ACE MCP was called ${ace.observedAceContextCalls} time(s), with ${ace.successfulAceContextCalls} complete successful call(s); this smoke remains too narrow for a general speedup claim.`,
     '',
     '## Evidence',
     '',
