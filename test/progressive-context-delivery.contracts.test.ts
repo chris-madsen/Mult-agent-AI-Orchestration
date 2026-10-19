@@ -147,6 +147,30 @@ test('ace_expand format=utf8 returns exact readable source instead of expensive 
     assert.equal(result.content[0]?.type, 'text');
     if (result.content[0]?.type === 'text') assert.equal(result.content[0].text, source.toString('utf8'));
 
+    const pages: string[] = [];
+    let cursor: string | undefined;
+    let pageCount = 0;
+    do {
+      const page = await client.callTool({
+        name: 'ace_expand',
+        arguments: {
+          handle: stored.value.handle,
+          format: 'utf8',
+          max_bytes: 11,
+          ...(cursor === undefined ? {} : { cursor }),
+        },
+      });
+      assert.equal(page.isError, undefined);
+      const resultPage = page.structuredContent as unknown as Record<string, unknown>;
+      assert.equal(resultPage.encoding, 'utf8');
+      pages.push(String(resultPage.content_utf8));
+      cursor = typeof resultPage.next_cursor === 'string' ? resultPage.next_cursor : undefined;
+      pageCount += 1;
+      assert.ok(pageCount < 100);
+    } while (cursor !== undefined);
+    assert.ok(pageCount > 2);
+    assert.equal(pages.join(''), source.toString('utf8'), 'UTF-8 pagination must preserve every original character');
+
     const raw = await client.callTool({
       name: 'ace_expand',
       arguments: { handle: stored.value.handle, format: 'base64' },
