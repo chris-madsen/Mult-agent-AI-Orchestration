@@ -77,6 +77,31 @@ const [dbc, embedding, semantic, retrieval, harbor] = await Promise.all([
   readEvidence(artifacts.harborThreeArm),
 ]);
 
+const dbcRoot = typeof dbc.value === 'object' && dbc.value !== null && !Array.isArray(dbc.value)
+  ? dbc.value as Record<string, unknown>
+  : undefined;
+if (!Array.isArray(dbcRoot?.records)) throw new Error('DBC evidence manifest records are missing');
+for (const [recordIndex, rawRecord] of dbcRoot.records.entries()) {
+  if (typeof rawRecord !== 'object' || rawRecord === null || Array.isArray(rawRecord)) {
+    throw new Error(`DBC record ${recordIndex} is invalid`);
+  }
+  const dbcRecord = rawRecord as Record<string, unknown>;
+  if (!Array.isArray(dbcRecord.artifacts)) throw new Error(`DBC record ${recordIndex} artifacts are missing`);
+  for (const [artifactIndex, rawArtifact] of dbcRecord.artifacts.entries()) {
+    if (typeof rawArtifact !== 'object' || rawArtifact === null || Array.isArray(rawArtifact)) {
+      throw new Error(`DBC artifact ${recordIndex}:${artifactIndex} is invalid`);
+    }
+    const artifact = rawArtifact as Record<string, unknown>;
+    if (typeof artifact.path !== 'string' || typeof artifact.sha256 !== 'string') {
+      throw new Error(`DBC artifact ${recordIndex}:${artifactIndex} identity is incomplete`);
+    }
+    const retained = await readEvidence(artifact.path);
+    if (retained.sha256 !== artifact.sha256) {
+      throw new Error(`DBC artifact digest mismatch: ${retained.path}`);
+    }
+  }
+}
+
 const externalEvidence: ReleaseExternalEvidence[] = [];
 const externalArtifacts: Array<{ readonly name: string; readonly path: string; readonly sha256: string }> = [];
 for (const raw of policy.externalEvidence) {
