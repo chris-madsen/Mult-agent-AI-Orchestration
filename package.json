@@ -43,7 +43,8 @@
     "gate:semantic-selection": "tsx scripts/semantic-provider-selection-gate.ts",
     "report:retrieval-quality": "tsx scripts/retrieval-quality-report.ts",
     "gate:retrieval-quality": "tsx scripts/retrieval-quality-gate.ts",
-    "release:preflight": "tsx scripts/release-preflight.ts"
+    "release:preflight": "tsx scripts/release-preflight.ts",
+    "memory:backup": "tsx scripts/local-memory-backup.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",
