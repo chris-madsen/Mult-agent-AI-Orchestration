@@ -292,10 +292,10 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
     includeDocs: false,
     includeMemory: false,
     sourceRequirements: {
-      code: 'required',
-      structural: 'optional',
-      documentation: 'not_requested',
-      memory: 'not_requested',
+      code: { requirement: 'required', allowed: true },
+      structural: { requirement: 'optional', allowed: true },
+      documentation: { requirement: 'not_requested', allowed: true },
+      memory: { requirement: 'not_requested', allowed: true },
     },
   });
 
@@ -313,10 +313,10 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
     includeDocs: true,
     includeMemory: true,
     sourceRequirements: {
-      code: 'not_requested',
-      structural: 'not_requested',
-      documentation: 'required',
-      memory: 'required',
+      code: { requirement: 'not_requested', allowed: true },
+      structural: { requirement: 'not_requested', allowed: true },
+      documentation: { requirement: 'required', allowed: true },
+      memory: { requirement: 'required', allowed: true },
     },
   });
 
@@ -339,10 +339,10 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
     includeDocs: false,
     includeMemory: false,
     sourceRequirements: {
-      code: 'not_requested',
-      structural: 'not_requested',
-      documentation: 'denied',
-      memory: 'denied',
+      code: { requirement: 'not_requested', allowed: true },
+      structural: { requirement: 'not_requested', allowed: true },
+      documentation: { requirement: 'required', allowed: false },
+      memory: { requirement: 'required', allowed: false },
     },
   });
 
@@ -366,10 +366,10 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
     includeDocs: false,
     includeMemory: false,
     sourceRequirements: {
-      code: 'optional',
-      structural: 'optional',
-      documentation: 'denied',
-      memory: 'denied',
+      code: { requirement: 'optional', allowed: true },
+      structural: { requirement: 'optional', allowed: true },
+      documentation: { requirement: 'required', allowed: false },
+      memory: { requirement: 'required', allowed: false },
     },
   });
 
