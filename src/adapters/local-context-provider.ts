@@ -27,7 +27,7 @@ export const makeLocalContextProvider = (options: LocalContextProviderOptions) =
   search: (input: {
     readonly workspaceId: WorkspaceId;
     readonly query: string;
-    readonly includeCode: boolean;
+    readonly includeCode?: boolean;
     readonly includeDocs: boolean;
     readonly includeMemory: boolean;
   }): Effect.Effect<Result<ContextBundle, DomainError>> => Effect.gen(function* () {
@@ -38,7 +38,8 @@ export const makeLocalContextProvider = (options: LocalContextProviderOptions) =
     if (requestId._tag === 'Err') return requestId;
     // Rank from indexed, limited candidates first; never re-read and hash the
     // entire repository for each MCP request. Verify selected paths with exact reads.
-    const ranked = input.includeCode
+    const includeCode = input.includeCode ?? true;
+    const ranked = includeCode
       ? searchCode(options.index, options.workspaceId, input.query, {
         digestFor: () => undefined,
       }).slice(0, 20)
@@ -92,7 +93,7 @@ export const makeLocalContextProvider = (options: LocalContextProviderOptions) =
       ...(input.includeMemory ? ['memory'] : []),
     ];
     return ok(mergeEvidence(requestId.value, input.query, evidence, warnings, [
-      ...(input.includeCode ? ['code'] : []),
+      ...(includeCode ? ['code'] : []),
       ...failedRequiredSources,
     ]));
   }),
