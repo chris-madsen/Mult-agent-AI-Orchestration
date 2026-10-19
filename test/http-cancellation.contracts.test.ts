@@ -15,6 +15,7 @@ const listen = async (): Promise<{
   const waitForRequest = new Promise<void>((resolve) => { requestResolve = resolve; });
   const waitForClose = new Promise<void>((resolve) => { closeResolve = resolve; });
   const server = createServer((request, response) => {
+    void request;
     requestResolve?.();
     response.on('close', () => closeResolve?.());
     // Deliberately never send headers/body. The client must cancel/timeout.
@@ -71,7 +72,7 @@ test('HTTP timeout returns explicit provider failure and closes the hanging sock
     const running = Effect.runPromise(port.request({
       method: 'GET',
       url: server.url,
-      timeoutMs: 50,
+      timeoutMs: 200,
     }));
     await within(server.waitForRequest, 1_000, 'request arrival');
     const result = await within(running, 1_000, 'HTTP timeout result');
