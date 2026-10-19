@@ -15,7 +15,12 @@ export const resolveDeliveryIntent = (intent: string | undefined): ContextDelive
 
 /** A structural declaration rather than arbitrary substring truncation. */
 const declarationLine = (content: string): string =>
-  content.split(/\r?\n/u).find((line) => line.trim().length > 0)?.trim() ?? '';
+  (() => {
+    const firstLine = content.split(/\r?\n/u).find((line) => line.trim().length > 0)?.trim() ?? '';
+    // A minified one-line body has no useful declaration boundary. Expose its
+    // exact expansion handle, not megabytes of opaque source as a "summary".
+    return firstLine.length <= 512 ? firstLine : '';
+  })();
 
 export const projectContextForDelivery = (
   bundle: ContextBundle,
@@ -31,7 +36,7 @@ export const projectContextForDelivery = (
     // convenient review unit. For a long symbol, return its declaration and
     // an explicit full-original handle rather than silently slicing source.
     const lines = item.content.split(/\r?\n/u);
-    const fullInline = inlinedCode <= 2 && lines.length <= 40;
+    const fullInline = inlinedCode <= 2 && lines.length <= 40 && item.content.length <= 2_048;
     if (fullInline) return item;
     return {
       ...item,
@@ -52,7 +57,7 @@ export const contextTransportText = (bundle: ContextCarrier): string => {
     const item = value as Record<string, unknown>;
     if (typeof item.citation !== 'string') return [];
     const mode = item.contentDelivery === 'expand' ? ' [exact body via ace_expand]' : '';
-    const line = typeof item.content === 'string' && item.content.length > 0
+    const line = item.source === 'code' && typeof item.content === 'string' && item.content.length > 0
       ? ` — ${item.content.split(/\r?\n/u)[0]?.trim() ?? ''}`
       : '';
     return [`- ${item.citation}${mode}${line}`];
