@@ -117,8 +117,10 @@ const main = async (): Promise<void> => {
     ? `generation:${observationEpoch}`
     : JSON.stringify({
       headRevision: observed.value.lastObservation.headRevision,
-      files: observed.value.lastObservation.files.map((file) => [file.repoPath, file.digest, file.sizeBytes]),
-      removedPaths: observed.value.lastObservation.removedPaths,
+      files: [...observed.value.lastObservation.files]
+        .sort((left, right) => left.repoPath.localeCompare(right.repoPath))
+        .map((file) => [file.repoPath, file.digest, file.sizeBytes]),
+      removedPaths: [...observed.value.lastObservation.removedPaths].sort(),
     });
   // No pretend success: the local lexical provider is a consciously enabled
   // degraded fallback, NOT the selected Qdrant/embeddings/AST/LSP production path.
