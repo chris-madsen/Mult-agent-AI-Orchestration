@@ -58,9 +58,15 @@ export const makeTreeSitterStructuralPort = (options: TreeSitterOptions): Struct
     const startedAtMs = Date.now();
     const operation = recoverResult(Effect.tryPromise<Result<StructuralAnalysis, DomainError>, DomainError>({
       try: async () => {
+        let sourceText: string;
+        try {
+          sourceText = new TextDecoder('utf-8', { fatal: true }).decode(input.source);
+        } catch {
+          return err(domainError('INVALID_INPUT', 'source', 'Tree-sitter source must be valid UTF-8; byte replacement is forbidden'));
+        }
         let result: { readonly stdout: string };
         try {
-          result = await runProvider(options.pythonCommand ?? 'python3', options.helperPath, JSON.stringify({ path: input.repoPath, source: Buffer.from(input.source).toString('utf8') }), options.timeoutMs ?? 10_000);
+          result = await runProvider(options.pythonCommand ?? 'python3', options.helperPath, JSON.stringify({ path: input.repoPath, source: sourceText }), options.timeoutMs ?? 10_000);
         } catch (cause) {
           return externalError(cause instanceof Error ? cause.message : 'Tree-sitter provider failed');
         }
