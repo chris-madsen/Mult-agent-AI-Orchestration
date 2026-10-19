@@ -4,6 +4,8 @@ import test from 'node:test';
 import { Effect } from 'effect';
 import {
   ensureQdrantCollection,
+  hasExactQdrantSnapshot,
+  reuseOrPopulateQdrantSnapshot,
   makeQdrantContextProvider,
   populateQdrantFromStructuralIndex,
 } from '../src/adapters/qdrant-context-provider.js';
@@ -59,6 +61,62 @@ test('Qdrant collection bootstrap is additive and rejects mismatched dimensions'
     request: () => Effect.succeed(ok({ status: 200, body: { result: { config: { params: { vectors: { size: 64 } } } } } })),
   };
   assert.equal((await Effect.runPromise(ensureQdrantCollection(wrong, 'http://127.0.0.1:6333', 'ace-test', 2)))._tag, 'Err');
+});
+
+test('warm Qdrant snapshot reuse does not re-embed or upsert current source', async () => {
+  let requests = 0;
+  let upserts = 0;
+  let embeds = 0;
+  const http: HttpPort = {
+    request: (request) => {
+      requests += 1;
+      assert.equal(request.url.endsWith('/points/count'), true);
+      assert.deepEqual((request.body?.filter as { must: unknown[] }).must, [
+        { key: 'workspace_id', match: { value: workspaceId } },
+        { key: 'generation', match: { value: 1 } },
+        { key: 'index_key', match: { value: 'snapshot-digest' } },
+      ]);
+      return Effect.succeed(ok({ status: 200, body: { result: { count: 1 } } }));
+    },
+  };
+  const qdrant: CodeCandidatePort = {
+    upsert: () => { upserts += 1; return Effect.succeed(ok(undefined)); },
+    search: () => Effect.succeed(ok([])),
+  };
+  const embeddings = {
+    embedMany: (_input: readonly string[]) => { embeds += 1; return Effect.succeed(ok([[1, 2]])); },
+  };
+  const index = mustOk(createCodeIndex(1, [candidate]));
+  const ready = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
+    index, qdrant, embeddings, http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 1, 'snapshot-digest',
+  )));
+  assert.deepEqual(ready, { count: 1, reused: true });
+  assert.equal(requests, 1);
+  assert.equal(upserts, 0);
+  assert.equal(embeds, 0);
+});
+
+test('Qdrant warm reuse rebuilds on different count and fails closed on count outage', async () => {
+  const index = mustOk(createCodeIndex(1, [candidate]));
+  let upserts = 0;
+  const qdrant: CodeCandidatePort = {
+    upsert: () => { upserts += 1; return Effect.succeed(ok(undefined)); },
+    search: () => Effect.succeed(ok([])),
+  };
+  const embeddings = {
+    embedMany: (input: readonly string[]) => Effect.succeed(ok(input.map(() => [1, 2]))),
+  };
+  const http: HttpPort = { request: () => Effect.succeed(ok({ status: 200, body: { result: { count: 0 } } })) };
+  const rebuilt = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
+    index, qdrant, embeddings, http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 1, 'snapshot-digest',
+  )));
+  assert.deepEqual(rebuilt, { count: 1, reused: false });
+  assert.equal(upserts, 1);
+  const offline: HttpPort = { request: () => Effect.succeed(err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'offline'))) };
+  const failed = await Effect.runPromise(hasExactQdrantSnapshot(
+    offline, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 1, 'snapshot-digest', 1,
+  ));
+  assert.equal(failed._tag, 'Err');
 });
 
 test('Qdrant→current filesystem→LSP→ContextBundle includes verified snippet and exact expansion handle', async () => {
