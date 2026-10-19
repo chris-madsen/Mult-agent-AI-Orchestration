@@ -10,7 +10,7 @@ import { makeFetchHttpPort, makeQdrantCodeCandidatePort } from '../adapters/http
 import { buildLocalCodeIndex } from '../adapters/local-code-index.js';
 import { makeLocalContextProvider } from '../adapters/local-context-provider.js';
 import { makeNodeWorkspacePort } from '../adapters/node-workspace-port.js';
-import { makeProcessEmbeddingPort } from '../adapters/process-embedding.js';
+import { makeProcessEmbeddingPort, type ResolvedEmbeddingConfig } from '../adapters/process-embedding.js';
 import { makeFileProviderTrace } from '../adapters/provider-trace.js';
 import { codeIndexKey, ensureQdrantCollection, makeQdrantContextProvider, reuseOrPopulateQdrantSnapshot } from '../adapters/qdrant-context-provider.js';
 import { makeTreeSitterStructuralPort } from '../adapters/tree-sitter-structural.js';
@@ -148,10 +148,34 @@ const main = async (): Promise<void> => {
     }
     const embeddingDimension = Number(process.env.ACE_EMBEDDING_DIMENSION ?? '384');
     if (!Number.isSafeInteger(embeddingDimension) || embeddingDimension < 1) throw new Error('ACE_EMBEDDING_DIMENSION must be a positive integer');
+    const embeddingConfig: ResolvedEmbeddingConfig = {
+      provider: embeddingProvider,
+      model: embeddingModel,
+      modelRevision: embeddingRevision,
+      artifactModel: embeddingArtifactModel,
+      artifactRevision: embeddingArtifactRevision,
+      artifactDigest: embeddingArtifactDigest,
+      dimension: embeddingDimension,
+      preprocessing: embeddingPreprocessing,
+    };
+    const embeddingEnvironment: Record<string, string> = {
+      ACE_EMBEDDING_PROVIDER: embeddingProvider,
+      ACE_EMBEDDING_MODEL: embeddingModel,
+      ACE_EMBEDDING_MODEL_REVISION: embeddingRevision,
+      ACE_EMBEDDING_ARTIFACT_MODEL: embeddingArtifactModel,
+      ACE_EMBEDDING_ARTIFACT_REVISION: embeddingArtifactRevision,
+      ACE_EMBEDDING_DIMENSION: String(embeddingDimension),
+      ACE_EMBEDDING_PREPROCESSING: embeddingPreprocessing,
+      ...(embeddingArtifactDigest === 'unverified' ? {} : { ACE_EMBEDDING_ARTIFACT_DIGEST: embeddingArtifactDigest }),
+    };
+    for (const name of ['ACE_EMBEDDING_PYTHON', 'ACE_EMBEDDING_LD_LIBRARY_PATH', 'FASTEMBED_CACHE_PATH', 'HF_HOME', 'HF_HUB_CACHE']) {
+      const value = process.env[name]?.trim();
+      if (value !== undefined && value.length > 0) embeddingEnvironment[name] = value;
+    }
     const candidateLimit = Number(process.env.ACE_CONTEXT_CANDIDATE_LIMIT ?? '6');
     if (!Number.isSafeInteger(candidateLimit) || candidateLimit < 1 || candidateLimit > 20) throw new Error('ACE_CONTEXT_CANDIDATE_LIMIT must be an integer between 1 and 20');
     const workspaceKey = createHash('sha256').update(registered.value.workspaceId).digest('hex').slice(0, 12);
-    const modelKey = createHash('sha256').update(`${embeddingProvider}|${embeddingModel}|${embeddingRevision}|${embeddingArtifactModel}|${embeddingArtifactRevision}|${embeddingArtifactDigest}|${embeddingPreprocessing}|${embeddingDimension}`).digest('hex').slice(0, 12);
+    const modelKey = createHash('sha256').update(`snapshot-v2|${embeddingProvider}|${embeddingModel}|${embeddingRevision}|${embeddingArtifactModel}|${embeddingArtifactRevision}|${embeddingArtifactDigest}|${embeddingPreprocessing}|${embeddingDimension}`).digest('hex').slice(0, 12);
     const generation = observationEpoch;
     const collection = process.env.ACE_QDRANT_COLLECTION?.trim() || `ace_code_${workspaceKey}_${modelKey}`;
     const embeddingWorker = process.env.ACE_EMBEDDING_WORKER?.trim()
@@ -192,6 +216,8 @@ const main = async (): Promise<void> => {
         dimension: embeddingDimension,
         providerVersion: `${embeddingProvider}|model=${embeddingModel}@${embeddingRevision}|artifact=${embeddingArtifactModel}@${embeddingArtifactRevision}#${embeddingArtifactDigest}`,
         trace: providerTrace,
+        env: embeddingEnvironment,
+        expectedIdentity: embeddingConfig,
       });
       const closeEmbeddingWorker = (): void => embeddings.close();
       process.once('SIGTERM', closeEmbeddingWorker);
@@ -205,6 +231,14 @@ const main = async (): Promise<void> => {
         embeddings.close();
         throw new Error(`embedding provider preflight failed (${embeddingReady.error.code})`);
       }
+      const effectiveEmbedding = embeddings.identity();
+      if (effectiveEmbedding === undefined) {
+        embeddings.close();
+        throw new Error('embedding provider preflight did not return a verified effective identity');
+      }
+      const embeddingFingerprint = createHash('sha256')
+        .update(JSON.stringify(effectiveEmbedding), 'utf8')
+        .digest('hex');
       const structural = makeTreeSitterStructuralPort({
         helperPath: structuralPath,
         pythonCommand: structuralPython,
@@ -223,7 +257,7 @@ const main = async (): Promise<void> => {
         // Warm reuse is keyed from the exact structural candidate set actually
         // produced in this startup. It ignores observation epoch/timestamps,
         // but changes on source bytes, ranges, names or parser output.
-        const sourceKey = codeIndexKey(built.value.index, built.value.coverage);
+        const sourceKey = codeIndexKey(built.value.index, built.value.coverage, embeddingFingerprint);
         const qdrant = makeQdrantCodeCandidatePort({
           baseUrl: qdrantUrl,
           collection,
@@ -279,7 +313,7 @@ const main = async (): Promise<void> => {
             coverage: built.value.coverage,
             ...(documentation === undefined ? {} : { documentation }),
           });
-          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} collection=${collection}\n`);
+          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} embedding_identity=${embeddingFingerprint.slice(0, 12)} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} collection=${collection}\n`);
         }
       }
     }
