@@ -44,7 +44,8 @@
     "report:retrieval-quality": "tsx scripts/retrieval-quality-report.ts",
     "gate:retrieval-quality": "tsx scripts/retrieval-quality-gate.ts",
     "release:preflight": "tsx scripts/release-preflight.ts",
-    "memory:backup": "tsx scripts/local-memory-backup.ts"
+    "memory:backup": "tsx scripts/local-memory-backup.ts",
+    "release:supply-chain": "tsx scripts/supply-chain-evidence.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",
