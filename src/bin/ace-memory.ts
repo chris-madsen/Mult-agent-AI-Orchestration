@@ -60,6 +60,7 @@ const run = async (): Promise<void> => {
       memory_admission: outcome.admission.kind,
       admission_reason: outcome.admission.reason,
       ...(outcome.projectionStatus === undefined ? {} : { projection_status: outcome.projectionStatus }),
+      ...(outcome.projectionErrorCode === undefined ? {} : { projection_error_code: outcome.projectionErrorCode }),
     }) + '\n');
   }
 };
