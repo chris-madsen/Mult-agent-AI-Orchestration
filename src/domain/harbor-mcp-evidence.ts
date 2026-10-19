@@ -20,8 +20,8 @@ const hasCompleteContextResult = (item: JsonObject): boolean => {
   const structuredContent = object(result?.structured_content);
   const evidence = Array.isArray(structuredContent?.evidence) ? structuredContent.evidence : [];
   const hasVerifiedCodeEvidence = evidence.some((entry) => {
-    const item = object(entry);
-    return item?.source === 'code' && item.freshness === 'current' && item.proofClass === 'direct';
+    const evidenceItem = object(entry);
+    return evidenceItem?.source === 'code' && evidenceItem.freshness === 'current' && evidenceItem.proofClass === 'direct';
   });
   return structuredContent?.complete === true
     && structuredContent.status !== 'not_ready'
