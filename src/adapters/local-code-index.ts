@@ -15,7 +15,7 @@ import {
   type SemanticAnchorRange,
   type SourceRange,
 } from '../domain/retrieval.js';
-import type { StructuralAnalysisPort, WorkspaceFilePort } from '../application/ports.js';
+import type { StructuralAnalysisCachePort, StructuralAnalysisPort, WorkspaceFilePort } from '../application/ports.js';
 import type { ContentDigest, RepoPath, WorkspaceId } from '../domain/workspace.js';
 
 export interface LocalCodeIndexBuild {
@@ -23,6 +23,8 @@ export interface LocalCodeIndexBuild {
   readonly warnings: readonly string[];
   readonly indexedPaths: readonly RepoPath[];
   readonly coverage: IndexCoverageSummary;
+  readonly structuralCacheHits: number;
+  readonly structuralCacheMisses: number;
 }
 
 export interface LocalCodeIndexerOptions {
@@ -31,6 +33,9 @@ export interface LocalCodeIndexerOptions {
   // Selected structural provider; when absent TS compiler parsing is an explicitly
   // labelled local fallback, not evidence of Tree-sitter production readiness.
   readonly structural?: StructuralAnalysisPort;
+  readonly structuralCache?: StructuralAnalysisCachePort;
+  /** Lowercase SHA-256 of the actual parser/grammar/helper identity. */
+  readonly structuralProviderFingerprint?: string;
 }
 
 interface Span {
@@ -158,6 +163,20 @@ export const buildLocalCodeIndex = (
     let attemptedPaths = 0;
     let policyExcludedPaths = 0;
     let outOfScopePaths = 0;
+    let structuralCacheHits = 0;
+    let structuralCacheMisses = 0;
+    if (options.structuralCache !== undefined
+      && (options.structuralProviderFingerprint === undefined
+        || !/^[a-f0-9]{64}$/u.test(options.structuralProviderFingerprint))) {
+      return {
+        _tag: 'Err',
+        error: domainError(
+          'INVALID_INPUT',
+          'structural_provider_fingerprint',
+          'structural cache requires an explicit lowercase SHA-256 provider fingerprint',
+        ),
+      } as const;
+    }
     if (options.structural === undefined) {
       warnings.push('Local TypeScript compiler parser fallback; approved Tree-sitter provider not configured');
     }
@@ -192,22 +211,51 @@ export const buildLocalCodeIndex = (
           coverageFailures.push({ repoPath: observation.repoPath, kind: 'unsupported_parser' });
           continue;
         }
-        const analyzed = yield* options.structural.extract({ repoPath: observation.repoPath, source: exact.value.bytes });
-        if (analyzed._tag === 'Err') {
-          warnings.push(observation.repoPath + ': structural provider unavailable (' + analyzed.error.code + ')');
-          coverageFailures.push({ repoPath: observation.repoPath, kind: 'structural_failed', code: analyzed.error.code });
-          continue;
+        let analyzedValue;
+        if (options.structuralCache !== undefined && options.structuralProviderFingerprint !== undefined) {
+          const cached = yield* options.structuralCache.get({
+            repoPath: observation.repoPath,
+            sourceDigest: exact.value.digest,
+            providerFingerprint: options.structuralProviderFingerprint,
+          });
+          if (cached._tag === 'Ok' && cached.value !== undefined) {
+            structuralCacheHits += 1;
+            analyzedValue = cached.value;
+          } else {
+            structuralCacheMisses += 1;
+            if (cached._tag === 'Err') {
+              warnings.push(observation.repoPath + ': structural cache unavailable (' + cached.error.code + '); reparsing');
+            }
+          }
         }
-        if (analyzed.value.sourceDigest !== exact.value.digest) {
+        if (analyzedValue === undefined) {
+          const analyzed = yield* options.structural.extract({ repoPath: observation.repoPath, source: exact.value.bytes });
+          if (analyzed._tag === 'Err') {
+            warnings.push(observation.repoPath + ': structural provider unavailable (' + analyzed.error.code + ')');
+            coverageFailures.push({ repoPath: observation.repoPath, kind: 'structural_failed', code: analyzed.error.code });
+            continue;
+          }
+          analyzedValue = analyzed.value;
+          if (options.structuralCache !== undefined && options.structuralProviderFingerprint !== undefined) {
+            const persisted = yield* options.structuralCache.put({
+              analysis: analyzedValue,
+              providerFingerprint: options.structuralProviderFingerprint,
+            });
+            if (persisted._tag === 'Err') {
+              warnings.push(observation.repoPath + ': structural cache write failed (' + persisted.error.code + ')');
+            }
+          }
+        }
+        if (analyzedValue.sourceDigest !== exact.value.digest) {
           warnings.push(observation.repoPath + ': structural source digest mismatch');
           coverageFailures.push({ repoPath: observation.repoPath, kind: 'digest_mismatch' });
           continue;
         }
-        if (analyzed.value.hasSyntaxErrors) {
+        if (analyzedValue.hasSyntaxErrors) {
           warnings.push(observation.repoPath + ': Tree-sitter reports syntax errors; parseable symbols are partial evidence');
           coverageFailures.push({ repoPath: observation.repoPath, kind: 'parser_partial' });
         }
-        spans = treeSitterSpans(exact.value.bytes, analyzed.value.symbols);
+        spans = treeSitterSpans(exact.value.bytes, analyzedValue.symbols);
       } else if (tsExtensions.has(extension)) {
         spans = compilerSpans(observation.repoPath, source);
       } else {
@@ -249,5 +297,7 @@ export const buildLocalCodeIndex = (
         failedPaths: coverageFailures.length,
         failures: coverageFailures,
       },
+      structuralCacheHits,
+      structuralCacheMisses,
     });
   });
