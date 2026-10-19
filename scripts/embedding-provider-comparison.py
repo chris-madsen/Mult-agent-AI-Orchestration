@@ -40,6 +40,22 @@ def package_version(name: str) -> str:
         return "unknown"
 
 
+def ranking_metrics(relevant_ranks: list[int]) -> dict[str, float]:
+    if not relevant_ranks or any(rank < 1 for rank in relevant_ranks):
+        raise ValueError("relevant ranks must be a non-empty list of positive integers")
+    count = len(relevant_ranks)
+    return {
+        "recall_at_1": sum(rank <= 1 for rank in relevant_ranks) / count,
+        "recall_at_3": sum(rank <= 3 for rank in relevant_ranks) / count,
+        "recall_at_5": sum(rank <= 5 for rank in relevant_ranks) / count,
+        "mrr": sum(1.0 / rank for rank in relevant_ranks) / count,
+        "ndcg_at_5": sum(
+            (1.0 / math.log2(rank + 1)) if rank <= 5 else 0.0
+            for rank in relevant_ranks
+        ) / count,
+    }
+
+
 def artifact_digest(model_id: str, revision: str | None) -> dict[str, object]:
     """Hash the complete local snapshot and reject incomplete HF cache entries."""
     if Path(model_id).is_dir():
@@ -146,6 +162,7 @@ def evaluate(
     artifact = artifact_digest(artifact_model_id, artifact_revision)
     if Path(artifact_model_id).is_dir():
         artifact["model_id"] = FASTEMBED_ARTIFACT_ID
+    metrics = ranking_metrics([int(row["relevant_rank"]) for row in observations])
     return {
         "provider": provider, "model": model_id, "revision": revision,
         "dimensions": dimensions,
@@ -160,16 +177,7 @@ def evaluate(
         "query_ms_median": statistics.median(query_ms),
         "query_ms_p95": sorted_query_ms[max(0, math.ceil(len(query_ms) * 0.95) - 1)],
         "query_ms_max": max(query_ms),
-        "recall_at_1": sum(row["relevant_rank"] <= 1 for row in observations) / relevant_count,
-        "recall_at_3": sum(row["relevant_rank"] <= 3 for row in observations) / relevant_count,
-        "recall_at_5": sum(row["relevant_rank"] <= 5 for row in observations) / relevant_count,
-        "mrr": sum(1.0 / row["relevant_rank"] for row in observations) / relevant_count,
-        "ndcg_at_5": sum(
-            (1.0 / math.log2(row["relevant_rank"] + 1))
-            if row["relevant_rank"] <= 5
-            else 0.0
-            for row in observations
-        ) / relevant_count,
+        **metrics,
         "results": observations,
         "artifact": artifact,
         "source_model": model_id,
