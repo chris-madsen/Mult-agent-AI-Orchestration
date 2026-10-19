@@ -30,7 +30,8 @@ const cancelledToolResult = () => ({
 export const createAceServer = (gateway: McpGatewayLike): McpServer => {
   const server = new McpServer({ name: 'ace-harness', version: '0.1.0' });
   const run = async (name: string, args: unknown, signal?: AbortSignal) => {
-    if (signal?.aborted === true) return cancelledToolResult();
+    const isAborted = (): boolean => signal?.aborted === true;
+    if (isAborted()) return cancelledToolResult();
     try {
       const operation = gateway.handle({ name, arguments: args });
       const response = signal === undefined
@@ -38,7 +39,7 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
         : await Effect.runPromise(operation, { signal });
       return toToolResult(response);
     } catch (error) {
-      if (signal?.aborted === true) return cancelledToolResult();
+      if (isAborted()) return cancelledToolResult();
       // The thrown failure is an ACE error, not an invitation to leak a stack trace.
       process.stderr.write(`ace gateway failure: ${error instanceof Error ? error.message : 'unknown error'}\n`);
       return {
