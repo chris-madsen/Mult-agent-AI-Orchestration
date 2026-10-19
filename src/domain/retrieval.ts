@@ -66,6 +66,10 @@ export interface RetrievalEvidence {
   readonly originalSpanLines?: number;
   /** Handle for authorized, byte-exact full-source expansion via ace_expand. */
   readonly expansionHandle?: string;
+  /** Byte offset of verified symbol inside the exact full-file artifact. */
+  readonly expansionCursor?: string;
+  /** Byte count to expand just the selected verified AST span. */
+  readonly expansionMaxBytes?: number;
 }
 
 export interface RetrievalConflict {
