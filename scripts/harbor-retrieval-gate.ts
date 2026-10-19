@@ -243,8 +243,19 @@ const summarize = async (aggregatePath: string, configuration: Configuration): P
   };
 };
 
-const [nativePath, acePath, reportPath] = process.argv.slice(2);
-if (nativePath === undefined || acePath === undefined || reportPath === undefined) throw new Error('Usage: tsx scripts/harbor-retrieval-gate.ts <native-result.json> <ace-result.json> <report.json>');
+const [nativePath, acePath, reportPath, aceJobConfigPath = 'benchmarks/harbor/ace-suite/retrieval-ace-paired-job.json'] = process.argv.slice(2);
+if (nativePath === undefined || acePath === undefined || reportPath === undefined) {
+  throw new Error('Usage: tsx scripts/harbor-retrieval-gate.ts <native-result.json> <ace-result.json> <report.json> [ace-job-config.json]');
+}
+const aceJobConfigContent = await readFile(aceJobConfigPath, 'utf8');
+const aceJobConfig = object(JSON.parse(aceJobConfigContent) as unknown, 'ACE Harbor job config');
+const instructions = aceJobConfig.extra_instructions;
+if (!Array.isArray(instructions) || !instructions.every((entry) => typeof entry === 'string')) {
+  throw new Error('ACE Harbor job config must explicitly declare extra_instructions as a string array');
+}
+const forcedToolUse = instructions.some((instruction) =>
+  /(?:before editing|must|require|mandatory).*?(?:ace_context|call.*?ace)/iu.test(instruction));
+const evaluationDesign = forcedToolUse ? 'forced-tool-use' : 'optional-natural-tool-use';
 const native = await summarize(nativePath, 'native-codex');
 const ace = await summarize(acePath, 'codex-plus-ace');
 const receiptGate = ace.providerReceipts.length === ace.trials && ace.providerReceipts.every((receipt) => receipt.valid);
@@ -255,7 +266,6 @@ const attributed = native.aceObservedCalls === 0 && ace.aceCalls > 0 && ace.curr
 // instruction requires an extra call. Provider operations are uncorrelated
 // with individual MCP request IDs. Do not promote this to a production DBC-12
 // effectiveness claim regardless of the ratio.
-const evaluationDesign = 'forced-tool-use';
 const providerCorrelationVerified = false;
 const acceptance = assessHarborAcceptance({
   paired,
@@ -263,7 +273,7 @@ const acceptance = assessHarborAcceptance({
   actualAceCallObserved: ace.aceObservedCalls > 0 && native.aceObservedCalls === 0,
   codeEvidenceObserved: attributed,
   providerOperationsObserved: receiptGate,
-  forcedToolUse: true,
+  forcedToolUse,
   providerRequestCorrelationVerified: providerCorrelationVerified,
   completeCostTelemetry: false,
 });
@@ -274,6 +284,10 @@ const report = {
   paired,
   qualityNonInferior,
   evaluationDesign,
+  declaredAceJobConfig: aceJobConfigPath,
+  aceJobConfigSha256: sha256(aceJobConfigContent),
+  // "natural" describes the committed job configuration, not independently
+  // authenticated runtime prompts; DBC-12 remains diagnostic either way.
   aceInvocationsObserved: ace.aceObservedCalls > 0,
   completeAceCallsObserved: attributed,
   providerOperationsObserved: receiptGate,
@@ -295,7 +309,9 @@ const report = {
   acceptance,
   productionAcceptance: 'rejected',
   limitations: [
-    'ACE was forced by an extra instruction, so natural tool-choice savings were not tested.',
+    forcedToolUse
+      ? 'ACE was forced by an extra instruction, so natural tool-choice savings were not tested.'
+      : 'The ACE job config has no mandatory tool-call instruction, but actual tool-choice and cost attribution still require raw trace review.',
     'Only three small tasks repeated three times; this is not a large-repository long-horizon workload.',
     'Provider operations are observed in each trial, not tied to an individual request/citation.',
     'Local embedding, Qdrant, Tree-sitter and TypeScript LS CPU/RAM cost and index setup are not metered.',
