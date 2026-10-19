@@ -12,6 +12,15 @@ import {
 } from '../domain/retrieval.js';
 import type { WorkspaceFilePort } from '../application/ports.js';
 import type { WorkspaceId } from '../domain/workspace.js';
+import {
+  initialSourceCoverage,
+  legacySourceRequirements,
+  requiredIncompleteSources,
+  setSourceCoverage,
+  sourceCoverageComplete,
+  sourceIsRequested,
+  type SourceRequirements,
+} from '../domain/source-coverage.js';
 
 export interface LocalContextProviderOptions {
   readonly workspaceId: WorkspaceId;
@@ -30,6 +39,7 @@ export const makeLocalContextProvider = (options: LocalContextProviderOptions) =
     readonly includeCode?: boolean;
     readonly includeDocs: boolean;
     readonly includeMemory: boolean;
+    readonly sourceRequirements?: SourceRequirements;
   }): Effect.Effect<Result<ContextBundle, DomainError>> => Effect.gen(function* () {
     if (input.workspaceId !== options.workspaceId) {
       return err(domainError('POLICY_DENIED', 'workspace_id', 'local context provider belongs to another workspace'));
@@ -39,6 +49,12 @@ export const makeLocalContextProvider = (options: LocalContextProviderOptions) =
     // Rank from indexed, limited candidates first; never re-read and hash the
     // entire repository for each MCP request. Verify selected paths with exact reads.
     const includeCode = input.includeCode ?? true;
+    const requirements = input.sourceRequirements ?? legacySourceRequirements({
+      includeCode,
+      includeDocs: input.includeDocs,
+      includeMemory: input.includeMemory,
+    });
+    let sourceCoverage = initialSourceCoverage(requirements);
     const ranked = includeCode
       ? searchCode(options.index, options.workspaceId, input.query, {
         digestFor: () => undefined,
@@ -92,9 +108,30 @@ export const makeLocalContextProvider = (options: LocalContextProviderOptions) =
       ...(input.includeDocs ? ['documentation'] : []),
       ...(input.includeMemory ? ['memory'] : []),
     ];
-    return ok(mergeEvidence(requestId.value, input.query, evidence, warnings, [
+    const merged = mergeEvidence(requestId.value, input.query, evidence, warnings, [
       ...(includeCode ? ['code'] : []),
       ...failedRequiredSources,
-    ]));
+    ]);
+    if (input.sourceRequirements === undefined) return ok(merged);
+
+    if (sourceIsRequested(requirements.code)) {
+      sourceCoverage = setSourceCoverage(sourceCoverage, 'code', 'partial', 'lexical_fallback_not_production_verified');
+    }
+    if (sourceIsRequested(requirements.structural)) {
+      sourceCoverage = setSourceCoverage(sourceCoverage, 'structural', 'unavailable', 'semantic_provider_not_available_in_local_fallback');
+    }
+    if (sourceIsRequested(requirements.documentation)) {
+      sourceCoverage = setSourceCoverage(sourceCoverage, 'documentation', 'unavailable', 'documentation_provider_not_available_in_local_fallback');
+    }
+    if (sourceIsRequested(requirements.memory)) {
+      sourceCoverage = setSourceCoverage(sourceCoverage, 'memory', 'unavailable', 'memory_provider_not_available_in_local_fallback');
+    }
+    const incomplete = requiredIncompleteSources(sourceCoverage);
+    return ok({
+      ...merged,
+      sourceCoverage,
+      partialSources: incomplete,
+      complete: sourceCoverageComplete(sourceCoverage),
+    });
   }),
 });
