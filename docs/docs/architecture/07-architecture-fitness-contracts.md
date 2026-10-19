@@ -1,6 +1,6 @@
 # ACE — Architecture Fitness and Bertrand Meyer Design-by-Contract Gates
 
-**Status:** Proposed correction (2026-10-18). **Scope:** architecture/spec acceptance, not evidence that runtime is ready. **Source:** PRD, ADR-001/003/004/005/006/007/009, review `docs/reviews/2026-10-18-architecture-failure-review.md`. Owner approval required. Existing small unit tests remain valuable but **cannot replace these end-to-end contracts**.
+**Status:** Accepted as Design-by-Contract evaluation policy (owner approval 2026-10-19); mandatory executable gates remain unverified until run. **Scope:** architecture/spec acceptance, not evidence that runtime is ready. **Source:** PRD, ADR-001/003/004/005/006/007/009, review `docs/reviews/2026-10-18-architecture-failure-review.md`. Owner acceptance policy approved; implementation and production readiness still require evidence. Existing small unit tests remain valuable but **cannot replace these end-to-end contracts**.
 
 ## 1. The architectural mistake we are preventing
 
