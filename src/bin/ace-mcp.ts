@@ -12,7 +12,7 @@ import { makeLocalContextProvider } from '../adapters/local-context-provider.js'
 import { makeNodeWorkspacePort } from '../adapters/node-workspace-port.js';
 import { makeProcessEmbeddingPort } from '../adapters/process-embedding.js';
 import { makeFileProviderTrace } from '../adapters/provider-trace.js';
-import { ensureQdrantCollection, makeQdrantContextProvider, populateQdrantFromStructuralIndex, pruneQdrantOtherGenerations } from '../adapters/qdrant-context-provider.js';
+import { ensureQdrantCollection, makeQdrantContextProvider, pruneQdrantOtherGenerations, reuseOrPopulateQdrantSnapshot } from '../adapters/qdrant-context-provider.js';
 import { makeTreeSitterStructuralPort } from '../adapters/tree-sitter-structural.js';
 import { makeTypeScriptLanguageServicePort } from '../adapters/typescript-language-service.js';
 import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
@@ -232,7 +232,10 @@ const main = async (): Promise<void> => {
           providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
           trace: providerTrace,
         });
-        const indexed = await Effect.runPromise(populateQdrantFromStructuralIndex(built.value.index, qdrant, embeddings, sourceKey));
+        const indexed = await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
+          built.value.index, qdrant, embeddings, http, qdrantUrl, collection,
+          registered.value.workspaceId, generation, sourceKey, qdrantAllowedHosts,
+        ));
         if (indexed._tag === 'Err') {
           embeddings.close();
           process.stderr.write(`ace-mcp context NOT_READY: Qdrant indexing failed (${indexed.error.code}: ${indexed.error.message})\n`);
@@ -273,7 +276,7 @@ const main = async (): Promise<void> => {
             candidateLimit,
             ...(documentation === undefined ? {} : { documentation }),
           });
-          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} collection=${collection}\n`);
+          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} collection=${collection}\n`);
         }
       }
     }
