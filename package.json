@@ -32,7 +32,8 @@
     "test:real-provider-hard-outage": "npm run build && ACE_REAL_PROVIDER_HARD_OUTAGE=true node scripts/real-provider-e2e.mjs",
     "memory:reconcile": "npm run build && node dist/bin/ace-memory.js reconcile",
     "worktree-helper": "npm run build && node dist/bin/ace-worktree-helper.js",
-    "eval:memory-admission": "tsx scripts/memory-admission-eval.ts"
+    "eval:memory-admission": "tsx scripts/memory-admission-eval.ts",
+    "gate:harbor-three-arm": "tsx scripts/harbor-three-arm-gate.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",
