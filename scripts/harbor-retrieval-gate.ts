@@ -1,15 +1,21 @@
 import { createHash } from 'node:crypto';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
-import { isSuccessfulAceContextJsonLine } from '../src/domain/harbor-mcp-evidence.js';
+import { isObservedAceContextJsonLine, isSuccessfulAceContextJsonLine } from '../src/domain/harbor-mcp-evidence.js';
 
 type JsonObject = Readonly<Record<string, unknown>>;
 type Configuration = 'native-codex' | 'codex-plus-ace';
-const requiredProviders = ['embedding', 'qdrant', 'tree_sitter', 'typescript_language_service'] as const;
+const requiredProviderOperations = [
+  'embedding:embed_many',
+  'qdrant:query_points',
+  'tree_sitter:extract',
+  'typescript_language_service:definition',
+] as const;
 
 interface ProviderReceiptSummary {
   readonly traceFiles: readonly string[];
   readonly successfulProviders: readonly string[];
+  readonly successfulOperations: readonly string[];
   readonly valid: boolean;
 }
 
@@ -25,8 +31,10 @@ interface JobSummary {
   readonly cachedInputTokens: number | null;
   readonly rawTotalTokens: number | null;
   readonly costUsd: number | null;
-  readonly externalProviderCostUsd: number;
+  readonly externalProviderCostUsd: number | null;
   readonly aceCalls: number;
+  readonly aceObservedCalls: number;
+  readonly aceIncompleteCalls: number;
   readonly currentSourceCalls: number;
   readonly taskNames: readonly string[];
   readonly taskStats: readonly TaskSummary[];
@@ -107,11 +115,15 @@ const isCurrentSourceAceContextJsonLine = (line: string): boolean => {
 const providerReceipts = async (directory: string): Promise<ProviderReceiptSummary> => {
   const traceFiles = await filesNamed(directory, 'provider-trace.jsonl');
   const successful = new Set<string>();
+  const operations = new Set<string>();
   for (const path of traceFiles) {
     const content = await readFile(path, 'utf8');
     for (const line of content.split('\n').filter((value) => value.trim().length > 0)) {
       const event = object(JSON.parse(line) as unknown, path);
-      if (event.status === 'success' && typeof event.provider === 'string') successful.add(event.provider);
+      if (event.status === 'success' && typeof event.provider === 'string' && typeof event.operation === 'string') {
+        successful.add(event.provider);
+        operations.add(event.provider + ':' + event.operation);
+      }
       const forbidden = ['source', 'query', 'text', 'token', 'secret', 'authorization'];
       if (forbidden.some((key) => key in event)) throw new Error(`${path}: unsafe provider trace field ${forbidden.find((key) => key in event)}`);
     }
@@ -119,7 +131,8 @@ const providerReceipts = async (directory: string): Promise<ProviderReceiptSumma
   return {
     traceFiles: traceFiles.map((path) => relative(process.cwd(), path)),
     successfulProviders: [...successful].sort(),
-    valid: requiredProviders.every((provider) => successful.has(provider)),
+    successfulOperations: [...operations].sort(),
+    valid: requiredProviderOperations.every((operation) => operations.has(operation)),
   };
 };
 
@@ -145,6 +158,7 @@ const summarize = async (aggregatePath: string, configuration: Configuration): P
   const trials = await trialDirectories(aggregatePath);
   let successes = 0;
   let aceCalls = 0;
+  let aceObservedCalls = 0;
   let currentSourceCalls = 0;
   const taskNames: string[] = [];
   const receipts: ProviderReceiptSummary[] = [];
@@ -182,12 +196,13 @@ const summarize = async (aggregatePath: string, configuration: Configuration): P
       if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error;
     }
     aceCalls += trace.split('\n').filter(isSuccessfulAceContextJsonLine).length;
+    aceObservedCalls += trace.split('\n').filter(isObservedAceContextJsonLine).length;
     currentSourceCalls += trace.split('\n').filter(isCurrentSourceAceContextJsonLine).length;
     receipts.push(await providerReceipts(directory));
     perTask.set(taskName, task);
   }
   if (trials.length !== totalTrials) throw new Error(`${aggregatePath}: aggregate/trial count mismatch`);
-  if (configuration === 'native-codex' && (aceCalls !== 0 || currentSourceCalls !== 0)) throw new Error(`${aggregatePath}: native baseline unexpectedly called ACE MCP`);
+  if (configuration === 'native-codex' && (aceObservedCalls !== 0 || currentSourceCalls !== 0)) throw new Error(`${aggregatePath}: native baseline unexpectedly called ACE MCP`);
   return {
     jobPath: aggregatePath,
     aggregateSha256: sha256(aggregateContent),
@@ -200,8 +215,12 @@ const summarize = async (aggregatePath: string, configuration: Configuration): P
     cachedInputTokens,
     rawTotalTokens: inputTokens === null || outputTokens === null ? null : inputTokens + outputTokens,
     costUsd,
-    externalProviderCostUsd: 0,
+    // Local CPU/RAM/indexing and model acquisition were not metered. Zero would
+    // falsely present an unknown end-to-end cost as a measured free service.
+    externalProviderCostUsd: null,
     aceCalls,
+    aceObservedCalls,
+    aceIncompleteCalls: aceObservedCalls - aceCalls,
     currentSourceCalls,
     taskNames: [...taskNames].sort(),
     taskStats: [...perTask.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([taskName, task]) => {
@@ -230,15 +249,27 @@ const ace = await summarize(acePath, 'codex-plus-ace');
 const receiptGate = ace.providerReceipts.length === ace.trials && ace.providerReceipts.every((receipt) => receipt.valid);
 const paired = native.trials === ace.trials && native.trials >= 9 && JSON.stringify(native.taskNames) === JSON.stringify(ace.taskNames);
 const qualityNonInferior = native.trials > 0 && ace.successes / ace.trials >= native.successes / native.trials;
-const attributed = native.aceCalls === 0 && ace.aceCalls > 0 && ace.currentSourceCalls === ace.aceCalls;
+const attributed = native.aceObservedCalls === 0 && ace.aceCalls > 0 && ace.currentSourceCalls === ace.aceCalls;
+// This is a deliberately FORCED tool-use experiment: the ACE arm's additional
+// instruction requires an extra call. Provider operations are uncorrelated
+// with individual MCP request IDs. Do not promote this to a production DBC-12
+// effectiveness claim regardless of the ratio.
+const evaluationDesign = 'forced-tool-use';
+const providerCorrelationVerified = false;
+const validDiagnostic = paired && qualityNonInferior && attributed && receiptGate;
 const report = {
   evidence: 'real-harbor-retrieval-trials',
   native,
   ace,
   paired,
   qualityNonInferior,
-  aceInvocationsObserved: attributed,
-  providerReceiptsVerified: receiptGate,
+  evaluationDesign,
+  aceInvocationsObserved: ace.aceObservedCalls > 0,
+  completeAceCallsObserved: attributed,
+  providerOperationsObserved: receiptGate,
+  providerCorrelationVerified,
+  providerReceiptsVerified: false, // no per-request provider correlation
+  costScope: 'codex-reported-usage-only; local infrastructure cost unmeasured',
   rawTotalTokens: { native: native.rawTotalTokens, ace: ace.rawTotalTokens },
   uncachedInputTokens: {
     native: native.inputTokens === null || native.cachedInputTokens === null ? null : native.inputTokens - native.cachedInputTokens,
@@ -250,8 +281,16 @@ const report = {
   tokenReduction: native.rawTotalTokens === null || ace.rawTotalTokens === null || native.rawTotalTokens === 0 ? null : 1 - ace.rawTotalTokens / native.rawTotalTokens,
   costSavingsFactor: native.costUsd === null || ace.costUsd === null || ace.costUsd === 0 ? null : native.costUsd / ace.costUsd,
   costReduction: native.costUsd === null || ace.costUsd === null || native.costUsd === 0 ? null : 1 - ace.costUsd / native.costUsd,
-  target5xReached: paired && qualityNonInferior && attributed && receiptGate && ace.rawTotalTokens !== null && native.rawTotalTokens !== null && ace.rawTotalTokens > 0 && native.rawTotalTokens / ace.rawTotalTokens >= 5,
-  acceptance: paired && qualityNonInferior && attributed && receiptGate ? 'measured-not-necessarily-5x' : 'rejected',
+  target5xReached: false, // a forced tool invocation cannot close DBC-12
+  acceptance: validDiagnostic ? 'diagnostic-only' : 'rejected',
+  productionAcceptance: 'rejected',
+  limitations: [
+    'ACE was forced by an extra instruction, so natural tool-choice savings were not tested.',
+    'Only three small tasks repeated three times; this is not a large-repository long-horizon workload.',
+    'Provider operations are observed in each trial, not tied to an individual request/citation.',
+    'Local embedding, Qdrant, Tree-sitter and TypeScript LS CPU/RAM cost and index setup are not metered.',
+    'Raw totals include cached input tokens; Codex cost represents its reported usage only.',
+  ],
 };
 await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n', 'utf8');
 process.stdout.write(JSON.stringify(report) + '\n');
