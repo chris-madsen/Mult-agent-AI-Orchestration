@@ -24,6 +24,8 @@ jobs:
         run: npm ci --ignore-scripts
       - name: TypeScript strict check
         run: npm run check
+      - name: Embedding artifact integrity regressions
+        run: python3 -m unittest discover -s scripts -p 'test_embedding_artifact_verifier.py'
       - name: Install pinned structural provider
         run: |
           python3 -m venv .venv-system
