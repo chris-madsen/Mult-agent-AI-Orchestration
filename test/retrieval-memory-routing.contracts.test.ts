@@ -198,6 +198,9 @@ test('MVC-02 decision promotion requires confirmation and preserves successor hi
   assert.equal(superseded.successorId, 'decision-b');
   assert.equal(accepted.transitions?.[0]?.approvalIdentity, 'owner:alice');
   assert.deepEqual(accepted.transitions?.[0]?.sourceEpisodeIds, ['episode-1']);
+  assert.equal(Object.isFrozen(accepted.transitions), true);
+  assert.equal(Object.isFrozen(accepted.transitions?.[0]), true);
+  assert.equal(Object.isFrozen(accepted.transitions?.[0]?.sourceEpisodeIds), true);
   assert.equal(mustErr(makeDecisionRecord({ ...record, state: 'Accepted' })).code, 'INVALID_MEMORY');
   assert.equal(mustErr(transitionDecision(accepted, {
     type: 'supersede', atMs: 1_700_000_000_002, successorId: accepted.decisionId,

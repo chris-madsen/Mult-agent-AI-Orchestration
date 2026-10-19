@@ -319,11 +319,12 @@ export const transitionDecision = (record: DecisionRecord, event: DecisionEvent)
   if (record.state !== 'Accepted' || event.type !== 'supersede') {
     if (event.type === 'supersede') return err(domainError('INVALID_MEMORY', 'state', 'only accepted decisions may be superseded'));
   }
-  const transitions = [...(record.transitions ?? []), {
+  const transition = Object.freeze({
     ...event,
     approvalIdentity: event.approvalIdentity.trim(),
-    sourceEpisodeIds: [...event.sourceEpisodeIds],
-  }];
+    sourceEpisodeIds: Object.freeze([...event.sourceEpisodeIds]),
+  });
+  const transitions = Object.freeze([...(record.transitions ?? []), transition]);
   if (event.type === 'confirm') return ok({ ...record, state: 'Accepted', transitions });
   if (event.type === 'reject') return ok({ ...record, state: 'Rejected', validToMs: event.atMs, transitions });
   if (event.successorId === record.decisionId || !nonEmpty(event.successorId)) {
@@ -344,7 +345,10 @@ export const decisionStateAt = (
       ? { state: 'Proposed', historicalUncertainty: false }
       : { historicalUncertainty: true };
   }
-  if (transitions.some((transition, index) => index > 0 && transition.atMs <= (transitions[index - 1]?.atMs ?? record.validFromMs))) {
+  if (transitions.some((transition, index) => index > 0 && transition.atMs <= (transitions[index - 1]?.atMs ?? record.validFromMs))
+    || transitions.some((transition) => !nonEmpty(transition.approvalIdentity)
+      || transition.sourceEpisodeIds.length === 0
+      || transition.sourceEpisodeIds.some((episodeId) => !nonEmpty(episodeId)))) {
     return { historicalUncertainty: true };
   }
   let state: DecisionState = 'Proposed';
