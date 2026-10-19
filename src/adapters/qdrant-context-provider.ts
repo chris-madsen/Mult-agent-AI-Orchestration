@@ -267,18 +267,21 @@ export const reuseOrPopulateQdrantSnapshot = (
   workspaceId: WorkspaceId,
   indexKey: string,
   allowedHosts: readonly string[] = [],
+  reuseAllowed = true,
 ): Effect.Effect<Result<{ readonly count: number; readonly reused: boolean }, DomainError>> => Effect.gen(function* () {
-  const checked = yield* hasExactQdrantSnapshot(
-    http, baseUrl, collection, workspaceId, indexKey, index.candidates.length, allowedHosts,
-  );
-  if (checked._tag === 'Err') return checked;
   const expectedCandidateIds = index.candidates.map((candidate) => candidate.candidateId);
-  if (checked.value) {
+  if (reuseAllowed) {
+    const checked = yield* hasExactQdrantSnapshot(
+      http, baseUrl, collection, workspaceId, indexKey, index.candidates.length, allowedHosts,
+    );
+    if (checked._tag === 'Err') return checked;
+    if (checked.value) {
     const membership = yield* verifyQdrantSnapshotMembership(
       http, baseUrl, collection, workspaceId, indexKey, expectedCandidateIds, allowedHosts,
     );
-    if (membership._tag === 'Err') return membership;
-    if (membership.value) return ok({ count: index.candidates.length, reused: true });
+      if (membership._tag === 'Err') return membership;
+      if (membership.value) return ok({ count: index.candidates.length, reused: true });
+    }
   }
   // Do not delete an in-use snapshot while another process may still read it.
   // Snapshot-scoped deterministic point IDs make same-snapshot writes idempotent
