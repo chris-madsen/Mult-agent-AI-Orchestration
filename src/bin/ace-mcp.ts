@@ -6,6 +6,7 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { Effect } from 'effect';
 import { makeFileArtifactStore } from '../adapters/file-artifact-store.js';
+import { makeFileQdrantSnapshotState, type SnapshotLease } from '../adapters/file-qdrant-snapshot-state.js';
 import { makeAsyncFileMemoryArchive } from '../adapters/file-memory-archive.js';
 import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
 import { makeFetchHttpPort, makeQdrantCodeCandidatePort } from '../adapters/http-provider-boundaries.js';
@@ -14,7 +15,13 @@ import { makeLocalContextProvider } from '../adapters/local-context-provider.js'
 import { makeNodeWorkspacePort } from '../adapters/node-workspace-port.js';
 import { makeProcessEmbeddingPort, type ResolvedEmbeddingConfig } from '../adapters/process-embedding.js';
 import { makeFileProviderTrace } from '../adapters/provider-trace.js';
-import { codeIndexKey, ensureQdrantCollection, makeQdrantContextProvider, reuseOrPopulateQdrantSnapshot } from '../adapters/qdrant-context-provider.js';
+import {
+  codeIndexKey,
+  ensureQdrantCollection,
+  makeQdrantContextProvider,
+  pruneQdrantUnleasedSnapshots,
+  reuseOrPopulateQdrantSnapshot,
+} from '../adapters/qdrant-context-provider.js';
 import { makeTreeSitterStructuralPort } from '../adapters/tree-sitter-structural.js';
 import { makeTypeScriptLanguageServicePort } from '../adapters/typescript-language-service.js';
 import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
@@ -126,6 +133,8 @@ const main = async (): Promise<void> => {
   const providerTrace = makeFileProviderTrace(process.env.ACE_PROVIDER_TRACE_FILE);
   let memory: MemorySearchPort | undefined;
   let closeMemory: (() => Promise<void>) | undefined;
+  let snapshotLease: SnapshotLease | undefined;
+  const snapshotState = await makeFileQdrantSnapshotState(resolve(stateDirectory, 'qdrant-snapshots'));
   if (process.env.ACE_ENABLE_GRAPHITI === 'true') {
     const archiveRoot = resolve(required('ACE_MEMORY_ARCHIVE_ROOT'));
     const command = required('ACE_GRAPHITI_COMMAND');
@@ -294,6 +303,31 @@ const main = async (): Promise<void> => {
         // produced in this startup. It ignores observation epoch/timestamps,
         // but changes on source bytes, ranges, names or parser output.
         const sourceKey = codeIndexKey(built.value.index, built.value.coverage, embeddingFingerprint);
+        const snapshotIdentity = {
+          workspaceId: registered.value.workspaceId,
+          indexKey: sourceKey,
+          candidateIds: built.value.index.candidates.map((candidate) => candidate.candidateId),
+          coverage: built.value.coverage,
+          providerFingerprint: embeddingFingerprint,
+        };
+        const lease = await snapshotState.acquireLease(registered.value.workspaceId, sourceKey);
+        if (lease._tag === 'Err') {
+          embeddings.close();
+          throw new Error(`Qdrant snapshot lease failed (${lease.error.code})`);
+        }
+        snapshotLease = lease.value;
+        const published = await snapshotState.isPublished(snapshotIdentity);
+        if (published._tag === 'Err') {
+          embeddings.close();
+          throw new Error(`Qdrant snapshot manifest check failed (${published.error.code})`);
+        }
+        if (!published.value) {
+          const begun = await snapshotState.beginBuild(snapshotIdentity);
+          if (begun._tag === 'Err') {
+            embeddings.close();
+            throw new Error(`Qdrant snapshot manifest begin failed (${begun.error.code})`);
+          }
+        }
         const qdrant = makeQdrantCodeCandidatePort({
           baseUrl: qdrantUrl,
           collection,
@@ -304,15 +338,32 @@ const main = async (): Promise<void> => {
         });
         const indexed = await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
           built.value.index, qdrant, embeddings, http, qdrantUrl, collection,
-          registered.value.workspaceId, sourceKey, qdrantAllowedHosts,
+          registered.value.workspaceId, sourceKey, qdrantAllowedHosts, published.value,
         ));
         if (indexed._tag === 'Err') {
           embeddings.close();
           process.stderr.write(`ace-mcp context NOT_READY: Qdrant indexing failed (${indexed.error.code}: ${indexed.error.message})\n`);
         } else {
-          // Never delete other snapshots automatically: another ACE process may
-          // still be serving one. Snapshot-scoped point IDs isolate readers;
-          // cleanup remains an explicit operator action until lease-aware GC.
+          const publishedNow = await snapshotState.publish(snapshotIdentity);
+          if (publishedNow._tag === 'Err') {
+            embeddings.close();
+            throw new Error(`Qdrant snapshot publish failed (${publishedNow.error.code})`);
+          }
+          const activeKeys = await snapshotState.activeIndexKeys(registered.value.workspaceId);
+          if (activeKeys._tag === 'Err') {
+            process.stderr.write(`ace retrieval warning: snapshot lease inspection failed (${activeKeys.error.code})\n`);
+          } else {
+            const retained = new Set(activeKeys.value);
+            retained.add(sourceKey);
+            const cleaned = await Effect.runPromise(pruneQdrantUnleasedSnapshots(
+              http, qdrantUrl, collection, registered.value.workspaceId, retained, qdrantAllowedHosts,
+            ));
+            if (cleaned._tag === 'Err') {
+              process.stderr.write(`ace retrieval warning: lease-aware snapshot cleanup failed (${cleaned.error.code})\n`);
+            } else if (cleaned.value.length > 0) {
+              process.stderr.write(`ace retrieval cleanup removed_snapshots=${cleaned.value.length}\n`);
+            }
+          }
           const sourceFiles = await readSourceFiles(files, registered.value.rootPath, built.value.indexedPaths);
           const semantics = makeTypeScriptLanguageServicePort({
             rootPath: registered.value.rootPath,
@@ -386,6 +437,7 @@ const main = async (): Promise<void> => {
   try {
     await runMcpSdkStdio(gateway);
   } finally {
+    if (snapshotLease !== undefined) await snapshotLease.close();
     if (closeMemory !== undefined) await closeMemory();
   }
 };
