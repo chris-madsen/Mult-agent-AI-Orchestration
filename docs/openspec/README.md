@@ -52,3 +52,7 @@ No full observability stack, default code-to-cloud, multi-tenant enterprise IAM,
 New normative readiness levels: `contract-designed`, `adapter-implemented`, `real-provider-tested`, `agent-E2E-passed`, `benchmark-evaluated`, `owner-approved`. Do not check mandatory capabilities off through a "controlled exception": open external provider decisions mean `not_ready`. Real agent retrieval benefit needs a retrieval-demanding holdout with **actual ACE MCP calls**; zero-call natural smoke or forced trivial TODO test is never proof of causal benefit.
 
 Read `docs/docs/architecture/07-architecture-fitness-contracts.md`, the proposed ADR-012 and `docs/reviews/2026-10-18-architecture-failure-review.md` before executing the next implementation task. Keep original accepted ADR status unchanged until explicit owner approval.
+
+## Codex immediate work (owner approved 2026-10-19)
+
+Read [`changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md`](changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md) first. ADR-012 is **Accepted** as a six-rule acceptance policy and ADR-013 is **Accepted only as an experimental embedding-evaluation protocol**. This is not model selection, retrieval production readiness or 5× validation. Run candidate integration, Serena-vs-TS-LS comparison, local Graphiti and gcloud Vertex probes and real Harbor tests without further planning bureaucracy; retain production gates as unchecked until actual evidence exists.
