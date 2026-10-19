@@ -48,6 +48,10 @@ def symbols(node, source: bytes):
                     "start_column": node.start_point[1] + 1,
                     "end_line": node.end_point[0] + 1,
                     "end_column": node.end_point[1] + 1,
+                    "name_start_line": name_node.start_point[0] + 1,
+                    "name_start_column": name_node.start_point[1] + 1,
+                    "name_end_line": name_node.end_point[0] + 1,
+                    "name_end_column": name_node.end_point[1] + 1,
                 }
             )
     for child in node.children:
