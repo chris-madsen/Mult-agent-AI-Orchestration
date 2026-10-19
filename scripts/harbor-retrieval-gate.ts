@@ -144,7 +144,8 @@ const report = {
   paired,
   qualityNonInferior,
   aceInvocationsObserved: ace.aceObservedCalls > 0,
-  successfulAceInvocationsObserved: attributionEvidence,
+  completeAceInvocationsObserved: ace.aceSuccessfulCalls > 0,
+  attributionEvidence,
   measuredTokenRatio: native.totalTokens === null || ace.totalTokens === null || ace.totalTokens === 0
     ? null : native.totalTokens / ace.totalTokens,
   measuredCostRatio: native.costUsd === null || ace.costUsd === null || ace.costUsd === 0
