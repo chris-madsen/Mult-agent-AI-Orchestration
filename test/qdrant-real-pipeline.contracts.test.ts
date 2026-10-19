@@ -129,12 +129,26 @@ test('Qdrant warm reuse rebuilds on different count and fails closed on count ou
   const embeddings = {
     embedMany: (input: readonly string[]) => Effect.succeed(ok(input.map(() => [1, 2]))),
   };
-  const http: HttpPort = { request: () => Effect.succeed(ok({ status: 200, body: { result: { count: 0 } } })) };
+  const qdrantRequests: Array<{ readonly url: string; readonly body?: Readonly<Record<string, unknown>> }> = [];
+  const http: HttpPort = {
+    request: (request) => {
+      qdrantRequests.push({ url: request.url, ...(request.body === undefined ? {} : { body: request.body }) });
+      return Effect.succeed(ok(request.url.endsWith('/points/count')
+        ? { status: 200, body: { result: { count: 0 } } }
+        : { status: 200, body: { result: true } }));
+    },
+  };
   const rebuilt = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
     index, qdrant, embeddings, http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'snapshot-digest',
   )));
   assert.deepEqual(rebuilt, { count: 1, reused: false });
   assert.equal(upserts, 1);
+  assert.equal(qdrantRequests.length, 2, 'count mismatch must clear the exact snapshot before rebuilding');
+  assert.match(qdrantRequests[1]?.url ?? '', /\/points\/delete\?wait=true$/u);
+  assert.deepEqual((qdrantRequests[1]?.body?.filter as { must: unknown[] }).must, [
+    { key: 'workspace_id', match: { value: workspaceId } },
+    { key: 'index_key', match: { value: 'snapshot-digest' } },
+  ]);
   const offline: HttpPort = { request: () => Effect.succeed(err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'offline'))) };
   const failed = await Effect.runPromise(hasExactQdrantSnapshot(
     offline, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'snapshot-digest', 1,
