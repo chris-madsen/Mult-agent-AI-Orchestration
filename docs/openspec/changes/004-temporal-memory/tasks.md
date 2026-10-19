@@ -40,5 +40,7 @@ Codex session-export and Graphiti adapters remain controlled exceptions; see
 ## Mandatory outstanding production gates (2026-10-18)
 
 **Architecture correction:** archive and Graphiti readiness must not be claimed from source-independent tests alone; stable event IDs across JSONL append and shared-digest deletion are unfulfilled critical contracts.
-- [x] Test DBC-10 JSONL append/replay identity with real archive persistence.\n- [ ] Complete DBC-11 end-to-end: shared-content archive deletion is covered, but real Graphiti derived-index purge/tombstone behavior still needs provider evidence.
-- [ ] Verify supported full-session Codex transcript capture and **real local Graphiti projection** before declaring temporal memory production-ready; Graphiti must preserve original episode time via `reference_time`.\n- [ ] Validate the memory-admission filter against an unfiltered baseline on a frozen bilingual durable-memory holdout; cost savings do not justify silently losing required historical recall.
+- [x] Test DBC-10 JSONL append/replay identity with real archive persistence.
+- [ ] Complete DBC-11 end-to-end: shared-content archive deletion is covered, but real Graphiti derived-index purge/tombstone behavior still needs provider evidence.
+- [ ] Verify supported full-session Codex transcript capture and **real local Graphiti projection** before declaring temporal memory production-ready; Graphiti must preserve original episode time via `reference_time`.
+- [ ] Validate the memory-admission filter against an unfiltered baseline on a frozen bilingual durable-memory holdout; cost savings do not justify silently losing required historical recall.
