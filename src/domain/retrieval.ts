@@ -61,6 +61,9 @@ export interface RetrievalEvidence {
   /** A provider-supplied claim topic; absence means no conflict inference. */
   readonly conflictKey?: string;
   readonly conflictValue?: string;
+  /** An outline, not a truncated claim: full original bytes remain available. */
+  readonly contentDelivery?: 'expand';
+  readonly originalSpanLines?: number;
   /** Handle for authorized, byte-exact full-source expansion via ace_expand. */
   readonly expansionHandle?: string;
 }
