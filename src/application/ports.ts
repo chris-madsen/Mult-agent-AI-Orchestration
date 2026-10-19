@@ -11,7 +11,7 @@ import type {
 } from '../domain/workspace.js';
 import type { Result } from '../domain/result.js';
 import type { ContextBundle, CodeCandidate, RankedCandidate } from '../domain/retrieval.js';
-import type { EpisodeId, MemorySearchResult, ProjectionReceipt, SessionEpisode } from '../domain/memory.js';
+import type { EpisodeId, MemorySearchResult, ProjectionKey, ProjectionReceipt, SessionEpisode } from '../domain/memory.js';
 import type {
   SemanticDefinition,
   SemanticDiagnostic,
@@ -109,6 +109,13 @@ export interface MemorySearchPort {
     readonly asOfMs?: number;
     readonly includeOriginal: boolean;
   }) => Effect.Effect<Result<MemorySearchResult, DomainError>>;
+}
+
+export interface ProjectionOutboxPort {
+  readonly begin: (episodeId: EpisodeId, extractorVersion: string) => Promise<Result<ProjectionReceipt, DomainError>>;
+  readonly put: (receipt: ProjectionReceipt) => Promise<Result<void, DomainError>>;
+  readonly get: (key: ProjectionKey) => Promise<Result<ProjectionReceipt | undefined, DomainError>>;
+  readonly list: () => Promise<Result<readonly ProjectionReceipt[], DomainError>>;
 }
 
 export interface GraphProjectionPort {
