@@ -329,6 +329,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
       if (!verified || verifiedText === undefined) continue;
       const symbolLocationLine = Buffer.from(full.bytes).toString('utf8').split('\n')[candidate.range.startLine - 1] ?? '';
       const symbolOffset = candidate.symbolName === undefined ? -1 : symbolLocationLine.indexOf(candidate.symbolName);
+      let lspConfirmed = false;
       if (symbolOffset < 0) {
         warnings.push(candidate.repoPath + ': symbol identifier was not found at the syntax node start');
         failed.push('lsp');
@@ -342,18 +343,20 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
           warnings.push(candidate.repoPath + ': language service unavailable (' + definitions.error.code + ')');
           failed.push('lsp');
         } else {
-          const matchingDefinition = definitions.value.some((entry) =>
+          lspConfirmed = definitions.value.some((entry) =>
             entry.location.repoPath === candidate.repoPath
             && entry.location.startLine >= candidate.range.startLine
             && entry.location.endLine <= candidate.range.endLine);
-          if (!matchingDefinition) {
+          if (!lspConfirmed) {
             warnings.push(candidate.repoPath + ': LSP definition does not agree with the selected structural node');
             failed.push('lsp');
           }
         }
       }
+      const baseEvidence = evidenceFromCandidate({ ...ranked, freshness }, evidenceId.value);
       evidence.push({
-        ...evidenceFromCandidate({ ...ranked, freshness }, evidenceId.value),
+        ...baseEvidence,
+        proofClass: lspConfirmed ? baseEvidence.proofClass : 'uncertain',
         content: verifiedText,
         expansionHandle: full.handle,
         ...(exactSpan === undefined ? {} : {
