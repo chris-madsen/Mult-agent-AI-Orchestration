@@ -342,9 +342,9 @@ export const reuseOrPopulateQdrantSnapshot = (
     );
     if (checked._tag === 'Err') return checked;
     if (checked.value) {
-    const membership = yield* verifyQdrantSnapshotMembership(
-      http, baseUrl, collection, workspaceId, indexKey, expectedCandidateIds, allowedHosts,
-    );
+      const membership = yield* verifyQdrantSnapshotMembership(
+        http, baseUrl, collection, workspaceId, indexKey, expectedCandidateIds, allowedHosts,
+      );
       if (membership._tag === 'Err') return membership;
       if (membership.value) return ok({ count: index.candidates.length, reused: true, reusedVectorCount: index.candidates.length });
     }
