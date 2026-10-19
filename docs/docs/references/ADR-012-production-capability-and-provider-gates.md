@@ -28,3 +28,16 @@ More honest incomplete status and earlier integration failures; less false confi
 ## Verification and adoption
 
 Owner reviews this ADR in PR; implement `006-production-retrieval-vertical-slice` and required E2E/fitness tests before accepting retrieval as done. Existing docs that say "partially implemented" remain historically true. No false claim that this ADR has already been accepted.
+
+## Owner sign-off checklist (open — 2026-10-19)
+
+This ADR is a **policy for accepting capabilities**, not a claim that any real provider is ready or that the 5× goal has been reached. Review compatibility with Accepted ADR-001/003/004/005/006/007/009 and explicitly confirm:
+
+- [ ] Real runtime composition and provider E2E required before production-complete.
+- [ ] Proven mature engines and maintained official protocols preferred to bespoke substitutes.
+- [ ] Explicit experimental/fallback/test-only status; mocks cannot pass production gates.
+- [ ] Meyer preconditions, postconditions, invariants, frame conditions and exceptional postconditions must be observable.
+- [ ] Separate design/adapter/provider-E2E/agent-E2E/benchmark/owner states; no unchecked blocker passed by "controlled exception".
+- [ ] Fair Harbor paired test with source/provenance and total tokens/cost; never claim 5× without evidence.
+
+**Approval must be explicit.** Do not auto-change the status to Accepted on a merged implementation PR. **Testing is not blocked by this approval:** Codex may immediately install candidate providers, compare LSPs, use public/synthetic fixtures, and run exploratory Harbor. Only final production promotion requires the owner decision and evidence.
