@@ -238,59 +238,59 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
     search: (input) => {
       const startedAtMs = Date.now();
       const operation = Effect.tryPromise({
-      try: async (): Promise<Result<MemorySearchResult, DomainError>> => {
-        if (input.workspaceId !== options.workspaceId) {
-          return err(domainError('POLICY_DENIED', 'workspace_id', 'Graphiti memory provider belongs to another workspace'));
-        }
-        const granted = authorize('memory_search');
-        if (granted._tag === 'Err') return granted;
-        const reply = await client.callTool({
-          name: 'search_memory_facts',
-          arguments: { query: input.query, group_ids: [options.groupId], max_facts: 50 },
-        });
-        const parsed = parseGraphitiFactSearchReply(reply);
-        if (parsed._tag === 'Err') return parsed;
-        const listed = await options.archive!.listEpisodes();
-        if (listed._tag === 'Err') return listed;
-        const byGraphitiUuid = new Map(
-          listed.value
-            .filter((episode) => episode.workspaceId === options.workspaceId && !episode.tombstoned)
-            .map((episode) => [graphitiEpisodeUuid(episode.episodeId), episode] as const),
-        );
-        const excerpts = new Map<EpisodeId, { readonly episode: SessionEpisode; readonly facts: string[] }>();
-        for (const fact of parsed.value) {
-          if (fact.groupId !== options.groupId) {
-            return err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti.group_id', 'Graphiti returned a fact from another group'));
+        try: async (): Promise<Result<MemorySearchResult, DomainError>> => {
+          if (input.workspaceId !== options.workspaceId) {
+            return err(domainError('POLICY_DENIED', 'workspace_id', 'Graphiti memory provider belongs to another workspace'));
           }
-          if (input.asOfMs !== undefined
-            && ((fact.validAt !== undefined && fact.validAt > input.asOfMs)
-              || (fact.invalidAt !== undefined && fact.invalidAt <= input.asOfMs))) continue;
-          if (fact.episodeUuids.length === 0) {
-            return err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti.episodes', 'derived fact has no original episode provenance'));
-          }
-          for (const graphitiUuid of fact.episodeUuids) {
-            const episode = byGraphitiUuid.get(graphitiUuid);
-            if (episode === undefined) {
-              return err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti.episodes', 'derived fact cannot be linked to a verified ACE archive original'));
+          const granted = authorize('memory_search');
+          if (granted._tag === 'Err') return granted;
+          const reply = await client.callTool({
+            name: 'search_memory_facts',
+            arguments: { query: input.query, group_ids: [options.groupId], max_facts: 50 },
+          });
+          const parsed = parseGraphitiFactSearchReply(reply);
+          if (parsed._tag === 'Err') return parsed;
+          const listed = await options.archive!.listEpisodes();
+          if (listed._tag === 'Err') return listed;
+          const byGraphitiUuid = new Map(
+            listed.value
+              .filter((episode) => episode.workspaceId === options.workspaceId && !episode.tombstoned)
+              .map((episode) => [graphitiEpisodeUuid(episode.episodeId), episode] as const),
+          );
+          const excerpts = new Map<EpisodeId, { readonly episode: SessionEpisode; readonly facts: string[] }>();
+          for (const fact of parsed.value) {
+            if (fact.groupId !== options.groupId) {
+              return err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti.group_id', 'Graphiti returned a fact from another group'));
             }
-            if (input.asOfMs !== undefined && episode.occurredAtMs > input.asOfMs) continue;
-            const existing = excerpts.get(episode.episodeId) ?? { episode, facts: [] };
-            if (!existing.facts.includes(fact.fact)) existing.facts.push(fact.fact);
-            excerpts.set(episode.episodeId, existing);
+            if (input.asOfMs !== undefined
+              && ((fact.validAt !== undefined && fact.validAt > input.asOfMs)
+                || (fact.invalidAt !== undefined && fact.invalidAt <= input.asOfMs))) continue;
+            if (fact.episodeUuids.length === 0) {
+              return err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti.episodes', 'derived fact has no original episode provenance'));
+            }
+            for (const graphitiUuid of fact.episodeUuids) {
+              const episode = byGraphitiUuid.get(graphitiUuid);
+              if (episode === undefined) {
+                return err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti.episodes', 'derived fact cannot be linked to a verified ACE archive original'));
+              }
+              if (input.asOfMs !== undefined && episode.occurredAtMs > input.asOfMs) continue;
+              const existing = excerpts.get(episode.episodeId) ?? { episode, facts: [] };
+              if (!existing.facts.includes(fact.fact)) existing.facts.push(fact.fact);
+              excerpts.set(episode.episodeId, existing);
+            }
           }
-        }
-        const hits: MemorySearchHit[] = [...excerpts.values()]
-          .sort((left, right) => right.episode.occurredAtMs - left.episode.occurredAtMs)
-          .map(({ episode, facts }) => ({
-            episode: stripOriginal(episode, input.includeOriginal),
-            matchingExcerpt: facts.join('\n'),
-          }));
-        return ok({
-          hits,
-          conflicts: [],
-          ...(input.asOfMs === undefined ? {} : { asOfMs: input.asOfMs }),
-        });
-      },
+          const hits: MemorySearchHit[] = [...excerpts.values()]
+            .sort((left, right) => right.episode.occurredAtMs - left.episode.occurredAtMs)
+            .map(({ episode, facts }) => ({
+              episode: stripOriginal(episode, input.includeOriginal),
+              matchingExcerpt: facts.join('\n'),
+            }));
+          return ok({
+            hits,
+            conflicts: [],
+            ...(input.asOfMs === undefined ? {} : { asOfMs: input.asOfMs }),
+          });
+        },
         catch: () => domainError('EXTERNAL_UNAVAILABLE', 'graphiti', 'Graphiti memory search failed'),
       }).pipe(Effect.catchAll((cause) => Effect.succeed(err(cause))));
       return Effect.map(operation, (result) => {
