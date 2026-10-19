@@ -59,12 +59,11 @@ test('DBC-09 official MCP client interoperates with the production executable', 
   }
 });
 
-test('DBC-09 official MCP cancellation reaches the tool callback without late success', async () => {
+test('official MCP cancellation interrupts the underlying Effect without late success', async () => {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  let finalized = false;
   const server = createAceServer({
-    handle: () => Effect.promise(() => new Promise((resolve) => {
-      setTimeout(() => resolve({ status: 'ok' as const, result: { late: true } }), 1_000);
-    })),
+    handle: () => Effect.never.pipe(Effect.ensuring(Effect.sync(() => { finalized = true; }))),
   });
   const client = new Client({ name: 'ace-sdk-cancellation-client', version: '1.0.0' });
   await server.connect(serverTransport);
@@ -77,6 +76,8 @@ test('DBC-09 official MCP cancellation reaches the tool callback without late su
     }, { signal: controller.signal });
     setTimeout(() => controller.abort(), 25).unref();
     await assert.rejects(request, (error: unknown) => error instanceof Error && /abort|cancel/i.test(error.message));
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(finalized, true);
   } finally {
     await client.close();
     await server.close();
