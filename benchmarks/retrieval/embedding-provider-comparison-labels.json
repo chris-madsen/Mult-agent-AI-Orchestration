@@ -1,0 +1,56 @@
+{
+  "candidates": {
+    "save-user": "export function saveUser(record: User): void { repository.save(record); }",
+    "parse-user": "export function parseUser(input: string): User { return JSON.parse(input); }",
+    "delete-user": "export function deleteUser(id: string): void { repository.remove(id); }",
+    "read-exact": "export async function readExact(path: string): Promise<Uint8Array> { return fs.readFile(path); }",
+    "write-exact": "export async function writeExact(path: string, bytes: Uint8Array): Promise<void> { await fs.writeFile(path, bytes); }",
+    "hash-content": "export function hashContent(bytes: Uint8Array): string { return sha256(bytes); }",
+    "remove-episode": "export async function removeEpisode(id: string): Promise<void> { await graph.removeEpisode(id); }",
+    "add-episode": "export async function addEpisode(text: string): Promise<void> { await graph.addEpisode(text); }",
+    "search-memory": "export async function searchMemory(query: string): Promise<Result[]> { return graph.search(query); }",
+    "payments-retry-limit": "export const paymentRetryLimit = 2; // prevent duplicate charges after payment gateway failures",
+    "payments-retry": "export async function retryPaymentAfterGatewayTimeout(): Promise<void> { await paymentGateway.retry(); }",
+    "connections-retry-limit": "export const connectionRetryLimit = 3; // transport reconnect budget",
+    "connections-retry": "export async function reconnectAfterTransientFailure(): Promise<void> { await transport.reconnect(); }",
+    "definition": "export type WorkspaceWriter = (path: string, bytes: Uint8Array) => Promise<void>;"
+  },
+  "queries": [
+    {
+      "query": "persist a user record",
+      "relevant": "save-user"
+    },
+    {
+      "query": "read current workspace file bytes",
+      "relevant": "read-exact"
+    },
+    {
+      "query": "remove an old graph episode",
+      "relevant": "remove-episode"
+    },
+    {
+      "query": "получить текущие байты файла рабочей директории",
+      "relevant": "read-exact"
+    },
+    {
+      "query": "удалить старый эпизод графа",
+      "relevant": "remove-episode"
+    },
+    {
+      "query": "find the retry limit that prevents duplicate charges",
+      "relevant": "payments-retry-limit"
+    },
+    {
+      "query": "retry a failed payment after gateway timeout",
+      "relevant": "payments-retry"
+    },
+    {
+      "query": "where is the workspace file written",
+      "relevant": "write-exact"
+    },
+    {
+      "query": "locate the function that parses a user payload",
+      "relevant": "parse-user"
+    }
+  ]
+}

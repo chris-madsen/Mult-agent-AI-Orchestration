@@ -34,30 +34,29 @@ const integerField = (value: Record<string, unknown>, key: string): Result<numbe
     ? ok(value[key])
     : err(domainError('INVALID_EXTERNAL_RESPONSE', key, `external response field ${key} must be a positive integer`));
 
-const externalFailure = (response: HttpResponse, provider: string): Result<never, DomainError> =>
-  err(domainError('EXTERNAL_UNAVAILABLE', provider, `external provider returned HTTP ${response.status}`));
+const externalFailure = (response: HttpResponse, provider: string): Result<never, DomainError> => {
+  const body = object(response.body);
+  const status = object(body?.status);
+  const detail = typeof status?.error === 'string' ? `: ${status.error.slice(0, 240)}` : '';
+  return err(domainError('EXTERNAL_UNAVAILABLE', provider, `external provider returned HTTP ${response.status}${detail}`));
+};
 
 const successful = (response: HttpResponse): boolean => response.status >= 200 && response.status < 300;
 
 export const makeFetchHttpPort = (): HttpPort => ({
   request: (request: HttpRequest) => Effect.catchAll(Effect.tryPromise<Result<HttpResponse, DomainError>, DomainError>({
-    try: async () => {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), request.timeoutMs ?? 10_000);
-      try {
-        const response = await fetch(request.url, {
-          method: request.method,
-          headers: { 'content-type': 'application/json', ...request.headers },
-          ...(request.body === undefined ? {} : { body: JSON.stringify(request.body) }),
-          signal: controller.signal,
-        });
-        const text = await response.text();
-        let body: unknown = text;
-        try { body = text.length === 0 ? {} : JSON.parse(text) as unknown; } catch { /* preserve non-JSON body */ }
-        return ok({ status: response.status, body });
-      } finally {
-        clearTimeout(timer);
-      }
+    try: async (signal) => {
+      const timeout = AbortSignal.timeout(request.timeoutMs ?? 10_000);
+      const response = await fetch(request.url, {
+        method: request.method,
+        headers: { 'content-type': 'application/json', ...request.headers },
+        ...(request.body === undefined ? {} : { body: JSON.stringify(request.body) }),
+        signal: AbortSignal.any([signal, timeout]),
+      });
+      const text = await response.text();
+      let body: unknown = text;
+      try { body = text.length === 0 ? {} : JSON.parse(text) as unknown; } catch { /* preserve non-JSON body */ }
+      return ok({ status: response.status, body });
     },
     catch: () => domainError('EXTERNAL_UNAVAILABLE', 'http', 'external HTTP request failed or timed out'),
   }), (failure) => Effect.succeed(err(failure))),
@@ -67,8 +66,32 @@ interface QdrantConfig {
   readonly baseUrl: string;
   readonly collection: string;
   readonly http: HttpPort;
+  /** Explicit local bridge aliases (for example a Docker host gateway). */
+  readonly allowedHosts?: readonly string[];
   readonly apiKey?: () => string | undefined;
 }
+
+export const validateLocalQdrantBaseUrl = (
+  baseUrl: string,
+  allowedHosts: readonly string[] = [],
+): Result<string, DomainError> => {
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return err(domainError('INVALID_INPUT', 'qdrant_url', 'Qdrant URL must be a valid absolute URL'));
+  }
+  const hostname = url.hostname.toLocaleLowerCase().replace(/^\[|\]$/gu, '');
+  const allowed = new Set(['localhost', '127.0.0.1', '::1', ...allowedHosts.map((host) => host.trim().toLocaleLowerCase())]);
+  if (url.protocol !== 'http:' || !allowed.has(hostname) || url.username !== '' || url.password !== '') {
+    return err(domainError(
+      'POLICY_DENIED',
+      'qdrant_url',
+      'Qdrant code index is local-only: use loopback HTTP or an explicitly allowlisted local bridge host',
+    ));
+  }
+  return ok(url.origin);
+};
 
 const candidateFromPayload = (point: Record<string, unknown>, workspaceId: WorkspaceId): Result<CodeCandidate, DomainError> => {
   const payload = object(point.payload);
@@ -108,6 +131,8 @@ const candidateFromPayload = (point: Record<string, unknown>, workspaceId: Works
         ? { endColumn: payload.end_column } : {}),
     },
     ...(typeof payload.symbol_name === 'string' ? { symbolName: payload.symbol_name } : {}),
+    ...(typeof payload.conflict_key === 'string' ? { conflictKey: payload.conflict_key } : {}),
+    ...(typeof payload.conflict_value === 'string' ? { conflictValue: payload.conflict_value } : {}),
     text: text.value,
     sourceDigest: safeDigest.value,
     generation: generation.value as CodeCandidate['generation'],
@@ -127,6 +152,8 @@ const qdrantPoint = (point: CodePoint): Readonly<Record<string, unknown>> => ({
     ...(point.candidate.range.startColumn === undefined ? {} : { start_column: point.candidate.range.startColumn }),
     ...(point.candidate.range.endColumn === undefined ? {} : { end_column: point.candidate.range.endColumn }),
     ...(point.candidate.symbolName === undefined ? {} : { symbol_name: point.candidate.symbolName }),
+    ...(point.candidate.conflictKey === undefined ? {} : { conflict_key: point.candidate.conflictKey }),
+    ...(point.candidate.conflictValue === undefined ? {} : { conflict_value: point.candidate.conflictValue }),
     text: point.candidate.text,
     source_digest: point.candidate.sourceDigest,
     generation: point.candidate.generation,
@@ -141,12 +168,14 @@ const qdrantPointId = (candidateId: string): string => {
 
 export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidatePort => ({
   search: (input) => Effect.gen(function* () {
+    const endpoint = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
+    if (endpoint._tag === 'Err') return endpoint;
     if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 1000) {
       return err(domainError('INVALID_INPUT', 'limit', 'Qdrant limit must be between 1 and 1000'));
     }
     const responseResult = yield* config.http.request({
       method: 'POST',
-      url: `${config.baseUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(config.collection)}/points/query`,
+      url: `${endpoint.value}/collections/${encodeURIComponent(config.collection)}/points/query`,
       ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
       body: { query: input.vector, limit: input.limit, with_payload: true, with_vector: false,
         filter: { must: [
@@ -172,9 +201,11 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
     return ok(output);
   }),
   upsert: (points) => Effect.gen(function* () {
+    const endpoint = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
+    if (endpoint._tag === 'Err') return endpoint;
     const responseResult = yield* config.http.request({
       method: 'PUT',
-      url: `${config.baseUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(config.collection)}/points?wait=true`,
+      url: `${endpoint.value}/collections/${encodeURIComponent(config.collection)}/points?wait=true`,
       ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
       body: { points: points.map(qdrantPoint) },
     });
@@ -221,7 +252,18 @@ export const makeVertexDocumentationPort = (config: VertexConfig): Documentation
       if (content._tag === 'Err') return content;
       const evidenceId = stringField(document, 'evidence_id');
       if (evidenceId._tag === 'Err') return evidenceId;
-      evidence.push({ evidenceId: evidenceId.value as RetrievalEvidence['evidenceId'], source: 'documentation', citation: citation.value, content: content.value, proofClass: 'direct', freshness: 'current' });
+      evidence.push({
+        evidenceId: evidenceId.value as RetrievalEvidence['evidenceId'],
+        source: 'documentation',
+        citation: citation.value,
+        content: content.value,
+        proofClass: 'direct',
+        freshness: 'current',
+        ...(typeof document.conflict_key === 'string' ? { conflictKey: document.conflict_key } : {}),
+        ...(typeof document.conflict_value === 'string' ? { conflictValue: document.conflict_value } : {}),
+        ...(typeof document.source_revision === 'string' ? { sourceRevision: document.source_revision } : {}),
+        ...(typeof document.source_timestamp_ms === 'number' ? { sourceTimestampMs: document.source_timestamp_ms } : {}),
+      });
     }
     return ok(evidence);
   }),

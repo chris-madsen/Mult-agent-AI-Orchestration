@@ -19,16 +19,29 @@ const toToolResult = (response: GatewayResponse) => {
   };
 };
 
+const cancelledToolResult = () => ({
+  isError: true,
+  content: [{ type: 'text' as const, text: 'ACE request cancelled' }],
+  structuredContent: { status: 'error', code: 'REQUEST_CANCELLED' },
+});
+
 // The official v2 SDK owns framing, protocol initialization, request validation,
 // cancellation and stdio lifecycle. Do not reimplement the protocol in ACE.
 export const createAceServer = (gateway: McpGatewayLike): McpServer => {
   const server = new McpServer({ name: 'ace-harness', version: '0.1.0' });
-  const run = async (name: string, args: unknown) => {
+  const run = async (name: string, args: unknown, signal?: AbortSignal) => {
+    const isAborted = (): boolean => signal?.aborted === true;
+    if (isAborted()) return cancelledToolResult();
     try {
-      const response = await Effect.runPromise(gateway.handle({ name, arguments: args }));
+      const operation = gateway.handle({ name, arguments: args });
+      const response = signal === undefined
+        ? await Effect.runPromise(operation)
+        : await Effect.runPromise(operation, { signal });
       return toToolResult(response);
-    } catch {
+    } catch (error) {
+      if (isAborted()) return cancelledToolResult();
       // The thrown failure is an ACE error, not an invitation to leak a stack trace.
+      process.stderr.write(`ace gateway failure: ${error instanceof Error ? error.message : 'unknown error'}\n`);
       return {
         isError: true,
         content: [{ type: 'text' as const, text: 'ACE gateway failed' }],
@@ -45,7 +58,7 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
       include_docs: z.boolean().optional(),
       include_memory: z.boolean().optional(),
     }),
-  }, async (args) => run('ace_context', args));
+  }, async (args, extra) => run('ace_context', args, extra.mcpReq.signal));
 
   server.registerTool('ace_expand', {
     description: 'Read an exact stored artifact byte range without silent truncation.',
@@ -54,12 +67,12 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
       cursor: z.string().optional(),
       max_bytes: z.number().int().positive().optional(),
     }),
-  }, async (args) => run('ace_expand', args));
+  }, async (args, extra) => run('ace_expand', args, extra.mcpReq.signal));
 
   server.registerTool('ace_workspace_status', {
     description: 'Report the workspace observation and provider readiness status.',
     inputSchema: z.object({ workspace_id: z.string().min(1) }),
-  }, async (args) => run('ace_workspace_status', args));
+  }, async (args, extra) => run('ace_workspace_status', args, extra.mcpReq.signal));
 
   server.registerTool('ace_memory_search', {
     description: 'Search source-attributed project memory when a memory provider is configured.',
@@ -69,7 +82,7 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
       as_of: z.string().optional(),
       include_original: z.boolean().optional(),
     }),
-  }, async (args) => run('ace_memory_search', args));
+  }, async (args, extra) => run('ace_memory_search', args, extra.mcpReq.signal));
 
   return server;
 };

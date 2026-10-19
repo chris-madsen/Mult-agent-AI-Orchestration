@@ -28,6 +28,7 @@ export * from './adapters/harbor-task-adapter.js';
 export * from './adapters/tree-sitter-structural.js';
 export * from './adapters/typescript-language-service.js';
 export * from './adapters/local-hash-embedding.js';
+export * from './adapters/process-embedding.js';
 export * from './adapters/codex-session-history.js';
 export * from './gateway/mcp-gateway.js';
 export * from './transport/mcp-stdio.js';

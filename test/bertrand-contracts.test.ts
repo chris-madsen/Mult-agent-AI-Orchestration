@@ -250,6 +250,22 @@ test('BTC-07 artifact postconditions guarantee contiguous lossless ranges', asyn
   assert.equal(mustErr(await run(store.readRange(reference.handle, String(source.byteLength + 1), 11))).code, 'INVALID_HANDLE');
 });
 
+test('DBC-08 exact expansion preserves >2000-line Unicode and mixed newline bytes', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ace-dbc08-unicode-'));
+  const store = makeFileArtifactStore(directory);
+  const lines = Array.from({ length: 2104 }, (_, index) =>
+    index % 3 === 0 ? `строка-${index}-🙂\r\n` : index % 3 === 1 ? `行-${index}-λ\n` : `line-${index}\r\n`);
+  const source = Buffer.from(lines.join('') + 'финал-без-newline', 'utf8');
+  const reference = mustOk(await run(store.storeExact(source)));
+  const pages: Buffer[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = mustOk(await run(store.readRange(reference.handle, cursor, 4093)));
+    pages.push(Buffer.from(page.bytes));
+    cursor = page.nextCursor;
+  } while (cursor !== undefined);
+  assert.deepEqual(Buffer.concat(pages), source);
+});
 test('BTC-08 gateway rejects invalid input and never simulates provider success', async () => {
   const parent = await mkdtemp(join(tmpdir(), 'ace-bertrand-gateway-'));
   const root = join(parent, 'repo');

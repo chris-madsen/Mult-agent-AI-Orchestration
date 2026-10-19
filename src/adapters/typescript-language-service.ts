@@ -37,7 +37,14 @@ const makeService = (options: TypeScriptLanguageServiceOptions): {
   const files = new Map(Object.entries(options.files).map(([repoPath, source]) => [path.resolve(options.rootPath, repoPath), source]));
   const versions = new Map([...files.keys()].map((fileName) => [fileName, '1']));
   const host: ts.LanguageServiceHost = {
-    getCompilationSettings: () => options.compilerOptions ?? { strict: true, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext },
+    getCompilationSettings: () => options.compilerOptions ?? {
+      strict: true,
+      allowJs: true,
+      checkJs: false,
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.NodeNext,
+      moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    },
     getScriptFileNames: () => [...files.keys()],
     getScriptVersion: (fileName) => versions.get(path.resolve(fileName)) ?? '0',
     getScriptSnapshot: (fileName) => {

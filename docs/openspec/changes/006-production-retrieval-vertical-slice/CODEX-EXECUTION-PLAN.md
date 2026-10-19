@@ -7,8 +7,8 @@
 - ADR-012's **six architecture and acceptance rules are Accepted**. Approval of test policy does **not** mean its tests have passed.
 - Ollama **must not** be required, installed as a default dependency, or selected as the production serving architecture. Evaluate genuine local embeddings with mature libraries, e.g. FastEmbed/ONNX, under ADR-013; **model selection remains open**. The in-repo `local_sha256_projection_v1` is only a deterministic test double.
 - **Serena versus direct TypeScript Language Service** must be compared under Accepted ADR-004. Neither automatically wins due to already having code.
-- **Graphiti + FalkorDB, local-first**. No unapproved cloud transmission of raw sessions or derived extraction payload; extraction model/inference choice needs evidence.
-- **Vertex AI RAG Engine** is the selected documentation provider. Development host already has an authenticated `gcloud` CLI. Use that session for authorized REST probes (no new interactive login by default); do not assume container ADC is configured. **Do not create/import a paid corpus or upload private documents without permission.**
+- **Graphiti + FalkorDB, local-first**. No unapproved cloud transmission of raw sessions or derived extraction payload. **Do not wait for the owner to select an experimental local inference backend:** Codex is authorized to choose/install/test a supported local-only candidate itself; production promotion remains evidence-gated.
+- **Vertex AI RAG Engine** is the selected documentation provider. Development host already has an authenticated `gcloud` CLI. Use that session for authorized REST probes (no new interactive login by default); do not assume container ADC is configured. Corpus `ace-europe-stage2` in `europe-west4` was **explicitly authorized by the owner and must be kept**. Do not upload private documents without a separate data authorization; synthetic/public fixture import may proceed only within the owner's stated test scope.
 - Harbor must measure actual value of ACE with a strong standard Codex baseline. **5× is the aspirational target, not a prerequisite to running tests.** Preserve regressions and failures.
 
 ## Stage 0 — Establish reproducible baseline (start immediately)
@@ -32,14 +32,14 @@
 ## Stage 2 — Vertex real integration (P1)
 
 1. From the owner's local host: `gcloud config get-value project`; `gcloud auth print-access-token` **only in process/substitution, never to logs, PR or stdout**; use existing `npm run probe:vertex`. Check actual resource name, IAM and RAG corpus in relevant region.
-2. Existing probe previously found **zero corpora**; recheck today. If still none, report this fact; **seek owner permission** before creating a resource or importing even public/synthetic fixtures because costs/permissions may apply. Do not send private source or dialogue merely because a Google account is signed in.
+2. The owner explicitly authorized creation of the Europe test corpus and it now exists as `ace-europe-stage2`; **do not delete it**. Reuse that corpus. Corpus creation is no longer a blocker. Keep private source/dialogue out of Vertex unless separately authorized.
 3. After a permitted fixture corpus exists, call real `retrieveContexts` via `src/adapters/vertex-rag.ts` with an ephemeral access token or appropriately configured ADC. Check sourceUri/text, version/citation, conflict with current source, 403, timeout and partial result; ensure cloud opt-in is checked at outbound call.
 
 **Exit:** real authenticated corpus/citation and policy-denial evidence, else explicit `not_ready: empty_corpus/iam`.
 
 ## Stage 3 — Graphiti local-first integration and archive safety (P1)
 
-1. Check local Graphiti, FalkorDB and model inference configuration. FalkorDB health alone is **not** evidence that Graphiti extraction is working. Do not force Ollama or default to a cloud extraction LLM.
+1. Check local Graphiti, FalkorDB and model inference configuration. FalkorDB health alone is **not** evidence that Graphiti extraction is working. **Proceed without owner selection:** choose a maintained local-only inference candidate supported by the installed Graphiti version (for example its OpenAI-compatible generic client pointed at a loopback inference server); if one local runtime is unavailable, try another supported local runtime instead of stopping. Do not force Ollama or default to a cloud extraction LLM.
 2. Import real/synthetic Codex session bytes to immutable archive; project with actual `add_memory`, observe pending→completed semantics, and exercise `search_memory_facts` with original pointers and temporal history. Preserve `proposed` versus owner-approved `accepted`.
 3. Test idempotent replay, source append, reference-safe blob deletion, graph purge, races across **separate OS processes**, forced termination, lock recovery and filesystem semantics. For unsafe multi-node/RWX assumptions, propose an ADR or transactional store rather than claiming a directory lock equals a distributed database. Confirm local-only data egress.
 4. Implement missing durable outbox/ack/reconciliation needed to prevent archive/graph divergence. Check DBC-10/11 with real service evidence.

@@ -6,12 +6,17 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { Effect } from 'effect';
 import { makeVertexRagRetrievalPort } from '../src/adapters/vertex-rag.js';
+import { makeQdrantCodeCandidatePort } from '../src/adapters/http-provider-boundaries.js';
+import { makeFileArtifactStore } from '../src/adapters/file-artifact-store.js';
+import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
+import { makeQdrantContextProvider } from '../src/adapters/qdrant-context-provider.js';
 import { makeAsyncFileMemoryArchive } from '../src/adapters/file-memory-archive.js';
 import { makeEpisodeId, type SessionEpisode } from '../src/domain/memory.js';
 import { defaultLocalPolicy } from '../src/domain/policy.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
 import { ok, type Result } from '../src/domain/result.js';
 import type { HttpPort } from '../src/application/ports.js';
+import { makeMcpGateway } from '../src/gateway/mcp-gateway.js';
 
 const value = <T, E>(result: Result<T, E>): T => {
   assert.equal(result._tag, 'Ok');
@@ -41,6 +46,65 @@ test('DBC-07 Vertex cloud denial makes zero outbound calls', async () => {
   assert.equal(requests, 0);
 });
 
+test('DBC-07 runtime context keeps Vertex denial partial and makes zero outbound calls', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-runtime-policy-'));
+  const workspaceId = value(makeWorkspaceId('runtime-policy-denial'));
+  let requests = 0;
+  const http: HttpPort = {
+    request: () => {
+      requests += 1;
+      return Effect.succeed(ok({ status: 200, body: {} }));
+    },
+  };
+  const documentation = makeVertexRagRetrievalPort({
+    project: 'ace-dev', location: 'europe-west4', corpusId: 'empty',
+    policy: defaultLocalPolicy(workspaceId), accessToken: () => 'must-not-be-used', http,
+  });
+  const files = makeNodeWorkspacePort({ allowedRoots: [root] });
+  const context = makeQdrantContextProvider({
+    workspaceId,
+    rootPath: root,
+    files,
+    qdrant: {
+      search: () => Effect.succeed(ok([])),
+      upsert: () => Effect.succeed(ok(undefined)),
+    },
+    embeddings: { embedMany: (input) => Effect.succeed(ok(input.map(() => [1]))) },
+    artifacts: makeFileArtifactStore(join(root, 'artifacts')),
+    semantics: {
+      definition: () => Effect.succeed(ok([])),
+      references: () => Effect.succeed(ok([])),
+      typeInfo: () => Effect.succeed(ok(undefined)),
+      diagnostics: () => Effect.succeed(ok([])),
+    },
+    documentation,
+    newRequestId: () => 'policy-request-1',
+  });
+  const gateway = makeMcpGateway({
+    clock: { nowMs: () => 1 },
+    ids: { newWorkspaceId: () => workspaceId, newRequestId: () => 'gateway-request-1' },
+    files,
+    store: {
+      get: () => Effect.succeed(ok({ workspaceId, rootPath: root, observationEpoch: 1, createdAtMs: 1 })),
+      findByRoot: () => Effect.succeed(ok(undefined)),
+      save: () => Effect.succeed(ok(undefined)),
+    },
+    artifacts: makeFileArtifactStore(join(root, 'gateway-artifacts')),
+    context,
+  });
+
+  const response = await Effect.runPromise(gateway.handle({
+    name: 'ace_context',
+    arguments: { workspace_id: workspaceId, query: 'architecture', include_docs: true },
+  }));
+  assert.equal(response.status, 'ok');
+  if (response.status !== 'ok') return;
+  assert.equal(requests, 0);
+  assert.equal(response.result.complete, false);
+  assert.ok(response.result.partialSources.includes('documentation'));
+  assert.ok(response.result.warnings.some((warning) => warning.includes('POLICY_DENIED')));
+});
+
 test('Vertex v1beta1 retrieval uses real retrieveContexts wire shape and provenance', async () => {
   const http: HttpPort = {
     request: (req) => {
@@ -67,6 +131,48 @@ test('Vertex v1beta1 retrieval uses real retrieveContexts wire shape and provena
   assert.equal(result[0]?.freshness, 'unknown');
 });
 
+test('Vertex empty Europe corpus is a valid empty result, never invented documentation', async () => {
+  const workspaceId = value(makeWorkspaceId('vertex-empty-europe'));
+  const provider = makeVertexRagRetrievalPort({
+    project: 'poetic-emblem-494722-v2', location: 'europe-west4', corpusId: '2305843009213693952',
+    accessToken: () => 'token', policy: { ...defaultLocalPolicy(workspaceId), cloudOptIn: true, allowedCloudProviders: ['vertex'] },
+    http: { request: () => Effect.succeed(ok({ status: 200, body: {} })) },
+  });
+  const result = value(await Effect.runPromise(provider.search({ workspaceId, query: 'synthetic readiness probe', topK: 3 })));
+  assert.deepEqual(result, []);
+});
+
+test('Qdrant code payload is local-only and rejects external HTTPS before network', async () => {
+  let requests = 0;
+  const qdrant = makeQdrantCodeCandidatePort({
+    baseUrl: 'https://vector.example.com',
+    collection: 'ace-code',
+    http: { request: () => { requests += 1; return Effect.succeed(ok({ status: 200, body: {} })); } },
+  });
+  const result = await Effect.runPromise(qdrant.search({ workspaceId: ws, vector: [1], limit: 1, generation: 1 }));
+  assert.equal(result._tag, 'Err');
+  if (result._tag === 'Err') assert.equal(result.error.code, 'POLICY_DENIED');
+  assert.equal(requests, 0);
+});
+
+test('Vertex blocks secret-like documentation queries before outbound HTTP even when cloud opt-in is enabled', async () => {
+  let requests = 0;
+  const provider = makeVertexRagRetrievalPort({
+    project: 'ace-dev',
+    location: 'europe-west4',
+    corpusId: 'abc',
+    policy: { ...defaultLocalPolicy(ws), cloudOptIn: true, allowedCloudProviders: ['vertex'] },
+    accessToken: () => 'token',
+    http: { request: () => { requests += 1; return Effect.succeed(ok({ status: 200, body: {} })); } },
+  });
+  const result = await Effect.runPromise(provider.search({
+    workspaceId: ws,
+    query: 'please inspect api_key=super-secret-value-123456789',
+    topK: 3,
+  }));
+  assert.equal(result._tag, 'Err');
+  assert.equal(requests, 0);
+});
 test('DBC-11 independent archive instances preserve shared blobs during deletion', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ace-process-archive-'));
   const a = await makeAsyncFileMemoryArchive(root);

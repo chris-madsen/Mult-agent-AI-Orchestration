@@ -5,6 +5,7 @@ import { err, ok, type Result } from '../domain/result.js';
 import { authorizeOutbound, type ProjectDataPolicy } from '../domain/policy.js';
 import type { DocumentationPort, HttpPort } from '../application/ports.js';
 import type { RetrievalEvidence } from '../domain/retrieval.js';
+import { containsLikelySecret } from '../domain/sensitive-text.js';
 
 export interface VertexRagConfig {
   readonly project: string;
@@ -22,7 +23,7 @@ export const makeVertexRagRetrievalPort = (config: VertexRagConfig): Documentati
     const policy = authorizeOutbound({
       workspaceId: input.workspaceId, operation: 'documentation_search',
       destination: 'vertex', dataClasses: ['project_document'],
-      paths: config.authorizedPaths ?? [], secretDetected: false,
+      paths: config.authorizedPaths ?? [], secretDetected: containsLikelySecret(input.query),
     }, config.policy);
     if (policy._tag === 'Err') return policy;
     if (policy.value.outcome !== 'allowed') return err(domainError('POLICY_DENIED', 'vertex', policy.value.reasonCode));
@@ -53,7 +54,8 @@ export const makeVertexRagRetrievalPort = (config: VertexRagConfig): Documentati
     }
     const group = (outer as { contexts?: unknown }).contexts;
     const contexts = typeof group === 'object' && group !== null && !Array.isArray(group)
-      ? (group as { contexts?: unknown }).contexts : undefined;
+      ? (group as { contexts?: unknown }).contexts
+      : Object.keys(outer as Record<string, unknown>).length === 0 ? [] : undefined;
     if (!Array.isArray(contexts)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'vertex', 'contexts.contexts must be array'));
     const results: RetrievalEvidence[] = [];
     for (const [i, raw] of contexts.entries()) {

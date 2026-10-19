@@ -21,6 +21,7 @@ import type {
   WorkspaceFilePort,
 } from '../application/ports.js';
 import type { RepoPath, WorkspaceId } from '../domain/workspace.js';
+import { validateLocalQdrantBaseUrl } from './http-provider-boundaries.js';
 
 export interface QdrantContextConfig {
   readonly workspaceId: WorkspaceId;
@@ -33,6 +34,7 @@ export interface QdrantContextConfig {
   readonly newRequestId: () => string;
   readonly generation?: number;
   readonly documentation?: DocumentationPort;
+  readonly candidateLimit?: number;
 }
 
 export const populateQdrantFromStructuralIndex = (
@@ -62,19 +64,23 @@ export const populateQdrantFromStructuralIndex = (
   return ok(count);
 });
 
-// Index creation never deletes or silently replaces an existing collection.
-// The vector dimension must match the approved embedding provider.
+// Collection bootstrap never replaces an existing collection. After a successful
+// rebuild, obsolete generations for the same workspace may be pruned explicitly.
+// Vector dimension must match the configured experimental embedding provider.
 export const ensureQdrantCollection = (
   http: HttpPort,
   baseUrl: string,
   collection: string,
   dimension: number,
+  allowedHosts: readonly string[] = [],
   apiKey?: string,
 ): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
+  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
+  if (endpoint._tag === 'Err') return endpoint;
   if (!Number.isSafeInteger(dimension) || dimension < 1) {
     return err(domainError('INVALID_INPUT', 'vector_dimension', 'invalid embedding dimension'));
   }
-  const url = baseUrl.replace(/\/$/u, '') + '/collections/' + encodeURIComponent(collection);
+  const url = endpoint.value + '/collections/' + encodeURIComponent(collection);
   const headers = apiKey === undefined ? {} : { 'api-key': apiKey };
   const found = yield* http.request({ method: 'GET', url, headers });
   if (found._tag === 'Err') return found;
@@ -96,6 +102,35 @@ export const ensureQdrantCollection = (
   return created.value.status >= 200 && created.value.status < 300
     ? ok(undefined)
     : err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not create dedicated collection'));
+});
+
+export const pruneQdrantOtherGenerations = (
+  http: HttpPort,
+  baseUrl: string,
+  collection: string,
+  workspaceId: WorkspaceId,
+  generation: number,
+  allowedHosts: readonly string[] = [],
+): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
+  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
+  if (endpoint._tag === 'Err') return endpoint;
+  if (!Number.isSafeInteger(generation) || generation < 1) {
+    return err(domainError('INVALID_INPUT', 'generation', 'Qdrant generation must be a positive integer'));
+  }
+  const deleted = yield* http.request({
+    method: 'POST',
+    url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/delete?wait=true',
+    body: {
+      filter: {
+        must: [{ key: 'workspace_id', match: { value: workspaceId } }],
+        must_not: [{ key: 'generation', match: { value: generation } }],
+      },
+    },
+  });
+  if (deleted._tag === 'Err') return deleted;
+  return deleted.value.status >= 200 && deleted.value.status < 300
+    ? ok(undefined)
+    : err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not prune obsolete index generations'));
 });
 
 /** Tree-sitter uses one-based line/column coordinates here, but columns count UTF-8 bytes.
@@ -134,7 +169,12 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
     if (vectors._tag === 'Err') return vectors;
     const vector = vectors.value[0];
     if (vector === undefined) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'empty query vector'));
-    const result = yield* config.qdrant.search({ workspaceId: input.workspaceId, vector, limit: 12, ...(config.generation === undefined ? {} : { generation: config.generation }) });
+    const result = yield* config.qdrant.search({
+      workspaceId: input.workspaceId,
+      vector,
+      limit: config.candidateLimit ?? 6,
+      ...(config.generation === undefined ? {} : { generation: config.generation }),
+    });
     if (result._tag === 'Err') return result;
 
     const evidence: RetrievalEvidence[] = [];
@@ -227,6 +267,10 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
           failed.push('documentation');
         } else {
           evidence.push(...documents.value);
+          if (documents.value.length === 0) {
+            warnings.push('Vertex documentation corpus returned no contexts');
+            failed.push('documentation');
+          }
           // Vertex cloud RAG chunks are not verified against current workspace documents.
           if (documents.value.some((item) => item.freshness !== 'current')) failed.push('documentation');
         }

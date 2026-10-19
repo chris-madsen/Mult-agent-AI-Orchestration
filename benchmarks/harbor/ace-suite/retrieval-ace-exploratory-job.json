@@ -1,0 +1,23 @@
+{
+  "job_name": "ace-retrieval-ace-exploratory",
+  "tasks": [
+    {"path": "benchmarks/harbor/ace-retrieval-impact"},
+    {"path": "benchmarks/harbor/ace-cloud-policy-impact"},
+    {"path": "benchmarks/harbor/ace-shared-archive-impact"}
+  ],
+  "agents": [{
+    "name": "codex",
+    "model_name": "gpt-5.6-luna",
+    "override_setup_timeout_sec": 900,
+    "kwargs": {"reasoning_effort": "high", "config": "benchmarks/harbor/ace-retrieval-codex-config.toml"}
+  }],
+  "environment": {
+    "type": "docker",
+    "delete": true,
+    "mounts": [{"type": "bind", "source": "/media/ilja/DATA/soft/consillium/harness", "target": "/ace", "read_only": true}]
+  },
+  "n_concurrent_trials": 1,
+  "n_attempts": 1,
+  "jobs_dir": "artifacts/harbor-retrieval-ace-exploratory",
+  "quiet": false
+}

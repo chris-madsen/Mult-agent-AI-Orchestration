@@ -24,6 +24,9 @@ export interface CodeCandidate {
   readonly sourceDigest: ContentDigest;
   readonly generation: Generation;
   readonly indexedAtMs: number;
+  /** Optional explicit claim topic used for cross-source contradiction checks. */
+  readonly conflictKey?: string;
+  readonly conflictValue?: string;
   readonly invalidated: boolean;
 }
 
@@ -53,8 +56,19 @@ export interface RetrievalEvidence {
   readonly sourceDigest?: ContentDigest;
   readonly proofClass: 'direct' | 'derived' | 'uncertain';
   readonly freshness: CandidateFreshness;
+  readonly sourceRevision?: string;
+  readonly sourceTimestampMs?: number;
+  /** A provider-supplied claim topic; absence means no conflict inference. */
+  readonly conflictKey?: string;
+  readonly conflictValue?: string;
   /** Handle for authorized, byte-exact full-source expansion via ace_expand. */
   readonly expansionHandle?: string;
+}
+
+export interface RetrievalConflict {
+  readonly conflictKey: string;
+  readonly evidenceIds: readonly EvidenceId[];
+  readonly message: string;
 }
 
 export interface ContextBundle {
@@ -64,6 +78,7 @@ export interface ContextBundle {
   readonly warnings: readonly string[];
   readonly partialSources: readonly string[];
   readonly complete: boolean;
+  readonly conflicts?: readonly RetrievalConflict[];
 }
 
 export interface RetrievalProvider {
@@ -170,15 +185,36 @@ export const mergeEvidence = (
     const key = `${item.source}|${item.citation}|${item.sourceDigest ?? ''}|${item.content}`;
     if (!byIdentity.has(key)) byIdentity.set(key, item);
   }
+  const conflictGroups = new Map<string, RetrievalEvidence[]>();
+  for (const item of byIdentity.values()) {
+    if (item.conflictKey === undefined) continue;
+    const group = conflictGroups.get(item.conflictKey) ?? [];
+    group.push(item);
+    conflictGroups.set(item.conflictKey, group);
+  }
+  const conflicts: RetrievalConflict[] = [];
+  for (const [conflictKey, group] of conflictGroups) {
+    const sources = new Set(group.map((item) => item.source));
+    const claims = new Set(group.map((item) => item.conflictValue ?? item.content));
+    if (!sources.has('code') || !sources.has('documentation') || claims.size < 2) continue;
+    const evidenceIds = group.map((item) => item.evidenceId);
+    conflicts.push({
+      conflictKey,
+      evidenceIds,
+      message: `documentation and current code disagree for ${conflictKey}`,
+    });
+  }
+  const conflictWarnings = conflicts.map((conflict) => `conflict: ${conflict.message}`);
   const partialSources = [...new Set([...evidence.filter((item) => item.freshness !== 'current').map((item) => item.source), ...failedRequiredSources])];
-  const allWarnings = [...new Set([...warnings, ...evidence.flatMap((item) => item.freshness === 'current' ? [] : [`${item.source}: ${item.freshness}`])])];
+  const allWarnings = [...new Set([...warnings, ...conflictWarnings, ...evidence.flatMap((item) => item.freshness === 'current' ? [] : [`${item.source}: ${item.freshness}`])])];
   return {
     requestId,
     query,
     evidence: [...byIdentity.values()],
     warnings: allWarnings,
     partialSources,
-    complete: partialSources.length === 0 && warnings.length === 0,
+    complete: partialSources.length === 0 && allWarnings.length === 0,
+    ...(conflicts.length === 0 ? {} : { conflicts }),
   };
 };
 
@@ -195,4 +231,8 @@ export const evidenceFromCandidate = (item: RankedCandidate, id: EvidenceId): Re
   sourceDigest: item.candidate.sourceDigest,
   proofClass: item.freshness === 'current' ? 'direct' : 'uncertain',
   freshness: item.freshness,
+  sourceRevision: item.candidate.sourceDigest,
+  sourceTimestampMs: item.candidate.indexedAtMs,
+  ...(item.candidate.conflictKey === undefined ? {} : { conflictKey: item.candidate.conflictKey }),
+  ...(item.candidate.conflictValue === undefined ? {} : { conflictValue: item.candidate.conflictValue }),
 });

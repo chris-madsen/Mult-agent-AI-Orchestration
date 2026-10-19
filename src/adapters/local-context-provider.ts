@@ -19,6 +19,8 @@ export interface LocalContextProviderOptions {
   readonly index: CodeIndex;
   readonly files: WorkspaceFilePort;
   readonly newRequestId: () => string;
+  readonly failedSources?: readonly string[];
+  readonly additionalWarnings?: readonly string[];
 }
 
 export const makeLocalContextProvider = (options: LocalContextProviderOptions) => ({
@@ -56,12 +58,14 @@ export const makeLocalContextProvider = (options: LocalContextProviderOptions) =
       return [evidenceFromCandidate({ ...item, freshness }, evidenceId.value)];
     });
     const warnings = [
+      ...(options.additionalWarnings ?? []),
       'Local lexical fallback is not a production Qdrant + semantic retrieval implementation',
       ...[...checked.entries()].filter(([, result]) => result.error !== undefined).map(([path, result]) => path + ': ' + result.error),
       ...(input.includeDocs ? ['documentation provider unavailable'] : []),
       ...(input.includeMemory ? ['memory provider unavailable'] : []),
     ];
     const failedRequiredSources = [
+      ...(options.failedSources ?? []),
       ...(input.includeDocs ? ['documentation'] : []),
       ...(input.includeMemory ? ['memory'] : []),
     ];

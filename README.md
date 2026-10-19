@@ -24,6 +24,9 @@ cores for `003`–`005` are also implemented:
 - local lexical code-candidate retrieval with generation, range, source digest,
   stale detection, a filesystem-backed exact-read indexer and evidence-preserving
   `ContextBundle`;
+- an experimental real-provider `ace_context` composition using local FastEmbed
+  / ONNX Runtime, Qdrant, Tree-sitter structural spans and TypeScript Language
+  Service verification; see `docs/reviews/2026-10-19-real-provider-e2e.md`;
 - immutable content-addressed session archive with idempotent replay, tombstones,
   temporal memory search and confirmation-gated decision FSM;
 - deterministic multi-source routing with an explicit, opt-in Jev boundary and
@@ -38,13 +41,38 @@ cores for `003`–`005` are also implemented:
 - typed Qdrant/Vertex/Graphiti/Jev HTTP boundaries and a Harbor CLI runner with
   policy-gated requests, response validation and retained failed-run evidence.
 
-Run the local MCP transport with `ACE_WORKSPACE_ROOT=/path/to/repo npm run mcp:stdio`.
-The bootstrap is read-only, indexes only allowlisted source extensions and excludes
-dependency/build directories; external provider integrations remain opt-in and
-explicitly unavailable until their spikes are approved.
+Run the degraded local transport with `ACE_WORKSPACE_ROOT=/path/to/repo npm run mcp:stdio`.
+For the real local retrieval experiment, first forward the k3s service and set
+`ACE_ENABLE_EXPERIMENTAL_QDRANT=true`, `ACE_QDRANT_URL=http://127.0.0.1:6333`,
+`ACE_EMBEDDING_WORKER=$PWD/scripts/fastembed-worker.sh`,
+`ACE_TREE_SITTER_HELPER=$PWD/scripts/tree-sitter-structural.py` and
+`ACE_TREE_SITTER_PYTHON=$PWD/.venv-system/bin/python`. The bootstrap is read-only,
+indexes only allowlisted source extensions and excludes dependency/build
+directories. Vertex documentation requires both provider configuration and an explicit outbound data opt-in: `ACE_ENABLE_VERTEX=true`, `ACE_CLOUD_DOCS_OPT_IN=true`, `ACE_VERTEX_PROJECT`, `ACE_VERTEX_CORPUS_ID`, with Europe default `ACE_VERTEX_LOCATION=europe-west4`. Secret-like queries are denied before HTTP.
 
-No production Qdrant, Vertex, approved LSP, Graphiti, Harbor or Jev integration is
-claimed until the documented provider spikes and owner review are complete.
+With k3s Qdrant forwarded to localhost, the real gates are reproducible with
+`npm run test:real-provider` (2000-line precision, current digest, exact
+expansion and workspace readiness) and `npm run test:real-provider-race`
+(mid-request edit must become partial/stale, never current).
+`npm run test:real-provider-restart` verifies a dirty-worktree restart advances
+the observation generation and never serves the previous Qdrant generation.
+`npm run test:real-provider-outage` verifies an unavailable Qdrant is reported
+as partial with an explicit warning and does not masquerade as production
+semantic retrieval.
+`npm run test:real-semantic` runs the three-case behavior/RU↔EN exploratory
+holdout through real FastEmbed/Qdrant/AST/LSP and writes its metrics to
+`benchmarks/reports/real-semantic-retrieval-e2e.json`.
+`npm run test:memory-process` checks stable history IDs and cross-process
+archive reference safety without requiring an inference model.
+`npm run test:real-same-name` verifies same-name structural spans, definitions,
+references and write locations through real Tree-sitter and TypeScript LS.
+`npm run test:container-provider` verifies the same retrieval composition through
+the official MCP client and a Docker stdio container.
+
+No production-approved embedding model/LSP, Graphiti extraction, Harbor quality
+gate or 5× improvement is claimed until the documented provider spikes and owner
+review are complete. The real-provider exploratory E2E is evidence, not a release
+claim.
 
 ## Development
 
