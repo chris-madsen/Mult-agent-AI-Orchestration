@@ -20,6 +20,7 @@ import {
 import type { StructuralAnalysisCachePort, StructuralAnalysisPort, WorkspaceFilePort } from '../application/ports.js';
 import type { StructuralAnalysis } from '../domain/semantic.js';
 import type { ContentDigest, RepoPath, WorkspaceId } from '../domain/workspace.js';
+import { isSensitiveSourcePath } from '../domain/sensitive-path.js';
 
 export interface LocalCodeIndexBuild {
   readonly index: CodeIndex;
@@ -186,10 +187,7 @@ export const buildLocalCodeIndex = (
     for (const observation of snapshot.value.files) {
       // Explicitly enforce the default local source exclusions before source text
       // can reach an embedding provider. Filtering just on extension is unsafe.
-      if (
-        observation.repoPath.split('/').some((part) => part === '.git' || part === 'secrets' || part === '.env'
-          || part.startsWith('.env.') || part.endsWith('.secret') || part.endsWith('.pem'))
-      ) {
+      if (isSensitiveSourcePath(observation.repoPath)) {
         policyExcludedPaths += 1;
         continue;
       }
