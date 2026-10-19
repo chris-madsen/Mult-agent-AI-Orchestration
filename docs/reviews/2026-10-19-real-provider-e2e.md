@@ -68,13 +68,9 @@ retrieval was in flight, and observed `complete=false`, `partialSources=["code"]
 and `stale index or AST slice disagrees with current original bytes`. No stale
 evidence was labelled `current`.
 
-The restart gate reuses one workspace/state directory across two MCP processes. The collection name is stable for the workspace+embedding configuration; points carry the observation generation. After a dirty-tree edit, generation 2 is indexed and the obsolete generation 1 points are pruned after successful rebuild. Query filtering still requires the current generation.
+The restart gate reuses one workspace/state directory across three MCP processes. The collection name is stable for the workspace+embedding configuration. An unchanged second observation reuses the exact content-derived Qdrant snapshot without new vectors; after a dirty-tree edit, generation 3 is rebuilt and obsolete points are pruned. This proves truthful warm reuse/stale isolation, **not** the incremental changed-file rebuild/overlay still required by DBC-13.
 
-The outage gate forced Qdrant to an unavailable loopback port with
-`ACE_ALLOW_LOCAL_FALLBACK=false`. The executable returned the honest
-`NOT_READY` provider failure rather than pretending to have semantic retrieval.
-The race gate separately proves stale/partial behavior, so configured-path
-success and unavailable-provider failure remain distinct.
+The DBC-06 outage gate forces Qdrant to an unavailable loopback port with explicit local AST fallback enabled. It returns current local evidence as a labelled partial bundle, lists Qdrant as failed, and never reports `complete=true`. A separate `test:real-provider-hard-outage` run keeps fallback disabled and requires honest `NOT_READY`, so degraded and unavailable modes remain distinct.
 
 The official SDK client used `@modelcontextprotocol/client` and
 `StdioClientTransport` against the actual `ace-mcp` executable. It verifies
