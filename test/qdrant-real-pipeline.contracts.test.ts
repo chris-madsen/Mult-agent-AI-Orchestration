@@ -37,6 +37,7 @@ const candidate = mustOk(makeCodeCandidate({
   workspaceId, repoPath: 'src/connection.ts' as never,
   range: { startLine: 1, endLine: 1, startColumn: 1, endColumn: 53 },
   symbolName: 'reconnect',
+  semanticAnchor: { line: 1, byteColumn: 17 },
   text: source.toString('utf8').trim(),
   sourceDigest: digest as never,
   generation: 1 as never,
