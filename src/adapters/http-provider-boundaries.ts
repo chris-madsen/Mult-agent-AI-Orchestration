@@ -135,6 +135,10 @@ const candidateFromPayload = (point: Record<string, unknown>, workspaceId: Works
         ? { endColumn: payload.end_column } : {}),
     },
     ...(typeof payload.symbol_name === 'string' ? { symbolName: payload.symbol_name } : {}),
+    ...(typeof payload.semantic_line === 'number' && Number.isSafeInteger(payload.semantic_line)
+      && typeof payload.semantic_byte_column === 'number' && Number.isSafeInteger(payload.semantic_byte_column)
+      ? { semanticAnchor: { line: payload.semantic_line, byteColumn: payload.semantic_byte_column } }
+      : {}),
     ...(typeof payload.conflict_key === 'string' ? { conflictKey: payload.conflict_key } : {}),
     ...(typeof payload.conflict_value === 'string' ? { conflictValue: payload.conflict_value } : {}),
     text: text.value,
@@ -156,6 +160,10 @@ const qdrantPoint = (point: CodePoint): Readonly<Record<string, unknown>> => ({
     ...(point.candidate.range.startColumn === undefined ? {} : { start_column: point.candidate.range.startColumn }),
     ...(point.candidate.range.endColumn === undefined ? {} : { end_column: point.candidate.range.endColumn }),
     ...(point.candidate.symbolName === undefined ? {} : { symbol_name: point.candidate.symbolName }),
+    ...(point.candidate.semanticAnchor === undefined ? {} : {
+      semantic_line: point.candidate.semanticAnchor.line,
+      semantic_byte_column: point.candidate.semanticAnchor.byteColumn,
+    }),
     ...(point.candidate.conflictKey === undefined ? {} : { conflict_key: point.candidate.conflictKey }),
     ...(point.candidate.conflictValue === undefined ? {} : { conflict_value: point.candidate.conflictValue }),
     text: point.candidate.text,
