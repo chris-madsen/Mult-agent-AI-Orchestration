@@ -42,7 +42,7 @@ def symbols(node, source: bytes):
         if name_node is not None:
             result.append(
                 {
-                    "name": name_node.text.decode("utf-8", errors="replace"),
+                    "name": name_node.text.decode("utf-8"),
                     "kind": kind,
                     "start_line": node.start_point[0] + 1,
                     "start_column": node.start_point[1] + 1,
