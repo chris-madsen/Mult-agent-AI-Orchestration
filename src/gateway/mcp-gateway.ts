@@ -49,10 +49,18 @@ export type GatewayResponse =
   | { readonly status: 'not_ready'; readonly capability: string; readonly code: 'NOT_READY'; readonly detail: string }
   | { readonly status: 'error'; readonly error: DomainError };
 
+export type CapabilityReadinessState = 'ready' | 'degraded' | 'not_ready' | 'disabled';
+
+export interface CapabilityReadiness {
+  readonly state: CapabilityReadinessState;
+  readonly reason: string;
+}
+
 export interface McpGatewayPorts extends WorkspaceServicePorts {
   readonly artifacts: ArtifactStore;
   readonly context?: ContextProvider;
   readonly memory?: MemoryProvider;
+  readonly readiness?: () => Readonly<Record<string, CapabilityReadiness>>;
 }
 
 export interface ContextProvider {
@@ -171,12 +179,24 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
           if (isErr(workspaceId)) return responseError(workspaceId);
           const workspace = yield* ports.store.get(workspaceId.value);
           if (isErr(workspace)) return responseError(workspace);
+          const capabilities = ports.readiness?.() ?? {
+            unified_context: {
+              state: ports.context === undefined ? 'not_ready' as const : 'ready' as const,
+              reason: ports.context === undefined ? 'provider_not_configured' : 'provider_injected',
+            },
+            project_memory: {
+              state: ports.memory === undefined ? 'not_ready' as const : 'ready' as const,
+              reason: ports.memory === undefined ? 'provider_not_configured' : 'provider_injected',
+            },
+          };
+          const contextStatus = capabilities.unified_context?.state ?? 'not_ready';
           return {
             status: 'ok',
             result: {
               workspace_id: workspace.value.workspaceId,
               observation_epoch: workspace.value.observationEpoch,
-              index_status: ports.context === undefined ? 'not_ready' : 'ready',
+              index_status: contextStatus,
+              capabilities,
               freshness: workspace.value.lastObservation === undefined ? 'unknown' : 'observed',
               git_status: workspace.value.lastObservation?.gitStatus ?? 'unknown',
             },
