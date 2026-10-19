@@ -9,6 +9,7 @@ import {
   mergeEvidence,
   type CodeIndex,
   type ContextBundle,
+  type IndexCoverageSummary,
   type RetrievalEvidence,
 } from '../domain/retrieval.js';
 import type {
@@ -37,6 +38,7 @@ export interface QdrantContextConfig {
   readonly indexKey?: string;
   readonly documentation?: DocumentationPort;
   readonly candidateLimit?: number;
+  readonly coverage?: IndexCoverageSummary;
 }
 
 export const populateQdrantFromStructuralIndex = (
@@ -156,7 +158,11 @@ export const hasExactQdrantSnapshot = (
   return ok(count === expectedCount);
 });
 
-export const codeIndexKey = (index: CodeIndex): string => {
+export const codeIndexKey = (
+  index: CodeIndex,
+  coverage?: IndexCoverageSummary,
+  providerFingerprint?: string,
+): string => {
   const stable = [...index.candidates]
     .sort((left, right) => left.candidateId.localeCompare(right.candidateId))
     .map((candidate) => [
@@ -166,41 +172,87 @@ export const codeIndexKey = (index: CodeIndex): string => {
       candidate.symbolName ?? null,
       candidate.semanticAnchor?.line ?? null,
       candidate.semanticAnchor?.byteColumn ?? null,
+      candidate.semanticAnchor?.endLine ?? null,
+      candidate.semanticAnchor?.endByteColumn ?? null,
       candidate.range.startLine,
       candidate.range.startColumn ?? null,
       candidate.range.endLine,
       candidate.range.endColumn ?? null,
       candidate.text,
     ]);
-  return createHash('sha256').update(JSON.stringify(stable), 'utf8').digest('hex');
+  const coverageIdentity = coverage === undefined ? undefined : {
+    attemptedPaths: coverage.attemptedPaths,
+    indexedPaths: coverage.indexedPaths,
+    policyExcludedPaths: coverage.policyExcludedPaths,
+    outOfScopePaths: coverage.outOfScopePaths,
+    failedPaths: coverage.failedPaths,
+    failures: [...coverage.failures]
+      .map((failure) => [failure.repoPath, failure.kind, failure.code ?? null])
+      .sort((left, right) => String(left[0]).localeCompare(String(right[0]))),
+  };
+  return createHash('sha256')
+    .update(JSON.stringify({ stable, coverage: coverageIdentity ?? null, providerFingerprint: providerFingerprint ?? null }), 'utf8')
+    .digest('hex');
 };
 
-const clearQdrantSnapshot = (
+export const verifyQdrantSnapshotMembership = (
   http: HttpPort,
   baseUrl: string,
   collection: string,
   workspaceId: WorkspaceId,
   indexKey: string,
+  expectedCandidateIds: readonly string[],
   allowedHosts: readonly string[] = [],
-): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
+): Effect.Effect<Result<boolean, DomainError>> => Effect.gen(function* () {
   const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
   if (endpoint._tag === 'Err') return endpoint;
-  const response = yield* http.request({
-    method: 'POST',
-    url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/delete?wait=true',
-    body: {
-      filter: {
-        must: [
+  const observed: string[] = [];
+  let offset: unknown;
+  for (let page = 0; page < 10_000; page += 1) {
+    const response = yield* http.request({
+      method: 'POST',
+      url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/scroll',
+      body: {
+        limit: 256,
+        with_payload: true,
+        with_vector: false,
+        filter: { must: [
           { key: 'workspace_id', match: { value: workspaceId } },
           { key: 'index_key', match: { value: indexKey } },
-        ],
+        ] },
+        ...(offset === undefined ? {} : { offset }),
       },
-    },
-  });
-  if (response._tag === 'Err') return response;
-  return response.value.status >= 200 && response.value.status < 300
-    ? ok(undefined)
-    : err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not clear incomplete current snapshot'));
+    });
+    if (response._tag === 'Err') return response;
+    if (response.value.status < 200 || response.value.status >= 300) {
+      return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not verify snapshot membership'));
+    }
+    const body = response.value.body as { result?: { points?: unknown; next_page_offset?: unknown } };
+    const points = body?.result?.points;
+    if (!Array.isArray(points)) {
+      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'snapshot membership response must contain points'));
+    }
+    for (const point of points) {
+      if (typeof point !== 'object' || point === null || Array.isArray(point)) {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'snapshot point must be an object'));
+      }
+      const payload = (point as { payload?: unknown }).payload;
+      if (typeof payload !== 'object' || payload === null || Array.isArray(payload)
+        || typeof (payload as { candidate_id?: unknown }).candidate_id !== 'string') {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'snapshot point requires candidate_id payload'));
+      }
+      observed.push((payload as { candidate_id: string }).candidate_id);
+    }
+    const nextPageOffset = body?.result?.next_page_offset;
+    if (nextPageOffset === undefined || nextPageOffset === null) break;
+    offset = nextPageOffset;
+    if (page === 9_999) {
+      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'snapshot membership pagination did not terminate'));
+    }
+  }
+  const expected = [...expectedCandidateIds].sort();
+  observed.sort();
+  return ok(expected.length === observed.length && expected.every((value, index) => value === observed[index]));
 });
 
 export const reuseOrPopulateQdrantSnapshot = (
@@ -218,14 +270,26 @@ export const reuseOrPopulateQdrantSnapshot = (
     http, baseUrl, collection, workspaceId, indexKey, index.candidates.length, allowedHosts,
   );
   if (checked._tag === 'Err') return checked;
-  if (checked.value) return ok({ count: index.candidates.length, reused: true });
-  // A mismatched count can be a partially written or contaminated snapshot.
-  // Remove only this exact workspace+snapshot partition before rebuilding so
-  // surplus points cannot survive under the same cryptographic index key.
-  const cleared = yield* clearQdrantSnapshot(http, baseUrl, collection, workspaceId, indexKey, allowedHosts);
-  if (cleared._tag === 'Err') return cleared;
+  const expectedCandidateIds = index.candidates.map((candidate) => candidate.candidateId);
+  if (checked.value) {
+    const membership = yield* verifyQdrantSnapshotMembership(
+      http, baseUrl, collection, workspaceId, indexKey, expectedCandidateIds, allowedHosts,
+    );
+    if (membership._tag === 'Err') return membership;
+    if (membership.value) return ok({ count: index.candidates.length, reused: true });
+  }
+  // Do not delete an in-use snapshot while another process may still read it.
+  // Snapshot-scoped deterministic point IDs make same-snapshot writes idempotent
+  // and different snapshots independent.
   const indexed = yield* populateQdrantFromStructuralIndex(index, qdrant, embeddings, indexKey);
   if (indexed._tag === 'Err') return indexed;
+  const verified = yield* verifyQdrantSnapshotMembership(
+    http, baseUrl, collection, workspaceId, indexKey, expectedCandidateIds, allowedHosts,
+  );
+  if (verified._tag === 'Err') return verified;
+  if (!verified.value) {
+    return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_snapshot', 'rebuilt snapshot membership does not match the structural index'));
+  }
   return ok({ count: indexed.value, reused: false });
 });
 
@@ -401,8 +465,11 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
       const semanticColumn = candidate.semanticAnchor === undefined
         ? undefined
         : utf16ColumnAtUtf8Byte(full.bytes, candidate.semanticAnchor.line, candidate.semanticAnchor.byteColumn);
+      const semanticEndColumn = candidate.semanticAnchor === undefined
+        ? undefined
+        : utf16ColumnAtUtf8Byte(full.bytes, candidate.semanticAnchor.endLine, candidate.semanticAnchor.endByteColumn);
       let lspConfirmed = false;
-      if (candidate.semanticAnchor === undefined || semanticColumn === undefined) {
+      if (candidate.semanticAnchor === undefined || semanticColumn === undefined || semanticEndColumn === undefined) {
         warnings.push(candidate.repoPath + ': exact structural identifier anchor is unavailable');
         failed.push('lsp');
       } else {
@@ -418,8 +485,11 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
         } else {
           lspConfirmed = definitions.value.some((entry) =>
             entry.location.repoPath === candidate.repoPath
-            && entry.location.startLine >= candidate.range.startLine
-            && entry.location.endLine <= candidate.range.endLine);
+            && entry.location.startLine === candidate.semanticAnchor?.line
+            && entry.location.startColumn === semanticColumn
+            && entry.location.endLine === candidate.semanticAnchor?.endLine
+            && entry.location.endColumn === semanticEndColumn
+            && (candidate.symbolName === undefined || entry.name === undefined || entry.name === candidate.symbolName));
           if (!lspConfirmed) {
             warnings.push(candidate.repoPath + ': LSP definition does not agree with the selected structural node');
             failed.push('lsp');
@@ -459,6 +529,10 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
       }
     }
     if (input.includeMemory) { warnings.push('memory provider not configured'); failed.push('memory'); }
+    if ((config.coverage?.failedPaths ?? 0) > 0) {
+      warnings.push(`index coverage degraded: ${config.coverage?.failedPaths ?? 0} in-scope path(s) were not fully indexed`);
+      failed.push('code');
+    }
     // Revalidate as the LAST I/O step, after even slow Vertex/document calls.
     for (const [path, original] of fullSources) {
       const current = yield* config.files.readExact(config.rootPath, path);
@@ -473,6 +547,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
         }
       }
     }
-    return ok(mergeEvidence(requestId.value, input.query, evidence, warnings, failed));
+    const merged = mergeEvidence(requestId.value, input.query, evidence, warnings, failed);
+    return ok(config.coverage === undefined ? merged : { ...merged, indexCoverage: config.coverage });
   }),
 });
