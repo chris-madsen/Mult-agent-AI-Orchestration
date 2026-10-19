@@ -4,6 +4,7 @@ import { domainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import { type RoutePlan, type RouteRequest, type RouteSource } from '../domain/routing.js';
 import type { HttpPort } from '../application/ports.js';
+import { containsLikelySecret } from '../domain/sensitive-text.js';
 
 interface JevConfig {
   readonly endpoint: string;
@@ -27,7 +28,7 @@ export const selectJevRouteOverHttp = (
     destination: 'jev',
     dataClasses: [request.privateCode ? 'private_source' : 'public'],
     paths: [],
-    secretDetected: false,
+    secretDetected: containsLikelySecret(request.query),
   }, config.policy);
   if (policy._tag === 'Err') return policy;
   if (policy.value.outcome !== 'allowed') return err(domainError('POLICY_DENIED', 'jev', policy.value.reasonCode));
