@@ -33,6 +33,7 @@ export interface RetrievalStrategyRun {
 
 export interface RetrievalQualityMetrics {
   readonly strategy: string;
+  readonly holdoutStatus: string;
   readonly cases: number;
   readonly recallAt1: number;
   readonly recallAt3: number;
@@ -51,6 +52,7 @@ export interface RetrievalQualityMetrics {
 export interface RetrievalQualityPolicy {
   readonly selectedStrategy: string;
   readonly requiredHoldoutSha256: string;
+  readonly requiredHoldoutStatus: string;
   readonly minRecallAt1: number;
   readonly minRecallAt3: number;
   readonly minRecallAt5: number;
@@ -173,6 +175,7 @@ export const evaluateRetrievalStrategy = (
   const critical = scores.filter((item) => item.item.critical === true);
   return ok({
     strategy: run.strategy,
+    holdoutStatus: holdout.status,
     cases: scores.length,
     recallAt1: mean(scores.map((item) => item.r1)),
     recallAt3: mean(scores.map((item) => item.r3)),
@@ -203,7 +206,8 @@ export const evaluateRetrievalQualityPolicy = (
     policy.minNdcgAt5,
   ];
   if (!sha256(policy.requiredHoldoutSha256) || !sha256(holdoutSha256)
-    || !quality.every(unit) || policy.selectedStrategy.trim().length === 0) {
+    || !quality.every(unit) || policy.selectedStrategy.trim().length === 0
+    || policy.requiredHoldoutStatus.trim().length === 0) {
     return err(domainError('INVALID_BENCHMARK', 'retrieval_policy', 'retrieval quality policy is invalid'));
   }
   const optional = [
@@ -219,6 +223,7 @@ export const evaluateRetrievalQualityPolicy = (
   const failures: string[] = [];
   if (metrics.strategy !== policy.selectedStrategy) failures.push('strategy_mismatch');
   if (holdoutSha256 !== policy.requiredHoldoutSha256) failures.push('holdout_identity_mismatch');
+  if (metrics.holdoutStatus !== policy.requiredHoldoutStatus) failures.push('holdout_status_mismatch');
   if (metrics.recallAt1 < policy.minRecallAt1) failures.push('recall_at_1_below_threshold');
   if (metrics.recallAt3 < policy.minRecallAt3) failures.push('recall_at_3_below_threshold');
   if (metrics.recallAt5 < policy.minRecallAt5) failures.push('recall_at_5_below_threshold');
