@@ -1,0 +1,7 @@
+{
+  "status": "provider-failure-is-honest",
+  "hard_outage": true,
+  "code": "NOT_READY",
+  "sourceCommit": "bc54f9a3488f12e7907d902441f172372f642946",
+  "command": "npm run test:real-provider-hard-outage"
+}
