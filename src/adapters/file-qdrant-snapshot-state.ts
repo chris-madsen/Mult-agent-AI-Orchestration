@@ -94,6 +94,7 @@ const normalizedIdentity = (identity: SnapshotManifestIdentity): SnapshotManifes
 const sameIdentity = (stored: StoredSnapshotManifest, expected: SnapshotManifestIdentity): boolean => {
   const normalized = normalizedIdentity(expected);
   return stored.schemaVersion === 3
+    && (stored.status === 'building' || stored.status === 'published')
     && stored.workspaceId === normalized.workspaceId
     && stored.indexKey === normalized.indexKey
     && stored.providerFingerprint === normalized.providerFingerprint
@@ -230,6 +231,18 @@ export const makeFileQdrantSnapshotState = async (
     }
   };
 
+  const readManifest = async (
+    identity: SnapshotManifestIdentity,
+  ): Promise<Result<StoredSnapshotManifest | undefined, DomainError>> => {
+    try {
+      return ok(JSON.parse(await readFile(manifestPath(identity.workspaceId, identity.indexKey), 'utf8')) as StoredSnapshotManifest);
+    } catch (cause) {
+      return (cause as NodeJS.ErrnoException).code === 'ENOENT'
+        ? ok(undefined)
+        : err(domainError('PERSISTENCE_FAILED', 'snapshot_manifest', 'could not read Qdrant snapshot manifest'));
+    }
+  };
+
   return {
     isPublished: async (identity) => {
       const checked = validate(identity);
@@ -275,8 +288,35 @@ export const makeFileQdrantSnapshotState = async (
           : err(domainError('PERSISTENCE_FAILED', 'snapshot_manifest', 'could not enumerate published Qdrant manifests'));
       }
     },
-    beginBuild: (identity) => writeManifest(identity, 'building'),
-    publish: (identity) => writeManifest(identity, 'published'),
+    beginBuild: async (identity) => {
+      const checked = validate(identity);
+      if (checked._tag === 'Err') return checked;
+      const existing = await readManifest(checked.value);
+      if (existing._tag === 'Err') return existing;
+      if (existing.value !== undefined) {
+        if (!sameIdentity(existing.value, checked.value)) {
+          return err(domainError('PERSISTENCE_FAILED', 'snapshot_manifest', 'snapshot manifest identity collision refuses overwrite'));
+        }
+        // A concurrent writer may have already published this exact snapshot.
+        // Never demote it back to building, which would make warm reuse racey.
+        return ok(undefined);
+      }
+      return writeManifest(checked.value, 'building');
+    },
+    publish: async (identity) => {
+      const checked = validate(identity);
+      if (checked._tag === 'Err') return checked;
+      const existing = await readManifest(checked.value);
+      if (existing._tag === 'Err') return existing;
+      if (existing.value === undefined) {
+        return err(domainError('PERSISTENCE_FAILED', 'snapshot_manifest', 'cannot publish a snapshot that was never staged'));
+      }
+      if (!sameIdentity(existing.value, checked.value)) {
+        return err(domainError('PERSISTENCE_FAILED', 'snapshot_manifest', 'snapshot manifest identity does not match staged build'));
+      }
+      if (existing.value.status === 'published') return ok(undefined);
+      return writeManifest(checked.value, 'published');
+    },
     acquireLease: async (workspaceId, indexKey) => {
       if (!validIndexKey(indexKey)) {
         return err(domainError('INVALID_INPUT', 'index_key', 'snapshot lease requires a SHA-256 index key'));

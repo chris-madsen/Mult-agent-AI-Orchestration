@@ -43,6 +43,9 @@ test('Qdrant snapshot manifest is reusable only after atomic publication', async
   const state = await makeFileQdrantSnapshotState(root);
   assert.equal((await state.isPublished(identity))._tag, 'Ok');
   assert.equal((await state.isPublished(identity) as { _tag: 'Ok'; value: boolean }).value, false);
+  const illegalPublish = await state.publish(identity);
+  assert.equal(illegalPublish._tag, 'Err');
+  if (illegalPublish._tag === 'Err') assert.equal(illegalPublish.error.code, 'PERSISTENCE_FAILED');
   assert.equal((await state.beginBuild(identity))._tag, 'Ok');
   const building = await state.isPublished(identity);
   assert.equal(building._tag, 'Ok');
@@ -59,6 +62,12 @@ test('Qdrant snapshot manifest is reusable only after atomic publication', async
       ? { ...file, candidateIds: [] }
       : file),
   });
+  // A concurrent/retried begin must not demote a published manifest to
+  // building, because readers may already hold the corresponding lease.
+  assert.equal((await state.beginBuild(identity))._tag, 'Ok');
+  const remainsPublished = await state.isPublished(identity);
+  assert.equal(remainsPublished._tag, 'Ok');
+  if (remainsPublished._tag === 'Ok') assert.equal(remainsPublished.value, true);
   assert.equal(changedMembership._tag, 'Ok');
   if (changedMembership._tag === 'Ok') assert.equal(changedMembership.value, false);
 
