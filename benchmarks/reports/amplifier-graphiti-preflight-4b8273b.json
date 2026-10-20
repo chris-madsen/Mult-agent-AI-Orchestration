@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "evidence": "amplifier-graphiti-preflight",
+  "generatedAt": "2026-10-20T14:02:19Z",
+  "sourceCommit": "4b8273b5db173ea017356ca7cd420d86e74b1d4e",
+  "status": "BLOCKED",
+  "pinned": {
+    "amplifierAgent": "a289011169520f8cb2d023f0a486cbbb00082a8f",
+    "amplifierChatGptProvider": "b1341edd1545ba4b89a416184797ccfbc346413b",
+    "graphiti": "3cc723cd292eb5c2ac5ea2c5539270b8e1b6389f"
+  },
+  "runtime": {
+    "faceUrl": "http://127.0.0.1:9099/v1",
+    "requestedModel": "gpt-5.6-luna",
+    "graphitiConfig": "infra/providers/amplifier-graphiti/graphiti-config.yaml",
+    "graphitiSourceRootConfigured": false,
+    "graphitiSourceRef": "unavailable",
+    "graphitiCommandConfigured": false,
+    "liveCatalogModelIds": []
+  },
+  "checks": {
+    "faceLoopback": "PASS",
+    "faceToken": "NOT_READY",
+    "faceModels": "UNAVAILABLE",
+    "liveModelCatalog": "UNAVAILABLE",
+    "graphitiCommand": "NOT_READY",
+    "graphitiSourceRef": "BLOCKED",
+    "secretFreeConfig": "PASS",
+    "structuredOutputJsonObject": "PASS",
+    "falkorDbLoopbackConfig": "PASS",
+    "localEmbedder": "BLOCKED_BY_PINNED_UPSTREAM",
+    "localReranker": "BLOCKED_BY_PINNED_UPSTREAM",
+    "syntheticPolicy": "PASS"
+  },
+  "localEnvironmentObservation": {
+    "officialGraphitiCheckout": false,
+    "graphitiMcpCommand": false,
+    "graphitiCorePythonPackage": false,
+    "sentenceTransformersPythonPackage": false,
+    "fastEmbedPythonPackage": false,
+    "falkorDbPythonPackage": false,
+    "falkorDbLoopbackReachable": false,
+    "amplifierFaceLoopbackReachable": false
+  },
+  "productionClaims": {
+    "tokenSavings5x": false,
+    "graphitiLocalOnly": false,
+    "realGraphitiLifecycle": false
+  },
+  "statusReason": "The pinned official Graphiti MCP cannot prove the required local embedder/reranker configuration, and the runner has no pinned Graphiti checkout, command, Amplifier face, or local FalkorDB available. No shim, mock, cloud fallback, or private-session upload was used.",
+  "nextStep": "Provide the exact pinned Graphiti checkout and official runtime dependencies, start local FalkorDB, complete Amplifier OAuth device login on loopback, and prove the requested model in the live catalog. Then run only the committed synthetic lifecycle fixture.",
+  "preflightStatus": "unavailable"
+}
