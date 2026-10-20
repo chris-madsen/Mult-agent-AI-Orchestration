@@ -92,13 +92,21 @@ const run = (label, executable, args, env, expectedSignal) => new Promise((resol
     cwd: resolve(import.meta.dirname, '..'),
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: expectedSignal !== undefined,
   });
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
   child.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+  const killProcessTree = () => {
+    if (expectedSignal !== undefined && child.pid !== undefined && process.platform !== 'win32') {
+      try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ }
+    } else {
+      child.kill('SIGKILL');
+    }
+  };
   const timer = setTimeout(() => {
-    child.kill('SIGKILL');
+    killProcessTree();
     rejectRun(new Error(`${label} timed out: ${stderr.slice(-4000)}`));
   }, timeoutMs);
   child.once('error', (cause) => {
@@ -109,9 +117,14 @@ const run = (label, executable, args, env, expectedSignal) => new Promise((resol
     clearTimeout(timer);
     if (expectedSignal !== undefined) {
       if (signal !== expectedSignal) {
+        killProcessTree();
         rejectRun(new Error(`${label} expected signal ${expectedSignal}, got code=${code} signal=${signal}: ${stderr.slice(-4000)}`));
         return;
       }
+      // The worker intentionally dies without finally/close. Kill any Graphiti
+      // MCP subprocess that inherited the worker's detached process group so
+      // the crash test does not leak orphan helper processes.
+      killProcessTree();
     } else if (code !== 0) {
       rejectRun(new Error(`${label} failed code=${code} signal=${signal}: ${stderr.slice(-4000)}`));
       return;
