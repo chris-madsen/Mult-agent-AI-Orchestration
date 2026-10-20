@@ -16,6 +16,7 @@ explicitly open; prior port-level `[x]` markers do not satisfy those gates.
 - [x] Return relevant ContextBundle with complete/partial based on required route coverage; preserve full exact expansion bytes and source-worktree frame conditions.
 - [x] Keep outages, denied policy and stale source distinct; instrument safe provider invocation evidence without logging secrets.
 - [x] Ensure documentation/temporal providers are conditional, explicitly unavailable until approved, and never fabricate ready status.
+- [x] Reconcile authoritative workspace manifests before claiming `complete`, bind semantic snapshots to configuration/dependency/provider identity, accept explicit source obligations, and distinguish fatal startup mismatch from live `not_ready` provider outage.
 
 ## Bertrand Meyer contracts (real integration or agent E2E)
 - [ ] DBC-01 production composition. **Real-provider composition sub-gate passed**, but the normative fixture requires the embedding/LSP stack to be approved; provider approval is still open.
@@ -29,12 +30,12 @@ explicitly open; prior port-level `[x]` markers do not satisfy those gates.
 - [x] DBC-09 official MCP SDK conformance with **Codex**, cancellation/error paths. The official TypeScript client covers handshake/list/call/error/concurrency/cancellation, and Harbor proves actual Codex→MCP→ACE calls.
 - [x] DBC-10 stable Codex historical episode IDs after append and replay (`npm run test:memory-process`: separate export workers preserve the first episode ID after append; archive import/replay remains idempotent).
 - [ ] DBC-11 shared digest archive delete and derived purge correctness.
-- [ ] DBC-12 realistic Harbor attribution and quality gate. A 3-task × 3-repeat **forced-use diagnostic** found 9/9 quality per arm and 0.567× raw-token ratio; provider operations were not correlated with individual MCP requests, local compute costs were not measured, and natural agent choice was not tested. Do not count this as normative attribution closure.
+- [ ] DBC-12 realistic Harbor attribution and quality gate. The current B0 run retained native and natural 9/9 reward summaries, but natural made zero ACE calls; forced made 10 actual calls, all returned `not_ready`, and 8/9 trials failed Harbor reward-file collection. This is honest wiring/provider-outage evidence, not normative attribution closure or a token-savings result.
 - [ ] DBC-13 restart/index persistence. **Implementation sub-gates now include warm reuse, per-file snapshot identity, delta vector reuse, structural/candidate caches, stale-snapshot truth and snapshot/exact-read race rejection.** The normative gate remains open until real changed/delete/rename/untracked + interrupted-writer/restart/performance evidence is retained on the selected provider stack.
 - [ ] DBC-14 docs-vs-code conflict disambiguation. **Logic sub-gate passed:** a test DocumentationPort preserves both claims and emits a structured conflict, but the normative scenario still needs real approved Vertex documentation with citations versus current code.
 
 ## Performance and exit
-- [ ] Run paired **natural-use** Harbor retrieval-demanding tests on a frozen larger repository/workload, count observed/complete/failed ACE calls, attribute provider traces to requests, meter end-to-end local and agent costs, and preserve failures. The existing forced-use 3×3 trial is diagnostic evidence, not the full required test.
+- [ ] Run paired **natural-use** Harbor retrieval-demanding tests on a frozen larger repository/workload after fixing the site-specific Qdrant bridge reachability, count observed/complete/failed ACE calls, attribute provider traces to requests, meter end-to-end local and agent costs, and preserve failures. The current B0 run is diagnostic evidence, not the full required test.
 - [x] Run OpenSpec CLI strict validation, typecheck, lint, unit, real-provider integration and Codex agent E2E; attach outputs or label unknown.
 - [ ] Owner reviews actual provider trace, benchmark and all mandatory contracts before declaring `production-ready`; no `controlled exception` can close a failed mandatory gate.
 
