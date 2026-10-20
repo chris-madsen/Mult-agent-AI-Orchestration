@@ -14,9 +14,10 @@ The code-only gate requires:
 4. Retrieval-quality acceptance on a `frozen_holdout`.
 5. Natural-use Harbor evidence with non-inferior quality, request correlation and complete cost telemetry.
 6. Exact-commit code-only resource-budget evidence (`evidence = resource-budget-accepted`) using an owner-approved budget policy.
-7. Supply-chain provenance evidence.
-8. Exact-commit owner approval whose approved capability set is **exactly** `["code"]`.
-9. For `deployment: "k3s"`, real k3s live-worktree evidence is also mandatory.
+7. Exact-commit runtime configuration evidence (`evidence = runtime-config-accepted`) proving docs/memory/cloud scope are disabled, semantic retrieval is pinned and fallback is off.
+8. Supply-chain provenance evidence.
+9. Exact-commit owner approval whose approved capability set is **exactly** `["code"]`.
+10. For `deployment: "k3s"`, real k3s live-worktree evidence is also mandatory.
 
 DBC-10/11 belong to memory. DBC-14 requires documentation conflict evidence. They are not silently marked PASS by this profile; they are simply outside this narrower release claim.
 
@@ -41,7 +42,8 @@ Example:
     "semanticSelection": "artifacts/release/semantic-selection.json",
     "retrievalQuality": "artifacts/release/retrieval-quality.json",
     "harborThreeArm": "artifacts/release/harbor-three-arm.json",
-    "resourceBudget": "artifacts/release/resource-budget.json"
+    "resourceBudget": "artifacts/release/resource-budget.json",
+    "runtimeConfig": "artifacts/release/runtime-config.json"
   },
   "externalEvidence": [
     {

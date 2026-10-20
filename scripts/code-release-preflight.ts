@@ -22,6 +22,7 @@ interface CodeReleasePolicy {
     readonly retrievalQuality: string;
     readonly harborThreeArm: string;
     readonly resourceBudget: string;
+    readonly runtimeConfig: string;
   };
   readonly externalEvidence: readonly {
     readonly name: CodeReleaseExternalEvidence['name'];
@@ -70,19 +71,20 @@ if (policy.schemaVersion !== 1
   throw new Error('code-only release policy schema is invalid');
 }
 const artifacts = policy.artifacts as CodeReleasePolicy['artifacts'];
-for (const key of ['dbc', 'embeddingSelection', 'semanticSelection', 'retrievalQuality', 'harborThreeArm', 'resourceBudget'] as const) {
+for (const key of ['dbc', 'embeddingSelection', 'semanticSelection', 'retrievalQuality', 'harborThreeArm', 'resourceBudget', 'runtimeConfig'] as const) {
   if (typeof artifacts[key] !== 'string' || artifacts[key].trim().length === 0) {
     throw new Error(`code-only release policy artifacts.${key} is required`);
   }
 }
 
-const [dbc, embedding, semantic, retrieval, harbor, resourceBudget] = await Promise.all([
+const [dbc, embedding, semantic, retrieval, harbor, resourceBudget, runtimeConfig] = await Promise.all([
   readEvidence(artifacts.dbc),
   readEvidence(artifacts.embeddingSelection),
   readEvidence(artifacts.semanticSelection),
   readEvidence(artifacts.retrievalQuality),
   readEvidence(artifacts.harborThreeArm),
   readEvidence(artifacts.resourceBudget),
+  readEvidence(artifacts.runtimeConfig),
 ]);
 
 const dbcRoot = typeof dbc.value === 'object' && dbc.value !== null && !Array.isArray(dbc.value)
@@ -143,6 +145,7 @@ const verdict = evaluateCodeReleasePreflight({
   retrievalQuality: retrieval.value,
   harborThreeArm: harbor.value,
   resourceBudget: resourceBudget.value,
+  runtimeConfig: runtimeConfig.value,
   externalEvidence,
   ownerApproval: policy.ownerApproval as ReleaseOwnerApproval,
 });
@@ -164,6 +167,7 @@ const output = {
     retrievalQuality: { path: retrieval.path, sha256: retrieval.sha256 },
     harborThreeArm: { path: harbor.path, sha256: harbor.sha256 },
     resourceBudget: { path: resourceBudget.path, sha256: resourceBudget.sha256 },
+    runtimeConfig: { path: runtimeConfig.path, sha256: runtimeConfig.sha256 },
     external: externalArtifacts,
   },
   verdict: verdict.value,

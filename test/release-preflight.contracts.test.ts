@@ -172,6 +172,39 @@ const resourceBudget = {
   },
 };
 
+const runtimeConfig = {
+  schemaVersion: 1,
+  generatedAt: '2026-10-20T00:00:00.000Z',
+  evidence: 'runtime-config-accepted',
+  scope: 'full-unified',
+  deployment: 'k3s',
+  sourceCommit: commit,
+  currentCommit: commit,
+  captureReference: 'release-runtime-capture',
+  workspaceIdHash: digest,
+  codeRetrieval: {
+    enabled: true,
+    qdrantEnabled: true,
+    pinnedEmbeddingRequired: true,
+    localFallbackAllowed: false,
+    embeddingProvider: 'fastembed/onnx',
+    semanticProvider: 'typescript-language-service',
+  },
+  documentation: { enabled: true, cloudDocsOptIn: true },
+  memory: { enabled: true, localOnly: true },
+  worktree: { hostHelperEnabled: true, mtlsRequired: true },
+  cloudPermissions: [{ provider: 'vertex', dataClasses: ['project_document'] }],
+  verdict: {
+    evidence: 'runtime-config-accepted',
+    scope: 'full-unified',
+    deployment: 'k3s',
+    sourceCommit: commit,
+    embeddingProvider: 'fastembed/onnx',
+    semanticProvider: 'typescript-language-service',
+    failures: [],
+  },
+};
+
 const baseInput = () => ({
   currentCommit: commit,
   dbc: {
@@ -180,10 +213,14 @@ const baseInput = () => ({
     records: dbcRecords(),
   },
   embeddingSelection: {
-    verdict: { status: 'PRODUCTION_APPROVED', productionApproved: true },
+    verdict: { status: 'PRODUCTION_APPROVED', productionApproved: true, selectedProvider: 'fastembed/onnx' },
   },
   semanticSelection: {
-    verdict: { status: 'PRODUCTION_APPROVED', productionApproved: true },
+    verdict: {
+      status: 'PRODUCTION_APPROVED',
+      productionApproved: true,
+      selectedProvider: 'typescript-language-service',
+    },
   },
   retrievalQuality: {
     verdict: {
@@ -192,6 +229,7 @@ const baseInput = () => ({
     },
   },
   resourceBudget,
+  runtimeConfig,
   harborThreeArm: {
     outcome: {
       productionAcceptance: 'measured-not-necessarily-5x',
@@ -305,4 +343,35 @@ test('full release blocks forged or over-budget resource evidence', () => {
   if (result._tag === 'Err') throw new Error(result.error.message);
   assert.equal(result.value.status, 'BLOCKED');
   assert.ok(result.value.failures.includes('resource_budget_not_accepted'));
+});
+
+
+test('full release blocks runtime scope/provider/config drift even when selection artifacts are approved', () => {
+  const input = baseInput();
+  const mismatchedProvider = evaluateReleasePreflight({
+    ...input,
+    runtimeConfig: {
+      ...runtimeConfig,
+      codeRetrieval: { ...runtimeConfig.codeRetrieval, semanticProvider: 'serena' },
+      verdict: { ...runtimeConfig.verdict, semanticProvider: 'serena' },
+    },
+  });
+  assert.equal(mismatchedProvider._tag, 'Ok');
+  if (mismatchedProvider._tag === 'Ok') {
+    assert.equal(mismatchedProvider.value.status, 'BLOCKED');
+    assert.ok(mismatchedProvider.value.failures.includes('runtime_semantic_provider_mismatch'));
+  }
+
+  const cloudScopeDrift = evaluateReleasePreflight({
+    ...input,
+    runtimeConfig: {
+      ...runtimeConfig,
+      cloudPermissions: [{ provider: 'vertex', dataClasses: ['project_document', 'private_source'] }],
+    },
+  });
+  assert.equal(cloudScopeDrift._tag, 'Ok');
+  if (cloudScopeDrift._tag === 'Ok') {
+    assert.equal(cloudScopeDrift.value.status, 'BLOCKED');
+    assert.ok(cloudScopeDrift.value.failures.includes('runtime_config_not_accepted'));
+  }
 });
