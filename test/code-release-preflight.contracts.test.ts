@@ -65,6 +65,54 @@ const k3sDocument = {
   },
 };
 
+const resourceBudget = {
+  schemaVersion: 1,
+  generatedAt: '2026-10-20T00:00:00.000Z',
+  evidence: 'resource-budget-accepted',
+  scope: 'code-only',
+  sourceCommit: commit,
+  currentCommit: commit,
+  budgetPolicy: {
+    reference: 'owner-code-resource-budget-v1',
+    sha256: digest,
+    metrics: [
+      ['process_peak_rss_bytes', 'bytes'],
+      ['startup_ready_ms', 'ms'],
+      ['cold_index_ms', 'ms'],
+      ['code_query_p95_ms', 'ms'],
+    ].map(([metric, unit]) => ({
+      metric,
+      unit,
+      maximum: unit === 'bytes' ? 2_000_000_000 : 5_000,
+      minimumSamples: 3,
+    })),
+  },
+  measurementEnvironment: {
+    runtime: 'node/22|ace/0.1.0',
+    deployment: 'host',
+    hostClass: 'fixture-host',
+  },
+  observed: [
+    ['process_peak_rss_bytes', 'bytes'],
+    ['startup_ready_ms', 'ms'],
+    ['cold_index_ms', 'ms'],
+    ['code_query_p95_ms', 'ms'],
+  ].map(([metric, unit]) => ({
+    metric,
+    unit,
+    observed: unit === 'bytes' ? 900_000_000 : 1_000,
+    sampleCount: 5,
+    method: 'retained-release-measurement',
+  })),
+  verdict: {
+    evidence: 'resource-budget-accepted',
+    scope: 'code-only',
+    sourceCommit: commit,
+    allWithinBudget: true,
+    failures: [],
+  },
+};
+
 const baseInput = () => ({
   currentCommit: commit,
   deployment: 'host' as const,
@@ -85,6 +133,7 @@ const baseInput = () => ({
       metrics: { holdoutStatus: 'frozen_holdout' },
     },
   },
+  resourceBudget,
   harborThreeArm: {
     outcome: {
       productionAcceptance: 'measured-not-necessarily-5x',
@@ -229,4 +278,33 @@ test('code-only release still requires provider approval, frozen quality and nat
     'retrieval_quality_not_accepted_on_frozen_holdout',
     'harbor_natural_use_acceptance_incomplete',
   ]) assert.ok(result.value.failures.includes(failure), failure);
+});
+
+
+test('code-only release blocks full-scope or over-budget resource evidence', () => {
+  const input = baseInput();
+  const wrongScope = evaluateCodeReleasePreflight({
+    ...input,
+    resourceBudget: { ...resourceBudget, scope: 'full-unified', verdict: { ...resourceBudget.verdict, scope: 'full-unified' } },
+  });
+  assert.equal(wrongScope._tag, 'Ok');
+  if (wrongScope._tag === 'Ok') {
+    assert.equal(wrongScope.value.status, 'BLOCKED');
+    assert.ok(wrongScope.value.failures.includes('resource_budget_not_accepted'));
+  }
+
+  const exceeded = evaluateCodeReleasePreflight({
+    ...input,
+    resourceBudget: {
+      ...resourceBudget,
+      observed: resourceBudget.observed.map((item) => item.metric === 'code_query_p95_ms'
+        ? { ...item, observed: 9_000 }
+        : item),
+    },
+  });
+  assert.equal(exceeded._tag, 'Ok');
+  if (exceeded._tag === 'Ok') {
+    assert.equal(exceeded.value.status, 'BLOCKED');
+    assert.ok(exceeded.value.failures.includes('resource_budget_not_accepted'));
+  }
 });
