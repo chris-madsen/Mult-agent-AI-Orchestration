@@ -35,8 +35,9 @@ import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
 import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
 import type { MemorySearchPort, WorkspaceFilePort } from '../application/ports.js';
 import { defaultLocalPolicy } from '../domain/policy.js';
-import { makeWorkspaceId, type RepoPath, type WorkspaceId } from '../domain/workspace.js';
+import { makeWorkspaceId, type WorkspaceId } from '../domain/workspace.js';
 import { observeWorkspace, registerWorkspace } from '../application/workspace-service.js';
+import { readVerifiedSemanticSnapshot } from '../application/semantic-snapshot.js';
 import { makeMcpGateway, type CapabilityReadiness } from '../gateway/mcp-gateway.js';
 import { runMcpSdkStdio } from '../transport/mcp-sdk-stdio.js';
 
@@ -70,19 +71,6 @@ const gcloudAccessToken = (): string | undefined => {
   } catch {
     return undefined;
   }
-};
-
-const readSourceFiles = async (
-  files: WorkspaceFilePort,
-  rootPath: string,
-  paths: readonly RepoPath[],
-): Promise<Readonly<Record<string, string>>> => {
-  const entries: Array<readonly [string, string]> = [];
-  for (const repoPath of paths) {
-    const source = await Effect.runPromise(files.readExact(rootPath, repoPath));
-    if (source._tag === 'Ok') entries.push([repoPath, Buffer.from(source.value.bytes).toString('utf8')]);
-  }
-  return Object.fromEntries(entries);
 };
 
 const makeDocumentationProvider = (
@@ -479,10 +467,19 @@ const main = async (): Promise<void> => {
               process.stderr.write(`ace retrieval cleanup removed_snapshots=${cleaned.value.length}\n`);
             }
           }
-          const sourceFiles = await readSourceFiles(files, registered.value.rootPath, built.value.indexedPaths);
+          const sourceFiles = await Effect.runPromise(readVerifiedSemanticSnapshot(
+            files,
+            registered.value.rootPath,
+            built.value.indexedPaths,
+            built.value.fileManifest,
+          ));
+          if (sourceFiles._tag === 'Err') {
+            embeddings.close();
+            throw new Error(`TypeScript language-service snapshot could not be bound to indexed source bytes (${sourceFiles.error.code})`);
+          }
           const semantics = makeTypeScriptLanguageServicePort({
             rootPath: registered.value.rootPath,
-            files: sourceFiles,
+            files: sourceFiles.value,
             providerVersion: process.env.ACE_TYPESCRIPT_VERSION?.trim() || 'typescript/5.9.3',
             trace: providerTrace,
           });
