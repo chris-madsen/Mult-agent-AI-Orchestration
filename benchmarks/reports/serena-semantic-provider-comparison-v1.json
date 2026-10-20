@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "status": "partial-provider-comparison",
+  "fixture": "benchmarks/semantic/provider-comparison-v1",
+  "provider": "serena",
+  "providerVersion": "serena-agent/2.0.0",
+  "fixtureSha256": "a797557e7a7dc451d395f786a7d675a517a573ee2aa1d6bf4486ae55f4f64459",
+  "oracleSha256": "2937a609f896df4470c86f1010b6602a9c8ed056e1f726f6dbd6837f89fd73f7",
+  "firstPassQueryP95Ms": 5135.607234000001,
+  "caseResults": [
+    {
+      "caseId": "same-name-user-definition",
+      "status": "pass",
+      "observation": "src/repositories.ts:2:3"
+    },
+    {
+      "caseId": "same-name-audit-definition",
+      "status": "pass",
+      "observation": "src/repositories.ts:6:3"
+    },
+    {
+      "caseId": "derived-override-definition",
+      "status": "pass",
+      "observation": "src/services.ts:6:12"
+    },
+    {
+      "caseId": "base-definition",
+      "status": "pass",
+      "observation": "src/services.ts:2:3"
+    },
+    {
+      "caseId": "unicode-definition",
+      "status": "pass",
+      "observation": "src/unicode.ts:1:17"
+    },
+    {
+      "caseId": "alias-source-references",
+      "status": "fail",
+      "observation": "missing=src/alias-source.ts:1:17,src/alias-use.ts:1:10,src/alias-use.ts:4:10;observed=0"
+    },
+    {
+      "caseId": "write-references",
+      "status": "fail",
+      "observation": "missing=src/writes.ts:2:7;observed=4"
+    },
+    {
+      "caseId": "broken-diagnostics",
+      "status": "pass",
+      "observation": "errors=2"
+    },
+    {
+      "caseId": "large-tail-definition",
+      "status": "pass",
+      "observation": "src/large.ts:2102:17"
+    }
+  ],
+  "coldStartMs": 7429.501359000001,
+  "warmQueryP95Ms": 459.64302099999986,
+  "maxRssBytes": 121536512,
+  "runtime": {
+    "node": "v24.15.0",
+    "python": "3.13.11",
+    "adapter": "serena-agent-mcp-repl/lsp/v1"
+  },
+  "sourceCommit": "120e5f63cc95af0bb4aa0846c8c30cf7a5ab5c3d",
+  "command": "node scripts/serena-semantic-comparison.mjs benchmarks/semantic/provider-comparison-v1 benchmarks/reports/serena-semantic-provider-comparison-v1.json",
+  "rawEvidence": "benchmarks/reports/serena-semantic-provider-comparison-v1.raw.json"
+}
