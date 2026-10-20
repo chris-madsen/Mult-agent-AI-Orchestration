@@ -37,16 +37,12 @@ export const makeVertexRagRetrievalPort = (config: VertexRagConfig): Documentati
       if (policy.value.outcome !== 'allowed') {
         return err(domainError('POLICY_DENIED', 'vertex', policy.value.reasonCode));
       }
-      const token = config.accessToken();
-      if (token === undefined || token.trim().length === 0) {
-        return err(domainError('AUTH_REQUIRED', 'vertex', 'OAuth token required'));
-      }
       const { project, location, corpusId } = config;
       if (![project, location, corpusId].every((x) => /^[a-zA-Z0-9_-]+$/u.test(x))) {
         return err(domainError('INVALID_INPUT', 'vertex', 'invalid resource name'));
       }
       const parent = `projects/${project}/locations/${location}`;
-      const response = yield* config.http.request({
+      const requestWithToken = (token: string) => config.http.request({
         method: 'POST',
         url: `https://${location}-aiplatform.googleapis.com/v1beta1/${parent}:retrieveContexts`,
         headers: { authorization: `Bearer ${token}` },
@@ -56,7 +52,28 @@ export const makeVertexRagRetrievalPort = (config: VertexRagConfig): Documentati
         },
         timeoutMs: 30_000,
       });
+
+      const token = config.accessToken();
+      if (token === undefined || token.trim().length === 0) {
+        return err(domainError('AUTH_REQUIRED', 'vertex', 'OAuth token required'));
+      }
+      let response = yield* requestWithToken(token);
       if (response._tag === 'Err') return response;
+
+      if (response.value.status === 401) {
+        // A short-lived token can expire after acquisition but before the
+        // provider handles the request. Refresh exactly once; never retry
+        // policy denials, permission failures or arbitrary provider errors.
+        const refreshedToken = config.accessToken();
+        if (refreshedToken === undefined || refreshedToken.trim().length === 0 || refreshedToken === token) {
+          return err(domainError('AUTH_REQUIRED', 'vertex', 'OAuth token was rejected and no fresh token was available'));
+        }
+        response = yield* requestWithToken(refreshedToken);
+        if (response._tag === 'Err') return response;
+        if (response.value.status === 401) {
+          return err(domainError('AUTH_REQUIRED', 'vertex', 'refreshed OAuth token was rejected'));
+        }
+      }
       if (response.value.status < 200 || response.value.status >= 300) {
         return err(domainError('EXTERNAL_UNAVAILABLE', 'vertex', `retrieveContexts returned HTTP ${response.value.status}`));
       }
