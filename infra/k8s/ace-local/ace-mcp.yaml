@@ -1,0 +1,165 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ace-runtime-defaults
+  namespace: ace
+  labels:
+    app.kubernetes.io/name: ace-mcp
+    app.kubernetes.io/part-of: ace
+data:
+  ACE_WORKSPACE_ROOT: /ace-host-workspace
+  ACE_QDRANT_URL: http://qdrant:6333
+  ACE_QDRANT_LOCAL_HOSTS: qdrant
+  ACE_ENABLE_EXPERIMENTAL_QDRANT: "true"
+  ACE_ALLOW_LOCAL_FALLBACK: "false"
+  ACE_REQUIRE_PINNED_EMBEDDING: "true"
+  ACE_ENABLE_VERTEX: "false"
+  ACE_ENABLE_GRAPHITI: "false"
+  ACE_PROVIDER_TRACE_FILE: /var/lib/ace/state/provider-trace.jsonl
+  ACE_STATE_DIR: /var/lib/ace/state
+  ACE_ARTIFACT_DIR: /var/lib/ace/artifacts
+  FASTEMBED_CACHE_PATH: /var/lib/ace/model-cache
+  ACE_TREE_SITTER_HELPER: /opt/ace/scripts/tree-sitter-structural.py
+  ACE_TREE_SITTER_PYTHON: /opt/ace/.venv-system/bin/python
+  ACE_EMBEDDING_WORKER: /opt/ace/scripts/fastembed-worker.sh
+  ACE_EMBEDDING_PYTHON: /opt/ace/.venv-embedding-fast/bin/python
+  ACE_WORKTREE_HELPER_TLS_CA: /var/run/ace-worktree-tls/ca.crt
+  ACE_WORKTREE_HELPER_TLS_CERT: /var/run/ace-worktree-tls/tls.crt
+  ACE_WORKTREE_HELPER_TLS_KEY: /var/run/ace-worktree-tls/tls.key
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ace-runtime-state
+  namespace: ace
+  labels:
+    app.kubernetes.io/name: ace-mcp
+    app.kubernetes.io/part-of: ace
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ace-mcp
+  namespace: ace
+  labels:
+    app.kubernetes.io/name: ace-mcp
+    app.kubernetes.io/part-of: ace
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ace-mcp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ace-mcp
+        app.kubernetes.io/part-of: ace
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ace-mcp
+          # Deliberately non-pullable placeholder. Release automation must replace
+          # this with the signed digest accepted by release:supply-chain.
+          image: registry.invalid/ace-harness:replace-with-signed-digest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: ace-runtime-defaults
+            - configMapRef:
+                name: ace-runtime-release
+                optional: false
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 500m
+              memory: 768Mi
+            limits:
+              cpu: "2"
+              memory: 3Gi
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - >-
+                  test -r /opt/ace/dist/bin/ace-mcp.js &&
+                  test -x /opt/ace/.venv-system/bin/python &&
+                  test -x /opt/ace/.venv-embedding-fast/bin/python &&
+                  test -n "$ACE_WORKSPACE_ID" &&
+                  test -n "$ACE_WORKTREE_HELPER_URL" &&
+                  test -r /var/run/ace-worktree-tls/ca.crt &&
+                  test -r /var/run/ace-worktree-tls/tls.crt &&
+                  test -r /var/run/ace-worktree-tls/tls.key
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "test -r /opt/ace/dist/bin/ace-mcp.js"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/ace
+            - name: worktree-client-mtls
+              mountPath: /var/run/ace-worktree-tls
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: ace-runtime-state
+        - name: worktree-client-mtls
+          secret:
+            secretName: ace-worktree-client-mtls
+            optional: false
+            defaultMode: 0400
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ace-mcp-default-deny-and-local-providers
+  namespace: ace
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ace-mcp
+  policyTypes: ["Ingress", "Egress"]
+  # No inbound network transport is exposed: MCP remains stdio via kubectl exec.
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ace
+      ports:
+        - { protocol: TCP, port: 6333 }
+        - { protocol: TCP, port: 6379 }
