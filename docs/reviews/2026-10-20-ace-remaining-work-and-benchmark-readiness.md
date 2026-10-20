@@ -1,328 +1,206 @@
-# ACE remaining work and benchmark-readiness audit
+# ACE remaining work, quality-safe reuse and benchmark readiness
 
 **Date:** 2026-10-20  
-**Reviewed main:** `5a033daaa44b5a4540c71e8c1be59d6f0d5a1283`  
-**Owner update:** 2026-10-20 — use **Qwen3:14b** as the experimental local-only Graphiti extraction LLM on the owner's 64 GB RAM machine; no discrete-GPU assumption. This selects the model for the experiment, not a mandatory serving runtime.  
-**Prior gap review:** [2026-10-20-unified-ace-production-gap-review.md](../plans/2026-10-20-unified-ace-production-gap-review.md)  
-**Purpose:** separate work required to measure ACE efficacy from work required for a full-unified production release, remove accidental critical-path items, and prefer supported upstream solutions over new in-repository infrastructure.
+**Product-code review baseline:** `5a033daaa44b5a4540c71e8c1be59d6f0d5a1283`  
+**Plan revision:** quality-safe reuse update; preserves the owner decisions added in `c7223cc7ff82fc304fcbdfefc5aa51a864620738`. This is an execution plan, not a new full-code audit or a claim that the tasks below have passed.  
+**Owner decision:** Qwen3:14b is the first experimental local-only Graphiti extraction model on the owner's 64 GB RAM machine. Do not assume a discrete GPU. The model is selected for the experiment, not production-approved and not tied to a mandatory serving runtime.  
+**Sources:** [production gap review](../plans/2026-10-20-unified-ace-production-gap-review.md), [expanded review](./2026-10-20-unified-plan-progress-1227.md), [semantic findings](./2026-10-20-semantic-bugs-review.md), [canonical backlog](../plans/2026-10-19-unified-ace-correctness-and-production-plan.md).
 
-## Executive conclusion
+## 1. Objective and claim boundaries
 
-The project is much closer to an **honest token-efficiency experiment** than to a full production release, and those two milestones must no longer be treated as the same finish line.
+ACE should avoid repeated online search, rereading and reconstruction by reusing locally computed work. It must not save tokens by silently withholding task-relevant information or presenting historical results as current facts.
 
-A natural-use code-retrieval benchmark does **not** need Graphiti, Vertex, k3s production containment, SBOM/signing, final provider owner approval, or Amplifier. The existing Harbor suite already contains a native arm, an optional-natural ACE arm with no forced-use instruction, and a forced-use diagnostic arm. The natural arm has simply not yet produced retained acceptance evidence.
+Distinguish:
+- reusable deterministic artifacts: exact bytes, AST spans, embeddings and indexed candidates;
+- dependency-sensitive semantic results: definitions, references, types and diagnostics;
+- retrieved evidence bundles, which depend on query, source requirements, policy and source versions;
+- derived memory claims, which have provenance and temporal validity, not automatic truth;
+- agent conclusions, which must not be cached as verified facts merely because they were previously generated.
 
-Before trusting an automated natural-use benchmark verdict, fix the remaining Harbor acceptance/cost oracle weakness from F-05. Authentication should use Harbor's existing Codex `auth.json` support; adding Amplifier only for OAuth/device login or model discovery would add an unnecessary provider/runtime to the benchmark.
+An index cache is not a cache of completed model reasoning. No generic answer/LLM-result memoization service is required by this plan. If proposed later, it needs its own correctness and economics evidence.
 
-Therefore there are now **two explicit finish lines**:
+### Two finish lines remain separate
 
-1. **Benchmark-ready:** fix F-05, use native Codex authentication, run native vs optional-natural ACE on the pinned configuration, then run a frozen multi-repository holdout before making a general savings claim.
-2. **Full-unified production-ready:** finish the memory correctness/provider work, including real Graphiti lifecycle evidence with the owner-selected experimental **Qwen3:14b** local extractor, real Vertex and k3s evidence, provider selections, release-integrity issues, exact-release DBC evidence, supply-chain/resource gates and final owner sign-off.
+1. **Exploratory benchmark:** raw native/optional-natural/forced diagnostic trials may run now when native Codex auth works. Known failures and incomplete telemetry must be retained; no automatic acceptance claim follows.
+2. **Quality-safe benchmark interpretation:** fix the applicable reuse hazards and F-05, pass the scoped correctness fixtures, then evaluate frozen task quality and economics. Full-unified production additionally requires memory/docs/k3s/operations/provider/license/owner gates.
 
-The historical forced-use Harbor result remains negative and honest: native used 891,950 raw tokens versus 1,571,768 for forced ACE, i.e. native/ACE = 0.567482x. It does **not** answer whether an unprompted Codex agent will naturally use ACE and save tokens.
+Graphiti, Vertex, k3s, SBOM/signing and final production provider approval are not prerequisites for collecting a code-only exploratory benchmark. They must not be smuggled onto that critical path. Conversely, a known stale-code defect relevant to a dirty-tree benchmark cannot be dismissed as production-only.
 
-## What changed since the prior production-gap review
+Historical forced-use evidence is unchanged: native 891,950 versus forced ACE 1,571,768 raw tokens; native/ACE = 0.567482x. This does not measure natural tool choice. A 5x target is a hypothesis, not an entry gate.
 
-The prior review was based on `560c49b043ef73b6ee08ceaf55b170ff780e4718`. Current main is 18 commits ahead, but the compare contains only documentation/test-execution changes: AGENTS/test policy, affected-test selection, CI/test scripts, and the gap review itself. There are **no `src/` product-code changes in that delta**.
+## 2. Quality-safe reuse contract
 
-Consequently the product-code findings F-01…F-11 below have not been silently fixed after that review. F-12 remains applicable because several old plans still describe superseded runtime state.
+Reuse is authorized only for its declared scope. Every delivered item must distinguish:
+- byte integrity and exact original pointer;
+- source/snapshot identity and time of verification;
+- semantic dependency/configuration identity where applicable;
+- required-source coverage and any unresolved changes;
+- claim valid time, approval state and uncertainty for memory;
+- whether the result was freshly computed, reused unchanged, revalidated or invalidated.
 
-## 1. Disposition of the seven newly reported “remaining” items
+Do not overload `freshness=current`: archive bytes being intact does not establish that a historical decision remains effective. Likewise, `complete` means the declared authorized retrieval plan was fulfilled, not that every fact relevant to any possible interpretation of the user's task has been found.
 
-| Reported item | Needed for token benchmark? | Needed for full production? | Disposition |
-| --- | --- | --- | --- |
-| owner approval for embedding + semantic provider | **No** for exploratory/natural efficacy benchmark | **Yes** | Keep as release/provider-selection gate, after evidence. Do not block the first natural-use run. |
-| Amplifier OAuth device login + live model catalog | **No** | **No** for the selected local Graphiti path | Remove from ACE critical path. Harbor already supports native Codex auth. For Graphiti, Qwen3:14b is now the selected experimental local extractor. Amplifier remains only a contingency if the local extractor fails the frozen Graphiti quality gate and the owner explicitly reopens a subscription-backed cloud path. |
-| supported upstream local Graphiti embedder/reranker | No for code-only token benchmark | **Yes** for full local-first memory | Use upstream Graphiti facilities/configuration. Do not build an ACE-specific embedding/reranking stack for Graphiti. |
-| Vertex synthetic import/citation authorization | No for code-only token benchmark | **Yes** for docs/DBC-14 | The narrow synthetic/public scope and Europe corpus are already authorized in the accepted execution plan; remaining work is the real import/retrieval evidence under actual IAM/GCS, not a new architecture project. |
-| k3s network containment | No for Docker Harbor efficacy benchmark | **Yes** for the accepted production deployment | Mostly already implemented with standard Kubernetes NetworkPolicy; remaining work is environment-specific allow rules plus real K3S-01…10 evidence. Do not build a custom network-policy system. |
-| natural-use Harbor OAuth run | **Yes: this is the key missing efficacy experiment** | DBC-12 also needs it | Keep the natural-use run, remove “Amplifier OAuth” from it. Use native Codex auth.json support. |
-| resource budgets, image provenance/license review, owner sign-off | No for efficacy benchmark | **Yes** for release | Keep as release gates, but use standard BuildKit/Syft/Cosign/SBOM tooling and the existing ACE validators rather than building scanners/signers. |
+State verification as of a named observation/snapshot boundary. A final read cannot guarantee that the worktree will never change after the response. If an edit occurs during assembly, retry under a bounded policy or return explicit partial/stale status. Never claim an atomic whole-project snapshot from unrelated sequential reads without an appropriate consistency mechanism.
 
-### 1.1 Embedding and semantic owner approval
+New observable behavior belongs in applicable OpenSpec deltas; this plan does not silently amend Accepted ADRs or close DBC checkboxes.
 
-This is a real production requirement under the current ADR/OpenSpec governance, but it is **not a prerequisite to measure efficacy**.
+## 3. Finite safety work packages
 
-Embedding already has a genuine maintained-library comparison: FastEmbed/ONNX vs Sentence-Transformers/PyTorch on the same multilingual model. FastEmbed currently wins the deterministic experimental selection while matching recall. What remains before production approval is the larger frozen multi-repository holdout, selected-host/resource evidence, license/model-artifact review and owner decision.
+### S0 — Reuse boundary and build-versus-buy decision
 
-Semantic evidence is further along for direct TypeScript Language Service: the retained follow-up reports 9/9 oracle cases, a real same-name gate, cold/warm latency and RSS. However the accepted plan/ADR still requires a matched Serena-vs-direct comparison before production selection. Either run that comparison, or explicitly revise the accepted decision; do not silently skip it and call TypeScript LS approved.
+- [ ] Inventory actual cache keys, read sets, invalidation triggers, validity labels and callers. Record which gaps are reproduced versus static risks; do not assume old review findings remain unfixed.
+- [ ] Prefer existing maintained provider lifecycle/cache facilities. Compare Serena's actual live-project behavior with the direct TS-LS path on the same fixtures, not just one definition response.
+- [ ] A direct TS Language Service host is responsible for input versions and project updates; frozen snapshots are valid only when explicitly treated as frozen. Do not implement a second home-grown language-server lifecycle if an existing provider/client satisfies the contract.
+- [ ] Keep ACE-specific code narrow: policy, source verification, evidence composition and approved archive semantics. Any extra watcher/coordinator/store must have a concrete unmet requirement, not be added by default.
 
-For the next Harbor efficacy run, use the **current pinned experimental FastEmbed + direct TS-LS configuration** and label it as an experimental benchmark configuration. No owner production approval is required to learn whether that configuration saves tokens.
+**Exit:** a small implementation decision and test matrix, not a new framework. Serena is a candidate, not silently selected as production-approved. If accepted provider decisions change, use owner review/ADR as required.
 
-### 1.2 Amplifier OAuth device login and live model catalog — remove from critical path
+### S1 — Worktree membership, index and byte freshness
 
-No accepted ACE ADR, OpenSpec task, current source path or release-preflight requirement names Amplifier. It appears to be a newly introduced suggestion, not a repository requirement.
+- [ ] Track content changes AND added/deleted/renamed/untracked files, extension/policy scope and relevant generated/config files. Verifying only returned hits cannot establish that the current index covers newly added code.
+- [ ] Use a maintained filesystem/provider notification mechanism with a defined synchronization barrier before query execution. Notifications are hints, not proof of completeness: handle startup catch-up, watcher overflow/disconnect and missed-event recovery using bounded reconciliation.
+- [ ] Reuse AST/candidates/embeddings for unchanged source+provider identities; update affected entries and manifest membership. Do not reparse/re-embed the entire repository per request as the default fix.
+- [ ] Bind query execution to a published index/coverage observation. Pending relevant updates or unknown watcher state must trigger catch-up or truthful partial/not-ready behavior, not a silently complete old index.
+- [ ] Preserve final exact selected-source digest/range verification and lossless authorized expansion. Excluded secret files must remain excluded after edits and recovery.
 
-Harbor's current Codex agent directly resolves `CODEX_AUTH_JSON_PATH` / `CODEX_FORCE_AUTH_JSON` and defaults to `~/.codex/auth.json`. The benchmark can therefore use the ordinary Codex login/auth file without adding another agent framework/provider.
+**RED fixtures:** start ACE, then add the sole correct implementation; delete/rename a previous hit; edit during query; lose an event; recover after watcher failure; change policy scope. Assert the new candidate becomes reachable or the response explicitly identifies incomplete coverage. Fresh old hits must not conceal missing new files.
 
-Amplifier's ChatGPT provider does implement device-code OAuth and a dynamic live model catalog. Those are useful **inside Amplifier**, but ACE's benchmark does not need Amplifier merely to obtain those features.
+**Exit:** real long-lived MCP queries before/after changes, with exact source and membership identities. A restart-only test is not proof of live invalidation.
 
-A live model catalog is also undesirable for a reproducible benchmark. ADR-009 requires the same pinned model/reasoning/configuration across arms. The existing Harbor jobs already pin `gpt-5.6-luna` with `reasoning_effort=high`. If that model is unavailable in the authenticated Codex account, select another currently available exact model and pin the **same ID** in every arm; do not dynamically switch models between trials.
+### S2 — Semantic dependency validity
 
-Upstream references:
-- Harbor Codex auth handling: https://github.com/harbor-framework/harbor/blob/main/src/harbor/agents/installed/codex.py
-- Amplifier ChatGPT provider: https://github.com/microsoft/amplifier-module-provider-openai-chatgpt
+- [ ] Maintain a provider-managed live project, or explicitly invalidate/rebuild the affected semantic snapshot. Do not retain script versions forever as `1` while claiming live semantics.
+- [ ] Include dependencies and relevant tsconfig/project references/module-resolution settings, package manifests/lockfiles, declaration files and provider versions in the semantic validity policy. A selected file's digest alone is insufficient.
+- [ ] Establish one consistent source view for AST, index and semantic provider; reject mixed generations. Semantic cache entries require an appropriate dependency/project version, not just symbol name/path.
+- [ ] When dependency identity cannot be verified, keep exact code bytes usable but downgrade semantic certainty; never promote an uncertain relationship to verified semantic evidence.
 
-**Decision:** do not add Amplifier to ACE or to the Harbor critical path. It is also **not required for the selected Graphiti path**: the owner has selected Qwen3:14b for the local extraction experiment. Amplifier is only a Plan B if Qwen3:14b fails the frozen Graphiti extraction/recall/structured-output gate and the owner explicitly authorizes a subscription-backed cloud-memory path.
+**RED fixtures:** unchanged A imports modified B; changed re-export/alias/type; changed tsconfig resolution; dependency removed; same-name symbols, overloads, CRLF/BOM/astral Unicode. Compare warmed and fresh-provider results against the same oracle.
 
-### 1.3 Graphiti local inference — Qwen3:14b selected; integrate upstream, do not recreate it
+**Exit:** warm reuse produces the same valid semantic result as a fresh supported provider for these cases, or explicitly refuses current-semantic confirmation. Reuse is not required when its validity cannot be established.
 
-**Owner decision (2026-10-20):** use **Qwen3:14b** as the experimental local-only Graphiti extraction LLM. The target development machine has **64 GB system RAM** and the experiment must not assume a high-end discrete GPU. This closes the “which experimental local LLM should we try first?” question; agents should not restart an open-ended model-selection search before running the actual Graphiti quality/lifecycle gate.
+### S3 — Explicit source obligations instead of hidden keyword routing
 
-This decision selects the **model**, not a mandatory serving product. Serve Qwen3:14b through a mature OpenAI-compatible local runtime supported by Graphiti's `OpenAIGenericClient`. Ollama remains permitted as an experiment/runtime convenience but must not become a required/default ACE dependency; llama.cpp/vLLM/another maintained compatible runtime is equally valid if it is the cleaner fit on the target host.
+- [ ] Make required/optional/not-requested sources explicit in the request contract and expose the executed plan. Preserve compatibility of existing flags, but remove the hidden assumption that English keyword matching proves task intent.
+- [ ] Prefer agent-selected code/docs/memory requests or explicit source sets. Existing routing may remain a transparent opt-in suggestion; do not fix quality by endlessly growing a multilingual substring list.
+- [ ] Distinguish disabled-by-caller, policy-denied, no-match, unavailable, stale and uncovered. Missing required sources cannot become complete because optional hits exist.
+- [ ] Provide a straightforward request/expansion path for omitted sources and originals. Native agent tools remain available; do not require ACE-only exploration or silently send forbidden data to a fallback destination.
+- [ ] Do not add another routing LLM merely to replace a few keyword tests. Add complexity only if measured quality/usage justifies it.
 
-Full local-first memory still requires a real LLM + embedding + reranking path, but ACE should configure Graphiti rather than implement Graphiti's inference stack.
+**RED fixtures:** RU/EN/mixed/paraphrased requests for historical choices; architectural bug requiring code+docs; keyword distractors; explicit opt-outs; required provider outage. Assert actual provider call sets and structured coverage, not only planner labels.
 
-Current upstream Graphiti already provides:
-- `OpenAIGenericClient` / OpenAI-compatible local LLM endpoint support;
-- configurable OpenAI-compatible embeddings through the upstream `OpenAIEmbedder`;
-- a local `BGERerankerClient` fallback through `CrossEncoderFactory`;
-- FalkorDB;
-- the MCP tools ACE already consumes.
+**Exit:** caller can state obligations unambiguously, and `complete` refers to those obligations. Claims of autonomous intent coverage require separate held-out routing evidence.
 
-There is one upstream caveat worth preserving rather than “fixing” locally: the current Graphiti MCP README advertises `sentence_transformers` as a local embedder, while the current `EmbedderFactory` fetched from upstream main does not contain a `sentence_transformers` case. Upstream issue #1556 also calls out that local example inconsistency. Therefore do **not** copy a custom SentenceTransformers factory into ACE just to make that README example work.
+### S4 — Memory: provenance is not current truth
 
-Preferred integration:
-1. pin a known Graphiti upstream revision/release;
-2. run **Qwen3:14b** locally behind a loopback OpenAI-compatible endpoint and connect Graphiti through upstream `OpenAIGenericClient`;
-3. use its upstream OpenAI-compatible embedder against a supported local embedding endpoint;
-4. use Graphiti's upstream local BGE reranker;
-5. retain the exact Qwen3 model/artifact identity, quantization (if any), serving runtime/version, structured-output mode, embedder/reranker identities and machine fingerprint in Graphiti lifecycle evidence;
-6. run a frozen Graphiti extraction/recall gate before production promotion, covering at least accepted-vs-proposed decisions, superseded decisions, constraints, preferences, unresolved questions, temporal updates, contradictions, irrelevant chatter, and RU/EN/mixed-language episodes;
-7. record JSON/schema failure rate, extraction/recall quality, false facts, temporal correctness, per-episode latency and peak RSS on the 64 GB RAM target host.
+- [ ] Preserve original bytes/digest/time/pointer separately from derived fact validity and owner approval. Add explicit evidence labels rather than using archive integrity as `current` claim validity.
+- [ ] For ordinary current-state queries, validate facts at the effective query time; for historical queries, use explicit valid-time `as_of`. Preserve invalidation/supersession and uncertainty in returned hits/bundles.
+- [ ] Use supported upstream temporal filtering/pagination where available. Post-filtering only the current top 50 cannot establish historical recall completeness; report limits or use a supported retrieval path that satisfies the declared historical scope.
+- [ ] Join validated decision history into the actual Graphiti-backed MCP path. Empty decision/conflict annotations must not masquerade as proof that no decisions/conflicts exist.
+- [ ] Fix F-01 error-first MCP parsing: an error-bearing empty result is not successful search or proof of deletion.
+- [ ] Fix F-02/F-03: durable projection/deletion intent, discover archived admitted episodes without receipt, fencing/CAS against concurrent projector, and terminal tombstone protection. Prefer supported storage/transaction primitives; atomic rename of one receipt is not a distributed transaction.
 
-**Acceptance rule:** Qwen3:14b is the selected first candidate, not an automatic production approval. If it is accurate enough but slow on CPU, keep it as an asynchronous/background projection worker rather than weakening extraction quality. Only if it fails the frozen correctness/structured-output gate should another model/backend be considered.
+**RED fixtures:** current query returns a superseded fact; historical pre/post-confirmation state; multiple decisions per episode; later imports; error+empty facts/episodes; kill after archive persist but before outbox.begin; concurrent reconcile after purge; stale writer attempts to overwrite tombstoned. Verify originals survive unverified deletion and derived facts do not resurrect.
 
-If a future upstream release fixes the advertised SentenceTransformers provider, switch by configuration. Until then, keep the workaround outside ACE domain logic.
+**Scope:** P for full memory, B only if memory is enabled in the measured workload. Do not enable unverified memory silently in a code-only experiment.
 
-Upstream references:
+### S5 — Snapshot ownership and evidence validity
+
+- [ ] Close F-04: synchronize acquire/close/GC; no recursive removal based on stale emptiness; fail closed on filesystem uncertainty. Preserve state-owner isolation and conservative PID behavior.
+- [ ] Test new lease between inspection/deletion, same-snapshot writers, crash mid-upsert and before publication. Existing two-root crash evidence with shared GC disabled proves a narrower scenario, not active-GC safety.
+- [ ] Fix F-05: runtime schemas, structured measured/estimated/unknown cost components, finite valid counters, source verdict and matched execution model/task/config identities. Free-form costScope text cannot establish complete telemetry.
+- [ ] Retain F-06/F-07/F-11 release work: semantic evidence validation, raw-byte hashing for text/JSONL/binary DBC artifacts, exact scope/config binding and a protected approval trust root.
+
+**Exit:** negative input cannot yield false acceptance, failed required work cannot yield complete, and concurrent reuse cannot lose its protection. No new generic evidence platform is required.
+
+## 4. Execution order and benchmark matrix
+
+1. Freeze a baseline commit and add deterministic S1/S2/S3 safety fixtures; choose the smallest upstream-backed integration in S0. Reconfirm defects before modifying source.
+2. Fix F-05 before trusting automated acceptance. Raw diagnostic trials can run earlier with explicit limitations.
+3. For a trustworthy code-only dirty-tree/reuse result, pass applicable S1/S2/S3/S5 scenarios first. Exclude memory/docs explicitly; do not wait for Graphiti/Vertex/k3s/full release.
+4. Run native vs ACE optional-natural on the existing 3x3 smoke; forced ACE remains diagnostic. Use native Harbor Codex auth.json support, not Amplifier. Pin identical model/reasoning/task commits/instructions/budgets across matched arms; preserve failures.
+5. Freeze a multi-repository holdout and predeclare quality acceptance before inspecting results. Include fresh sessions, persistent warm sessions, dependency edits, file membership changes, same-name/behavior queries and recovery.
+6. Benchmark the relevant ready-made alternative (Codex+Serena) on matched fixtures; compare read-only retrieval separately from extra editing/refactoring capabilities. This comparison informs architecture/provider selection; it does not block the first native-vs-ACE smoke.
+7. In parallel finish S4 with the selected Qwen3:14b local Graphiti path, then full-unified provider/deployment/recovery evidence.
+8. Freeze a release candidate and run exact-commit DBC/runtime/resources/supply-chain gates and scoped owner review.
+
+### What to measure
+
+Primary: accepted task outcome, hidden functional/regression checks, critical constraint retention and final patch correctness. Predeclare a justified non-inferiority policy and repeat stochastic trials; a tiny all-green smoke is not a universal quality guarantee. Quality is checked before claiming economic improvement; a regression is reported even when tokens fall.
+
+Economics: total/cached/uncached input and output, online model calls, repeated native reads, reused/recomputed local operations, useful evidence consumed, expansion frequency, startup versus steady-state latency, RSS and measured or explicitly unknown local infrastructure cost. Do not count reduced AST/embedding compute as automatically reduced cloud input tokens.
+
+For local reuse, compare cold and warm behavior against a fresh-result oracle. Log safe full snapshot/provider/config identities and selected source digests, without query/source/secrets in trace metadata. The existing `snapshot_identity` log field is a provider fingerprint; do not treat its stability across edits as proof of a stale index. Use distinct provider identity and content index_key fields.
+
+Deliverable per change: failing fixture/oracle, implementation or upstream config change, compatibility notes, relevant OpenSpec delta, exact tested commit, deterministic/real-provider results and blockers. Reuse existing runners; do not build another benchmark orchestrator.
+
+## 5. Preserve the existing upstream and owner decisions
+
+### Graphiti
+
+Qwen3:14b remains the selected first experimental local-only extractor on 64 GB RAM. Use a mature Graphiti-supported OpenAI-compatible local serving runtime; no discrete-GPU assumption. Ollama is permitted experimentally but is not a required/default ACE dependency. Configure upstream OpenAIGenericClient, supported local embedding endpoint and upstream local BGE reranker; do not implement an ACE-specific inference stack or copy a custom SentenceTransformers factory to work around upstream documentation drift.
+
+Pin Graphiti and all model/artifact/runtime/quantization/structured-output identities. Verify the selected revision's actual factories: upstream README support and implementation have previously disagreed (issue #1556). Run frozen extraction/recall/structured-output/temporal tests on RU/EN/mixed episodes; record false facts, schema failures, latency and peak RSS. If accurate but slow, use asynchronous background projection rather than weakening quality. Only if this selected candidate fails the correctness gate should alternatives be considered. Amplifier/cloud-memory Plan B requires the owner's explicit reopening and data authorization.
+
+### Vertex and k3s
+
+Retain the owner-authorized Europe corpus and narrow synthetic/public scope. Supply permitted GCS prefix/IAM, execute existing synthetic import and citation-conflict runners, retain provider evidence; private code/dialogue upload is not implicitly authorized.
+
+Use existing Kubernetes NetworkPolicy, mTLS helper and deployment. Add site-specific necessary egress, verify policy enforcement and execute K3S-01…10. Do not invent a firewall controller/service mesh or require k3s production containment for a Docker efficacy experiment.
+
+### Release and authentication
+
+Harbor uses native Codex authentication (`CODEX_AUTH_JSON_PATH` / supported auth-file mechanism). Confirm flags against the pinned Harbor version; never log/commit credentials. If the currently pinned model is unavailable, choose one available exact ID for every matched arm, not a dynamic catalog per trial. Amplifier is not on the normal benchmark path.
+
+Production embedding/semantic approval remains separate from experimental use. Run matched Serena/direct-provider comparison or explicitly revise the accepted decision; do not silently approve an already-implemented provider.
+
+Use standard BuildKit/buildx or Syft SBOM/provenance, Cosign/Sigstore signatures, standard OS/k8s resource measurement and existing ACE validators. Review embedding artifacts staged outside the OCI image separately: image SBOM does not establish model license/provenance. Final approval references exact release commit, capabilities and retained evidence.
+
+## 6. Existing findings and scope mapping
+
+Historical F-01…F-12 are retained as review findings, not declared newly reproduced or fixed by this document:
+
+| Finding | Work package / scope |
+|---|---|
+| F-01 MCP error handling | S4; full memory correctness |
+| F-02 delete/reconcile resurrection | S4; full memory correctness |
+| F-03 archive/intent crash gap | S4; full memory recovery |
+| F-04 lease/cleanup races | S5; code reuse where concurrency/GC is exercised |
+| F-05 Harbor cost/acceptance oracle | S5; B for automated benchmark acceptance |
+| F-06 release evidence depth | S5/release; P |
+| F-07 JSON-only DBC artifact loader | S5/release; P |
+| F-08 temporal runtime truth | S4; P or B if memory is measured |
+| F-09 English-centric routing | S3; explicit obligations preferred over more keyword rules |
+| F-10 startup/readiness drift | align implementation/runbook/tests; distinguish identity failure from transient outage |
+| F-11 approval trust root | release governance; P |
+| F-12 stale plans | reconcile current status and historical evidence; no retroactive invention of PASS |
+
+S1/S2 additionally address live membership and semantic dependency invalidation; these are not satisfied merely by checking selected source digests. Do not inflate this list into a new framework or infer production incidents from static review alone.
+
+## 7. Stop-fixing-forever rule and Definition of Done
+
+Classify work by scope:
+- **B:** invalidates the measured native-vs-ACE comparison or quality/reuse claim in the selected workload.
+- **P:** blocks the accepted production capability/deployment, not raw exploratory experiments.
+- **D:** optional frameworks, broader languages/HA/observability or unmeasured convenience.
+
+The update does not move full memory/docs/k3s/signing into B for a code-only benchmark. It does move applicable stale-index/dependency/source-obligation hazards into the quality gate for a benchmark that claims safe warm/dirty reuse. A frozen read-only smoke may run while those hazards are explicitly excluded and reported as limitations.
+
+Safe-reuse acceptance requires: declared scope/version, verified applicable identities, observable invalidation/recovery, lossless authorized expansion, honest uncertainty/coverage, and regression fixtures demonstrating no wrong-current reuse in the tested cases. This is evidence within a scope, not a universal no-bugs guarantee.
+
+Full production still needs the applicable DBC-01…14, provider selections, Graphiti/Vertex/k3s/recovery, resource/license evidence and owner sign-off. Existing historical DBC checkboxes are not modified by this plan. No new DBC IDs and no 5x prerequisite are introduced.
+
+## Upstream references retained for implementation verification
+
+- https://github.com/harbor-framework/harbor/blob/main/src/harbor/agents/installed/codex.py
+- https://github.com/microsoft/amplifier-module-provider-openai-chatgpt
 - https://github.com/getzep/graphiti/blob/main/mcp_server/src/services/factories.py
 - https://github.com/getzep/graphiti/blob/main/mcp_server/README.md
 - https://github.com/getzep/graphiti/issues/1556
-
-### 1.4 Vertex synthetic import/citation
-
-This remains required for the full documentation capability and DBC-14, but much of the work is already implemented.
-
-The repository already contains:
-- a hard-scoped synthetic fixture importer;
-- explicit import/retrieval ACK variables;
-- reuse of the authorized Europe corpus;
-- long-running import polling;
-- retained hashes;
-- real retrieval/citation conflict gate against exact current-code bytes.
-
-The accepted execution plan already authorizes the Europe test corpus and permits synthetic/public fixture work within the stated test scope. Do not invent a new generic upload service or request broad authorization for private data.
-
-Remaining work is operational:
-- provide the actual permitted GCS synthetic prefix and IAM;
-- run `npm run vertex:import-synthetic`;
-- run `npm run test:real-vertex-conflict`;
-- retain citation/request/provider-trace evidence;
-- record quota/cost/limitations.
-
-Private code and sessions remain out of scope.
-
-### 1.5 k3s network containment
-
-The project has **already used the ready solution**: standard Kubernetes `NetworkPolicy`.
-
-`infra/k8s/ace-local/ace-mcp.yaml` currently isolates the ACE pod for ingress/egress and permits only DNS plus Qdrant/FalkorDB ports in the `ace` namespace. K3s includes its own network-policy controller, so no custom firewall controller, service mesh or policy engine is needed for this requirement.
-
-Remaining work:
-- add an environment-specific allow rule for the actual host worktree helper IP/CIDR + TLS port;
-- when Vertex/full Graphiti topology is enabled, add narrowly scoped required egress rather than generic `0.0.0.0/0:443`;
-- execute K3S-01…10 and retain the negative-reachability evidence;
-- verify the cluster has not been started with network policy disabled.
-
-This is an evidence/environment closure item, not a new networking subsystem.
-
-### 1.6 Natural-use Harbor run
-
-This is the item that should now move to the front.
-
-The repository already has three separate job definitions:
-- native Codex baseline;
-- ACE **optional natural** with `extra_instructions: []`;
-- forced ACE diagnostic.
-
-The natural arm is correctly distinct from the forced arm. It should use the ordinary Harbor Codex auth-file path, not Amplifier.
-
-However, F-05 below must be fixed before the automated Harbor acceptance result is treated as authoritative. Raw trial/token data can still be collected earlier, but a malformed/partial cost record must not be allowed to pass “complete cost telemetry”.
-
-For a first useful smoke measurement, the existing 3×3 set can answer: **does Codex naturally call ACE, does quality regress, and what happens to raw token usage?** A general/publishable savings claim still needs the independent frozen multi-repository holdout required by ADR-009.
-
-### 1.7 Resource budgets, provenance, licenses and owner sign-off
-
-These are full-release requirements, not efficacy-experiment prerequisites.
-
-The current ACE code is not reinventing SBOM/signing: `release:supply-chain` is a **validator/binder**. It expects an SPDX/CycloneDX SBOM, image/base digests, signature verification and license review; it does not pretend to generate or sign them.
-
-Use standard tooling for the actual artifacts:
-- Docker BuildKit/buildx SBOM + provenance attestations, or Syft for SPDX/CycloneDX;
-- Cosign/Sigstore for image signature/verification;
-- the existing ACE `release:supply-chain` command only to bind the resulting artifacts to the exact release commit.
-
-One gap to keep explicit: the FastEmbed model is staged into a model cache/PVC rather than necessarily baked into the OCI image. An image SBOM alone therefore does not prove the downloaded model artifact's license/provenance. The final license review should separately record the selected embedding model/artifact identity and license source.
-
-Resource budgets are product-specific and the existing `evidence:resource-budget` validator is appropriate. Do not build a new profiler/observability platform: collect the required RSS/startup/index/query samples with standard OS/k8s measurement tools and feed them into the existing gate.
-
-## 2. Status of prior gap-review findings F-01…F-12
-
-Because current main contains no product-code changes since the prior review base, the following source findings remain materially current.
-
-| Finding | Current status | What remains |
-| --- | --- | --- |
-| **F-01 Graphiti MCP error semantics** | **OPEN / P1** | `replyJsonObject()` still consumes structured/text JSON before checking `isError`. Make `isError` fail first; add RED cases for error+empty facts/episodes. |
-| **F-02 delete/reconcile resurrection race** | **OPEN / P1** | Current delete still purge → verify absent → archive delete, with no durable delete intent/version fence/CAS against a concurrent reconciler. |
-| **F-03 archive → projection-intent crash gap** | **OPEN / P1** | `memory-import.ts` still archives all originals before creating outbox intent. A crash in that window leaves an admitted original that reconciliation cannot discover. |
-| **F-04 Qdrant lease acquire vs cleanup race** | **OPEN, narrowed / P1** | State-owner isolation and conservative PID handling improved scope, but `readdir(...).catch(()=>[])` + recursive directory removal can still race a new lease and can misclassify EACCES/EIO as empty. |
-| **F-05 Harbor complete-cost/acceptance oracle** | **OPEN / P1 — benchmark blocker** | `costTelemetryComplete` still derives truth from a free-form `costScope` regex and can accept arbitrary strings while numeric cost is null. Add runtime schema and structured measured/estimated/unknown components. |
-| **F-06 release-validation depth** | **PARTIALLY IMPROVED, still open / P1** | External/runtime evidence validation improved, but embedding/semantic/retrieval/Harbor nested verdicts remain more trusted than independently re-evaluated. Bind primary reports/artifacts/config identity. |
-| **F-07 DBC artifacts forced through JSON parser** | **OPEN / P2** | Release CLI still JSON-parses DBC artifact files before hashing. Hash raw bytes and parse only artifacts whose contract is structured JSON; JSONL/text evidence must remain valid. |
-| **F-08 Graphiti MCP temporal decision truth** | **OPEN / P1** | Pure domain decision history improved, but Graphiti-backed MCP search still returns empty `decisionStates`/`conflicts`, uses a fixed `max_facts: 50`, and performs local as-of filtering after top-N retrieval. |
-| **F-09 deterministic routing is English-centric** | **OPEN / P1** | Russian/mixed queries can still miss docs/memory because keyword rules remain English. Add RU/EN/mixed/paraphrase routing fixtures and measure misses/overfetch. |
-| **F-10 readiness docs vs startup behavior** | **OPEN / P1** | Readiness matrix says embedding preflight failure is fatal; runtime and test explicitly keep MCP alive and report `not_ready`. Define separate policy for identity mismatch vs temporary provider outage and align code/docs/tests. |
-| **F-11 owner-approval trust root** | **OPEN governance / P2** | Full preflight validates approval fields but not who authored the approval. Define protected PR/commit/signed attestation as the trust root. This does not block efficacy benchmarking. |
-| **F-12 stale plans** | **OPEN / P2** | Older unified/execution plans still contain statements superseded by current Graphiti wiring, deterministic routing and worktree-helper implementation. Update status/delta docs without rewriting historical evidence. |
-
-### F-04 detail
-
-The current lease implementation is safer than the earliest version: it has persistent state-owner identity, conservative cross-namespace PID handling and explicit local-process reaping. That does **not** close the specific race:
-
-1. cleaner sees an empty lease directory;
-2. a concurrent reader writes a new lease;
-3. cleaner recursively removes the directory from its stale observation.
-
-The same code still converts any `readdir(directory)` failure to `[]` in some paths. Fix the exact race/fail-closed semantics rather than replacing the whole Qdrant snapshot subsystem.
-
-## 3. Remaining work, compressed into a finite critical path
-
-### A. Benchmark-ready — do this first
-
-These items are sufficient to obtain a meaningful first answer about ACE token economics for the current code-retrieval configuration.
-
-1. **Fix F-05 Harbor report validation.**
-   - runtime-validate input report shape;
-   - replace free-form “cost complete” string inference with structured per-component status;
-   - require matched model/reasoning/task/config identities;
-   - keep `unknown` honest rather than converting it to zero/pass.
-
-2. **Use native Codex authentication directly in Harbor.**
-   - authenticate Codex normally;
-   - pass/mount `CODEX_AUTH_JSON_PATH` as supported by Harbor;
-   - pin one exact Codex model + reasoning effort in native/natural/forced jobs;
-   - do not add Amplifier or a dynamic model catalog.
-
-3. **Run existing native vs optional-natural ACE 3×3 as a smoke benchmark.**
-   - same task text, model, reasoning, commits, time budget;
-   - no ACE-forcing prompt in the natural arm;
-   - retain raw Harbor/Codex events and ACE/provider correlation;
-   - report how many natural trials called ACE at all;
-   - quality gate first, then token/cost ratio.
-
-4. **Freeze and run the larger multi-repository holdout before a general savings claim.**
-   - behavior-not-name;
-   - same-name symbols;
-   - cross-file changes;
-   - dirty tree/warm index;
-   - RU/EN if multilingual behavior is claimed;
-   - no tuning after holdout inspection.
-
-**Important:** embedding/semantic owner approval, Graphiti, Vertex, k3s and supply-chain signing do not belong before step 3. They are production gates, not prerequisites to learn whether ACE helps Codex.
-
-### B. Production code correctness
-
-Finish these before full production promotion:
-
-1. F-01 Graphiti error-first parsing.
-2. F-02 durable delete intent/fencing against reconcile resurrection.
-3. F-03 archive/projection-intent crash recovery.
-4. F-04 lease-acquire/cleanup synchronization and fail-closed filesystem errors.
-5. F-08 bind Graphiti facts to real decision timelines/conflicts/as-of semantics.
-6. F-09 multilingual/obligation-aware routing if RU/mixed-language input remains in supported scope.
-7. F-10 settle startup/readiness policy and align tests/docs.
-
-These are bounded defects. They should not expand into new provider frameworks.
-
-### C. Real provider/deployment evidence
-
-1. **Embedding selection:** larger frozen multi-repo comparison + model/license/target-host evidence → owner approval.
-2. **Semantic selection:** matched Serena vs direct TypeScript LS on the same fixture/oracle → owner approval or explicit ADR revision.
-3. **Retrieval quality:** frozen lexical/dense/hybrid ablation and patch-quality behavior.
-4. **Graphiti:** run **Qwen3:14b** through an upstream-compatible local OpenAI endpoint + Graphiti + FalkorDB; execute the frozen extraction/recall/structured-output gate, then real lifecycle, crash/reconcile/purge, backup/restore and local-egress proof. Record latency/RSS on the 64 GB RAM target host. Configure upstream components; do not create an ACE inference stack or introduce Amplifier unless the Qwen3:14b gate fails and the owner explicitly reopens that Plan B.
-5. **Vertex:** execute the already-implemented synthetic import/citation conflict run.
-6. **k3s:** add site-specific helper/optional cloud egress rules and execute K3S-01…10.
-7. **W12:** mixed-provider security/failure/race matrix using the selected real providers.
-
-### D. Release-integrity and operations
-
-1. F-06 bind/re-evaluate provider-selection/retrieval/Harbor evidence rather than trusting loose nested booleans.
-2. F-07 raw-byte DBC artifact hashing.
-3. F-11 define an approval trust root.
-4. F-12 refresh stale plan status.
-5. Generate exact-release resource-budget evidence.
-6. Generate standard SBOM/provenance/signature evidence and model-license review; validate it with the existing ACE gate.
-7. Run exact-release DBC-01…14 and full release preflight.
-8. One final owner sign-off should reference the exact release commit and retained provider/resource/license evidence.
-
-## 4. DBC view
-
-Current OpenSpec still has seven checked and seven open DBCs:
-
-- checked: DBC-02, 05, 06, 07, 08, 09, 10;
-- open: DBC-01, 03, 04, 11, 12, 13, 14.
-
-The open set maps cleanly to the finite work above:
-
-- **DBC-01:** approved embedding + semantic composition;
-- **DBC-03:** larger retrieval behavior holdout;
-- **DBC-04:** matched semantic-provider selection;
-- **DBC-11:** real safe Graphiti delete/crash consistency;
-- **DBC-12:** natural-use Harbor attribution/cost;
-- **DBC-13:** target-provider persistence/concurrency/performance evidence;
-- **DBC-14:** real Vertex cited conflict with current source.
-
-Do not require all seven open DBCs merely to run the DBC-12 experiment. DBC-12 can be measured while other production gates remain open; it simply cannot be called a full release.
-
-## 5. Recommended “stop fixing forever” rule
-
-From this point, every new proposed task should be classified before implementation:
-
-- **B — benchmark blocker:** can make native-vs-natural ACE token/quality measurement invalid.
-- **P — production blocker:** required by an accepted ADR/OpenSpec/release contract, but does not invalidate the efficacy experiment.
-- **D — deferred/non-blocker:** nice-to-have, alternative framework, future scope, or tooling replacement.
-
-No new item enters the benchmark critical path unless it can explain **how it would invalidate the measured native-vs-natural result**.
-
-Using that rule:
-- F-05 and actual natural Harbor execution are B.
-- Amplifier is D / **Plan B only**; Qwen3:14b is now the selected first Graphiti extraction candidate.
-- Graphiti/Vertex/k3s/supply-chain are P.
-- final owner sign-off is P.
-- 5× is a result to measure, not a prerequisite.
-
-This prevents the project from recursively making “production completeness” a prerequisite for discovering whether the product idea is economically worthwhile.
-
-## 6. When can we finally test token savings?
-
-**Preliminary honest answer:** essentially now, after direct Harbor/Codex auth is available. The existing optional-natural job is already shaped correctly. Raw natural-use token data can be collected even before F-05 is fixed, as long as we do not trust the current automated “complete cost” verdict.
-
-**Benchmark result worth relying on:** after F-05 is fixed, run the existing native + optional-natural smoke, then freeze/run the larger multi-repository holdout. That is the point at which we can say whether the current ACE code-retrieval configuration actually saves agent tokens without degrading task quality.
-
-**Full-unified production release:** later and separately, after the P-class memory/docs/k3s/provider/release gates above. For Graphiti specifically, the next step is no longer model selection: it is to run Qwen3:14b locally on the 64 GB RAM target host and collect frozen extraction/recall + lifecycle evidence.
-
-The key change is therefore not another technical subsystem. It is to **stop waiting for production closure before running the product-efficacy experiment**.
-
-## External upstream notes used for the no-bicycle audit
-
-- Harbor Codex auth-file support: https://github.com/harbor-framework/harbor/blob/main/src/harbor/agents/installed/codex.py
-- Amplifier ChatGPT provider (device OAuth + live catalog): https://github.com/microsoft/amplifier-module-provider-openai-chatgpt
-- Graphiti MCP factories: https://github.com/getzep/graphiti/blob/main/mcp_server/src/services/factories.py
-- Graphiti MCP docs: https://github.com/getzep/graphiti/blob/main/mcp_server/README.md
-- Graphiti local embedder-doc mismatch issue: https://github.com/getzep/graphiti/issues/1556
-- K3s network policy controller: https://docs.k3s.io/networking/networking-services
-- Kubernetes NetworkPolicy: https://kubernetes.io/docs/concepts/services-networking/network-policies/
-- Docker BuildKit SBOM attestations: https://docs.docker.com/build/metadata/attestations/sbom/
-- Syft: https://github.com/anchore/syft
-- Cosign/Sigstore: https://docs.sigstore.dev/quickstart/quickstart-cosign/
+- https://docs.k3s.io/networking/networking-services
+- https://kubernetes.io/docs/concepts/services-networking/network-policies/
+- https://docs.docker.com/build/metadata/attestations/sbom/
+- https://github.com/anchore/syft
+- https://docs.sigstore.dev/quickstart/quickstart-cosign/
+- https://github.com/oraios/serena
+- https://github.com/microsoft/TypeScript/wiki/Using-the-Language-Service-API
+- https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/
