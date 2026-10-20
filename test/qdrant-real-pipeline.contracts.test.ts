@@ -98,6 +98,32 @@ test('Qdrant collection bootstrap is additive and rejects mismatched dimensions'
   assert.equal((await Effect.runPromise(ensureQdrantCollection(wrong, 'http://127.0.0.1:6333', 'ace-test', 2)))._tag, 'Err');
 });
 
+test('Qdrant collection bootstrap accepts a concurrent create winner only after schema revalidation', async () => {
+  const requests: string[] = [];
+  let verificationReads = 0;
+  const http: HttpPort = {
+    request: (request) => {
+      requests.push(`${request.method}:${request.url}`);
+      if (request.method === 'GET' && requests.length === 1) {
+        return Effect.succeed(ok({ status: 404, body: {} }));
+      }
+      if (request.method === 'PUT') {
+        return Effect.succeed(ok({ status: 409, body: {} }));
+      }
+      verificationReads += 1;
+      if (verificationReads === 1) return Effect.succeed(ok({ status: 500, body: {} }));
+      return Effect.succeed(ok({ status: 200, body: {
+        result: { config: { params: { vectors: { size: 2, distance: 'Cosine' } } } },
+      } }));
+    },
+  };
+  const ready = await Effect.runPromise(ensureQdrantCollection(
+    http, 'http://127.0.0.1:6333', 'ace-concurrent', 2,
+  ));
+  assert.equal(ready._tag, 'Ok');
+  assert.deepEqual(requests.map((request) => request.split(':')[0]), ['GET', 'PUT', 'GET', 'GET']);
+});
+
 test('warm Qdrant index key follows actual structural content, not observation epoch', () => {
   const first = mustOk(createCodeIndex(1, [candidate]));
   const sameContentLater = mustOk(createCodeIndex(2, [{

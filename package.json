@@ -53,6 +53,7 @@
     "evidence:resource-budget": "tsx scripts/resource-budget-evidence.ts",
     "evidence:runtime-config": "tsx scripts/runtime-config-evidence.ts",
     "test:real-index-scale": "npm run build && node scripts/index-scale-e2e.mjs",
+    "test:real-qdrant-concurrency": "npm run build && node scripts/qdrant-snapshot-concurrency-e2e.mjs",
     "test:real-qdrant-crash": "npm run build && node scripts/qdrant-snapshot-crash-e2e.mjs",
     "test:real-graphiti-crash": "npm run build && node scripts/graphiti-crash-recovery-e2e.mjs",
     "compare:semantic-serena": "node scripts/serena-semantic-comparison.mjs"

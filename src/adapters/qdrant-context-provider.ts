@@ -133,15 +133,17 @@ export const ensureQdrantCollection = (
   }
   const url = endpoint.value + '/collections/' + encodeURIComponent(collection);
   const headers = apiKey === undefined ? {} : { 'api-key': apiKey };
+  const verifyExisting = (body: unknown): Result<void, DomainError> => {
+    const payload = body as { result?: { config?: { params?: { vectors?: { size?: number; distance?: string } } } } };
+    const configured = payload?.result?.config?.params?.vectors?.size;
+    return configured === dimension && payload?.result?.config?.params?.vectors?.distance === 'Cosine'
+      ? ok(undefined)
+      : err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant', 'collection vector size or distance is incompatible with cosine embeddings'));
+  };
   const found = yield* http.request({ method: 'GET', url, headers });
   if (found._tag === 'Err') return found;
   if (found.value.status === 200) {
-    const body = found.value.body as { result?: { config?: { params?: { vectors?: { size?: number; distance?: string } } } } };
-    const configured = body?.result?.config?.params?.vectors?.size;
-    if (configured !== dimension || body?.result?.config?.params?.vectors?.distance !== 'Cosine') {
-      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant', 'collection vector size or distance is incompatible with cosine embeddings'));
-    }
-    return ok(undefined);
+    return verifyExisting(found.value.body);
   }
   if (found.value.status !== 404) {
     return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'cannot inspect collection: HTTP ' + found.value.status));
@@ -150,9 +152,26 @@ export const ensureQdrantCollection = (
     method: 'PUT', url, headers, body: { vectors: { size: dimension, distance: 'Cosine' } },
   });
   if (created._tag === 'Err') return created;
-  return created.value.status >= 200 && created.value.status < 300
-    ? ok(undefined)
-    : err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not create dedicated collection'));
+  if (created.value.status >= 200 && created.value.status < 300) return ok(undefined);
+  if (created.value.status === 409) {
+    // Two ACE writers may both observe 404 and race to create the same
+    // content-addressed collection. Qdrant's 409 is success only after the
+    // winner's resulting schema is re-read and verified. Older Qdrant builds
+    // can briefly return 404/409/500 while the winner materializes metadata.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const raced = yield* http.request({ method: 'GET', url, headers });
+      if (raced._tag === 'Ok' && raced.value.status === 200) return verifyExisting(raced.value.body);
+      const transient = raced._tag === 'Err'
+        || raced.value.status === 404
+        || raced.value.status === 409
+        || raced.value.status >= 500;
+      if (!transient || attempt === 4) {
+        return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not verify concurrently created collection'));
+      }
+      yield* Effect.sleep('100 millis');
+    }
+  }
+  return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not create dedicated collection'));
 });
 
 /**
