@@ -19,16 +19,6 @@ const record = (value: unknown): Record<string, unknown> | undefined =>
     ? value as Record<string, unknown>
     : undefined;
 
-const nested = (value: unknown, ...keys: readonly string[]): unknown => {
-  let current: unknown = value;
-  for (const key of keys) {
-    const object = record(current);
-    if (object === undefined) return undefined;
-    current = object[key];
-  }
-  return current;
-};
-
 const nonEmpty = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0;
 
