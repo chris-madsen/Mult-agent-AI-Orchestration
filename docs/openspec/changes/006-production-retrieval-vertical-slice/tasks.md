@@ -30,7 +30,7 @@ explicitly open; prior port-level `[x]` markers do not satisfy those gates.
 - [x] DBC-10 stable Codex historical episode IDs after append and replay (`npm run test:memory-process`: separate export workers preserve the first episode ID after append; archive import/replay remains idempotent).
 - [ ] DBC-11 shared digest archive delete and derived purge correctness.
 - [ ] DBC-12 realistic Harbor attribution and quality gate. A 3-task × 3-repeat **forced-use diagnostic** found 9/9 quality per arm and 0.567× raw-token ratio; provider operations were not correlated with individual MCP requests, local compute costs were not measured, and natural agent choice was not tested. Do not count this as normative attribution closure.
-- [ ] DBC-13 restart/index persistence. **Warm reuse + stale-snapshot truth sub-gate passed** (`npm run test:real-provider-restart`: generation 1 → warm observation 2 → dirty rebuild 3, D1→D2); incremental changed-file rebuild/overlay is not implemented yet.
+- [ ] DBC-13 restart/index persistence. **Implementation sub-gates now include warm reuse, per-file snapshot identity, delta vector reuse, structural/candidate caches, stale-snapshot truth and snapshot/exact-read race rejection.** The normative gate remains open until real changed/delete/rename/untracked + interrupted-writer/restart/performance evidence is retained on the selected provider stack.
 - [ ] DBC-14 docs-vs-code conflict disambiguation. **Logic sub-gate passed:** a test DocumentationPort preserves both claims and emits a structured conflict, but the normative scenario still needs real approved Vertex documentation with citations versus current code.
 
 ## Performance and exit
