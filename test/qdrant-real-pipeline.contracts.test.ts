@@ -7,6 +7,8 @@ import {
   ensureQdrantCollection,
   exactUtf8ByteRange,
   hasExactQdrantSnapshot,
+  listQdrantSnapshotKeys,
+  readQdrantSnapshotVectors,
   reuseOrPopulateQdrantSnapshot,
   verifyQdrantSnapshotMembership,
   makeQdrantContextProvider,
@@ -159,6 +161,43 @@ test('Qdrant warm reuse rebuilds on different count and fails closed on count ou
     offline, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'snapshot-digest', 1,
   ));
   assert.equal(failed._tag, 'Err');
+});
+
+test('snapshot maintenance scrolls request only the payload fields they consume', async () => {
+  const requests: Array<Readonly<Record<string, unknown>>> = [];
+  const http: HttpPort = {
+    request: (request) => {
+      if (request.url.endsWith('/points/scroll')) {
+        requests.push(request.body ?? {});
+        const withPayload = request.body?.with_payload;
+        const points = JSON.stringify(withPayload) === JSON.stringify(['index_key'])
+          ? [{ payload: { index_key: 'a'.repeat(64) } }]
+          : [{ payload: { candidate_id: candidate.candidateId }, vector: [0.1, 0.9] }];
+        return Effect.succeed(ok({ status: 200, body: { result: { points, next_page_offset: null } } }));
+      }
+      throw new Error('unexpected HTTP request: ' + request.url);
+    },
+  };
+
+  const membership = await Effect.runPromise(verifyQdrantSnapshotMembership(
+    http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'a'.repeat(64), [candidate.candidateId],
+  ));
+  assert.equal(mustOk(membership), true);
+  const vectors = await Effect.runPromise(readQdrantSnapshotVectors(
+    http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'a'.repeat(64),
+  ));
+  assert.deepEqual([...mustOk(vectors).entries()], [[candidate.candidateId, [0.1, 0.9]]]);
+  const keys = await Effect.runPromise(listQdrantSnapshotKeys(
+    http, 'http://127.0.0.1:6333', 'ace-test', workspaceId,
+  ));
+  assert.deepEqual([...mustOk(keys)], ['a'.repeat(64)]);
+
+  assert.deepEqual(requests.map((body) => body.with_payload), [
+    ['candidate_id'],
+    ['candidate_id'],
+    ['index_key'],
+  ]);
+  assert.deepEqual(requests.map((body) => body.with_vector), [false, true, false]);
 });
 
 test('Qdrant→current filesystem→LSP→ContextBundle includes verified snippet and exact expansion handle', async () => {
