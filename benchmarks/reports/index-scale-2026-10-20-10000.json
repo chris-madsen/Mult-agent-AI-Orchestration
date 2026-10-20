@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-20T08:11:10.469Z",
+  "sourceCommit": "c79afd87686579fe11174c4fd2182c2357ef9cc5",
+  "fixture": {
+    "baselineFiles": 10000,
+    "requestedChangedFiles": 1,
+    "gitDirty": true
+  },
+  "runtime": {
+    "node": "v24.15.0",
+    "qdrant": "qdrant/1.19.2",
+    "embeddingWorker": "fastembed-worker.sh",
+    "treeSitterHelper": "tree-sitter-structural.py"
+  },
+  "phases": [
+    {
+      "phase": "cold",
+      "elapsedMs": 983239.321867,
+      "metrics": {
+        "generation": 1,
+        "indexedPaths": 10000,
+        "candidates": 10000,
+        "coverageFailed": 0,
+        "structuralCacheHits": 0,
+        "structuralCacheMisses": 10000,
+        "candidateCacheHits": 0,
+        "candidateCacheMisses": 10000,
+        "deltaAdded": 10000,
+        "deltaChanged": 0,
+        "deltaDeleted": 0,
+        "deltaRenamed": 0,
+        "deltaUnchanged": 0,
+        "reusedVectors": 0,
+        "indexMode": "rebuilt",
+        "collection": "ace_code_5d7dc8a42ff9_d87f04ee9a69_6b8415e1559a",
+        "embeddingIdentity": "6b8415e1559a",
+        "structuralIdentity": "0ec80d6b4183",
+        "snapshotIdentity": "b06c1391174d"
+      },
+      "response": {
+        "requestId": "ce9c46c3-e67d-4cf7-a4bd-6fc20f38fb53",
+        "complete": true,
+        "evidenceCount": 6
+      }
+    },
+    {
+      "phase": "warm",
+      "elapsedMs": 24813.659828,
+      "metrics": {
+        "generation": 2,
+        "indexedPaths": 10000,
+        "candidates": 10000,
+        "coverageFailed": 0,
+        "structuralCacheHits": 0,
+        "structuralCacheMisses": 0,
+        "candidateCacheHits": 10000,
+        "candidateCacheMisses": 0,
+        "deltaAdded": 0,
+        "deltaChanged": 0,
+        "deltaDeleted": 0,
+        "deltaRenamed": 0,
+        "deltaUnchanged": 10000,
+        "reusedVectors": 10000,
+        "indexMode": "warm_reused",
+        "collection": "ace_code_5d7dc8a42ff9_d87f04ee9a69_6b8415e1559a",
+        "embeddingIdentity": "6b8415e1559a",
+        "structuralIdentity": "0ec80d6b4183",
+        "snapshotIdentity": "b06c1391174d"
+      },
+      "response": {
+        "requestId": "9bad2f52-f5f1-43ba-8de1-a8303c0a4bf2",
+        "complete": true,
+        "evidenceCount": 6
+      }
+    },
+    {
+      "phase": "change-only",
+      "elapsedMs": 33162.212996,
+      "metrics": {
+        "generation": 3,
+        "indexedPaths": 10000,
+        "candidates": 10000,
+        "coverageFailed": 0,
+        "structuralCacheHits": 0,
+        "structuralCacheMisses": 3,
+        "candidateCacheHits": 9997,
+        "candidateCacheMisses": 3,
+        "deltaAdded": 1,
+        "deltaChanged": 1,
+        "deltaDeleted": 1,
+        "deltaRenamed": 1,
+        "deltaUnchanged": 9997,
+        "reusedVectors": 9997,
+        "indexMode": "rebuilt",
+        "collection": "ace_code_5d7dc8a42ff9_d87f04ee9a69_6b8415e1559a",
+        "embeddingIdentity": "6b8415e1559a",
+        "structuralIdentity": "0ec80d6b4183",
+        "snapshotIdentity": "b06c1391174d"
+      },
+      "response": {
+        "requestId": "96dfd0cc-d468-49c4-85d9-975cfb0c6adf",
+        "complete": true,
+        "evidenceCount": 6
+      }
+    }
+  ],
+  "claims": {
+    "coldMeasured": true,
+    "warmReuseVerified": true,
+    "changeOnlyMeasured": true,
+    "renameDeleteUntrackedObserved": true,
+    "note": "This runner measures real-provider startup/index/query behavior only. Production acceptance still requires the selected provider identities, repeated measurements and retained evidence."
+  }
+}
