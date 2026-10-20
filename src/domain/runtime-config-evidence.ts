@@ -221,6 +221,7 @@ export const validateRuntimeConfigEvidenceDocument = (
     || verdict === undefined
     || verdict.evidence !== 'runtime-config-accepted'
     || verdict.scope !== expectedScope
+    || verdict.deployment !== root.deployment
     || verdict.sourceCommit !== currentCommit
     || !Array.isArray(verdict.failures)
     || verdict.failures.length !== 0
