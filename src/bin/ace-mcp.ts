@@ -20,7 +20,11 @@ import { makeFetchHttpPort, makeQdrantCodeCandidatePort } from '../adapters/http
 import { buildLocalCodeIndex } from '../adapters/local-code-index.js';
 import { makeLocalContextProvider } from '../adapters/local-context-provider.js';
 import { makeNodeWorkspacePort } from '../adapters/node-workspace-port.js';
-import { makeProcessEmbeddingPort, type ResolvedEmbeddingConfig } from '../adapters/process-embedding.js';
+import {
+  makeProcessEmbeddingPort,
+  verifiedEmbeddingIdentityFingerprint,
+  type ResolvedEmbeddingConfig,
+} from '../adapters/process-embedding.js';
 import { makeFileProviderTrace } from '../adapters/provider-trace.js';
 import {
   codeIndexKey,
@@ -272,11 +276,8 @@ const main = async (): Promise<void> => {
     const candidateLimit = Number(process.env.ACE_CONTEXT_CANDIDATE_LIMIT ?? '6');
     if (!Number.isSafeInteger(candidateLimit) || candidateLimit < 1 || candidateLimit > 20) throw new Error('ACE_CONTEXT_CANDIDATE_LIMIT must be an integer between 1 and 20');
     const workspaceKey = createHash('sha256').update(registered.value.workspaceId).digest('hex').slice(0, 12);
-    const modelKey = createHash('sha256').update(`snapshot-v2|${embeddingProvider}|${embeddingModel}|${embeddingRevision}|${embeddingArtifactModel}|${embeddingArtifactRevision}|${embeddingArtifactDigest}|${embeddingPreprocessing}|${embeddingDimension}`).digest('hex').slice(0, 12);
     const generation = observationEpoch;
     const configuredCollection = process.env.ACE_QDRANT_COLLECTION?.trim();
-    const collection = configuredCollection
-      || `ace_code_${workspaceKey}_${snapshotState.stateOwnerId.slice(0, 12)}_${modelKey}`;
     const collectionGcAllowed = configuredCollection === undefined
       || configuredCollection.length === 0
       || process.env.ACE_QDRANT_COLLECTION_EXCLUSIVE_OWNER === 'true';
@@ -284,40 +285,10 @@ const main = async (): Promise<void> => {
       || resolve(embeddingProvider === 'sentence-transformers/pytorch'
         ? 'scripts/sentence-transformers-worker.sh'
         : 'scripts/fastembed-worker.sh');
-    const inspected = await Effect.runPromise(ensureQdrantCollection(http, qdrantUrl, collection, embeddingDimension, qdrantAllowedHosts));
-    if (inspected._tag === 'Err') {
-      readiness.code_retrieval = { state: 'not_ready', reason: 'qdrant_collection_unavailable' };
-      readiness.unified_context = { state: 'not_ready', reason: 'qdrant_collection_unavailable' };
-      if (allowLocalFallback) {
-        const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
-          generation,
-          ...(!existsSync(structuralPath) || !existsSync(structuralPython) ? {} : {
-            structural: makeTreeSitterStructuralPort({ helperPath: structuralPath, pythonCommand: structuralPython }),
-          }),
-        }));
-        if (built._tag === 'Err') {
-          process.stderr.write(`ace-mcp context NOT_READY: qdrant failed and degraded index failed (${built.error.code})\n`);
-        } else {
-          context = makeLocalContextProvider({
-            workspaceId: registered.value.workspaceId,
-            rootPath: registered.value.rootPath,
-            index: built.value.index,
-            files,
-            newRequestId: () => randomUUID(),
-            failedSources: ['qdrant'],
-            additionalWarnings: [`Qdrant unavailable: ${inspected.error.code}`],
-          });
-          readiness.code_retrieval = { state: 'degraded', reason: 'lexical_fallback_qdrant_unavailable' };
-          readiness.unified_context = { state: 'degraded', reason: 'lexical_fallback_qdrant_unavailable' };
-          process.stderr.write(`ace-mcp degraded retrieval workspace_id=${registered.value.workspaceId} generation=${generation} reason=qdrant_unavailable\n`);
-        }
-      } else {
-        process.stderr.write(`ace-mcp context NOT_READY: qdrant collection check failed (${inspected.error.code})\n`);
-      }
-    } else if (!existsSync(embeddingWorker) || !existsSync(structuralPath) || !commandBoundaryExists(structuralPython)) {
+    if (!existsSync(embeddingWorker) || !existsSync(structuralPath) || !commandBoundaryExists(structuralPython)) {
       readiness.code_retrieval = { state: 'not_ready', reason: 'provider_runtime_missing' };
       readiness.unified_context = { state: 'not_ready', reason: 'provider_runtime_missing' };
-      process.stderr.write('ace-mcp context NOT_READY: configured FastEmbed/Tree-sitter runtime files are missing\n');
+      process.stderr.write('ace-mcp context NOT_READY: configured embedding/Tree-sitter runtime files are missing\n');
     } else {
       const embeddings = makeProcessEmbeddingPort({
         command: embeddingWorker,
@@ -330,9 +301,6 @@ const main = async (): Promise<void> => {
       const closeEmbeddingWorker = (): void => embeddings.close();
       process.once('SIGTERM', closeEmbeddingWorker);
       process.once('SIGINT', closeEmbeddingWorker);
-      // The SDK may still be dispatching the final JSON-RPC message when the
-      // input stream reaches EOF. Give in-flight retrieval a bounded grace
-      // period before closing the long-lived embedding child.
       process.stdin.once('end', () => setTimeout(closeEmbeddingWorker, 5_000));
       const embeddingReady = await Effect.runPromise(embeddings.probe());
       if (embeddingReady._tag === 'Err') {
@@ -344,9 +312,61 @@ const main = async (): Promise<void> => {
         embeddings.close();
         throw new Error('embedding provider preflight did not return a verified effective identity');
       }
-      const embeddingFingerprint = createHash('sha256')
-        .update(JSON.stringify(effectiveEmbedding), 'utf8')
-        .digest('hex');
+      const embeddingFingerprint = verifiedEmbeddingIdentityFingerprint(effectiveEmbedding);
+      const collection = configuredCollection
+        || `ace_code_${workspaceKey}_${snapshotState.stateOwnerId.slice(0, 12)}_${embeddingFingerprint.slice(0, 12)}`;
+      const inspected = await Effect.runPromise(ensureQdrantCollection(
+        http,
+        qdrantUrl,
+        collection,
+        effectiveEmbedding.dimension,
+        qdrantAllowedHosts,
+      ));
+      if (inspected._tag === 'Err') {
+        embeddings.close();
+        readiness.code_retrieval = { state: 'not_ready', reason: 'qdrant_collection_unavailable' };
+        readiness.unified_context = { state: 'not_ready', reason: 'qdrant_collection_unavailable' };
+        if (allowLocalFallback) {
+          const built = await Effect.runPromise(buildLocalCodeIndex(
+            files,
+            registered.value.workspaceId,
+            registered.value.rootPath,
+            {
+              generation,
+              ...(!existsSync(structuralPath) || !commandBoundaryExists(structuralPython) ? {} : {
+                structural: makeTreeSitterStructuralPort({
+                  helperPath: structuralPath,
+                  pythonCommand: structuralPython,
+                }),
+              }),
+            },
+          ));
+          if (built._tag === 'Err') {
+            process.stderr.write(
+              `ace-mcp context NOT_READY: qdrant failed and degraded index failed (${built.error.code})\n`,
+            );
+          } else {
+            context = makeLocalContextProvider({
+              workspaceId: registered.value.workspaceId,
+              rootPath: registered.value.rootPath,
+              index: built.value.index,
+              files,
+              newRequestId: () => randomUUID(),
+              failedSources: ['qdrant'],
+              additionalWarnings: [`Qdrant unavailable: ${inspected.error.code}`],
+            });
+            readiness.code_retrieval = { state: 'degraded', reason: 'lexical_fallback_qdrant_unavailable' };
+            readiness.unified_context = { state: 'degraded', reason: 'lexical_fallback_qdrant_unavailable' };
+            process.stderr.write(
+              `ace-mcp degraded retrieval workspace_id=${registered.value.workspaceId} generation=${generation} reason=qdrant_unavailable\n`,
+            );
+          }
+        } else {
+          process.stderr.write(
+            `ace-mcp context NOT_READY: qdrant collection check failed (${inspected.error.code})\n`,
+          );
+        }
+      } else {
       const structuralOptions = {
         helperPath: structuralPath,
         pythonCommand: structuralPython,
@@ -552,6 +572,7 @@ const main = async (): Promise<void> => {
             : { state: 'degraded', reason: 'index_coverage_partial' };
           process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} structural_cache_hits=${built.value.structuralCacheHits} structural_cache_misses=${built.value.structuralCacheMisses} candidate_cache_hits=${built.value.candidateCacheHits} candidate_cache_misses=${built.value.candidateCacheMisses} embedding_identity=${embeddingFingerprint.slice(0, 12)} structural_identity=${structuralFingerprint.slice(0, 12)} candidate_identity=${candidateProviderFingerprint.slice(0, 12)} snapshot_identity=${retrievalFingerprint.slice(0, 12)} delta_added=${fileDelta.added.length} delta_changed=${fileDelta.changed.length} delta_deleted=${fileDelta.deleted.length} delta_renamed=${fileDelta.renamed.length} delta_unchanged=${fileDelta.unchanged.length} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} state_owner=${snapshotState.stateOwnerId.slice(0, 12)} lease_reap_mode=${configuredLeaseReapMode}\n`);
         }
+      }
       }
     }
   } else if (allowLocalFallback) {
