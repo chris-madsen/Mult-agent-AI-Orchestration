@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1
+
+# No mutable/default base is accepted for a release image. Supply an exact
+# digest, e.g. --build-arg ACE_NODE_IMAGE=node:22-bookworm-slim@sha256:<verified>.
+ARG ACE_NODE_IMAGE
+FROM ${ACE_NODE_IMAGE}
+
+WORKDIR /opt/ace
+
+USER root
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates python3 python3-pip python3-venv \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json tsconfig.json ./
+RUN npm ci --ignore-scripts
+
+COPY src ./src
+COPY scripts ./scripts
+RUN npm run build \
+  && npm prune --omit=dev --ignore-scripts \
+  && python3 -m venv /opt/ace/.venv-system \
+  && /opt/ace/.venv-system/bin/pip install --no-cache-dir \
+       tree-sitter==0.26.0 tree-sitter-typescript==0.23.2 \
+  && python3 -m venv /opt/ace/.venv-embedding-fast \
+  && /opt/ace/.venv-embedding-fast/bin/pip install --no-cache-dir \
+       fastembed==0.7.4 onnxruntime==1.31.0 \
+  && mkdir -p /var/lib/ace/state /var/lib/ace/artifacts /var/lib/ace/model-cache /tmp/ace \
+  && chown -R node:node /var/lib/ace /tmp/ace
+
+ENV ACE_STATE_DIR=/var/lib/ace/state \
+    ACE_ARTIFACT_DIR=/var/lib/ace/artifacts \
+    FASTEMBED_CACHE_PATH=/var/lib/ace/model-cache \
+    ACE_TREE_SITTER_HELPER=/opt/ace/scripts/tree-sitter-structural.py \
+    ACE_TREE_SITTER_PYTHON=/opt/ace/.venv-system/bin/python \
+    ACE_EMBEDDING_WORKER=/opt/ace/scripts/fastembed-worker.sh \
+    ACE_EMBEDDING_PYTHON=/opt/ace/.venv-embedding-fast/bin/python \
+    TMPDIR=/tmp/ace
+
+USER node
+
+# ACE remains an official stdio MCP process. The pod stays idle until Codex or
+# an operator starts dist/bin/ace-mcp.js through kubectl exec -i.
+CMD ["sh", "-c", "trap : TERM INT; sleep infinity & wait"]
