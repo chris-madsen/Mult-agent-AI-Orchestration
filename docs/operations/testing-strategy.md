@@ -71,7 +71,7 @@ Real-provider and acceptance commands are not part of the edit-by-edit loop. Run
 Typical mapping:
 
 - Qdrant / embeddings / index lifecycle: `test:real-provider*`, `test:real-qdrant-crash`, and `test:real-index-scale` when scale behavior changed.
-- ast-grep structural / generic LSP provider: `test:real-semantic`, `test:real-same-name`.
+- ast-grep structural / generic LSP provider: `test:real-semantic`, `test:real-same-name`, and `test:real-non-ts-lsp` when a selected non-TypeScript server/runtime is available.
 - MCP runtime/container composition: `test:container-provider`.
 - Graphiti / retained memory / outbox: `test:real-graphiti-lifecycle`, `test:real-graphiti-crash`.
 - Vertex documentation path: `test:real-vertex-conflict`.

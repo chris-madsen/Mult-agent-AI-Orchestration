@@ -62,9 +62,22 @@ test('LSP identity and unsupported language status are explicit', async () => {
   assert.equal(identity._tag, 'Ok');
   if (identity._tag === 'Ok') {
     assert.equal(identity.value.server, 'typescript-language-server');
+    assert.deepEqual(identity.value.args, ['--stdio']);
     assert.equal(identity.value.protocol, 'lsp');
     assert.match(identity.value.version, /^6\.0\.2$/u);
     assert.match(identity.value.fingerprint, /^[a-f0-9]{64}$/u);
+  }
+
+  const customArgs = await Effect.runPromise(resolveLspProviderIdentity({
+    command: process.execPath,
+    args: [],
+    serverName: 'custom-lsp',
+    snapshotIdentity: 'e'.repeat(64),
+  }));
+  assert.equal(customArgs._tag, 'Ok');
+  if (customArgs._tag === 'Ok') {
+    assert.equal(customArgs.value.server, 'custom-lsp');
+    assert.deepEqual(customArgs.value.args, []);
   }
 
   const provider = makeLspSemanticAnalysisPort({
