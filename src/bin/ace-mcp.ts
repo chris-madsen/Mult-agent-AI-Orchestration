@@ -170,7 +170,13 @@ const main = async (): Promise<void> => {
   let memory: MemorySearchPort | undefined;
   let closeMemory: (() => Promise<void>) | undefined;
   let snapshotLease: SnapshotLease | undefined;
-  const snapshotState = await makeFileQdrantSnapshotState(resolve(stateDirectory, 'qdrant-snapshots'));
+  const configuredLeaseReapMode = process.env.ACE_QDRANT_LEASE_REAP_MODE?.trim() || 'conservative';
+  if (configuredLeaseReapMode !== 'conservative' && configuredLeaseReapMode !== 'local-process') {
+    throw new Error('ACE_QDRANT_LEASE_REAP_MODE must be conservative or local-process');
+  }
+  const snapshotState = await makeFileQdrantSnapshotState(resolve(stateDirectory, 'qdrant-snapshots'), {
+    leaseReapMode: configuredLeaseReapMode,
+  });
   if (process.env.ACE_ENABLE_GRAPHITI === 'true') {
     const archiveRoot = resolve(required('ACE_MEMORY_ARCHIVE_ROOT'));
     const command = required('ACE_GRAPHITI_COMMAND');
@@ -268,7 +274,12 @@ const main = async (): Promise<void> => {
     const workspaceKey = createHash('sha256').update(registered.value.workspaceId).digest('hex').slice(0, 12);
     const modelKey = createHash('sha256').update(`snapshot-v2|${embeddingProvider}|${embeddingModel}|${embeddingRevision}|${embeddingArtifactModel}|${embeddingArtifactRevision}|${embeddingArtifactDigest}|${embeddingPreprocessing}|${embeddingDimension}`).digest('hex').slice(0, 12);
     const generation = observationEpoch;
-    const collection = process.env.ACE_QDRANT_COLLECTION?.trim() || `ace_code_${workspaceKey}_${modelKey}`;
+    const configuredCollection = process.env.ACE_QDRANT_COLLECTION?.trim();
+    const collection = configuredCollection
+      || `ace_code_${workspaceKey}_${snapshotState.stateOwnerId.slice(0, 12)}_${modelKey}`;
+    const collectionGcAllowed = configuredCollection === undefined
+      || configuredCollection.length === 0
+      || process.env.ACE_QDRANT_COLLECTION_EXCLUSIVE_OWNER === 'true';
     const embeddingWorker = process.env.ACE_EMBEDDING_WORKER?.trim()
       || resolve(embeddingProvider === 'sentence-transformers/pytorch'
         ? 'scripts/sentence-transformers-worker.sh'
@@ -456,19 +467,25 @@ const main = async (): Promise<void> => {
             embeddings.close();
             throw new Error(`Qdrant snapshot publish failed (${publishedNow.error.code})`);
           }
-          const activeKeys = await snapshotState.activeIndexKeys(registered.value.workspaceId);
-          if (activeKeys._tag === 'Err') {
-            process.stderr.write(`ace retrieval warning: snapshot lease inspection failed (${activeKeys.error.code})\n`);
+          if (!collectionGcAllowed) {
+            process.stderr.write(
+              'ace retrieval cleanup skipped: explicit ACE_QDRANT_COLLECTION has no exclusive-owner confirmation\n',
+            );
           } else {
-            const retained = new Set(activeKeys.value);
-            retained.add(sourceKey);
-            const cleaned = await Effect.runPromise(pruneQdrantUnleasedSnapshots(
-              http, qdrantUrl, collection, registered.value.workspaceId, retained, qdrantAllowedHosts,
-            ));
-            if (cleaned._tag === 'Err') {
-              process.stderr.write(`ace retrieval warning: lease-aware snapshot cleanup failed (${cleaned.error.code})\n`);
-            } else if (cleaned.value.length > 0) {
-              process.stderr.write(`ace retrieval cleanup removed_snapshots=${cleaned.value.length}\n`);
+            const activeKeys = await snapshotState.activeIndexKeys(registered.value.workspaceId);
+            if (activeKeys._tag === 'Err') {
+              process.stderr.write(`ace retrieval warning: snapshot lease inspection failed (${activeKeys.error.code})\n`);
+            } else {
+              const retained = new Set(activeKeys.value);
+              retained.add(sourceKey);
+              const cleaned = await Effect.runPromise(pruneQdrantUnleasedSnapshots(
+                http, qdrantUrl, collection, registered.value.workspaceId, retained, qdrantAllowedHosts,
+              ));
+              if (cleaned._tag === 'Err') {
+                process.stderr.write(`ace retrieval warning: lease-aware snapshot cleanup failed (${cleaned.error.code})\n`);
+              } else if (cleaned.value.length > 0) {
+                process.stderr.write(`ace retrieval cleanup removed_snapshots=${cleaned.value.length}\n`);
+              }
             }
           }
           const sourceFiles = await Effect.runPromise(readVerifiedSemanticSnapshot(
@@ -533,7 +550,7 @@ const main = async (): Promise<void> => {
           readiness.unified_context = built.value.coverage.failedPaths === 0
             ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
             : { state: 'degraded', reason: 'index_coverage_partial' };
-          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} structural_cache_hits=${built.value.structuralCacheHits} structural_cache_misses=${built.value.structuralCacheMisses} candidate_cache_hits=${built.value.candidateCacheHits} candidate_cache_misses=${built.value.candidateCacheMisses} embedding_identity=${embeddingFingerprint.slice(0, 12)} structural_identity=${structuralFingerprint.slice(0, 12)} candidate_identity=${candidateProviderFingerprint.slice(0, 12)} snapshot_identity=${retrievalFingerprint.slice(0, 12)} delta_added=${fileDelta.added.length} delta_changed=${fileDelta.changed.length} delta_deleted=${fileDelta.deleted.length} delta_renamed=${fileDelta.renamed.length} delta_unchanged=${fileDelta.unchanged.length} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection}\n`);
+          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} structural_cache_hits=${built.value.structuralCacheHits} structural_cache_misses=${built.value.structuralCacheMisses} candidate_cache_hits=${built.value.candidateCacheHits} candidate_cache_misses=${built.value.candidateCacheMisses} embedding_identity=${embeddingFingerprint.slice(0, 12)} structural_identity=${structuralFingerprint.slice(0, 12)} candidate_identity=${candidateProviderFingerprint.slice(0, 12)} snapshot_identity=${retrievalFingerprint.slice(0, 12)} delta_added=${fileDelta.added.length} delta_changed=${fileDelta.changed.length} delta_deleted=${fileDelta.deleted.length} delta_renamed=${fileDelta.renamed.length} delta_unchanged=${fileDelta.unchanged.length} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} state_owner=${snapshotState.stateOwnerId.slice(0, 12)} lease_reap_mode=${configuredLeaseReapMode}\n`);
         }
       }
     }

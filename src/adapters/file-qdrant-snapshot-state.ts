@@ -29,10 +29,18 @@ export interface SnapshotLease {
 
 export type SnapshotLeaseProcessStatus = 'alive' | 'dead' | 'unknown';
 
+export type SnapshotLeaseReapMode = 'conservative' | 'local-process';
+
 export interface FileQdrantSnapshotStateOptions {
   readonly processId?: number;
   readonly nowMs?: () => number;
   readonly processStatus?: (processId: number) => SnapshotLeaseProcessStatus;
+  /**
+   * Conservative is the safe default across containers/PID namespaces: valid
+   * lease files are retained until explicit close. local-process may reap a
+   * dead PID only when the operator guarantees one shared PID namespace.
+   */
+  readonly leaseReapMode?: SnapshotLeaseReapMode;
 }
 
 interface StoredSnapshotLease {
@@ -45,6 +53,8 @@ interface StoredSnapshotLease {
 }
 
 export interface FileQdrantSnapshotState {
+  /** Persistent random identity for this state root; used to isolate default Qdrant GC namespaces. */
+  readonly stateOwnerId: string;
   readonly isPublished: (identity: SnapshotManifestIdentity) => Promise<Result<boolean, DomainError>>;
   readonly latestPublished: (
     workspaceId: WorkspaceId,
@@ -58,8 +68,34 @@ export interface FileQdrantSnapshotState {
 }
 
 const validIndexKey = (value: string): boolean => /^[a-f0-9]{64}$/u.test(value);
+const validStateOwnerId = (value: string): boolean => /^[a-f0-9]{64}$/u.test(value);
 const workspaceKey = (workspaceId: WorkspaceId): string =>
   createHash('sha256').update(workspaceId).digest('hex').slice(0, 32);
+
+const readOrCreateStateOwnerId = async (rootPath: string): Promise<string> => {
+  const path = join(rootPath, 'state-owner-id');
+  const readExisting = async (): Promise<string> => {
+    const value = (await readFile(path, 'utf8')).trim();
+    if (!validStateOwnerId(value)) {
+      throw new Error('Qdrant snapshot state owner ID is corrupt; refusing to change collection ownership implicitly');
+    }
+    return value;
+  };
+  try {
+    return await readExisting();
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause;
+  }
+
+  const generated = createHash('sha256').update(randomUUID(), 'utf8').digest('hex');
+  try {
+    await writeFile(path, generated + '\n', { flag: 'wx', mode: 0o600 });
+    return generated;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'EEXIST') return readExisting();
+    throw cause;
+  }
+};
 
 const defaultProcessStatus = (processId: number): SnapshotLeaseProcessStatus => {
   if (!Number.isSafeInteger(processId) || processId <= 0) return 'unknown';
@@ -178,6 +214,8 @@ export const makeFileQdrantSnapshotState = async (
   const leasesRoot = join(rootPath, 'leases');
   await mkdir(manifestsRoot, { recursive: true });
   await mkdir(leasesRoot, { recursive: true });
+  const stateOwnerId = await readOrCreateStateOwnerId(rootPath);
+  const leaseReapMode = options.leaseReapMode ?? 'conservative';
 
   const manifestPath = (workspaceId: WorkspaceId, indexKey: string): string =>
     join(manifestsRoot, workspaceKey(workspaceId), `${indexKey}.json`);
@@ -244,6 +282,7 @@ export const makeFileQdrantSnapshotState = async (
   };
 
   return {
+    stateOwnerId,
     isPublished: async (identity) => {
       const checked = validate(identity);
       if (checked._tag === 'Err') return checked;
@@ -389,11 +428,13 @@ export const makeFileQdrantSnapshotState = async (
               ));
             }
             const status = (options.processStatus ?? defaultProcessStatus)(stored.processId);
-            if (status === 'dead') {
+            if (leaseReapMode === 'local-process' && status === 'dead') {
               await rm(path, { force: true });
             } else {
-              // Unknown is intentionally retained. A false-positive live lease
-              // leaks storage; a false dead lease could delete data under a reader.
+              // Conservative mode intentionally retains even apparently-dead
+              // PIDs because PID liveness is not portable across containers,
+              // hosts or PID namespaces. A leaked snapshot is safer than
+              // deleting data under an active remote reader.
               hasLiveOrUnknownLease = true;
             }
           }
