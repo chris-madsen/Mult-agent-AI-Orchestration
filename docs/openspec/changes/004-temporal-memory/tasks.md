@@ -1,9 +1,6 @@
 # Implementation Tasks — Immutable original Codex session archive and Graphiti temporal memory
 
-**State: PARTIALLY IMPLEMENTED.** Immutable local archive, idempotent projection
-ledger, decision FSM, temporal search and deletion tombstones are implemented.
-Codex session-export and Graphiti adapters remain controlled exceptions; see
-`docs/docs/spikes/SPIKE-TEMPORAL-MEMORY.md`.
+**State: IMPLEMENTATION SUBSTANTIALLY COMPLETE; REAL GRAPHITI ACCEPTANCE OPEN.** Immutable archive, durable projection outbox/reconciliation, decision transition history, temporal search, safe purge/tombstones, Graphiti MCP adapter and runtime memory injection are implemented. Real local Graphiti extraction/recall/purge/recovery with the selected inference stack remains the production gate.
 
 ## Feasibility and security
 - [x] SPIKE a supported local Codex history export interface and exact source/cursor identity; the adapter preserves JSONL bytes and SHA-256 cursors, while an official cross-version exporter remains unclaimed.
@@ -20,7 +17,7 @@ Codex session-export and Graphiti adapters remain controlled exceptions; see
 - [x] Implement DecisionRecord FSM with explicit confirmation, supersession, rejection and temporal intervals.
 - [x] Implement provider-independent temporal memory search with original episode pointers and conflict warnings.
 - [x] Implement authorized local archive deletion with tombstone and derived-projection purge boundary.
-- [x] Expose typed MCP memory provider port; gateway remains `not_ready` when no provider is injected.
+- [x] Expose typed MCP memory provider port and inject the archive-backed Graphiti memory provider into `ace-mcp` when explicitly configured; gateway remains truthful `disabled/not_ready/degraded` when the provider is absent or fails startup.
 
 ## Validation
 - [x] Test conflicting extracted claims, unsupported source importer and duplicate projection replay.

@@ -1,12 +1,9 @@
 # Implementation Tasks — Unified context retrieval with Qdrant, AST/LSP and Vertex documentation
 
-**State: PARTIALLY IMPLEMENTED.** Provider-independent local retrieval, provenance,
-freshness and ContextBundle contracts are implemented. Qdrant, Tree-sitter/ast-grep,
-approved LSP and Vertex production adapters remain controlled exceptions; see
-`docs/docs/spikes/SPIKE-RETRIEVAL-PROVIDERS.md`.
+**State: IMPLEMENTATION SUBSTANTIALLY COMPLETE; PRODUCTION APPROVAL/EVIDENCE OPEN.** The runtime now has real Qdrant, FastEmbed/ONNX, Tree-sitter and direct TypeScript-LS composition with exact source verification, snapshot identity and truthful coverage. Vertex is wired behind policy/opt-in. Production embedding/LSP selection, matched Serena comparison, large frozen retrieval quality, authorized Vertex citations and final DBC acceptance remain open.
 
 ## Pre-implementation gates
-- [x] SPIKE Serena vs direct TypeScript Language Service; Serena is unavailable in the pinned environment, while the direct TypeScript LS candidate has passing definition/reference/type/diagnostic contracts and its license/latency decision is recorded in `SPIKE-RETRIEVAL-PROVIDERS.md`.
+- [ ] Complete the matched Serena vs direct TypeScript Language Service production comparison on the same frozen fixture/oracle. Direct TypeScript LS has passing real local definition/reference/type/diagnostic evidence, but no semantic provider is owner-approved yet.
 - [x] SPIKE local vs cloud embeddings on labeled code queries with private-code opt-in policy; local deterministic embedding is implemented, and the cloud arm is explicitly blocked without policy/credentials rather than substituted with a fake result.
 - [ ] Verify Vertex RAG Engine project/docs IAM, citation/version contracts and failure modes.
 
@@ -48,13 +45,13 @@ approved LSP and Vertex production adapters remain controlled exceptions; see
 
 ## Mandatory outstanding production gates (2026-10-18)
 
-**Architecture correction:** the production `ace_context` currently wires lexical/regex whole-file retrieval; disconnected Qdrant, Tree-sitter and LSP adapters are not a completed unified retrieval pipeline. Previous [x] statuses denote component contracts, not production coverage. See proposed 006.
-- [ ] Integrate real Qdrant/approved embeddings/Tree-sitter/approved LSP into MCP bootstrap and satisfy DBC-01/02/03/04/05/06/07/13/14.
-- [ ] Prove source precision with 2000-line file containing 25-line function; return exact 25-line initial AST span and lossless expansion.
+**Architecture correction status:** the earlier disconnected-provider problem has been implemented away: `ace_context` now composes real Qdrant + embedding worker + Tree-sitter + direct TypeScript-LS + exact source verification when explicitly configured. This implementation does **not** close production approval or the remaining real acceptance gates.
+- [ ] Freeze/approve the production embedding and semantic provider identities, then retain DBC-01/03/04/13/14 evidence on that exact stack.
+- [x] Prove source precision with a 2000-line file containing a 25-line function; exact initial span and lossless expansion are retained by the real-provider gate.
 
 ## Immediate owner-authorized evaluation (2026-10-19; all acceptance tasks remain open)
 
-- [ ] Codex integrates a genuine locally executed embedding candidate **without installing/assuming Ollama**, e.g. FastEmbed / ONNX, with model/version and Qdrant generation pinned. Run real retrieval E2E and record recall@k / end-to-end costs; SHA-256 projections are NOT semantic evidence.
+- [x] Codex integrated genuine local FastEmbed/ONNX with resolved worker identity and real Qdrant retrieval; SHA-256 projections are not semantic evidence. **Production model/runtime approval remains open** pending the larger frozen holdout, license and owner gate.
 - [ ] Codex installs and compares **Serena vs TypeScript Language Service** on matched TS/JS fixtures. Record correct refs/defs/types, negative cases, latency, agent task success and licensing, then recommend a provider to the owner (ADR-004).
 - [ ] Codex runs `npm run probe:vertex` using the already-authenticated *host* gcloud CLI, reads IAM/project/corpora status, tests actual citations on an **explicitly approved synthetic/public fixture corpus**, and reports when corpus absent. Do not export private material or create billable resources by default.
-- [ ] Real provider trace demonstrates Codex → MCP → Qdrant → actual embeddings → AST → candidate language service → verified source, including outdated index handling. Unit mocks alone cannot satisfy this gate.
+- [x] Real-provider composition and request-safe provider tracing exist for Codex → MCP → Qdrant → actual embeddings → AST/TypeScript-LS → verified source, including stale/outage sub-gates. **Normative DBC-01/03/04/13 still require the approved provider identities and final retained evidence.**
