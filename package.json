@@ -63,7 +63,8 @@
     "test:fast": "npm test",
     "test:affected": "node scripts/run-affected-tests.mjs",
     "test:impact:self": "node scripts/run-affected-tests.mjs --self-test",
-    "verify:pr": "npm run check && npm run test:fast && npm run lint && npm run build"
+    "verify:pr": "npm run check && npm run test:fast && npm run lint && npm run build",
+    "verify:pr:affected": "npm run check && npm run test:affected && npm run lint && npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",

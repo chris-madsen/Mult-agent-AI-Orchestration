@@ -15,20 +15,82 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Determine verification scope
+        id: scope
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" != "pull_request" ]]; then
+            echo "mode=full" >> "${GITHUB_OUTPUT}"
+            echo "[ci-scope] push event: full verification"
+            exit 0
+          fi
+          if [[ -z "${PR_BASE_SHA}" || -z "${PR_HEAD_SHA}" ]] || ! git fetch --no-tags --depth=1 origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"; then
+            echo "mode=full" >> "${GITHUB_OUTPUT}"
+            echo "[ci-scope] unable to fetch PR identities: full verification"
+            exit 0
+          fi
+          changed="$(git diff --name-only --diff-filter=ACDMRT "${PR_BASE_SHA}" "${PR_HEAD_SHA}")"
+          if [[ -z "${changed}" ]]; then
+            echo "mode=full" >> "${GITHUB_OUTPUT}"
+            echo "[ci-scope] empty PR diff: full verification"
+            exit 0
+          fi
+          mode=docs
+          while IFS= read -r file; do
+            case "${file}" in
+              docs/*|benchmarks/reports/*|AGENTS.md|README.md|LICENSE)
+                ;;
+              package.json|package-lock.json|tsconfig.json|tsconfig.eslint.json|.eslintrc.cjs|.github/*|scripts/run-affected-tests.mjs|benchmarks/fixtures/*|infra/*|Makefile)
+                mode=full
+                ;;
+              src/*|test/*|scripts/*)
+                [[ "${mode}" == "docs" ]] && mode=affected
+                ;;
+              *)
+                mode=full
+                ;;
+            esac
+          done <<< "${changed}"
+          echo "mode=${mode}" >> "${GITHUB_OUTPUT}"
+          echo "[ci-scope] mode=${mode}"
+          printf '%s\n' "${changed}" | sed 's/^/[ci-scope] changed: /'
       - name: Node 22
         uses: actions/setup-node@v4
+        if: steps.scope.outputs.mode != 'docs'
         with:
           node-version: "22"
           cache: npm
       - name: Install locked dependencies once
+        if: steps.scope.outputs.mode != 'docs'
         run: npm ci --ignore-scripts
       - name: Embedding artifact and evaluator regressions
+        if: steps.scope.outputs.mode != 'docs'
         run: python3 -m unittest discover -s scripts -p 'test_embedding_*.py'
       - name: Install pinned structural provider
+        if: steps.scope.outputs.mode != 'docs'
         run: |
           python3 -m venv .venv-system
           .venv-system/bin/python -m pip install --disable-pip-version-check tree-sitter==0.26.0 tree-sitter-typescript==0.23.2
       - name: Test-impact selector self-check
+        if: steps.scope.outputs.mode != 'docs'
         run: npm run test:impact:self
       - name: Deterministic PR verification
+        if: steps.scope.outputs.mode == 'full'
         run: npm run verify:pr
+      - name: Affected PR verification
+        if: steps.scope.outputs.mode == 'affected'
+        env:
+          ACE_TEST_BASE: ${{ github.event.pull_request.base.sha }}
+        run: npm run verify:pr:affected
+      - name: Documentation/evidence verification
+        if: steps.scope.outputs.mode == 'docs'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git diff --check "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
