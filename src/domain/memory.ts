@@ -274,15 +274,41 @@ export const makeDecisionRecord = (input: Omit<DecisionRecord, 'state'> & { read
 };
 
 export type DecisionTransition =
-  | { readonly type: 'confirm'; readonly atMs: number }
-  | { readonly type: 'reject'; readonly atMs: number }
-  | { readonly type: 'supersede'; readonly atMs: number; readonly successorId: DecisionId };
+  | {
+    readonly type: 'confirm';
+    readonly atMs: number;
+    readonly approvalIdentity: string;
+    readonly sourceEpisodeIds: readonly EpisodeId[];
+  }
+  | {
+    readonly type: 'reject';
+    readonly atMs: number;
+    readonly approvalIdentity: string;
+    readonly sourceEpisodeIds: readonly EpisodeId[];
+  }
+  | {
+    readonly type: 'supersede';
+    readonly atMs: number;
+    readonly successorId: DecisionId;
+    readonly approvalIdentity: string;
+    readonly sourceEpisodeIds: readonly EpisodeId[];
+  };
 
 export type DecisionEvent = DecisionTransition;
 
 export const transitionDecision = (record: DecisionRecord, event: DecisionEvent): Result<DecisionRecord, DomainError> => {
   if (!Number.isSafeInteger(event.atMs) || event.atMs < record.validFromMs) {
     return err(domainError('INVALID_MEMORY', 'at_ms', 'decision transition time must be after valid-from'));
+  }
+  if (!nonEmpty(event.approvalIdentity)) {
+    return err(domainError('INVALID_MEMORY', 'approval_identity', 'decision transition requires an approval identity'));
+  }
+  if (event.sourceEpisodeIds.length === 0 || event.sourceEpisodeIds.some((episodeId) => !nonEmpty(episodeId))) {
+    return err(domainError('INVALID_MEMORY', 'source_episode_ids', 'decision transition needs original episode evidence'));
+  }
+  const lastTransitionAtMs = Math.max(...(record.transitions ?? []).map((transition) => transition.atMs), record.validFromMs);
+  if (event.atMs <= lastTransitionAtMs) {
+    return err(domainError('INVALID_MEMORY', 'at_ms', 'decision transitions must be strictly ordered'));
   }
   if (record.state !== 'Proposed' && event.type === 'confirm') {
     return err(domainError('INVALID_MEMORY', 'state', 'only proposed decisions may be confirmed'));
@@ -293,7 +319,12 @@ export const transitionDecision = (record: DecisionRecord, event: DecisionEvent)
   if (record.state !== 'Accepted' || event.type !== 'supersede') {
     if (event.type === 'supersede') return err(domainError('INVALID_MEMORY', 'state', 'only accepted decisions may be superseded'));
   }
-  const transitions = [...(record.transitions ?? []), event];
+  const transition = Object.freeze({
+    ...event,
+    approvalIdentity: event.approvalIdentity.trim(),
+    sourceEpisodeIds: Object.freeze([...event.sourceEpisodeIds]),
+  });
+  const transitions = Object.freeze([...(record.transitions ?? []), transition]);
   if (event.type === 'confirm') return ok({ ...record, state: 'Accepted', transitions });
   if (event.type === 'reject') return ok({ ...record, state: 'Rejected', validToMs: event.atMs, transitions });
   if (event.successorId === record.decisionId || !nonEmpty(event.successorId)) {
@@ -314,8 +345,14 @@ export const decisionStateAt = (
       ? { state: 'Proposed', historicalUncertainty: false }
       : { historicalUncertainty: true };
   }
+  if (transitions.some((transition, index) => index > 0 && transition.atMs <= (transitions[index - 1]?.atMs ?? record.validFromMs))
+    || transitions.some((transition) => !nonEmpty(transition.approvalIdentity)
+      || transition.sourceEpisodeIds.length === 0
+      || transition.sourceEpisodeIds.some((episodeId) => !nonEmpty(episodeId)))) {
+    return { historicalUncertainty: true };
+  }
   let state: DecisionState = 'Proposed';
-  for (const transition of [...transitions].sort((left, right) => left.atMs - right.atMs)) {
+  for (const transition of transitions) {
     if (transition.atMs > asOfMs) break;
     if (transition.type === 'confirm' && state === 'Proposed') state = 'Accepted';
     else if (transition.type === 'reject' && state === 'Proposed') state = 'Rejected';
@@ -327,8 +364,34 @@ export const decisionStateAt = (
 export const validateDecisionGraph = (decisions: readonly DecisionRecord[]): Result<void, DomainError> => {
   const byId = new Map(decisions.map((decision) => [decision.decisionId, decision]));
   for (const decision of decisions) {
+    const supersedeTransitions = (decision.transitions ?? []).filter((transition) => transition.type === 'supersede');
+    if (supersedeTransitions.length > 1) {
+      return err(domainError('INVALID_MEMORY', 'successor_id', 'a decision may have only one supersede transition'));
+    }
+    if (decision.successorId === decision.decisionId) {
+      return err(domainError('INVALID_MEMORY', 'successor_id', 'decision successor cannot point to itself'));
+    }
+    if (decision.successorId === undefined && supersedeTransitions.length > 0) {
+      return err(domainError('INVALID_MEMORY', 'successor_id', 'supersede transition must persist its successor'));
+    }
+    if (decision.successorId !== undefined && decision.state !== 'Superseded') {
+      return err(domainError('INVALID_MEMORY', 'successor_id', 'only superseded decisions may have a successor'));
+    }
     if (decision.successorId !== undefined && !byId.has(decision.successorId)) {
       return err(domainError('INVALID_MEMORY', 'successor_id', 'decision successor must exist in the decision graph'));
+    }
+    const successor = decision.successorId === undefined ? undefined : byId.get(decision.successorId);
+    const supersededAtMs = supersedeTransitions[0]?.atMs;
+    if (successor !== undefined) {
+      if (successor.workspaceId !== decision.workspaceId || successor.subject !== decision.subject) {
+        return err(domainError('INVALID_MEMORY', 'successor_id', 'decision successor must share workspace and subject'));
+      }
+      if (supersededAtMs !== undefined && successor.validFromMs < supersededAtMs) {
+        return err(domainError('INVALID_MEMORY', 'successor_id', 'decision successor cannot become valid before supersession'));
+      }
+      if (decision.successorId !== supersedeTransitions[0]?.successorId) {
+        return err(domainError('INVALID_MEMORY', 'successor_id', 'persisted successor disagrees with the supersede event'));
+      }
     }
     const seen = new Set<DecisionId>();
     let current: DecisionRecord | undefined = decision;
@@ -360,7 +423,8 @@ export const searchMemory = (
     .filter((item) => item.matches.length > 0)
     .sort((left, right) => right.matches.length - left.matches.length || right.episode.occurredAtMs - left.episode.occurredAtMs)
     .map(({ episode, matches }) => {
-      const decision = decisions.find((candidate) => candidate.sourceEpisodeIds.includes(episode.episodeId));
+      const decision = decisions.find((candidate) => candidate.workspaceId === episode.workspaceId
+        && candidate.sourceEpisodeIds.includes(episode.episodeId));
       const state = decision === undefined ? undefined : decisionStateAt(decision, asOfMs);
       return {
         episode,
