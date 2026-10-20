@@ -4,6 +4,8 @@ import { err, ok, type Result } from './result.js';
 export interface ImageProvenanceRecord {
   readonly schemaVersion: 1;
   readonly imageDigest: string;
+  readonly baseImageReference: string;
+  readonly baseImageDigest: string;
   readonly sourceCommit: string;
   readonly sbomSha256: string;
   readonly packageLockSha256: string;
@@ -37,6 +39,8 @@ export interface SupplyChainEvidenceVerdict {
   readonly evidence?: 'supply-chain-provenance';
   readonly failures: readonly string[];
   readonly imageDigest: string;
+  readonly baseImageReference: string;
+  readonly baseImageDigest: string;
   readonly sourceCommit: string;
   readonly packageLockSha256: string;
   readonly sbomSha256: string;
@@ -103,12 +107,19 @@ export const evaluateSupplyChainEvidence = (
   const provenance = input.imageProvenance;
   if (provenance.schemaVersion !== 1
     || !/^sha256:[a-f0-9]{64}$/u.test(provenance.imageDigest)
+    || !/^sha256:[a-f0-9]{64}$/u.test(provenance.baseImageDigest)
+    || !nonEmpty(provenance.baseImageReference)
+    || !provenance.baseImageReference.endsWith('@' + provenance.baseImageDigest)
     || !commitSha(provenance.sourceCommit)
     || !sha256(provenance.sbomSha256)
     || !sha256(provenance.packageLockSha256)
     || !nonEmpty(provenance.builder)
     || !nonEmpty(provenance.buildReference)) {
-    return err(domainError('INVALID_BENCHMARK', 'image_provenance', 'image provenance identity is invalid'));
+    return err(domainError(
+      'INVALID_BENCHMARK',
+      'image_provenance',
+      'image provenance identity/base-image digest binding is invalid',
+    ));
   }
   if (provenance.sourceCommit !== input.currentCommit) failures.push('image_wrong_commit');
   if (provenance.sbomSha256 !== input.sbomSha256) failures.push('image_sbom_mismatch');
@@ -134,6 +145,8 @@ export const evaluateSupplyChainEvidence = (
     ...(failures.length === 0 ? { evidence: 'supply-chain-provenance' as const } : {}),
     failures: [...new Set(failures)],
     imageDigest: provenance.imageDigest,
+    baseImageReference: provenance.baseImageReference,
+    baseImageDigest: provenance.baseImageDigest,
     sourceCommit: input.currentCommit,
     packageLockSha256: input.packageLockSha256,
     sbomSha256: input.sbomSha256,

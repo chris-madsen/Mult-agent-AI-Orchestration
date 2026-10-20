@@ -180,7 +180,11 @@ const validateSupplyChain = (
     || !sha256(verdict.packageLockSha256)
     || !sha256(verdict.sbomSha256)
     || typeof verdict.imageDigest !== 'string'
-    || !/^sha256:[a-f0-9]{64}$/u.test(verdict.imageDigest)) {
+    || !/^sha256:[a-f0-9]{64}$/u.test(verdict.imageDigest)
+    || typeof verdict.baseImageDigest !== 'string'
+    || !/^sha256:[a-f0-9]{64}$/u.test(verdict.baseImageDigest)
+    || typeof verdict.baseImageReference !== 'string'
+    || !verdict.baseImageReference.endsWith('@' + verdict.baseImageDigest)) {
     return err(domainError('INVALID_BENCHMARK', 'external.supply-chain.verdict', 'supply-chain internal PASS verdict is incomplete'));
   }
   return ok({ name: 'supply-chain', evidence: root.evidence, sourceCommit: currentCommit });

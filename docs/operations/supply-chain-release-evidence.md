@@ -19,6 +19,8 @@ Image provenance JSON:
 {
   "schemaVersion": 1,
   "imageDigest": "sha256:<64 lowercase hex>",
+  "baseImageDigest": "sha256:<64 lowercase hex>",
+  "baseImageReference": "node:22-bookworm-slim@sha256:<same base image digest>",
   "sourceCommit": "<exact release git sha>",
   "sbomSha256": "<exact retained SBOM sha256>",
   "packageLockSha256": "<exact package-lock sha256>",
@@ -58,7 +60,8 @@ The command runs the production-only npm audit itself and stores its JSON. It re
 
 - high vulnerabilities = 0;
 - critical vulnerabilities = 0;
-- image digest is an immutable SHA-256 digest;
+- final image digest is an immutable SHA-256 digest;
+- the base image is also bound to an immutable digest and `baseImageReference` ends with exactly `@<baseImageDigest>`; a floating base tag is rejected even when the final image is signed;
 - image provenance commit/SBOM/package-lock match the actual current tree;
 - image signature verification is explicitly recorded;
 - license review is approved for the same commit/SBOM;
