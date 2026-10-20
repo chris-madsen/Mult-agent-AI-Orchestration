@@ -34,7 +34,8 @@ test('scale runner fixture exercises changed, renamed, deleted and genuinely unt
   assert.match(script, /deltaAdded >= 1/u);
   assert.match(script, /changed\.metrics\.indexKey, cold\.metrics\.indexKey/u);
   assert.match(script, /d2Digest/u);
-  assert.match(script, /d2Evidence\?\.sourceDigest/u);
+  assert.match(script, /d2Evidence\.sourceDigest/u);
+  assert.match(script, /query: 'needleScaleTarget'/u);
 });
 
 test('scale runner records machine-readable timing/cache/delta metrics without calling them production proof', async () => {

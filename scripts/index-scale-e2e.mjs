@@ -53,9 +53,12 @@ const writeFixtureFiles = async (workspace) => {
     await Promise.all(Array.from({ length: end - start }, (_, offset) => {
       const index = start + offset;
       const marker = index === 0 ? ' needleScaleTarget' : '';
+      const symbol = index === 0
+        ? 'needleScaleTarget'
+        : `scaleItem${String(index).padStart(pad, '0')}`;
       return writeFile(
         filePath(workspace, index),
-        `// scale fixture${marker}\nexport function scaleItem${String(index).padStart(pad, '0')}(): number { return ${index}; }\n`,
+        `// scale fixture${marker}\nexport function ${symbol}(): number { return ${index}; }\n`,
         'utf8',
       );
     }));
@@ -247,7 +250,7 @@ const runOnce = (workspace, state, workspaceId, phase) => new Promise((resolveRu
           name: 'ace_context',
           arguments: {
             workspace_id: workspaceId,
-            query: 'needle scale target function',
+            query: 'needleScaleTarget',
             include_docs: false,
             include_memory: false,
           },
@@ -294,7 +297,7 @@ const runOnce = (workspace, state, workspaceId, phase) => new Promise((resolveRu
 const mutateFixture = async (workspace) => {
   await writeFile(
     filePath(workspace, 0),
-    '// scale fixture needleScaleTarget changed\nexport function scaleItemChanged(): number { return 1000001; }\n',
+    '// scale fixture needleScaleTarget changed\nexport function needleScaleTarget(): number { return 1000001; }\n',
     'utf8',
   );
 
@@ -340,9 +343,15 @@ try {
 
   const citationFor = (phase, path) => phase.response.codeEvidence.find((evidence) =>
     evidence.citation.startsWith(`${path}:`));
-  assert.equal(citationFor(cold, d1Path)?.sourceDigest, d1Digest,
+  const requireCitation = (phase, path) => {
+    const citation = citationFor(phase, path);
+    assert.ok(citation !== undefined,
+      `${phase.phase} must cite ${path}; observed=${JSON.stringify(phase.response.codeEvidence)}`);
+    return citation;
+  };
+  assert.equal(requireCitation(cold, d1Path).sourceDigest, d1Digest,
     'cold code citation must carry the exact D1 source digest');
-  assert.equal(citationFor(warm, d1Path)?.sourceDigest, d1Digest,
+  assert.equal(requireCitation(warm, d1Path).sourceDigest, d1Digest,
     'warm code citation must carry the exact D1 source digest');
   assert.equal(cold.metrics.indexKey, warm.metrics.indexKey,
     'unchanged warm run must retain the exact content-derived index key');
@@ -362,10 +371,10 @@ try {
   const changed = await runOnce(workspace, state, workspaceId, 'change-only');
   assert.notEqual(changed.metrics.indexKey, cold.metrics.indexKey,
     'change-only phase must publish a different content-derived index key');
-  const d2Evidence = citationFor(changed, d1Path);
-  assert.equal(d2Evidence?.sourceDigest, d2Digest,
+  const d2Evidence = requireCitation(changed, d1Path);
+  assert.equal(d2Evidence.sourceDigest, d2Digest,
     'change-only code citation must carry the exact D2 source digest');
-  assert.equal(d2Evidence?.freshness, 'current',
+  assert.equal(d2Evidence.freshness, 'current',
     'change-only code citation must be verified against current D2 bytes');
   assert.equal(changed.metrics.indexMode, 'rebuilt');
   assert.ok(changed.metrics.deltaChanged >= options.changed,
