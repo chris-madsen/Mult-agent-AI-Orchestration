@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-20T12:26:00.039Z",
+  "sourceCommit": "7381d27d4e3b1806b48f3aa9bd897a1760ad0805",
+  "command": "node scripts/provider-capability-probe.mjs; npm run probe:vertex; npm run probe:jev; docker version",
+  "available": {
+    "harbor": "0.24.0",
+    "codexCli": "0.148.0-alpha.9",
+    "docker": "24.0.6",
+    "kubernetes": "k3s v1.35.5+k3s1; node Ready",
+    "qdrant": "loopback ready; qdrant/1.19.2",
+    "graphitiCorePython": true,
+    "treeSitterPython": true
+  },
+  "unavailableOrIncomplete": {
+    "graphitiFalkorDriverHealth": "failed",
+    "terminalBenchCli": "missing",
+    "terminalBenchPython": "missing",
+    "pythonHarborModule": "missing",
+    "jevAuthenticatedTrial": "not_run; read-only endpoint returned 403 without credential"
+  },
+  "vertexReadOnly": {
+    "usCentral1": {
+      "http": 200,
+      "corporaCount": 0,
+      "citationContract": "unverified_empty_corpus",
+      "versionContract": "unverified_empty_corpus"
+    },
+    "europeWest4": {
+      "http": 200,
+      "corporaCount": 1,
+      "citationContract": "unverified_empty_corpus",
+      "versionContract": "unverified_empty_corpus"
+    },
+    "uploadOrConflictRetrieval": "not_run"
+  },
+  "blockers": [
+    "Graphiti MCP command plus approved local inference/embedding/reranker stack is not available.",
+    "Vertex citation/version/conflict contract was not established by the read-only corpus probe.",
+    "Jev remains optional and unauthenticated; no private-data trial is authorized by this receipt.",
+    "Harbor natural comparison remains blocked by model/gateway/container authentication wiring; see harbor-current-run-blocked-2026-10-20.json."
+  ],
+  "note": "Capability inventory only. No source code, dialogue, token, cloud upload, model credential or private path is retained."
+}
