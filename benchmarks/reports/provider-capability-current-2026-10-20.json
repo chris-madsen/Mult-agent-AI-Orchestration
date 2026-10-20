@@ -1,44 +1,104 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-20T12:26:00.039Z",
-  "sourceCommit": "7381d27d4e3b1806b48f3aa9bd897a1760ad0805",
-  "command": "node scripts/provider-capability-probe.mjs; npm run probe:vertex; npm run probe:jev; docker version",
-  "available": {
-    "harbor": "0.24.0",
-    "codexCli": "0.148.0-alpha.9",
-    "docker": "24.0.6",
-    "kubernetes": "k3s v1.35.5+k3s1; node Ready",
-    "qdrant": "loopback ready; qdrant/1.19.2",
-    "graphitiCorePython": true,
-    "treeSitterPython": true
-  },
-  "unavailableOrIncomplete": {
-    "graphitiFalkorDriverHealth": "failed",
-    "terminalBenchCli": "missing",
-    "terminalBenchPython": "missing",
-    "pythonHarborModule": "missing",
-    "jevAuthenticatedTrial": "not_run; read-only endpoint returned 403 without credential"
-  },
-  "vertexReadOnly": {
-    "usCentral1": {
-      "http": 200,
-      "corporaCount": 0,
-      "citationContract": "unverified_empty_corpus",
-      "versionContract": "unverified_empty_corpus"
+  "evidence": "provider-capability-snapshot",
+  "generatedAt": "2026-10-20T12:50:16.242Z",
+  "sourceCommit": "1bbc36b7c84ac2bd15dedd115fd73272d8aa0734",
+  "command": "node scripts/provider-capability-probe.mjs",
+  "commands": [
+    {
+      "command": "harbor",
+      "available": true,
+      "output": "0.24.0"
     },
-    "europeWest4": {
-      "http": 200,
-      "corporaCount": 1,
-      "citationContract": "unverified_empty_corpus",
-      "versionContract": "unverified_empty_corpus"
+    {
+      "command": "tb",
+      "available": false,
+      "reason": "spawnSync tb ENOENT"
     },
-    "uploadOrConflictRetrieval": "not_run"
-  },
-  "blockers": [
-    "Graphiti MCP command plus approved local inference/embedding/reranker stack is not available.",
-    "Vertex citation/version/conflict contract was not established by the read-only corpus probe.",
-    "Jev remains optional and unauthenticated; no private-data trial is authorized by this receipt.",
-    "Harbor natural comparison remains blocked by model/gateway/container authentication wiring; see harbor-current-run-blocked-2026-10-20.json."
+    {
+      "command": "terminal-bench",
+      "available": false,
+      "reason": "spawnSync terminal-bench ENOENT"
+    },
+    {
+      "command": "qdrant",
+      "available": false,
+      "reason": "spawnSync qdrant ENOENT"
+    },
+    {
+      "command": "codex",
+      "available": true,
+      "output": "codex-cli 0.148.0-alpha.9"
+    },
+    {
+      "command": "kubectl",
+      "available": true,
+      "output": "{"
+    }
   ],
-  "note": "Capability inventory only. No source code, dialogue, token, cloud upload, model credential or private path is retained."
+  "pythonModules": [
+    {
+      "module": "harbor",
+      "python": ".venv-system/bin/python",
+      "available": false,
+      "exitCode": 1,
+      "output": "Traceback (most recent call last):"
+    },
+    {
+      "module": "terminal_bench",
+      "python": ".venv-system/bin/python",
+      "available": false,
+      "exitCode": 1,
+      "output": "Traceback (most recent call last):"
+    },
+    {
+      "module": "graphiti_core",
+      "python": ".venv-system/bin/python",
+      "available": true,
+      "output": "/media/ilja/DATA/soft/consillium/harness/.venv-system/lib/python3.10/site-packages/graphiti_core/__init__.py"
+    },
+    {
+      "module": "tree_sitter",
+      "python": ".venv-system/bin/python",
+      "available": true,
+      "output": "/media/ilja/DATA/soft/consillium/harness/.venv-system/lib/python3.10/site-packages/tree_sitter/__init__.py"
+    },
+    {
+      "module": "ast_grep_py",
+      "python": ".venv-system/bin/python",
+      "available": true,
+      "output": "/media/ilja/DATA/soft/consillium/harness/.venv-system/lib/python3.10/site-packages/ast_grep_py/__init__.py"
+    },
+    {
+      "module": "pygls",
+      "python": ".venv-system/bin/python",
+      "available": true,
+      "output": "/media/ilja/DATA/soft/consillium/harness/.venv-system/lib/python3.10/site-packages/pygls/__init__.py"
+    }
+  ],
+  "codexJsonCapability": {
+    "available": true,
+    "output": "Run Codex non-interactively"
+  },
+  "kubernetesContext": {
+    "kubeconfig": "/etc/rancher/k3s/k3s.yaml",
+    "available": true,
+    "output": "default"
+  },
+  "kubernetesCluster": {
+    "available": true,
+    "output": "xmg   Ready   control-plane   121d   v1.35.5+k3s1"
+  },
+  "localServices": {
+    "qdrantHealth": {
+      "available": true,
+      "output": "healthz check passed"
+    },
+    "graphitiFalkorDriverHealth": {
+      "available": false,
+      "exitCode": 1,
+      "output": "Traceback (most recent call last):"
+    }
+  },
+  "note": "Capability and local-service probe only; it does not establish provider E2E, authorization, privacy, production readiness or owner approval."
 }
