@@ -7,6 +7,8 @@ import {
   ensureQdrantCollection,
   exactUtf8ByteRange,
   hasExactQdrantSnapshot,
+  listQdrantSnapshotKeys,
+  readQdrantSnapshotVectors,
   reuseOrPopulateQdrantSnapshot,
   verifyQdrantSnapshotMembership,
   makeQdrantContextProvider,
@@ -124,6 +126,67 @@ test('warm Qdrant snapshot reuse does not re-embed or upsert current source', as
   assert.equal(requests, 2);
   assert.equal(upserts, 0);
   assert.equal(embeds, 0);
+});
+
+test('Qdrant maintenance scrolls request only the payload fields they actually need', async () => {
+  const bodies: Array<Readonly<Record<string, unknown>>> = [];
+  const indexKey = 'f'.repeat(64);
+  const http: HttpPort = {
+    request: (request) => {
+      const body = request.body ?? {};
+      bodies.push(body);
+      const selector = body.with_payload as { include?: readonly string[] } | undefined;
+      if (selector?.include?.[0] === 'index_key') {
+        return Effect.succeed(ok({
+          status: 200,
+          body: { result: { points: [{ payload: { index_key: indexKey } }], next_page_offset: null } },
+        }));
+      }
+      if (body.with_vector === true) {
+        return Effect.succeed(ok({
+          status: 200,
+          body: {
+            result: {
+              points: [{ payload: { candidate_id: candidate.candidateId }, vector: [0.25, 0.75] }],
+              next_page_offset: null,
+            },
+          },
+        }));
+      }
+      return Effect.succeed(ok({
+        status: 200,
+        body: {
+          result: {
+            points: [{ payload: { candidate_id: candidate.candidateId } }],
+            next_page_offset: null,
+          },
+        },
+      }));
+    },
+  };
+
+  const keys = mustOk(await Effect.runPromise(listQdrantSnapshotKeys(
+    http, 'http://127.0.0.1:6333', 'ace-test', workspaceId,
+  )));
+  assert.deepEqual([...keys], [indexKey]);
+
+  const membership = mustOk(await Effect.runPromise(verifyQdrantSnapshotMembership(
+    http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, indexKey, [candidate.candidateId],
+  )));
+  assert.equal(membership, true);
+
+  const vectors = mustOk(await Effect.runPromise(readQdrantSnapshotVectors(
+    http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, indexKey,
+  )));
+  assert.deepEqual(vectors.get(candidate.candidateId), [0.25, 0.75]);
+
+  assert.deepEqual(bodies.map((body) => body.with_payload), [
+    { include: ['index_key'] },
+    { include: ['candidate_id'] },
+    { include: ['candidate_id'] },
+  ]);
+  assert.deepEqual(bodies.map((body) => body.with_vector), [false, false, true]);
+  assert.equal(JSON.stringify(bodies).includes('text'), false);
 });
 
 test('Qdrant warm reuse rebuilds on different count and fails closed on count outage', async () => {
