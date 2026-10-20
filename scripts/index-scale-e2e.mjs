@@ -35,6 +35,10 @@ const parseArgs = (argv) => {
 };
 
 const options = parseArgs(process.argv.slice(2));
+const phaseTimeoutMs = Number(process.env.ACE_INDEX_SCALE_PHASE_TIMEOUT_MS ?? 30 * 60_000);
+if (!Number.isSafeInteger(phaseTimeoutMs) || phaseTimeoutMs < 60_000 || phaseTimeoutMs > 60 * 60_000) {
+  throw new Error('ACE_INDEX_SCALE_PHASE_TIMEOUT_MS must be an integer between 60000 and 3600000');
+}
 const pad = String(options.files - 1).length;
 const fileName = (index) => `item-${String(index).padStart(pad, '0')}.ts`;
 const filePath = (workspace, index) => join(workspace, 'src', fileName(index));
@@ -136,12 +140,30 @@ const runOnce = (workspace, state, workspaceId, phase) => new Promise((resolveRu
   const responses = new Map();
   const waiters = new Map();
   let settled = false;
+  const stopChild = async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    await new Promise((resolveStop) => {
+      let stopped = false;
+      const finish = () => {
+        if (stopped) return;
+        stopped = true;
+        clearTimeout(forceTimer);
+        resolveStop();
+      };
+      const forceTimer = setTimeout(() => {
+        child.kill('SIGKILL');
+        finish();
+      }, 5_000);
+      child.once('exit', finish);
+      child.stdin.end();
+      child.kill('SIGTERM');
+    });
+  };
   const timer = setTimeout(() => {
     if (settled) return;
     settled = true;
-    child.kill('SIGTERM');
-    rejectRun(new Error(`${phase} MCP request timed out: ${stderr.slice(-4000)}`));
-  }, 15 * 60_000);
+    void stopChild().finally(() => rejectRun(new Error(`${phase} MCP request timed out: ${stderr.slice(-4000)}`)));
+  }, phaseTimeoutMs);
 
   child.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
   child.stdout.on('data', (chunk) => {
@@ -158,8 +180,7 @@ const runOnce = (workspace, state, workspaceId, phase) => new Promise((resolveRu
         if (!settled) {
           settled = true;
           clearTimeout(timer);
-          child.kill('SIGTERM');
-          rejectRun(new Error(`invalid MCP JSON during ${phase}: ${String(cause)}`));
+          void stopChild().finally(() => rejectRun(new Error(`invalid MCP JSON during ${phase}: ${String(cause)}`)));
         }
         return;
       }
@@ -232,8 +253,7 @@ const runOnce = (workspace, state, workspaceId, phase) => new Promise((resolveRu
 
       settled = true;
       clearTimeout(timer);
-      child.stdin.end();
-      child.kill('SIGTERM');
+      await stopChild();
       resolveRun({
         phase,
         elapsedMs,
@@ -248,7 +268,7 @@ const runOnce = (workspace, state, workspaceId, phase) => new Promise((resolveRu
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      child.kill('SIGTERM');
+      await stopChild();
       rejectRun(cause);
     }
   })();
@@ -353,5 +373,5 @@ try {
   }
   process.stdout.write(serialized);
 } finally {
-  await rm(root, { recursive: true, force: true });
+  await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
 }

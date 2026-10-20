@@ -13,6 +13,9 @@ Before running:
 - if production-pinned embedding is being evaluated, export the same exact pinned model/artifact variables that will be used by the release candidate.
 
 The runner creates a temporary Git repository and a persistent ACE state directory inside the temporary root for the duration of one invocation.
+Each phase allows up to 30 minutes by default; set `ACE_INDEX_SCALE_PHASE_TIMEOUT_MS`
+between 60,000 and 3,600,000 when the selected host needs a different bounded
+limit. A timeout is a failed measurement and must be retained as such.
 
 ## 1k run
 
