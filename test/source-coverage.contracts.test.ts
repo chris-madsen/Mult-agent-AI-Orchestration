@@ -6,6 +6,7 @@ import { makeQdrantContextProvider } from '../src/adapters/qdrant-context-provid
 import {
   initialSourceCoverage,
   requiredIncompleteSources,
+  resolveExplicitSourceRequirements,
   resolveSourceRequirements,
   setSourceCoverage,
   sourceCoverageComplete,
@@ -15,6 +16,7 @@ import { domainError } from '../src/domain/errors.js';
 import { err, ok, type Result } from '../src/domain/result.js';
 import { makeCandidateId, makeCodeCandidate } from '../src/domain/retrieval.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
+import { diffWorkspaceManifests, workspaceManifestFromSnapshot } from '../src/domain/workspace-manifest.js';
 import type {
   ArtifactStore,
   CodeCandidatePort,
@@ -76,6 +78,102 @@ test('only required source outcomes determine source-coverage completeness', () 
   coverage = setSourceCoverage(coverage, 'code', 'partial', 'source_changed');
   assert.equal(sourceCoverageComplete(coverage), false);
   assert.deepEqual(requiredIncompleteSources(coverage), ['code']);
+});
+
+test('explicit source obligations override deterministic routing and reject overlap', () => {
+  const resolved = resolveExplicitSourceRequirements({
+    required: ['documentation'],
+    optional: ['code'],
+  });
+  assert.equal(resolved._tag, 'Ok');
+  if (resolved._tag === 'Err') return;
+  assert.deepEqual(resolved.value, {
+    code: { requirement: 'optional', allowed: true },
+    structural: { requirement: 'not_requested', allowed: true },
+    documentation: { requirement: 'required', allowed: true },
+    memory: { requirement: 'not_requested', allowed: true },
+  });
+  const denied = resolveExplicitSourceRequirements({ required: ['documentation'] }, { includeDocs: false });
+  assert.equal(denied._tag, 'Ok');
+  if (denied._tag === 'Ok') assert.deepEqual(denied.value.documentation, { requirement: 'required', allowed: false });
+  const overlap = resolveExplicitSourceRequirements({ required: ['code'], optional: ['code'] });
+  assert.equal(overlap._tag, 'Err');
+  if (overlap._tag === 'Err') assert.equal(overlap.error.code, 'INVALID_INPUT');
+});
+
+test('workspace manifest is authoritative when watcher delivery is missing', () => {
+  const initial = workspaceManifestFromSnapshot({
+    headRevision: 'head-1',
+    files: [{ repoPath: 'src/hit.ts' as never, digest: 'a'.repeat(64) as never, sizeBytes: 1, state: 'tracked', observedAtMs: 1 }],
+    removedPaths: [],
+  }, 'scope-a');
+  const dirty = workspaceManifestFromSnapshot({
+    headRevision: 'head-1',
+    files: [{ repoPath: 'src/renamed.ts' as never, digest: 'a'.repeat(64) as never, sizeBytes: 1, state: 'tracked', observedAtMs: 2 }, {
+      repoPath: 'src/new.ts' as never, digest: 'b'.repeat(64) as never, sizeBytes: 2, state: 'tracked', observedAtMs: 2,
+    }],
+    removedPaths: ['src/removed.ts' as never],
+  }, 'scope-b');
+  const delta = diffWorkspaceManifests(initial, dirty);
+  assert.equal(delta.scopeChanged, true);
+  assert.deepEqual(delta.renamed, [{ from: 'src/hit.ts', to: 'src/renamed.ts', sourceDigest: 'a'.repeat(64) }]);
+  assert.deepEqual(delta.added, ['src/new.ts']);
+  assert.deepEqual(delta.deleted, []);
+  assert.equal(initial.contentIdentity === dirty.contentIdentity, false);
+});
+
+test('Qdrant context refuses an old complete result after a missed watcher event', async () => {
+  let currentSnapshot = {
+    headRevision: 'head-1',
+    files: [{ repoPath: 'src/save.ts' as never, digest: digest as never, sizeBytes: source.length, state: 'tracked' as const, observedAtMs: 1 }],
+    removedPaths: [],
+  };
+  const manifest = workspaceManifestFromSnapshot(currentSnapshot, 'scope-a');
+  const reconciledFiles: WorkspaceFilePort = { ...files, snapshot: () => Effect.succeed(ok(currentSnapshot)) };
+  const provider = makeQdrantContextProvider({
+    workspaceId,
+    rootPath: '/repo',
+    files: reconciledFiles,
+    qdrant,
+    embeddings,
+    artifacts,
+    semantics,
+    workspaceManifest: manifest,
+    newRequestId: () => 'manifest-reconcile',
+  });
+  const first = await Effect.runPromise(provider.search({
+    workspaceId,
+    query: 'save',
+    includeCode: true,
+    includeDocs: false,
+    includeMemory: false,
+    sourceRequirements: {
+      code: { requirement: 'required', allowed: true },
+      structural: { requirement: 'optional', allowed: true },
+      documentation: { requirement: 'not_requested', allowed: true },
+      memory: { requirement: 'not_requested', allowed: true },
+    },
+  }));
+  assert.equal(first._tag, 'Ok');
+  currentSnapshot = {
+    ...currentSnapshot,
+    files: [{ ...currentSnapshot.files[0]!, digest: 'f'.repeat(64) as never }],
+  };
+  const dirty = await Effect.runPromise(provider.search({
+    workspaceId,
+    query: 'save',
+    includeCode: true,
+    includeDocs: false,
+    includeMemory: false,
+    sourceRequirements: {
+      code: { requirement: 'required', allowed: true },
+      structural: { requirement: 'optional', allowed: true },
+      documentation: { requirement: 'not_requested', allowed: true },
+      memory: { requirement: 'not_requested', allowed: true },
+    },
+  }));
+  assert.equal(dirty._tag, 'Err');
+  if (dirty._tag === 'Err') assert.equal(dirty.error.code, 'NOT_READY');
 });
 
 const workspaceId = mustOk(makeWorkspaceId('coverage-workspace'));

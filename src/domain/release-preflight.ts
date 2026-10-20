@@ -13,10 +13,24 @@ import { validateReleaseAcceptanceArtifacts } from './release-artifact-validatio
 export type ReleaseCapability = 'code' | 'documentation' | 'memory';
 
 export interface ReleaseOwnerApproval {
+  readonly schemaVersion?: 1;
   readonly status: 'pending' | 'approved' | 'rejected';
   readonly releaseCommit: string;
   readonly reference: string;
   readonly approvedCapabilities: readonly ReleaseCapability[];
+  readonly signingKeyId?: string;
+  readonly publicKeyPem?: string;
+  readonly signedPayloadSha256?: string;
+  readonly signatureBase64?: string;
+}
+
+export interface ReleaseOwnerApprovalTrustRoot {
+  readonly signingKeyId: string;
+  readonly publicKeySha256: string;
+  readonly publicKeyPem: string;
+  /** Computed by the imperative release boundary using the pinned key. */
+  readonly publicKeyIdentityVerified?: boolean;
+  readonly signatureVerified?: boolean;
 }
 
 export interface ReleaseExternalEvidence {
@@ -25,6 +39,20 @@ export interface ReleaseExternalEvidence {
   readonly sha256: string;
   /** Parsed retained evidence; revalidated here so direct domain callers cannot bypass semantics. */
   readonly document: unknown;
+}
+
+export interface ReleaseEvidenceBinding {
+  readonly schemaVersion: 1;
+  readonly sourceCommit: string;
+  readonly measurementArtifacts: readonly {
+    readonly name: string;
+    readonly path: string;
+    readonly sha256: string;
+  }[];
+  readonly providerIdentities: readonly string[];
+  readonly reportIdentitySha256: string;
+  /** Computed by the release boundary after hashing the retained files. */
+  readonly reportIdentityVerified?: boolean;
 }
 
 export interface ReleasePreflightInput {
@@ -37,7 +65,10 @@ export interface ReleasePreflightInput {
   readonly resourceBudget: unknown;
   readonly runtimeConfig: unknown;
   readonly externalEvidence: readonly ReleaseExternalEvidence[];
+  readonly evidenceBinding?: ReleaseEvidenceBinding;
   readonly ownerApproval: ReleaseOwnerApproval;
+  /** Supplied by the release environment, not selected by the approval JSON. */
+  readonly ownerApprovalTrustRoot?: ReleaseOwnerApprovalTrustRoot;
 }
 
 export interface ReleasePreflightVerdict {
@@ -65,6 +96,85 @@ const nested = (value: unknown, ...keys: readonly string[]): unknown => {
 const commitSha = (value: string): boolean => /^[a-f0-9]{40,64}$/u.test(value);
 const sha256 = (value: string): boolean => /^[a-f0-9]{64}$/u.test(value);
 const nonEmpty = (value: string): boolean => value.trim().length > 0;
+
+export const ownerApprovalPayload = (approval: ReleaseOwnerApproval): string => JSON.stringify({
+  schemaVersion: 1,
+  status: approval.status,
+  releaseCommit: approval.releaseCommit,
+  reference: approval.reference,
+  approvedCapabilities: [...approval.approvedCapabilities].sort(),
+  signingKeyId: approval.signingKeyId ?? null,
+});
+
+const approvalTrustRootFailures = (
+  approval: ReleaseOwnerApproval,
+  currentCommit: string,
+  trustRoot: ReleaseOwnerApprovalTrustRoot | undefined,
+): readonly string[] => {
+  const failures: string[] = [];
+  if (trustRoot === undefined) return ['owner_approval_trust_root_missing'];
+  if (!nonEmpty(trustRoot.signingKeyId)
+    || !sha256(trustRoot.publicKeySha256)
+    || !nonEmpty(trustRoot.publicKeyPem)
+    || trustRoot.signingKeyId !== approval.signingKeyId
+    || trustRoot.publicKeyIdentityVerified !== true) {
+    failures.push('owner_approval_trust_root_invalid');
+    return failures;
+  }
+  if (trustRoot.signatureVerified !== true) {
+    failures.push('owner_approval_signature_invalid');
+    return failures;
+  }
+  if (approval.schemaVersion !== 1
+    || !nonEmpty(approval.signingKeyId ?? '')
+    || !sha256(approval.signedPayloadSha256 ?? '')
+    || !nonEmpty(approval.signatureBase64 ?? '')
+    || !nonEmpty(approval.publicKeyPem ?? '')
+    || approval.publicKeyPem !== trustRoot.publicKeyPem
+    || approval.releaseCommit !== currentCommit) {
+    failures.push('owner_approval_signature_invalid');
+    return failures;
+  }
+  return failures;
+};
+
+export const validateOwnerApproval = (
+  approval: ReleaseOwnerApproval,
+  currentCommit: string,
+  trustRoot?: ReleaseOwnerApprovalTrustRoot,
+): readonly string[] => approvalTrustRootFailures(approval, currentCommit, trustRoot);
+
+const evidenceBindingFailures = (
+  binding: ReleaseEvidenceBinding | undefined,
+  currentCommit: string,
+  embeddingSelection: unknown,
+  semanticSelection: unknown,
+): readonly string[] => {
+  if (binding === undefined) return ['evidence_binding_missing'];
+  const artifacts = [...binding.measurementArtifacts].sort((left, right) => left.name.localeCompare(right.name));
+  const failures: string[] = [];
+  if (binding.schemaVersion !== 1
+    || binding.sourceCommit !== currentCommit
+    || artifacts.length < 7
+    || artifacts.some((artifact) => !nonEmpty(artifact.name) || !nonEmpty(artifact.path) || !sha256(artifact.sha256))
+    || new Set(artifacts.map((artifact) => artifact.name)).size !== artifacts.length
+    || !sha256(binding.reportIdentitySha256)
+    || binding.reportIdentityVerified !== true
+    || binding.providerIdentities.length === 0
+    || binding.providerIdentities.some((identity) => !nonEmpty(identity))) {
+    failures.push('evidence_binding_invalid');
+    return failures;
+  }
+  const selectedEmbedding = nested(embeddingSelection, 'verdict', 'selectedProvider');
+  const selectedSemantic = nested(semanticSelection, 'verdict', 'selectedProvider');
+  if (typeof selectedEmbedding !== 'string' || !binding.providerIdentities.includes(selectedEmbedding)) {
+    failures.push('evidence_binding_embedding_provider_missing');
+  }
+  if (typeof selectedSemantic !== 'string' || !binding.providerIdentities.includes(selectedSemantic)) {
+    failures.push('evidence_binding_semantic_provider_missing');
+  }
+  return failures;
+};
 
 const dbcFailures = (dbc: unknown, currentCommit: string): readonly string[] => {
   const root = record(dbc);
@@ -113,6 +223,13 @@ export const evaluateReleasePreflight = (
 
   const failures: string[] = [...dbcFailures(input.dbc, input.currentCommit)];
   failures.push(...validateReleaseAcceptanceArtifacts(input, input.currentCommit));
+  failures.push(...evidenceBindingFailures(
+    input.evidenceBinding,
+    input.currentCommit,
+    input.embeddingSelection,
+    input.semanticSelection,
+  ));
+  failures.push(...validateOwnerApproval(input.ownerApproval, input.currentCommit, input.ownerApprovalTrustRoot));
 
   if (nested(input.embeddingSelection, 'verdict', 'productionApproved') !== true
     || nested(input.embeddingSelection, 'verdict', 'status') !== 'PRODUCTION_APPROVED') {

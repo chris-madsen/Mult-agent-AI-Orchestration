@@ -38,6 +38,7 @@ import {
 } from '../domain/source-coverage.js';
 import { validateLocalQdrantBaseUrl } from './http-provider-boundaries.js';
 import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
+import { diffWorkspaceManifests, workspaceManifestFromSnapshot, workspaceManifestEqual, type WorkspaceManifest } from '../domain/workspace-manifest.js';
 
 export interface QdrantContextConfig {
   readonly workspaceId: WorkspaceId;
@@ -54,6 +55,10 @@ export interface QdrantContextConfig {
   readonly memory?: MemorySearchPort;
   readonly candidateLimit?: number;
   readonly coverage?: IndexCoverageSummary;
+  /** If set, every request must reconcile the authoritative working tree. */
+  readonly workspaceManifest?: WorkspaceManifest;
+  readonly scopeFingerprint?: string;
+  readonly semanticSnapshotIdentity?: string;
   readonly trace?: ProviderTraceSink;
 }
 
@@ -631,6 +636,29 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
     if (input.workspaceId !== config.workspaceId) {
       return err(domainError('POLICY_DENIED', 'workspace_id', 'Qdrant provider belongs to another workspace'));
     }
+    if (config.workspaceManifest !== undefined) {
+      const currentSnapshot = yield* config.files.snapshot(config.rootPath, Date.now());
+      if (currentSnapshot._tag === 'Err') return currentSnapshot;
+      const currentManifest = workspaceManifestFromSnapshot(
+        currentSnapshot.value,
+        config.scopeFingerprint ?? config.workspaceManifest.scopeFingerprint,
+      );
+      if (!workspaceManifestEqual(config.workspaceManifest, currentManifest)) {
+        const delta = diffWorkspaceManifests(config.workspaceManifest, currentManifest);
+        return err(domainError(
+          'NOT_READY',
+          'workspace_manifest',
+          'authoritative workspace manifest changed; indexed context requires reconciliation before complete delivery',
+          {
+            changed: delta.changed.length,
+            added: delta.added.length,
+            deleted: delta.deleted.length,
+            renamed: delta.renamed.length,
+            scopeChanged: delta.scopeChanged,
+          },
+        ));
+      }
+    }
     const requestId = makeRequestId(config.newRequestId());
     if (requestId._tag === 'Err') return requestId;
     const includeCode = input.includeCode ?? true;
@@ -733,6 +761,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
           line: candidate.semanticAnchor.line,
           column: semanticColumn,
           requestId: requestId.value,
+          ...(config.semanticSnapshotIdentity === undefined ? {} : { snapshotIdentity: config.semanticSnapshotIdentity }),
         });
         if (definitions._tag === 'Err') {
           warnings.push(candidate.repoPath + ': language service unavailable (' + definitions.error.code + ')');
@@ -913,6 +942,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
     const covered = {
       ...merged,
       sourceCoverage,
+      sourcePlan: requirements,
       partialSources: incomplete,
       complete: sourceCoverageComplete(sourceCoverage),
       ...(config.coverage === undefined ? {} : { indexCoverage: config.coverage }),

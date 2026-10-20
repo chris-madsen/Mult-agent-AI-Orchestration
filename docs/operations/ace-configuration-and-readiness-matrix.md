@@ -25,9 +25,10 @@ ACE intentionally distinguishes failures that make the process configuration its
 | Failure class | Process behavior | Capability/readiness behavior | Operator meaning |
 | --- | --- | --- | --- |
 | Invalid/missing mandatory base config, workspace registration/observation failure, invalid host-helper mTLS configuration | **fatal** — startup exits non-zero | no runtime readiness claim | configuration/trust boundary is unusable; fix before restart |
-| Pinned embedding identity/receipt mismatch or embedding provider preflight failure | **fatal** — startup exits non-zero | no semantic retrieval claim | requested provider identity cannot be proven; do not fall back silently |
+| Pinned embedding identity/configuration mismatch, corrupt snapshot state, or trust-boundary failure | **fatal** — startup exits non-zero | no semantic retrieval claim | requested identity cannot be proven; do not fall back silently |
+| Transient embedding/provider timeout or unavailable startup probe | process stays alive | code/unified context = `not_ready` | retry/reconcile is required; provider failure is never promoted to `ready` |
 | Snapshot manifest/lease persistence invariant failure or semantic snapshot identity race | **fatal** — startup exits non-zero | no current-source claim | continuing could break source/snapshot truth |
-| TypeScript Language Service construction/preflight failure after the selected real composition is being built | **fatal** — startup exits non-zero | no selected semantic-provider claim | selected semantic contract is unavailable |
+| TypeScript Language Service construction/preflight failure after the selected real composition is being built | **fatal** for an invalid/corrupt semantic snapshot; otherwise `not_ready` for a transient provider outage | no selected semantic-provider claim | selected semantic contract is unavailable; exact bytes may remain citable without current semantic confirmation |
 | Qdrant collection unavailable with fallback disabled | process stays alive | code/unified context = `not_ready` | MCP/tool surface may still report status; code retrieval is unavailable |
 | Qdrant collection unavailable with explicit local fallback enabled | process stays alive | code/unified context = `degraded` if fallback index builds, otherwise `not_ready` | development fallback only; never production semantic readiness |
 | Required embedding/Tree-sitter executable missing before provider startup | process stays alive | code/unified context = `not_ready` | installation/runtime dependency missing |
@@ -42,6 +43,28 @@ ACE intentionally distinguishes failures that make the process configuration its
 **Invariant:** a fatal startup failure is reserved for cases where continuing would make identity, source truth, persistence, or the selected provider contract ambiguous. A non-fatal failure must be visible through `ace_workspace_status` as `disabled`, `not_ready`, or `degraded`; it must never be converted into `ready` merely to keep the process alive.
 
 The k3s pod readiness probe checks container/config material only. It is not a provider-health probe and therefore cannot replace `ace_workspace_status` or release evidence.
+
+## Working-tree reconciliation and source obligations
+
+Before a context response can claim `complete`, the runtime compares the
+authoritative workspace manifest (path, scope fingerprint, size/state and
+content digest) with the manifest used to publish the `index_key`. This check
+does not depend on watcher delivery. A changed, added, deleted or renamed path,
+or an include/exclude scope change, makes the current provider `not_ready`
+until reconciliation builds a new source generation; an old index is never
+returned as a fresh `complete` result. Watchers may optimize when reconciliation
+runs, but they are not the source of truth.
+
+`ace_context` also accepts the backwards-compatible explicit plan:
+
+```json
+{"source_obligations":{"required":["code"],"optional":["documentation"]}}
+```
+
+The required and optional lists must not overlap. Explicit obligations take
+precedence over deterministic routing, and the result exposes the source plan
+and per-source coverage. `denied`, `unavailable`, `empty`, `partial`, and
+`not_requested` remain distinct outcomes.
 
 ## Code retrieval
 
@@ -184,6 +207,6 @@ The release preflight is fail-closed. For a hard release check:
 ACE_REQUIRE_RELEASE_READY=true npm run release:preflight -- <policy.json> <evidence.json>
 ```
 
-Full unified production readiness requires the exact release commit, all 14 DBCs, approved embedding and semantic choices, frozen retrieval quality evidence, natural-use Harbor evidence with complete cost telemetry, exact-commit runtime configuration and resource-budget evidence, real Graphiti/Vertex/k3s/operations/supply-chain evidence, and explicit owner approval.
+Full unified production readiness requires the exact release commit, all 14 DBCs, approved embedding and semantic choices, frozen retrieval quality evidence, natural-use Harbor evidence with complete cost telemetry, exact-commit runtime configuration and resource-budget evidence, real Graphiti/Vertex/k3s/operations/supply-chain evidence, and an owner-signed approval artifact verified against the configured trust-root public-key hash. A JSON field containing only `status: approved` is insufficient.
 
 The historical 5× token-reduction target remains a product hypothesis. It is never inferred from a green preflight and is never backfilled from character counts or incomplete cost telemetry.

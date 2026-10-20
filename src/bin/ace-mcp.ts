@@ -43,7 +43,7 @@ import type { MemorySearchPort, WorkspaceFilePort } from '../application/ports.j
 import { defaultLocalPolicy } from '../domain/policy.js';
 import { makeWorkspaceId, type WorkspaceId } from '../domain/workspace.js';
 import { observeWorkspace, registerWorkspace } from '../application/workspace-service.js';
-import { readVerifiedSemanticSnapshot } from '../application/semantic-snapshot.js';
+import { readVerifiedSemanticSnapshot, semanticSnapshotIdentity } from '../application/semantic-snapshot.js';
 import { makeMcpGateway, type CapabilityReadiness } from '../gateway/mcp-gateway.js';
 import { runMcpSdkStdio } from '../transport/mcp-sdk-stdio.js';
 
@@ -239,6 +239,8 @@ const main = async (): Promise<void> => {
   }
   const structuralPath = resolve(process.env.ACE_TREE_SITTER_HELPER?.trim() || 'scripts/tree-sitter-structural.py');
   const structuralPython = optionalCommand(process.env.ACE_TREE_SITTER_PYTHON, resolve('.venv-system/bin/python'));
+  const scopeFingerprint = process.env.ACE_INDEX_SCOPE_FINGERPRINT?.trim()
+    || createHash('sha256').update('ace-scope/default-v1', 'utf8').digest('hex');
   let context: ReturnType<typeof makeLocalContextProvider> | undefined;
   if (process.env.ACE_ENABLE_EXPERIMENTAL_QDRANT === 'true') {
     const http = makeFetchHttpPort();
@@ -324,6 +326,7 @@ const main = async (): Promise<void> => {
           registered.value.rootPath,
           {
             generation,
+            scopeFingerprint,
             ...(!existsSync(structuralPath) || !commandBoundaryExists(structuralPython) ? {} : {
               structural: makeTreeSitterStructuralPort({
                 helperPath: structuralPath,
@@ -384,6 +387,9 @@ const main = async (): Promise<void> => {
       const embeddingReady = await Effect.runPromise(embeddings.probe());
       if (embeddingReady._tag === 'Err') {
         embeddings.close();
+        if (embeddingReady.error.path === 'embedding.identity') {
+          throw new Error(`embedding provider identity/configuration trust boundary failed (${embeddingReady.error.code}: ${embeddingReady.error.message})`);
+        }
         readiness.code_retrieval = { state: 'not_ready', reason: 'embedding_provider_unavailable' };
         readiness.unified_context = { state: 'not_ready', reason: 'embedding_provider_unavailable' };
         process.stderr.write(`ace-mcp context NOT_READY: embedding provider preflight failed (${embeddingReady.error.code})\n`);
@@ -442,6 +448,7 @@ const main = async (): Promise<void> => {
             const structural = makeTreeSitterStructuralPort(structuralOptions);
             const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
               generation,
+              scopeFingerprint,
               structural,
               parserVersion: structuralOptions.providerVersion,
               ...(structuralCache === undefined || structuralIdentity._tag === 'Err' ? {} : {
@@ -567,10 +574,36 @@ const main = async (): Promise<void> => {
                   embeddings.close();
                   throw new Error(`TypeScript language-service snapshot could not be bound to indexed source bytes (${sourceFiles.error.code})`);
                 }
+                const semanticProviderVersion = process.env.ACE_TYPESCRIPT_VERSION?.trim() || 'typescript/5.9.3';
+                const configIdentity = built.value.workspaceManifest.files
+                  .filter((file) => /^tsconfig(?:\..+)?\.json$/u.test(file.repoPath))
+                  .map((file) => `${file.repoPath}:${file.sourceDigest}`)
+                  .sort()
+                  .join('|') || 'absent';
+                const declarationIdentity = built.value.workspaceManifest.files
+                  .filter((file) => file.repoPath.endsWith('.d.ts'))
+                  .map((file) => `${file.repoPath}:${file.sourceDigest}`)
+                  .sort()
+                  .join('|') || 'absent';
+                const packageLockIdentity = built.value.workspaceManifest.files
+                  .filter((file) => /(?:^|\/)(?:package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock)$/u.test(file.repoPath))
+                  .map((file) => `${file.repoPath}:${file.sourceDigest}`)
+                  .sort()
+                  .join('|') || 'absent';
+                const semanticIdentity = semanticSnapshotIdentity({
+                  indexKey: sourceKey,
+                  tsconfigIdentity: configIdentity,
+                  projectReferencesIdentity: configIdentity,
+                  moduleResolutionIdentity: 'node-next|allowJs=true|checkJs=false|target=es2022',
+                  declarationsIdentity: declarationIdentity,
+                  packageLockIdentity,
+                  providerIdentity: semanticProviderVersion,
+                });
                 const semantics = makeTypeScriptLanguageServicePort({
                   rootPath: registered.value.rootPath,
                   files: sourceFiles.value,
-                  providerVersion: process.env.ACE_TYPESCRIPT_VERSION?.trim() || 'typescript/5.9.3',
+                  providerVersion: semanticProviderVersion,
+                  snapshotIdentity: semanticIdentity,
                   trace: providerTrace,
                 });
                 const firstIndexedPath = built.value.indexedPaths[0];
@@ -609,6 +642,9 @@ const main = async (): Promise<void> => {
                   indexKey: sourceKey,
                   candidateLimit,
                   coverage: built.value.coverage,
+                  workspaceManifest: built.value.workspaceManifest,
+                  scopeFingerprint,
+                  semanticSnapshotIdentity: semanticIdentity,
                   trace: providerTrace,
                   ...(documentation === undefined ? {} : { documentation }),
                   ...(memory === undefined ? {} : { memory }),
@@ -629,6 +665,7 @@ const main = async (): Promise<void> => {
   } else if (allowLocalFallback) {
     const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
       generation: observationEpoch,
+      scopeFingerprint,
       parserVersion: structuralHelper === undefined || structuralHelper === ''
         ? 'local-fallback/typescript-compiler'
         : process.env.ACE_TREE_SITTER_VERSION?.trim() || 'tree-sitter/unknown',
@@ -646,6 +683,7 @@ const main = async (): Promise<void> => {
       rootPath: registered.value.rootPath,
       index: built.value.index,
       files,
+      workspaceManifest: built.value.workspaceManifest,
       newRequestId: () => randomUUID(),
     });
   } else {

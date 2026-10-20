@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, verify } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
@@ -7,7 +7,7 @@ import {
   type CodeReleaseDeployment,
   type CodeReleaseExternalEvidence,
 } from '../src/domain/code-release-preflight.js';
-import type { ReleaseOwnerApproval } from '../src/domain/release-preflight.js';
+import { ownerApprovalPayload, type ReleaseOwnerApproval, type ReleaseOwnerApprovalTrustRoot } from '../src/domain/release-preflight.js';
 import { validateReleaseExternalEvidenceDocument } from '../src/domain/release-external-evidence.js';
 
 interface CodeReleasePolicy {
@@ -15,6 +15,7 @@ interface CodeReleasePolicy {
   readonly scope: 'code-only';
   readonly deployment: CodeReleaseDeployment;
   readonly ownerApproval: ReleaseOwnerApproval;
+  readonly ownerApprovalTrustRoot: ReleaseOwnerApprovalTrustRoot;
   readonly artifacts: {
     readonly dbc: string;
     readonly embeddingSelection: string;
@@ -73,6 +74,7 @@ if (policy.schemaVersion !== 1
   || policy.scope !== 'code-only'
   || (policy.deployment !== 'host' && policy.deployment !== 'k3s')
   || typeof policy.ownerApproval !== 'object' || policy.ownerApproval === null
+  || typeof policy.ownerApprovalTrustRoot !== 'object' || policy.ownerApprovalTrustRoot === null
   || typeof policy.artifacts !== 'object' || policy.artifacts === null
   || !Array.isArray(policy.externalEvidence)) {
   throw new Error('code-only release policy schema is invalid');
@@ -143,6 +145,24 @@ for (const raw of policy.externalEvidence) {
   });
   externalArtifacts.push({ name, path: evidence.path, sha256: evidence.sha256 });
 }
+const approval = policy.ownerApproval as ReleaseOwnerApproval;
+const trustRoot = policy.ownerApprovalTrustRoot as ReleaseOwnerApprovalTrustRoot;
+const publicKeyIdentityVerified = typeof trustRoot.publicKeyPem === 'string'
+  && typeof trustRoot.publicKeySha256 === 'string'
+  && createHash('sha256').update(trustRoot.publicKeyPem, 'utf8').digest('hex') === trustRoot.publicKeySha256;
+let signatureVerified = false;
+try {
+  const payload = ownerApprovalPayload(approval);
+  signatureVerified = publicKeyIdentityVerified
+    && approval.schemaVersion === 1
+    && approval.publicKeyPem === trustRoot.publicKeyPem
+    && approval.releaseCommit === currentCommit
+    && approval.signedPayloadSha256 === createHash('sha256').update(payload, 'utf8').digest('hex')
+    && typeof approval.signatureBase64 === 'string'
+    && verify(null, Buffer.from(payload, 'utf8'), trustRoot.publicKeyPem, Buffer.from(approval.signatureBase64, 'base64'));
+} catch {
+  signatureVerified = false;
+}
 const verdict = evaluateCodeReleasePreflight({
   currentCommit,
   deployment: policy.deployment,
@@ -154,7 +174,8 @@ const verdict = evaluateCodeReleasePreflight({
   resourceBudget: resourceBudget.value,
   runtimeConfig: runtimeConfig.value,
   externalEvidence,
-  ownerApproval: policy.ownerApproval as ReleaseOwnerApproval,
+  ownerApproval: approval,
+  ownerApprovalTrustRoot: { ...trustRoot, publicKeyIdentityVerified, signatureVerified },
 });
 if (verdict._tag === 'Err') {
   throw new Error(`${verdict.error.code}: ${verdict.error.path}: ${verdict.error.message}`);

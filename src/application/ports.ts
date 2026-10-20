@@ -140,6 +140,8 @@ export interface SemanticQuery {
   readonly column: number;
   /** Correlates semantic provider work to one ACE ContextBundle. */
   readonly requestId?: string;
+  /** Identity of the source/configuration generation the caller verified. */
+  readonly snapshotIdentity?: string;
 }
 
 export interface MemorySearchPort {

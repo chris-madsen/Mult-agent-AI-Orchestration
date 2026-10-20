@@ -5,7 +5,7 @@ import {
   type DbcEvidenceRecord,
   type DbcId,
 } from './dbc-evidence.js';
-import type { ReleaseOwnerApproval } from './release-preflight.js';
+import { validateOwnerApproval, type ReleaseOwnerApproval, type ReleaseOwnerApprovalTrustRoot } from './release-preflight.js';
 import { validateReleaseExternalEvidenceDocument } from './release-external-evidence.js';
 import { validateResourceBudgetEvidenceDocument } from './resource-budget-evidence.js';
 import { validateRuntimeConfigEvidenceDocument } from './runtime-config-evidence.js';
@@ -32,6 +32,7 @@ export interface CodeReleasePreflightInput {
   readonly runtimeConfig: unknown;
   readonly externalEvidence: readonly CodeReleaseExternalEvidence[];
   readonly ownerApproval: ReleaseOwnerApproval;
+  readonly ownerApprovalTrustRoot?: ReleaseOwnerApprovalTrustRoot;
 }
 
 export interface CodeReleasePreflightVerdict {
@@ -122,6 +123,7 @@ export const evaluateCodeReleasePreflight = (
 
   const failures: string[] = [...codeDbcFailures(input.dbc, input.currentCommit)];
   failures.push(...validateReleaseAcceptanceArtifacts(input, input.currentCommit));
+  failures.push(...validateOwnerApproval(input.ownerApproval, input.currentCommit, input.ownerApprovalTrustRoot));
 
   if (nested(input.embeddingSelection, 'verdict', 'productionApproved') !== true
     || nested(input.embeddingSelection, 'verdict', 'status') !== 'PRODUCTION_APPROVED') {

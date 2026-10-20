@@ -8,8 +8,10 @@ import { projectContextForDelivery, resolveDeliveryIntent } from '../domain/cont
 import type { WorkspaceId } from '../domain/workspace.js';
 import { deterministicRoute } from '../domain/routing.js';
 import {
+  resolveExplicitSourceRequirements,
   resolveSourceRequirements,
   sourceIsRequested,
+  type SourceObligations,
   type SourceRequirements,
 } from '../domain/source-coverage.js';
 
@@ -20,6 +22,10 @@ const ContextInput = Schema.Struct({
   include_code: Schema.optional(Schema.Boolean),
   include_docs: Schema.optional(Schema.Boolean),
   include_memory: Schema.optional(Schema.Boolean),
+  source_obligations: Schema.optional(Schema.Struct({
+    required: Schema.optional(Schema.Array(Schema.Literal('code', 'structural', 'documentation', 'memory'))),
+    optional: Schema.optional(Schema.Array(Schema.Literal('code', 'structural', 'documentation', 'memory'))),
+  })),
 });
 
 const ExpandInput = Schema.Struct({
@@ -91,8 +97,12 @@ const decode = <Value>(schema: Schema.Schema<Value, Value, never>, input: unknow
   }
 };
 
-const responseError = (result: Result<unknown, DomainError>): GatewayResponse =>
-  result._tag === 'Err' ? { status: 'error', error: result.error } : { status: 'ok', result: {} };
+const responseError = (result: Result<unknown, DomainError>): GatewayResponse => {
+  if (result._tag === 'Ok') return { status: 'ok', result: {} };
+  return result.error.code === 'NOT_READY'
+    ? { status: 'not_ready', capability: result.error.path, code: 'NOT_READY', detail: result.error.message }
+    : { status: 'error', error: result.error };
+};
 
 const notReady = (capability: string): GatewayResponse => ({
   status: 'not_ready',
@@ -113,17 +123,29 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
           const workspace = yield* ports.store.get(workspaceId.value);
           if (isErr(workspace)) return responseError(workspace);
           if (ports.context !== undefined) {
-            const route = deterministicRoute({
-              requestId: ports.ids.newRequestId(),
-              query: input.value.query,
-              privateCode: true,
-              jevOptIn: false,
-            });
-            const sourceRequirements = resolveSourceRequirements(route.sources, {
+            const overrides = {
               ...(input.value.include_code === undefined ? {} : { includeCode: input.value.include_code }),
               ...(input.value.include_docs === undefined ? {} : { includeDocs: input.value.include_docs }),
               ...(input.value.include_memory === undefined ? {} : { includeMemory: input.value.include_memory }),
-            });
+            };
+            const sourceRequirementsResult = input.value.source_obligations === undefined
+              ? (() => {
+                const route = deterministicRoute({
+                  requestId: ports.ids.newRequestId(),
+                  query: input.value.query,
+                  privateCode: true,
+                  jevOptIn: false,
+                });
+                return ok(resolveSourceRequirements(route.sources, overrides));
+              })()
+              : resolveExplicitSourceRequirements(
+                input.value.source_obligations as SourceObligations,
+                overrides,
+              );
+            if (sourceRequirementsResult._tag === 'Err') return responseError(sourceRequirementsResult);
+            // The routed branch is wrapped only to keep one error-shaped
+            // value at this boundary; its resolver is total.
+            const sourceRequirements = sourceRequirementsResult.value;
             const result = yield* ports.context.search({
               workspaceId: workspaceId.value,
               query: input.value.query,
