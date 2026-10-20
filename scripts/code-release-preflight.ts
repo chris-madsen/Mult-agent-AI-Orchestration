@@ -128,6 +128,7 @@ for (const raw of policy.externalEvidence) {
     name,
     evidence: validated.value.evidence,
     sha256: evidence.sha256,
+    document: evidence.value,
   });
   externalArtifacts.push({ name, path: evidence.path, sha256: evidence.sha256 });
 }
