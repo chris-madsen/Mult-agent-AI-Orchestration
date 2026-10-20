@@ -21,10 +21,10 @@ The sequence is:
 3. writer B, using a different state directory, builds S2 in a new immutable collection;
 4. after Qdrant upsert + membership verification but **before current-alias publish**, a guarded test-only failpoint sends writer B `SIGKILL`;
 5. the current alias must remain pointed at S1;
-6. reader A must reject the dirty-tree request as `NOT_READY` rather than return an old complete S1 result;
+6. reader A must either reconcile the authoritative dirty tree and return a current complete result, or fail closed as `NOT_READY`; it must never return an old complete S1 result;
 7. writer B restarts without the failpoint, completes S2 and atomically switches the current alias;
 8. the restarted writer must return the changed S2 symbol;
-9. reader A must remain fail-closed after S2 publication until its context generation is reconciled;
+9. reader A must either remain fail-closed or reconcile to the current source generation after S2 publication;
 10. S1 and S2 must be distinct collection identities;
 11. no filesystem Qdrant snapshot manifest or lease is used by the run.
 
@@ -85,7 +85,8 @@ A successful run is bounded C-A/W04 evidence for:
 - interrupted build leaves the current alias unchanged;
 - the active S1 alias survives a failed S2 writer;
 - restart can finish and atomically publish S2;
-- the old reader rejects dirty-tree delivery while S2 is published in a separate collection.
+- dirty-tree delivery is either reconciled to current source bytes or remains explicitly `NOT_READY`;
+- S2 publication remains isolated from the interrupted writer and is exposed only through the verified current alias.
 
 It is **not sufficient by itself** for:
 
