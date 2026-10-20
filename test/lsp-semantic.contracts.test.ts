@@ -11,7 +11,7 @@ const command = join(process.cwd(), 'node_modules/.bin/typescript-language-serve
 test('generic LSP adapter uses the real TypeScript language server for definitions, references, hover and diagnostics', async () => {
   const rootPath = await mkdtemp(join(tmpdir(), 'ace-lsp-contract-'));
   const snapshotIdentity = 'a'.repeat(64);
-  const source = 'export function save(): string { return "ok"; }\nconst value = save();\n';
+  const source = 'export function save(): string { return "ok"; }\nconst value = save();\nconst invalid = missingValue();\n';
   const provider = makeLspSemanticAnalysisPort({
     command,
     rootPath,
@@ -42,7 +42,7 @@ test('generic LSP adapter uses the real TypeScript language server for definitio
 
     const diagnostics = await Effect.runPromise(provider.diagnostics({ repoPath: 'main.ts' }));
     assert.equal(diagnostics._tag, 'Ok');
-    if (diagnostics._tag === 'Ok') assert.ok(diagnostics.value.some((item) => item.code === 6133));
+    if (diagnostics._tag === 'Ok') assert.ok(diagnostics.value.some((item) => item.code === 2304));
 
     const stale = await Effect.runPromise(provider.definition({
       repoPath: 'main.ts', line: 2, column: 15, snapshotIdentity: 'b'.repeat(64),
