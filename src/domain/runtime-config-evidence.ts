@@ -113,6 +113,25 @@ export const evaluateRuntimeConfigEvidence = (
       'runtime configuration identity/capture metadata is invalid',
     ));
   }
+  const booleanFlags = [
+    input.codeRetrieval.enabled,
+    input.codeRetrieval.qdrantEnabled,
+    input.codeRetrieval.pinnedEmbeddingRequired,
+    input.codeRetrieval.localFallbackAllowed,
+    input.documentation.enabled,
+    input.documentation.cloudDocsOptIn,
+    input.memory.enabled,
+    input.memory.localOnly,
+    input.worktree.hostHelperEnabled,
+    input.worktree.mtlsRequired,
+  ];
+  if (!booleanFlags.every((value) => typeof value === 'boolean')) {
+    return err(domainError(
+      'INVALID_BENCHMARK',
+      'runtime_config.flags',
+      'runtime configuration capability/security flags must be booleans',
+    ));
+  }
   if (input.scope !== 'code-only' && input.scope !== 'full-unified') {
     return err(domainError('INVALID_BENCHMARK', 'runtime_config.scope', 'runtime configuration scope is invalid'));
   }
