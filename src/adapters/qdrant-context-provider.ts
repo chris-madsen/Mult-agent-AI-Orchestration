@@ -236,7 +236,7 @@ export const codeIndexKey = (
     .digest('hex');
 };
 
-export const verifyQdrantSnapshotMembership = (
+export export const verifyQdrantSnapshotMembership = (
   http: HttpPort,
   baseUrl: string,
   collection: string,
@@ -255,7 +255,7 @@ export const verifyQdrantSnapshotMembership = (
       url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/scroll',
       body: {
         limit: 256,
-        with_payload: true,
+        with_payload: { include: ['candidate_id'] },
         with_vector: false,
         filter: { must: [
           { key: 'workspace_id', match: { value: workspaceId } },
@@ -314,7 +314,7 @@ export const readQdrantSnapshotVectors = (
       url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/scroll',
       body: {
         limit: 256,
-        with_payload: true,
+        with_payload: { include: ['candidate_id'] },
         with_vector: true,
         filter: { must: [
           { key: 'workspace_id', match: { value: workspaceId } },
@@ -451,7 +451,7 @@ export const listQdrantSnapshotKeys = (
       url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/scroll',
       body: {
         limit: 256,
-        with_payload: true,
+        with_payload: { include: ['index_key'] },
         with_vector: false,
         filter: { must: [{ key: 'workspace_id', match: { value: workspaceId } }] },
         ...(offset === undefined ? {} : { offset }),
