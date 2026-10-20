@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "scope": "code-only",
+  "deployment": "host",
+  "sourceCommit": "17fb282ddca4a192575fa9a6c412746cf5028be7",
+  "generatedAt": "2026-10-20T12:49:46.630Z",
+  "captureReference": "runtime-config-code-only-host-current-2026-10-20",
+  "workspaceIdHash": "e6d1484f1d92ff863539241ddfa8d0fd19c9a91857bfa14e575de98db12874b5",
+  "codeRetrieval": {
+    "enabled": true,
+    "qdrantEnabled": true,
+    "pinnedEmbeddingRequired": true,
+    "localFallbackAllowed": false,
+    "embeddingProvider": "fastembed/onnx",
+    "semanticProvider": "typescript-language-service"
+  },
+  "documentation": {
+    "enabled": false,
+    "cloudDocsOptIn": false
+  },
+  "memory": {
+    "enabled": false,
+    "localOnly": true
+  },
+  "worktree": {
+    "hostHelperEnabled": false,
+    "mtlsRequired": false
+  },
+  "cloudPermissions": [],
+  "currentCommit": "17fb282ddca4a192575fa9a6c412746cf5028be7",
+  "evidence": "runtime-config-accepted",
+  "verdict": {
+    "evidence": "runtime-config-accepted",
+    "scope": "code-only",
+    "deployment": "host",
+    "sourceCommit": "17fb282ddca4a192575fa9a6c412746cf5028be7",
+    "embeddingProvider": "fastembed/onnx",
+    "semanticProvider": "typescript-language-service",
+    "failures": []
+  },
+  "note": "Safe configuration summary only: no token, certificate, raw workspace path, query, source bytes or private dialogue is retained."
+}
