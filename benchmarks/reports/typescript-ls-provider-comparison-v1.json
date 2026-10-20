@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "fixture": "benchmarks/semantic/provider-comparison-v1",
+  "firstPassQueryP95Ms": 65.77362399999993,
+  "provider": "typescript-language-service",
+  "providerVersion": "typescript/5.9.3",
+  "fixtureSha256": "a797557e7a7dc451d395f786a7d675a517a573ee2aa1d6bf4486ae55f4f64459",
+  "oracleSha256": "2937a609f896df4470c86f1010b6602a9c8ed056e1f726f6dbd6837f89fd73f7",
+  "caseResults": [
+    {
+      "caseId": "same-name-user-definition",
+      "status": "pass",
+      "observation": "src/repositories.ts:2:3"
+    },
+    {
+      "caseId": "same-name-audit-definition",
+      "status": "pass",
+      "observation": "src/repositories.ts:6:3"
+    },
+    {
+      "caseId": "derived-override-definition",
+      "status": "pass",
+      "observation": "src/services.ts:6:12"
+    },
+    {
+      "caseId": "base-definition",
+      "status": "pass",
+      "observation": "src/services.ts:2:3"
+    },
+    {
+      "caseId": "unicode-definition",
+      "status": "pass",
+      "observation": "src/unicode.ts:1:17"
+    },
+    {
+      "caseId": "alias-source-references",
+      "status": "pass",
+      "observation": "references=4"
+    },
+    {
+      "caseId": "write-references",
+      "status": "pass",
+      "observation": "references=5"
+    },
+    {
+      "caseId": "broken-diagnostics",
+      "status": "pass",
+      "observation": "errors=2"
+    },
+    {
+      "caseId": "large-tail-definition",
+      "status": "pass",
+      "observation": "src/large.ts:2102:17"
+    }
+  ],
+  "coldStartMs": 777.350571,
+  "warmQueryP95Ms": 64.5524620000001,
+  "maxRssBytes": 418775040,
+  "runtime": {
+    "node": "v24.15.0",
+    "typescript": "5.9.3",
+    "adapter": "ace-direct-typescript-ls/v1"
+  }
+}

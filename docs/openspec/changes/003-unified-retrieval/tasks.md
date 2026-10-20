@@ -19,6 +19,7 @@ approved LSP and Vertex production adapters remain controlled exceptions; see
 ## Structural semantics
 - [x] Represent structural/LSP evidence, uncertainty and partial source warnings in the neutral domain model.
 - [x] Implement Tree-sitter StructuralAnalysisPort through the pinned Python provider with source-digest provenance; ast-grep query coverage remains a separate extension.
+- [x] Persist snapshot-bound coverage identity (workspace snapshot digest, parser identity and failure categories) and reject snapshot/exact-read races before structural processing (`test/source-text.contracts.test.ts`, `test/qdrant-snapshot-state.contracts.test.ts`).
 - [ ] Implement approved LSP adapter with definitions, references, type and diagnostic evidence.
 - [x] Implement a direct TypeScript Language Service candidate adapter with definitions, references, quick-info and diagnostics; approval/spike comparison against Serena remains open.
 - [x] Handle unsupported languages and unknown DI/dynamic refs explicitly as uncertainty, not negative proof.

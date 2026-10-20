@@ -53,6 +53,8 @@ export interface LocalCodeIndexerOptions {
   readonly candidateCache?: CodeCandidateCachePort;
   /** Lowercase SHA-256 of the candidate-builder/parser identity. */
   readonly candidateProviderFingerprint?: string;
+  /** Human-readable parser/grammar identity retained in the coverage manifest. */
+  readonly parserVersion?: string;
 }
 
 interface Span {
@@ -64,6 +66,33 @@ interface Span {
 
 const defaultExtensions = ['.cjs', '.js', '.jsx', '.mjs', '.ts', '.tsx'];
 const tsExtensions = new Set(defaultExtensions);
+
+const coverageFailureKinds: readonly IndexCoverageFailure['kind'][] = [
+  'read_failed',
+  'binary_source',
+  'invalid_utf8',
+  'digest_raced',
+  'structural_failed',
+  'digest_mismatch',
+  'parser_partial',
+  'unsupported_parser',
+];
+
+const snapshotDigest = (snapshot: {
+  readonly headRevision: string;
+  readonly files: readonly { readonly repoPath: RepoPath; readonly digest: ContentDigest; readonly sizeBytes: number; readonly state: string }[];
+  readonly removedPaths: readonly RepoPath[];
+  readonly gitStatus?: string;
+}): ContentDigest => createHash('sha256')
+  .update(JSON.stringify({
+    headRevision: snapshot.headRevision,
+    files: [...snapshot.files]
+      .map((file) => [file.repoPath, file.digest, file.sizeBytes, file.state])
+      .sort((left, right) => String(left[0]).localeCompare(String(right[0]))),
+    removedPaths: [...snapshot.removedPaths].sort(),
+    gitStatus: snapshot.gitStatus ?? null,
+  }), 'utf8')
+  .digest('hex') as ContentDigest;
 
 const candidateId = (workspaceId: WorkspaceId, repoPath: RepoPath, digest: ContentDigest, span: Span): string =>
   createHash('sha256')
@@ -173,6 +202,9 @@ export const buildLocalCodeIndex = (
     const extensions = new Set(options.extensions ?? defaultExtensions);
     const snapshot = yield* files.snapshot(rootPath, Date.now());
     if (snapshot._tag === 'Err') return snapshot;
+    const sourceSnapshotDigest = snapshotDigest(snapshot.value);
+    const parserVersion = options.parserVersion
+      ?? (options.structural === undefined ? `typescript/${ts.version}|compiler-spans-v1` : 'unverified-structural-provider');
     let index = indexResult.value;
     const warnings: string[] = [];
     const indexedPaths: RepoPath[] = [];
@@ -222,7 +254,16 @@ export const buildLocalCodeIndex = (
       const exact = yield* files.readExact(rootPath, observation.repoPath);
       if (exact._tag === 'Err') {
         warnings.push(observation.repoPath + ': ' + exact.error.code);
-        coverageFailures.push({ repoPath: observation.repoPath, kind: 'read_failed', code: exact.error.code });
+        coverageFailures.push({
+          repoPath: observation.repoPath,
+          kind: exact.error.code === 'WORKTREE_RACED' ? 'digest_raced' : 'read_failed',
+          code: exact.error.code,
+        });
+        continue;
+      }
+      if (exact.value.digest !== observation.digest) {
+        warnings.push(observation.repoPath + ': source digest changed after workspace snapshot');
+        coverageFailures.push({ repoPath: observation.repoPath, kind: 'digest_raced' });
         continue;
       }
       fileManifest.set(observation.repoPath, {
@@ -387,11 +428,27 @@ export const buildLocalCodeIndex = (
       warnings,
       indexedPaths,
       coverage: {
+        schemaVersion: 1,
+        sourceSnapshotDigest,
+        parserVersion,
         attemptedPaths,
         indexedPaths: indexedPaths.length,
         policyExcludedPaths,
         outOfScopePaths,
         failedPaths: coverageFailures.length,
+        failureCounts: coverageFailureKinds.reduce<Record<IndexCoverageFailure['kind'], number>>((counts, kind) => {
+          counts[kind] = coverageFailures.filter((failure) => failure.kind === kind).length;
+          return counts;
+        }, {
+          read_failed: 0,
+          binary_source: 0,
+          invalid_utf8: 0,
+          digest_raced: 0,
+          structural_failed: 0,
+          digest_mismatch: 0,
+          parser_partial: 0,
+          unsupported_parser: 0,
+        }),
         failures: coverageFailures,
       },
       structuralCacheHits,

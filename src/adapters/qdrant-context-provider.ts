@@ -206,11 +206,15 @@ export const codeIndexKey = (
       candidate.text,
     ]);
   const coverageIdentity = coverage === undefined ? undefined : {
+    schemaVersion: coverage.schemaVersion,
+    sourceSnapshotDigest: coverage.sourceSnapshotDigest,
+    parserVersion: coverage.parserVersion,
     attemptedPaths: coverage.attemptedPaths,
     indexedPaths: coverage.indexedPaths,
     policyExcludedPaths: coverage.policyExcludedPaths,
     outOfScopePaths: coverage.outOfScopePaths,
     failedPaths: coverage.failedPaths,
+    failureCounts: coverage.failureCounts,
     failures: [...coverage.failures]
       .map((failure) => [failure.repoPath, failure.kind, failure.code ?? null])
       .sort((left, right) => String(left[0]).localeCompare(String(right[0]))),

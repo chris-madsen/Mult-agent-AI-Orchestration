@@ -62,6 +62,7 @@ export type IndexCoverageFailureKind =
   | 'read_failed'
   | 'binary_source'
   | 'invalid_utf8'
+  | 'digest_raced'
   | 'structural_failed'
   | 'digest_mismatch'
   | 'parser_partial'
@@ -80,11 +81,17 @@ export interface IndexFileIdentity {
 }
 
 export interface IndexCoverageSummary {
+  readonly schemaVersion: 1;
+  /** Digest of the immutable workspace snapshot metadata used for this scan. */
+  readonly sourceSnapshotDigest: ContentDigest;
+  /** Parser/grammar identity used for candidate extraction, never an observation epoch. */
+  readonly parserVersion: string;
   readonly attemptedPaths: number;
   readonly indexedPaths: number;
   readonly policyExcludedPaths: number;
   readonly outOfScopePaths: number;
   readonly failedPaths: number;
+  readonly failureCounts: Readonly<Record<IndexCoverageFailureKind, number>>;
   readonly failures: readonly IndexCoverageFailure[];
 }
 
