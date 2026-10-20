@@ -69,6 +69,39 @@ Before marking W11 complete, record the actual cluster/node/provider versions an
 
 Store only safe metadata/request IDs/digests in the evidence report.
 
+The ten checks have stable evidence IDs in the same order:
+
+| ID | Required observation |
+| --- | --- |
+| `K3S-01` | committed + uncommitted + untracked files visible through mTLS |
+| `K3S-02` | unknown workspace rejected |
+| `K3S-03` | traversal/absolute/backslash/empty-segment paths rejected |
+| `K3S-04` | escaping symlink rejected |
+| `K3S-05` | read race never produces false-current bytes |
+| `K3S-06` | invalid/expired/untrusted client certificate rejected |
+| `K3S-07` | valid certificate cannot bypass workspace map |
+| `K3S-08` | helper + ACE restart recover without worktree mutation |
+| `K3S-09` | source byte digests unchanged before/after acceptance run |
+| `K3S-10` | firewall/network policy prevents unrelated reachability |
+
+After the real run, create a repository-contained raw JSON report with exactly one record for every ID. A `PASS` record requires the exact safe command, at least one observation and at least one retained artifact digest. `NOT_RUN`/`BLOCKED` require a limitation and never count as passing.
+
+Finalize it with:
+
+```bash
+npm run evidence:k3s-worktree -- \
+  artifacts/k3s-worktree/raw-run.json \
+  artifacts/k3s-worktree/evidence.json
+```
+
+For a hard gate:
+
+```bash
+ACE_REQUIRE_K3S_WORKTREE_EVIDENCE=true npm run evidence:k3s-worktree -- ...
+```
+
+Only an exact-commit report with all ten PASS records emits `evidence = real-k3s-live-worktree`. Any missing/failed/not-run check or artifact digest mismatch remains incomplete and cannot satisfy the production release preflight.
+
 ## Rollback and failure policy
 
 Rollback is to stop/remove the helper endpoint and unset `ACE_WORKTREE_HELPER_URL`. ACE must then report the live-worktree capability as unavailable/not-ready unless an explicitly approved local mode is being used. **Never** fall back to a writable `hostPath`, arbitrary cloud source upload, or a different unapproved filesystem path.
