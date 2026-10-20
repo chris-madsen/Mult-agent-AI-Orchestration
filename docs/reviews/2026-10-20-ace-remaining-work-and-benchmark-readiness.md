@@ -1,7 +1,8 @@
 # ACE remaining work and benchmark-readiness audit
 
 **Date:** 2026-10-20  
-**Reviewed main:** `024987da4f4c7be4641d5faf897f58dc18ce5610`  
+**Reviewed main:** `5a033daaa44b5a4540c71e8c1be59d6f0d5a1283`  
+**Owner update:** 2026-10-20 — use **Qwen3:14b** as the experimental local-only Graphiti extraction LLM on the owner's 64 GB RAM machine; no discrete-GPU assumption. This selects the model for the experiment, not a mandatory serving runtime.  
 **Prior gap review:** [2026-10-20-unified-ace-production-gap-review.md](../plans/2026-10-20-unified-ace-production-gap-review.md)  
 **Purpose:** separate work required to measure ACE efficacy from work required for a full-unified production release, remove accidental critical-path items, and prefer supported upstream solutions over new in-repository infrastructure.
 
@@ -16,7 +17,7 @@ Before trusting an automated natural-use benchmark verdict, fix the remaining Ha
 Therefore there are now **two explicit finish lines**:
 
 1. **Benchmark-ready:** fix F-05, use native Codex authentication, run native vs optional-natural ACE on the pinned configuration, then run a frozen multi-repository holdout before making a general savings claim.
-2. **Full-unified production-ready:** finish the memory correctness/provider work, real Vertex and k3s evidence, provider selections, release-integrity issues, exact-release DBC evidence, supply-chain/resource gates and final owner sign-off.
+2. **Full-unified production-ready:** finish the memory correctness/provider work, including real Graphiti lifecycle evidence with the owner-selected experimental **Qwen3:14b** local extractor, real Vertex and k3s evidence, provider selections, release-integrity issues, exact-release DBC evidence, supply-chain/resource gates and final owner sign-off.
 
 The historical forced-use Harbor result remains negative and honest: native used 891,950 raw tokens versus 1,571,768 for forced ACE, i.e. native/ACE = 0.567482x. It does **not** answer whether an unprompted Codex agent will naturally use ACE and save tokens.
 
@@ -31,7 +32,7 @@ Consequently the product-code findings F-01…F-11 below have not been silently 
 | Reported item | Needed for token benchmark? | Needed for full production? | Disposition |
 | --- | --- | --- | --- |
 | owner approval for embedding + semantic provider | **No** for exploratory/natural efficacy benchmark | **Yes** | Keep as release/provider-selection gate, after evidence. Do not block the first natural-use run. |
-| Amplifier OAuth device login + live model catalog | **No** | **No**, absent a separate product decision to support Amplifier | Remove from ACE critical path. Harbor already supports native Codex auth; benchmark models should be pinned, not discovered dynamically. |
+| Amplifier OAuth device login + live model catalog | **No** | **No** for the selected local Graphiti path | Remove from ACE critical path. Harbor already supports native Codex auth. For Graphiti, Qwen3:14b is now the selected experimental local extractor. Amplifier remains only a contingency if the local extractor fails the frozen Graphiti quality gate and the owner explicitly reopens a subscription-backed cloud path. |
 | supported upstream local Graphiti embedder/reranker | No for code-only token benchmark | **Yes** for full local-first memory | Use upstream Graphiti facilities/configuration. Do not build an ACE-specific embedding/reranking stack for Graphiti. |
 | Vertex synthetic import/citation authorization | No for code-only token benchmark | **Yes** for docs/DBC-14 | The narrow synthetic/public scope and Europe corpus are already authorized in the accepted execution plan; remaining work is the real import/retrieval evidence under actual IAM/GCS, not a new architecture project. |
 | k3s network containment | No for Docker Harbor efficacy benchmark | **Yes** for the accepted production deployment | Mostly already implemented with standard Kubernetes NetworkPolicy; remaining work is environment-specific allow rules plus real K3S-01…10 evidence. Do not build a custom network-policy system. |
@@ -62,11 +63,15 @@ Upstream references:
 - Harbor Codex auth handling: https://github.com/harbor-framework/harbor/blob/main/src/harbor/agents/installed/codex.py
 - Amplifier ChatGPT provider: https://github.com/microsoft/amplifier-module-provider-openai-chatgpt
 
-**Decision:** do not add Amplifier to ACE or to the Harbor critical path unless there is a separate owner-approved goal to benchmark/support Amplifier itself.
+**Decision:** do not add Amplifier to ACE or to the Harbor critical path. It is also **not required for the selected Graphiti path**: the owner has selected Qwen3:14b for the local extraction experiment. Amplifier is only a Plan B if Qwen3:14b fails the frozen Graphiti extraction/recall/structured-output gate and the owner explicitly authorizes a subscription-backed cloud-memory path.
 
-### 1.3 Graphiti local inference — integrate upstream, do not recreate it
+### 1.3 Graphiti local inference — Qwen3:14b selected; integrate upstream, do not recreate it
 
-Full local-first memory does require a real LLM + embedding + reranking path, but ACE should configure Graphiti rather than implement Graphiti's inference stack.
+**Owner decision (2026-10-20):** use **Qwen3:14b** as the experimental local-only Graphiti extraction LLM. The target development machine has **64 GB system RAM** and the experiment must not assume a high-end discrete GPU. This closes the “which experimental local LLM should we try first?” question; agents should not restart an open-ended model-selection search before running the actual Graphiti quality/lifecycle gate.
+
+This decision selects the **model**, not a mandatory serving product. Serve Qwen3:14b through a mature OpenAI-compatible local runtime supported by Graphiti's `OpenAIGenericClient`. Ollama remains permitted as an experiment/runtime convenience but must not become a required/default ACE dependency; llama.cpp/vLLM/another maintained compatible runtime is equally valid if it is the cleaner fit on the target host.
+
+Full local-first memory still requires a real LLM + embedding + reranking path, but ACE should configure Graphiti rather than implement Graphiti's inference stack.
 
 Current upstream Graphiti already provides:
 - `OpenAIGenericClient` / OpenAI-compatible local LLM endpoint support;
@@ -79,10 +84,14 @@ There is one upstream caveat worth preserving rather than “fixing” locally: 
 
 Preferred integration:
 1. pin a known Graphiti upstream revision/release;
-2. use its `OpenAIGenericClient` against a loopback OpenAI-compatible local LLM;
+2. run **Qwen3:14b** locally behind a loopback OpenAI-compatible endpoint and connect Graphiti through upstream `OpenAIGenericClient`;
 3. use its upstream OpenAI-compatible embedder against a supported local embedding endpoint;
 4. use Graphiti's upstream local BGE reranker;
-5. retain exact model/revision/runtime identities in the Graphiti lifecycle evidence.
+5. retain the exact Qwen3 model/artifact identity, quantization (if any), serving runtime/version, structured-output mode, embedder/reranker identities and machine fingerprint in Graphiti lifecycle evidence;
+6. run a frozen Graphiti extraction/recall gate before production promotion, covering at least accepted-vs-proposed decisions, superseded decisions, constraints, preferences, unresolved questions, temporal updates, contradictions, irrelevant chatter, and RU/EN/mixed-language episodes;
+7. record JSON/schema failure rate, extraction/recall quality, false facts, temporal correctness, per-episode latency and peak RSS on the 64 GB RAM target host.
+
+**Acceptance rule:** Qwen3:14b is the selected first candidate, not an automatic production approval. If it is accurate enough but slow on CPU, keep it as an asynchronous/background projection worker rather than weakening extraction quality. Only if it fails the frozen correctness/structured-output gate should another model/backend be considered.
 
 If a future upstream release fixes the advertised SentenceTransformers provider, switch by configuration. Until then, keep the workaround outside ACE domain logic.
 
@@ -241,7 +250,7 @@ These are bounded defects. They should not expand into new provider frameworks.
 1. **Embedding selection:** larger frozen multi-repo comparison + model/license/target-host evidence → owner approval.
 2. **Semantic selection:** matched Serena vs direct TypeScript LS on the same fixture/oracle → owner approval or explicit ADR revision.
 3. **Retrieval quality:** frozen lexical/dense/hybrid ablation and patch-quality behavior.
-4. **Graphiti:** run upstream local inference + FalkorDB lifecycle, real crash/reconcile/purge, backup/restore and local-egress proof. Configure upstream components; do not create an ACE inference stack.
+4. **Graphiti:** run **Qwen3:14b** through an upstream-compatible local OpenAI endpoint + Graphiti + FalkorDB; execute the frozen extraction/recall/structured-output gate, then real lifecycle, crash/reconcile/purge, backup/restore and local-egress proof. Record latency/RSS on the 64 GB RAM target host. Configure upstream components; do not create an ACE inference stack or introduce Amplifier unless the Qwen3:14b gate fails and the owner explicitly reopens that Plan B.
 5. **Vertex:** execute the already-implemented synthetic import/citation conflict run.
 6. **k3s:** add site-specific helper/optional cloud egress rules and execute K3S-01…10.
 7. **W12:** mixed-provider security/failure/race matrix using the selected real providers.
@@ -288,7 +297,7 @@ No new item enters the benchmark critical path unless it can explain **how it wo
 
 Using that rule:
 - F-05 and actual natural Harbor execution are B.
-- Amplifier is D.
+- Amplifier is D / **Plan B only**; Qwen3:14b is now the selected first Graphiti extraction candidate.
 - Graphiti/Vertex/k3s/supply-chain are P.
 - final owner sign-off is P.
 - 5× is a result to measure, not a prerequisite.
@@ -301,7 +310,7 @@ This prevents the project from recursively making “production completeness” 
 
 **Benchmark result worth relying on:** after F-05 is fixed, run the existing native + optional-natural smoke, then freeze/run the larger multi-repository holdout. That is the point at which we can say whether the current ACE code-retrieval configuration actually saves agent tokens without degrading task quality.
 
-**Full-unified production release:** later and separately, after the P-class memory/docs/k3s/provider/release gates above.
+**Full-unified production release:** later and separately, after the P-class memory/docs/k3s/provider/release gates above. For Graphiti specifically, the next step is no longer model selection: it is to run Qwen3:14b locally on the 64 GB RAM target host and collect frozen extraction/recall + lifecycle evidence.
 
 The key change is therefore not another technical subsystem. It is to **stop waiting for production closure before running the product-efficacy experiment**.
 
