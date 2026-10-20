@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-20T11:57:14.308Z",
+  "evidence": "operations-backup-restore-incomplete",
+  "sourceCommit": "cd245e098a577973c3ab9d167da1252d6e037d01",
+  "currentCommit": "cd245e098a577973c3ab9d167da1252d6e037d01",
+  "rawRun": {
+    "path": "benchmarks/reports/backup-restore-raw-run-2026-10-20.json",
+    "sha256": "5f2bd681d7b61661b8976c8aa8349ee1f6db597a25d9b1a030a8247025254e40"
+  },
+  "environment": {
+    "aceVersion": "0.1.0",
+    "qdrantVersion": "qdrant-1.19.2-running-but-not-restored",
+    "graphitiVersion": "unavailable-local-mcp-command",
+    "falkorDbVersion": "falkordb-running-no-restore-run",
+    "deployment": "host-local-synthetic-roundtrip"
+  },
+  "checks": [
+    {
+      "id": "OPS-01",
+      "verdict": "PASS",
+      "artifacts": [
+        {
+          "path": "benchmarks/reports/operations-local-memory-roundtrip-2026-10-20.json",
+          "sha256": "dd2837210f9b39e3a131fbb34a5e7e74f9036501c5434706cb4d26611d7507bc",
+          "kind": "synthetic local archive backup/verify/restore receipt"
+        }
+      ]
+    },
+    {
+      "id": "OPS-02",
+      "verdict": "BLOCKED",
+      "artifacts": []
+    },
+    {
+      "id": "OPS-03",
+      "verdict": "BLOCKED",
+      "artifacts": []
+    },
+    {
+      "id": "OPS-04",
+      "verdict": "BLOCKED",
+      "artifacts": []
+    },
+    {
+      "id": "OPS-05",
+      "verdict": "BLOCKED",
+      "artifacts": []
+    },
+    {
+      "id": "OPS-06",
+      "verdict": "PASS",
+      "artifacts": [
+        {
+          "path": "benchmarks/reports/operations-local-memory-roundtrip-2026-10-20.json",
+          "sha256": "dd2837210f9b39e3a131fbb34a5e7e74f9036501c5434706cb4d26611d7507bc",
+          "kind": "isolated restore safety receipt"
+        }
+      ]
+    }
+  ],
+  "verdict": {
+    "evidence": "operations-backup-restore-incomplete",
+    "sourceCommit": "cd245e098a577973c3ab9d167da1252d6e037d01",
+    "allPassed": false,
+    "failures": [
+      "blocked:OPS-02",
+      "blocked:OPS-03",
+      "blocked:OPS-04",
+      "blocked:OPS-05"
+    ]
+  }
+}
