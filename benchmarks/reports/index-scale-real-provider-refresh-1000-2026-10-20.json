@@ -1,0 +1,219 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-20T13:33:53.080Z",
+  "sourceCommit": "fb76e9002f78df4547153bab0c39c8255f5502d4",
+  "fixture": {
+    "baselineFiles": 1000,
+    "requestedChangedFiles": 10,
+    "gitDirty": true,
+    "d1Path": "src/item-000.ts",
+    "d1Digest": "ce289d591befc2c5b3b18a4cfce1b6696d238b38de6312f9f593ac7f821b404c",
+    "d2Digest": "8f67178cdc88ee7087b09ae09f6d636d4288c3cb5f43557f6f88ea109a5564bf"
+  },
+  "runtime": {
+    "node": "v24.15.0",
+    "qdrant": "qdrant/1.19.2",
+    "embeddingWorker": "fastembed-worker.sh",
+    "treeSitterHelper": "tree-sitter-structural.py"
+  },
+  "phases": [
+    {
+      "phase": "cold",
+      "elapsedMs": 100566.507056,
+      "metrics": {
+        "generation": 1,
+        "indexedPaths": 1000,
+        "candidates": 1000,
+        "coverageFailed": 0,
+        "structuralCacheHits": 0,
+        "structuralCacheMisses": 1000,
+        "candidateCacheHits": 0,
+        "candidateCacheMisses": 1000,
+        "deltaAdded": 1000,
+        "deltaChanged": 0,
+        "deltaDeleted": 0,
+        "deltaRenamed": 0,
+        "deltaUnchanged": 0,
+        "reusedVectors": 0,
+        "indexMode": "rebuilt",
+        "collection": "ace_code_ddb8fb78ca6d_7c7e364f0c53_6b8415e1559a",
+        "embeddingIdentity": "6b8415e1559a",
+        "structuralIdentity": "0ec80d6b4183",
+        "retrievalFingerprint": "b06c1391174d63b17f20f6332f49216260f315f9188c07bc74b32052fe0b46d8",
+        "indexKey": "8cd81a75878fdc601977f75be33ab8cf8fa5797b6480bd8645a89298ef1439ac"
+      },
+      "response": {
+        "requestId": "940af4eb-93e6-4ace-ae2e-324b0d542619",
+        "complete": true,
+        "evidenceCount": 6,
+        "codeEvidence": [
+          {
+            "citation": "src/item-000.ts:2-2",
+            "sourceDigest": "ce289d591befc2c5b3b18a4cfce1b6696d238b38de6312f9f593ac7f821b404c",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-350.ts:2-2",
+            "sourceDigest": "bd5ec3a4e1d140a4b72bbcb1df2e8584e8e1bbc459f6973ea58e5e032a648449",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-200.ts:2-2",
+            "sourceDigest": "8a2c32cac326e549c32190df69533328756c5fe689a0ef667a368620ea263e80",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-474.ts:2-2",
+            "sourceDigest": "902fd6633e254cc3de855603fca9dfebfec623714fda688da212b426bdcc3dca",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-479.ts:2-2",
+            "sourceDigest": "fea9c5b7bb2183aeeafad6c76fd1899ea07600fe49ceab209b42a541c18524b0",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-255.ts:2-2",
+            "sourceDigest": "9acfcc54116045cd09ea0a51fef83068cd2265ceacaef05c16f0bc8ab7e6a05c",
+            "freshness": "current"
+          }
+        ]
+      }
+    },
+    {
+      "phase": "warm",
+      "elapsedMs": 8194.215838,
+      "metrics": {
+        "generation": 2,
+        "indexedPaths": 1000,
+        "candidates": 1000,
+        "coverageFailed": 0,
+        "structuralCacheHits": 0,
+        "structuralCacheMisses": 0,
+        "candidateCacheHits": 1000,
+        "candidateCacheMisses": 0,
+        "deltaAdded": 0,
+        "deltaChanged": 0,
+        "deltaDeleted": 0,
+        "deltaRenamed": 0,
+        "deltaUnchanged": 1000,
+        "reusedVectors": 1000,
+        "indexMode": "warm_reused",
+        "collection": "ace_code_ddb8fb78ca6d_7c7e364f0c53_6b8415e1559a",
+        "embeddingIdentity": "6b8415e1559a",
+        "structuralIdentity": "0ec80d6b4183",
+        "retrievalFingerprint": "b06c1391174d63b17f20f6332f49216260f315f9188c07bc74b32052fe0b46d8",
+        "indexKey": "8cd81a75878fdc601977f75be33ab8cf8fa5797b6480bd8645a89298ef1439ac"
+      },
+      "response": {
+        "requestId": "f06e689c-5827-4b36-b6c3-336236335c5b",
+        "complete": true,
+        "evidenceCount": 6,
+        "codeEvidence": [
+          {
+            "citation": "src/item-000.ts:2-2",
+            "sourceDigest": "ce289d591befc2c5b3b18a4cfce1b6696d238b38de6312f9f593ac7f821b404c",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-350.ts:2-2",
+            "sourceDigest": "bd5ec3a4e1d140a4b72bbcb1df2e8584e8e1bbc459f6973ea58e5e032a648449",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-200.ts:2-2",
+            "sourceDigest": "8a2c32cac326e549c32190df69533328756c5fe689a0ef667a368620ea263e80",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-474.ts:2-2",
+            "sourceDigest": "902fd6633e254cc3de855603fca9dfebfec623714fda688da212b426bdcc3dca",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-479.ts:2-2",
+            "sourceDigest": "fea9c5b7bb2183aeeafad6c76fd1899ea07600fe49ceab209b42a541c18524b0",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-255.ts:2-2",
+            "sourceDigest": "9acfcc54116045cd09ea0a51fef83068cd2265ceacaef05c16f0bc8ab7e6a05c",
+            "freshness": "current"
+          }
+        ]
+      }
+    },
+    {
+      "phase": "change-only",
+      "elapsedMs": 10310.870191,
+      "metrics": {
+        "generation": 3,
+        "indexedPaths": 1000,
+        "candidates": 1000,
+        "coverageFailed": 0,
+        "structuralCacheHits": 0,
+        "structuralCacheMisses": 12,
+        "candidateCacheHits": 988,
+        "candidateCacheMisses": 12,
+        "deltaAdded": 1,
+        "deltaChanged": 10,
+        "deltaDeleted": 1,
+        "deltaRenamed": 1,
+        "deltaUnchanged": 988,
+        "reusedVectors": 988,
+        "indexMode": "rebuilt",
+        "collection": "ace_code_ddb8fb78ca6d_7c7e364f0c53_6b8415e1559a",
+        "embeddingIdentity": "6b8415e1559a",
+        "structuralIdentity": "0ec80d6b4183",
+        "retrievalFingerprint": "b06c1391174d63b17f20f6332f49216260f315f9188c07bc74b32052fe0b46d8",
+        "indexKey": "9e40d69a1794cda94a3858754dee24ee2de93c515bb31409bebaed79dc31147a"
+      },
+      "response": {
+        "requestId": "e2817c20-6112-4c89-ae5e-e53ae39c010e",
+        "complete": true,
+        "evidenceCount": 6,
+        "codeEvidence": [
+          {
+            "citation": "src/item-000.ts:2-2",
+            "sourceDigest": "8f67178cdc88ee7087b09ae09f6d636d4288c3cb5f43557f6f88ea109a5564bf",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-350.ts:2-2",
+            "sourceDigest": "bd5ec3a4e1d140a4b72bbcb1df2e8584e8e1bbc459f6973ea58e5e032a648449",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-200.ts:2-2",
+            "sourceDigest": "8a2c32cac326e549c32190df69533328756c5fe689a0ef667a368620ea263e80",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-474.ts:2-2",
+            "sourceDigest": "902fd6633e254cc3de855603fca9dfebfec623714fda688da212b426bdcc3dca",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-479.ts:2-2",
+            "sourceDigest": "fea9c5b7bb2183aeeafad6c76fd1899ea07600fe49ceab209b42a541c18524b0",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-255.ts:2-2",
+            "sourceDigest": "9acfcc54116045cd09ea0a51fef83068cd2265ceacaef05c16f0bc8ab7e6a05c",
+            "freshness": "current"
+          }
+        ]
+      }
+    }
+  ],
+  "claims": {
+    "coldMeasured": true,
+    "warmReuseVerified": true,
+    "changeOnlyMeasured": true,
+    "contentIndexKeyTransitionVerified": true,
+    "d2CitationDigestVerified": true,
+    "renameDeleteUntrackedObserved": true,
+    "note": "This runner measures real-provider startup/index/query behavior only. Production acceptance still requires the selected provider identities, repeated measurements and retained evidence."
+  }
+}
