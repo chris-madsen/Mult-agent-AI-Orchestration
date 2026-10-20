@@ -13,6 +13,7 @@ import {
   verifyQdrantSnapshotMembership,
   makeQdrantContextProvider,
   populateQdrantFromStructuralIndex,
+  probeQdrantService,
 } from '../src/adapters/qdrant-context-provider.js';
 import { createCodeIndex, makeCandidateId, makeCodeCandidate } from '../src/domain/retrieval.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
@@ -52,6 +53,31 @@ const candidate = mustOk(makeCodeCandidate({
   conflictKey: 'reconnect-policy',
   conflictValue: 'current code retries immediately',
 }));
+
+test('Qdrant service probe is namespace-independent and fails before embedding startup on outage', async () => {
+  const urls: string[] = [];
+  const reachable: HttpPort = {
+    request: (request) => {
+      urls.push(request.url);
+      return Effect.succeed(ok({ status: 200, body: { result: { collections: [] } } }));
+    },
+  };
+  const ready = await Effect.runPromise(probeQdrantService(
+    reachable,
+    'http://127.0.0.1:6333',
+  ));
+  assert.equal(ready._tag, 'Ok');
+  assert.deepEqual(urls, ['http://127.0.0.1:6333/collections']);
+
+  const unavailable: HttpPort = {
+    request: () => Effect.succeed(err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'offline'))),
+  };
+  const failed = await Effect.runPromise(probeQdrantService(
+    unavailable,
+    'http://127.0.0.1:6333',
+  ));
+  assert.equal(failed._tag, 'Err');
+});
 
 test('Qdrant collection bootstrap is additive and rejects mismatched dimensions', async () => {
   const requests: string[] = [];

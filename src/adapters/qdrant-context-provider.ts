@@ -94,6 +94,27 @@ export const populateQdrantFromStructuralIndex = (
   return ok(count);
 });
 
+export const probeQdrantService = (
+  http: HttpPort,
+  baseUrl: string,
+  allowedHosts: readonly string[] = [],
+): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
+  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
+  if (endpoint._tag === 'Err') return endpoint;
+  const response = yield* http.request({
+    method: 'GET',
+    url: endpoint.value + '/collections',
+  });
+  if (response._tag === 'Err') return response;
+  return response.value.status >= 200 && response.value.status < 300
+    ? ok(undefined)
+    : err(domainError(
+      'EXTERNAL_UNAVAILABLE',
+      'qdrant',
+      'Qdrant service probe failed: HTTP ' + response.value.status,
+    ));
+});
+
 // Collection bootstrap never replaces an existing collection. After a successful
 // rebuild, obsolete generations for the same workspace may be pruned explicitly.
 // Vector dimension must match the configured experimental embedding provider.

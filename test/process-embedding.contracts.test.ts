@@ -3,6 +3,8 @@ import test from 'node:test';
 import { Effect } from 'effect';
 import {
   makeProcessEmbeddingPort,
+  verifiedEmbeddingIdentityFingerprint,
+  type EmbeddingWorkerIdentity,
   type ResolvedEmbeddingConfig,
 } from '../src/adapters/process-embedding.js';
 
@@ -67,6 +69,27 @@ test('embedding process requires and exposes a matching effective worker identit
   } finally {
     port.close();
   }
+});
+
+
+
+test('verified embedding namespace fingerprint changes with effective artifact or runtime identity', () => {
+  const identity: EmbeddingWorkerIdentity = {
+    ...expected,
+    runtimeBuild: `fixture-worker.js#${digest}`,
+    runtimeVersion: 'node/fixture-runtime-1',
+  };
+  const base = verifiedEmbeddingIdentityFingerprint(identity);
+  assert.match(base, /^[a-f0-9]{64}$/u);
+  assert.equal(verifiedEmbeddingIdentityFingerprint({ ...identity }), base);
+  assert.notEqual(
+    verifiedEmbeddingIdentityFingerprint({ ...identity, artifactDigest: 'b'.repeat(64) }),
+    base,
+  );
+  assert.notEqual(
+    verifiedEmbeddingIdentityFingerprint({ ...identity, runtimeVersion: 'node/fixture-runtime-2' }),
+    base,
+  );
 });
 
 test('embedding process rejects an inconsistent execution mode receipt', async () => {
