@@ -25,7 +25,7 @@ test('interrupted-writer runner proves alias-not-switched recovery and active S1
   assert.match(script, /restartPublishedS2/u);
   assert.match(script, /reader\.query\('stableSnapshotSentinel stable-sentinel-v1'\)/u);
   assert.match(script, /reader\.query\('stableSnapshotSentinel stable-sentinel-v1', true\)/u);
-  assert.match(script, /reader must expose partial coverage/u);
+  assert.match(script, /readerRejectedDirtyTreeWithoutOldComplete/u);
   assert.match(script, /restartedWriter\.query\('mutableSnapshotSentinel mutable-sentinel-v2'\)/u);
   assert.match(script, /current alias/u);
   assert.match(script, /immutableCollectionsAreDistinct/u);

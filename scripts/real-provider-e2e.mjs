@@ -62,7 +62,12 @@ const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
     ACE_QDRANT_URL: outage || hardOutage ? 'http://127.0.0.1:6339' : qdrantUrl,
     ACE_EMBEDDING_WORKER: resolve(import.meta.dirname, 'fastembed-worker.sh'),
     ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
-    ...(race ? { ACE_EMBEDDING_DELAY_MS: '1000' } : {}),
+    ...(race ? {
+      // The runtime forwards the artificial delay only under its explicit
+      // test-only double opt-in; production runs never receive this knob.
+      ACE_ENABLE_TEST_FAILPOINTS: 'true',
+      ACE_EMBEDDING_DELAY_MS: '1000',
+    } : {}),
   },
   stdio: ['pipe', 'pipe', 'pipe'],
 });

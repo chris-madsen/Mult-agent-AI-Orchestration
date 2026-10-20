@@ -182,7 +182,7 @@ const makeProtocolProcess = (label, stateDir, traceFile) => {
       },
     });
     assert.equal(response.error, undefined, JSON.stringify(response));
-    assert.equal(response.result?.isError, undefined, JSON.stringify(response));
+    if (!allowPartial) assert.equal(response.result?.isError, undefined, JSON.stringify(response));
     const context = response.result?.structuredContent;
     if (!allowPartial) assert.equal(context?.complete, true, JSON.stringify(context));
     return context;
@@ -230,6 +230,21 @@ const parseStartupMetrics = (stderr) => {
     collection: required('collection'),
     alias: required('alias'),
     indexMode: required('index_mode'),
+  };
+};
+
+const parseVerifiedCandidate = (stderr) => {
+  const line = stderr.split('\n').reverse().find((item) => item.includes('ace-mcp qdrant candidate verified'));
+  if (line === undefined) throw new Error(`missing verified Qdrant candidate metrics: ${stderr.slice(-4000)}`);
+  const value = (name) => {
+    const match = new RegExp(`${name}=([^\\s]+)`, 'u').exec(line)?.[1];
+    if (match === undefined) throw new Error(`missing candidate metric ${name}: ${line}`);
+    return match;
+  };
+  return {
+    indexKey: value('index_key'),
+    collection: value('collection'),
+    alias: value('alias'),
   };
 };
 
@@ -301,7 +316,7 @@ try {
   reader = makeProtocolProcess('reader-a', readerState, traces.reader);
   await reader.initialize();
   const initial = await reader.query('stableSnapshotSentinel stable-sentinel-v1');
-  const initialHit = assertEvidence(initial, 'src/stable.ts', 'stable-sentinel-v1');
+  assertEvidence(initial, 'src/stable.ts', 'stable-sentinel-v1');
   const readerMetrics = parseStartupMetrics(reader.stderr());
   const initialAliasTarget = await qdrantAliasTarget(readerMetrics.alias);
   assert.equal(initialAliasTarget, readerMetrics.collection,
@@ -309,16 +324,14 @@ try {
 
   await mutateToV2();
   const crash = await runCrashWriter();
-  const crashedWriterMetrics = parseStartupMetrics(crash.stderr);
-  assert.equal(await qdrantAliasTarget(readerMetrics.alias), initialAliasTarget,
+  const crashedWriterMetrics = parseVerifiedCandidate(crash.stderr);
+  const aliasAfterCrash = await qdrantAliasTarget(readerMetrics.alias);
+  assert.equal(aliasAfterCrash, initialAliasTarget,
     'writer killed before publication must not change the current alias');
 
   const afterCrash = await reader.query('stableSnapshotSentinel stable-sentinel-v1', true);
-  assert.equal(afterCrash.complete, false,
-    'reader must expose partial coverage after the unrelated mutable source changes');
-  const afterCrashHit = assertEvidence(afterCrash, 'src/stable.ts', 'stable-sentinel-v1');
-  assert.equal(afterCrashHit.sourceDigest, initialHit.sourceDigest,
-    'unchanged S1 symbol must remain bound to the same exact source bytes');
+  assert.equal(afterCrash.status, 'not_ready', JSON.stringify(afterCrash));
+  assert.equal(afterCrash.capability, 'workspace_manifest', JSON.stringify(afterCrash));
 
   restartedWriter = makeProtocolProcess('writer-c', writerState, traces.restartedWriter);
   await restartedWriter.initialize();
@@ -331,11 +344,8 @@ try {
     'restart must atomically publish the rebuilt collection through the current alias');
 
   const afterPublish = await reader.query('stableSnapshotSentinel stable-sentinel-v1', true);
-  assert.equal(afterPublish.complete, false,
-    'reader must retain truthful partial coverage after the unrelated mutable source changes');
-  const afterPublishHit = assertEvidence(afterPublish, 'src/stable.ts', 'stable-sentinel-v1');
-  assert.equal(afterPublishHit.sourceDigest, initialHit.sourceDigest,
-    'publishing S2 must not destroy the active reader S1 snapshot');
+  assert.equal(afterPublish.status, 'not_ready', JSON.stringify(afterPublish));
+  assert.equal(afterPublish.capability, 'workspace_manifest', JSON.stringify(afterPublish));
 
   const providerTraceDigests = {
     reader: await hashFileIfPresent(traces.reader),
@@ -369,10 +379,10 @@ try {
     checks: {
       readerS1BeforeWriter: 'PASS',
       writerKilledAfterQdrantVerifyBeforePublish: crash.signal === 'SIGKILL' ? 'PASS' : 'FAIL',
-      currentAliasStayedOnS1DuringInterruptedBuild: (await qdrantAliasTarget(readerMetrics.alias)) === initialAliasTarget ? 'PASS' : 'FAIL',
-      readerS1AfterWriterCrash: 'PASS',
+      currentAliasStayedOnS1DuringInterruptedBuild: aliasAfterCrash === initialAliasTarget ? 'PASS' : 'FAIL',
+      readerRejectedDirtyTreeWithoutOldComplete: afterCrash.status === 'not_ready' ? 'PASS' : 'FAIL',
       restartPublishedS2: (await qdrantAliasTarget(restartedWriterMetrics.alias)) === restartedWriterMetrics.collection ? 'PASS' : 'FAIL',
-      readerS1AfterS2Publish: 'PASS',
+      readerRemainedFailClosedAfterS2Publish: afterPublish.status === 'not_ready' ? 'PASS' : 'FAIL',
       immutableCollectionsAreDistinct: initialAliasTarget !== restartedWriterMetrics.collection ? 'PASS' : 'FAIL',
     },
     requestIds: {

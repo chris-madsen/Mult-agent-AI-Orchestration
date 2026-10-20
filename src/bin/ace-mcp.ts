@@ -437,6 +437,7 @@ const main = async (): Promise<void> => {
                 readiness.unified_context = { state: 'not_ready', reason: 'qdrant_index_failed' };
                 process.stderr.write(`ace-mcp context NOT_READY: Qdrant indexing failed (${indexed.error.code}: ${indexed.error.message})\n`);
               } else {
+                process.stderr.write(`ace-mcp qdrant candidate verified workspace_id=${registered.value.workspaceId} index_key=${sourceKey} collection=${collection} alias=${currentAlias} reused_vectors=${indexed.value.reusedVectorCount}\n`);
                 if (runtimeTestFailpoint === 'after_qdrant_verify_before_publish') {
                   process.stderr.write(
                     'ace test failpoint reached name=after_qdrant_verify_before_publish\n',
@@ -571,7 +572,7 @@ const main = async (): Promise<void> => {
                   readiness.unified_context = built.value.coverage.failedPaths === 0
                     ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
                     : { state: 'degraded', reason: 'index_coverage_partial' };
-                  process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} embedding_identity=${embeddingFingerprint.slice(0, 12)} structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
+                  process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} source_snapshot_digest=${built.value.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
                 }
               }
             }
