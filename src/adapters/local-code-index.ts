@@ -17,7 +17,12 @@ import {
   type SemanticAnchorRange,
   type SourceRange,
 } from '../domain/retrieval.js';
-import type { StructuralAnalysisCachePort, StructuralAnalysisPort, WorkspaceFilePort } from '../application/ports.js';
+import type {
+  CodeCandidateCachePort,
+  StructuralAnalysisCachePort,
+  StructuralAnalysisPort,
+  WorkspaceFilePort,
+} from '../application/ports.js';
 import type { StructuralAnalysis } from '../domain/semantic.js';
 import { decodeStrictSourceText } from '../domain/source-text.js';
 import type { ContentDigest, RepoPath, WorkspaceId } from '../domain/workspace.js';
@@ -30,6 +35,8 @@ export interface LocalCodeIndexBuild {
   readonly coverage: IndexCoverageSummary;
   readonly structuralCacheHits: number;
   readonly structuralCacheMisses: number;
+  readonly candidateCacheHits: number;
+  readonly candidateCacheMisses: number;
   /** Exact digest membership for every in-scope source successfully read. */
   readonly fileManifest: readonly IndexFileIdentity[];
 }
@@ -43,6 +50,9 @@ export interface LocalCodeIndexerOptions {
   readonly structuralCache?: StructuralAnalysisCachePort;
   /** Lowercase SHA-256 of the actual parser/grammar/helper identity. */
   readonly structuralProviderFingerprint?: string;
+  readonly candidateCache?: CodeCandidateCachePort;
+  /** Lowercase SHA-256 of the candidate-builder/parser identity. */
+  readonly candidateProviderFingerprint?: string;
 }
 
 interface Span {
@@ -173,6 +183,8 @@ export const buildLocalCodeIndex = (
     let outOfScopePaths = 0;
     let structuralCacheHits = 0;
     let structuralCacheMisses = 0;
+    let candidateCacheHits = 0;
+    let candidateCacheMisses = 0;
     if (options.structuralCache !== undefined
       && (options.structuralProviderFingerprint === undefined
         || !/^[a-f0-9]{64}$/u.test(options.structuralProviderFingerprint))) {
@@ -180,6 +192,15 @@ export const buildLocalCodeIndex = (
         'INVALID_INPUT',
         'structural_provider_fingerprint',
         'structural cache requires an explicit lowercase SHA-256 provider fingerprint',
+      ));
+    }
+    if (options.candidateCache !== undefined
+      && (options.candidateProviderFingerprint === undefined
+        || !/^[a-f0-9]{64}$/u.test(options.candidateProviderFingerprint))) {
+      return err(domainError(
+        'INVALID_INPUT',
+        'candidate_provider_fingerprint',
+        'candidate cache requires an explicit lowercase SHA-256 provider fingerprint',
       ));
     }
     if (options.structural === undefined) {
@@ -215,8 +236,58 @@ export const buildLocalCodeIndex = (
         continue;
       }
       const source = decoded.text;
-      if (source.length === 0) continue;
+      if (source.length === 0) {
+        if (options.candidateCache !== undefined && options.candidateProviderFingerprint !== undefined) {
+          const persisted = yield* options.candidateCache.put({
+            workspaceId,
+            repoPath: observation.repoPath,
+            sourceDigest: exact.value.digest,
+            providerFingerprint: options.candidateProviderFingerprint,
+            entry: { candidates: [], parserPartial: false },
+          });
+          if (persisted._tag === 'Err') warnings.push(observation.repoPath + ': candidate cache write failed (' + persisted.error.code + ')');
+        }
+        indexedPaths.push(observation.repoPath);
+        continue;
+      }
+      if (options.candidateCache !== undefined && options.candidateProviderFingerprint !== undefined) {
+        const cached = yield* options.candidateCache.get({
+          workspaceId,
+          repoPath: observation.repoPath,
+          sourceDigest: exact.value.digest,
+          providerFingerprint: options.candidateProviderFingerprint,
+        });
+        if (cached._tag === 'Err') {
+          candidateCacheMisses += 1;
+          warnings.push(observation.repoPath + ': candidate cache unavailable (' + cached.error.code + '); rebuilding candidates');
+        } else if (cached.value !== undefined) {
+          candidateCacheHits += 1;
+          if (cached.value.parserPartial) {
+            warnings.push(observation.repoPath + ': cached structural analysis reports syntax errors; parseable symbols are partial evidence');
+            coverageFailures.push({ repoPath: observation.repoPath, kind: 'parser_partial' });
+          }
+          for (const candidate of cached.value.candidates) {
+            const refreshed = makeCodeCandidate({
+              ...candidate,
+              generation,
+              indexedAtMs: Date.now(),
+              invalidated: false,
+            });
+            if (refreshed._tag === 'Err') return refreshed;
+            const next = indexCandidate(index, refreshed.value);
+            if (next._tag === 'Err') return next;
+            index = next.value;
+            fileManifest.get(observation.repoPath)?.candidateIds.push(refreshed.value.candidateId);
+          }
+          indexedPaths.push(observation.repoPath);
+          continue;
+        } else {
+          candidateCacheMisses += 1;
+        }
+      }
+
       let spans: readonly Span[];
+      let parserPartial = false;
       if (options.structural !== undefined) {
         if (!tsExtensions.has(extension)) {
           warnings.push(observation.repoPath + ': Tree-sitter grammar not configured for this language');
@@ -266,6 +337,7 @@ export const buildLocalCodeIndex = (
         if (analyzedValue.hasSyntaxErrors) {
           warnings.push(observation.repoPath + ': Tree-sitter reports syntax errors; parseable symbols are partial evidence');
           coverageFailures.push({ repoPath: observation.repoPath, kind: 'parser_partial' });
+          parserPartial = true;
         }
         spans = treeSitterSpans(exact.value.bytes, analyzedValue.symbols);
       } else if (tsExtensions.has(extension)) {
@@ -275,6 +347,7 @@ export const buildLocalCodeIndex = (
         coverageFailures.push({ repoPath: observation.repoPath, kind: 'unsupported_parser' });
         continue;
       }
+      const builtCandidates = [];
       for (const span of spans) {
         const id = makeCandidateId(candidateId(workspaceId, observation.repoPath, exact.value.digest, span));
         if (id._tag === 'Err') return id;
@@ -295,6 +368,17 @@ export const buildLocalCodeIndex = (
         if (next._tag === 'Err') return next;
         index = next.value;
         fileManifest.get(observation.repoPath)?.candidateIds.push(candidate.value.candidateId);
+        builtCandidates.push(candidate.value);
+      }
+      if (options.candidateCache !== undefined && options.candidateProviderFingerprint !== undefined) {
+        const persisted = yield* options.candidateCache.put({
+          workspaceId,
+          repoPath: observation.repoPath,
+          sourceDigest: exact.value.digest,
+          providerFingerprint: options.candidateProviderFingerprint,
+          entry: { candidates: builtCandidates, parserPartial },
+        });
+        if (persisted._tag === 'Err') warnings.push(observation.repoPath + ': candidate cache write failed (' + persisted.error.code + ')');
       }
       indexedPaths.push(observation.repoPath);
     }
@@ -312,6 +396,8 @@ export const buildLocalCodeIndex = (
       },
       structuralCacheHits,
       structuralCacheMisses,
+      candidateCacheHits,
+      candidateCacheMisses,
       fileManifest: [...fileManifest.entries()]
         .map(([repoPath, value]) => ({
           repoPath,
