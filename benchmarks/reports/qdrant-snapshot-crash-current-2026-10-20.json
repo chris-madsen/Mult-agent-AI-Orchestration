@@ -35,5 +35,11 @@
     "crashedWriter": "fcead5d24fc9b2d5fbe84ec5585096af749d1fba73b502ebcd7a5da858f1d965",
     "restartedWriter": "22b53ba225f5def9e99ea3c31b84aeda4f6b4d63d96c1316895eaf9114d3d6c1"
   },
-  "note": "This is bounded real-provider C-A/W04 evidence only. It does not approve provider identities, performance budgets, DBC-13 or production release."
+  "note": "This is bounded real-provider C-A/W04 evidence only. It does not approve provider identities, performance budgets, DBC-13 or production release.",
+  "providerTraces": {
+    "reader": "benchmarks/reports/reader-provider-trace.jsonl",
+    "crashedWriter": "benchmarks/reports/crashedWriter-provider-trace.jsonl",
+    "restartedWriter": "benchmarks/reports/restartedWriter-provider-trace.jsonl",
+    "note": "Safe provider metadata only; no source/query/text payloads retained."
+  }
 }
