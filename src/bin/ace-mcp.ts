@@ -12,6 +12,7 @@ import {
   type SnapshotLease,
 } from '../adapters/file-qdrant-snapshot-state.js';
 import { makeFileStructuralAnalysisCache } from '../adapters/file-structural-analysis-cache.js';
+import { makeFileCodeCandidateCache } from '../adapters/file-code-candidate-cache.js';
 import { makeAsyncFileMemoryArchive } from '../adapters/file-memory-archive.js';
 import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
 import { makeHostWorkspacePort, makeMtlsHostHelperTransport } from '../adapters/host-worktree-helper.js';
@@ -359,6 +360,12 @@ const main = async (): Promise<void> => {
         : createHash('sha256')
           .update(`unverified-structural-runtime:${randomUUID()}`, 'utf8')
           .digest('hex');
+      const candidateProviderFingerprint = createHash('sha256')
+        .update(`candidate-builder-v1|${structuralFingerprint}`, 'utf8')
+        .digest('hex');
+      const candidateCache = structuralIdentity._tag === 'Ok'
+        ? await makeFileCodeCandidateCache(resolve(stateDirectory, 'candidate-cache'))
+        : undefined;
       const retrievalFingerprint = createHash('sha256')
         .update(JSON.stringify({
           embedding: embeddingFingerprint,
@@ -375,6 +382,10 @@ const main = async (): Promise<void> => {
         ...(structuralCache === undefined || structuralIdentity._tag === 'Err' ? {} : {
           structuralCache,
           structuralProviderFingerprint: structuralIdentity.value.fingerprint,
+        }),
+        ...(candidateCache === undefined ? {} : {
+          candidateCache,
+          candidateProviderFingerprint,
         }),
       }));
       if (built._tag === 'Err') {
@@ -521,7 +532,7 @@ const main = async (): Promise<void> => {
           readiness.unified_context = built.value.coverage.failedPaths === 0
             ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
             : { state: 'degraded', reason: 'index_coverage_partial' };
-          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} structural_cache_hits=${built.value.structuralCacheHits} structural_cache_misses=${built.value.structuralCacheMisses} embedding_identity=${embeddingFingerprint.slice(0, 12)} structural_identity=${structuralFingerprint.slice(0, 12)} snapshot_identity=${retrievalFingerprint.slice(0, 12)} delta_added=${fileDelta.added.length} delta_changed=${fileDelta.changed.length} delta_deleted=${fileDelta.deleted.length} delta_renamed=${fileDelta.renamed.length} delta_unchanged=${fileDelta.unchanged.length} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection}\n`);
+          process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} structural_cache_hits=${built.value.structuralCacheHits} structural_cache_misses=${built.value.structuralCacheMisses} candidate_cache_hits=${built.value.candidateCacheHits} candidate_cache_misses=${built.value.candidateCacheMisses} embedding_identity=${embeddingFingerprint.slice(0, 12)} structural_identity=${structuralFingerprint.slice(0, 12)} candidate_identity=${candidateProviderFingerprint.slice(0, 12)} snapshot_identity=${retrievalFingerprint.slice(0, 12)} delta_added=${fileDelta.added.length} delta_changed=${fileDelta.changed.length} delta_deleted=${fileDelta.deleted.length} delta_renamed=${fileDelta.renamed.length} delta_unchanged=${fileDelta.unchanged.length} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection}\n`);
         }
       }
     }

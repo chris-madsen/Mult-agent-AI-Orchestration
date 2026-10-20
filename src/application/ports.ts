@@ -101,6 +101,32 @@ export interface StructuralAnalysisCachePort {
   }) => Effect.Effect<Result<void, DomainError>>;
 }
 
+export interface CodeCandidateCacheEntry {
+  readonly candidates: readonly CodeCandidate[];
+  readonly parserPartial: boolean;
+}
+
+/**
+ * Immutable per-file candidate cache. A cache hit is valid only for the exact
+ * source digest and verified parser/candidate-builder fingerprint supplied by
+ * the caller; generation is deliberately not part of the identity.
+ */
+export interface CodeCandidateCachePort {
+  readonly get: (input: {
+    readonly workspaceId: WorkspaceId;
+    readonly repoPath: RepoPath;
+    readonly sourceDigest: ContentDigest;
+    readonly providerFingerprint: string;
+  }) => Effect.Effect<Result<CodeCandidateCacheEntry | undefined, DomainError>>;
+  readonly put: (input: {
+    readonly workspaceId: WorkspaceId;
+    readonly repoPath: RepoPath;
+    readonly sourceDigest: ContentDigest;
+    readonly providerFingerprint: string;
+    readonly entry: CodeCandidateCacheEntry;
+  }) => Effect.Effect<Result<void, DomainError>>;
+}
+
 export interface SemanticAnalysisPort {
   readonly definition: (input: SemanticQuery) => Effect.Effect<Result<readonly SemanticDefinition[], DomainError>>;
   readonly references: (input: SemanticQuery) => Effect.Effect<Result<readonly SemanticReference[], DomainError>>;
