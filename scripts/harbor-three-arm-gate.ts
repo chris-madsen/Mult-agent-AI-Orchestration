@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import {
   assessThreeArmReports,
@@ -62,6 +63,9 @@ const designFingerprint = createHash('sha256')
   .digest('hex');
 
 const report = {
+  schemaVersion: 1,
+  sourceCommit: process.env.ACE_EVIDENCE_SOURCE_COMMIT?.trim()
+    || execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   evidence: 'three-arm-harbor-comparison',
   design_fingerprint: designFingerprint,
   arms: {

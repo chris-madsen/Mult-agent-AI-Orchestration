@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
@@ -30,8 +31,11 @@ if (verdict._tag === 'Err') {
 }
 const output = {
   schemaVersion: 1,
+  sourceCommit: process.env.ACE_EVIDENCE_SOURCE_COMMIT?.trim()
+    || execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   policySha256: sha256(policyBytes),
   reports: reportEvidence,
+  providerIds: reports.map((report) => report.provider).sort(),
   fixtureSha256: policy.requiredFixtureSha256,
   oracleSha256: policy.requiredOracleSha256,
   verdict: verdict.value,

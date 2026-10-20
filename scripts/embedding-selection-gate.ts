@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
@@ -30,6 +31,8 @@ const main = async (): Promise<void> => {
 
   const output = {
     schemaVersion: 1,
+    sourceCommit: process.env.ACE_EVIDENCE_SOURCE_COMMIT?.trim()
+      || execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
     reportSha256: sha256(reportBytes),
     policySha256: sha256(policyBytes),
     evidenceStage: report.evidence_stage,

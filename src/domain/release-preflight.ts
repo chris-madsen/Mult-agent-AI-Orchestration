@@ -8,6 +8,7 @@ import {
 import { validateReleaseExternalEvidenceDocument } from './release-external-evidence.js';
 import { validateResourceBudgetEvidenceDocument } from './resource-budget-evidence.js';
 import { validateRuntimeConfigEvidenceDocument } from './runtime-config-evidence.js';
+import { validateReleaseAcceptanceArtifacts } from './release-artifact-validation.js';
 
 export type ReleaseCapability = 'code' | 'documentation' | 'memory';
 
@@ -111,6 +112,7 @@ export const evaluateReleasePreflight = (
   }
 
   const failures: string[] = [...dbcFailures(input.dbc, input.currentCommit)];
+  failures.push(...validateReleaseAcceptanceArtifacts(input, input.currentCommit));
 
   if (nested(input.embeddingSelection, 'verdict', 'productionApproved') !== true
     || nested(input.embeddingSelection, 'verdict', 'status') !== 'PRODUCTION_APPROVED') {

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
@@ -29,6 +30,8 @@ const verdict = evaluateRetrievalQualityPolicy(metrics.value, holdoutSha256, pol
 if (verdict._tag === 'Err') throw new Error(`${verdict.error.code}: ${verdict.error.message}`);
 await writeFile(resolve(outputArg as string), JSON.stringify({
   schemaVersion: 1,
+  sourceCommit: process.env.ACE_EVIDENCE_SOURCE_COMMIT?.trim()
+    || execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   holdoutSha256,
   runSha256: createHash('sha256').update(runBytes).digest('hex'),
   policySha256: createHash('sha256').update(policyBytes).digest('hex'),
