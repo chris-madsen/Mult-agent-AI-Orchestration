@@ -9,7 +9,7 @@ import { makeLspSemanticAnalysisPort, resolveLspProviderIdentity } from '../src/
 import type { Result } from '../src/domain/result.js';
 
 const mustOk = <Value, Error>(result: Result<Value, Error>): Value => {
-  if (result._tag !== 'Ok') throw new Error(String(result.error));
+  if (result._tag !== 'Ok') throw new Error(JSON.stringify(result.error));
   return result.value;
 };
 
@@ -51,13 +51,18 @@ const source = [
   'pub fn call() -> String { save() }',
   'pub fn invalid() { missing_name(); }',
 ].join('\n') + '\n';
-const cargo = '[package]\nname = "ace_non_ts_lsp_conformance"\nversion = "0.1.0"\nedition = "2021"\n';
 const sourcePath = 'src/lib.rs';
-const fixtureSha256 = sha256(`${cargo}\0${source}`);
+const rustProject = {
+  crates: [{ root_module: '<workspace>/src/lib.rs', edition: '2021', deps: [], cfg: [], env: {} }],
+};
+const fixtureSha256 = sha256(`${JSON.stringify(rustProject)}\0${source}`);
 
 try {
   await mkdir(join(rootPath, 'src'), { recursive: true });
-  await writeFile(join(rootPath, 'Cargo.toml'), cargo, 'utf8');
+  await writeFile(join(rootPath, 'rust-project.json'), JSON.stringify({
+    ...rustProject,
+    crates: [{ ...rustProject.crates[0], root_module: join(rootPath, sourcePath) }],
+  }), 'utf8');
   await writeFile(join(rootPath, sourcePath), source, 'utf8');
 
   const identity = mustOk(await Effect.runPromise(resolveLspProviderIdentity({
