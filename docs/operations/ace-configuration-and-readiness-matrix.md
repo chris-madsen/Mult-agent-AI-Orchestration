@@ -18,6 +18,31 @@ ACE has no `PRODUCTION=true` switch. Provider flags enable code paths; they do n
 
 A green process is not the same thing as a ready provider. `ace_workspace_status` is the runtime truth surface for configured capabilities; `ContextBundle.complete` is the per-request truth surface and is based on **required** source coverage, not on absence of thrown exceptions.
 
+## Startup failure disposition
+
+ACE intentionally distinguishes failures that make the process configuration itself unsafe from provider/capability failures that can be represented truthfully while the MCP process stays alive.
+
+| Failure class | Process behavior | Capability/readiness behavior | Operator meaning |
+| --- | --- | --- | --- |
+| Invalid/missing mandatory base config, workspace registration/observation failure, invalid host-helper mTLS configuration | **fatal** — startup exits non-zero | no runtime readiness claim | configuration/trust boundary is unusable; fix before restart |
+| Pinned embedding identity/receipt mismatch or embedding provider preflight failure | **fatal** — startup exits non-zero | no semantic retrieval claim | requested provider identity cannot be proven; do not fall back silently |
+| Snapshot manifest/lease persistence invariant failure or semantic snapshot identity race | **fatal** — startup exits non-zero | no current-source claim | continuing could break source/snapshot truth |
+| TypeScript Language Service construction/preflight failure after the selected real composition is being built | **fatal** — startup exits non-zero | no selected semantic-provider claim | selected semantic contract is unavailable |
+| Qdrant collection unavailable with fallback disabled | process stays alive | code/unified context = `not_ready` | MCP/tool surface may still report status; code retrieval is unavailable |
+| Qdrant collection unavailable with explicit local fallback enabled | process stays alive | code/unified context = `degraded` if fallback index builds, otherwise `not_ready` | development fallback only; never production semantic readiness |
+| Required embedding/Tree-sitter executable missing before provider startup | process stays alive | code/unified context = `not_ready` | installation/runtime dependency missing |
+| Structural index build or Qdrant population failure | process stays alive | code/unified context = `not_ready` | provider path exists but current index could not be made trustworthy |
+| Partial index coverage from explicit file failures | process stays alive | code/unified context = `degraded` | evidence may be returned, but required code coverage is incomplete |
+| Graphiti startup failure | process stays alive | memory = `not_ready` | code/docs can remain available; memory must not be represented as healthy |
+| Graphiti initialized but not health/lifecycle-proven | process stays alive | memory = `degraded` | integration is present but production memory evidence is still missing |
+| Vertex disabled or cloud opt-in absent | process stays alive | documentation = `disabled` | deliberate policy/config state, not a technical outage |
+| Vertex enabled but config missing | process stays alive | documentation = `not_ready` | requested capability cannot start |
+| Vertex configured but not provider-health-probed | process stays alive | documentation = `degraded` | configured path exists; real citation/provider acceptance still required |
+
+**Invariant:** a fatal startup failure is reserved for cases where continuing would make identity, source truth, persistence, or the selected provider contract ambiguous. A non-fatal failure must be visible through `ace_workspace_status` as `disabled`, `not_ready`, or `degraded`; it must never be converted into `ready` merely to keep the process alive.
+
+The k3s pod readiness probe checks container/config material only. It is not a provider-health probe and therefore cannot replace `ace_workspace_status` or release evidence.
+
 ## Code retrieval
 
 The current real local composition is:
