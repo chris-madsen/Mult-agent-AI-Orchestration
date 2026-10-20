@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "evidence": "dbc-current-release-manifest",
+  "generatedAt": "2026-10-20T14:26:27.102Z",
+  "sourceCommit": "e985c693a3cf7df36b2ccd3abfb94fc88ff08a1e",
+  "manifest": {
+    "path": "artifacts/dbc-evidence-e985c69/evidence.json",
+    "sha256": "907f2d953014a626cb3818fc74ce80fa41c0b7eea5cde9e05f867ccb9b65d4a0"
+  },
+  "summary": {
+    "pass": 0,
+    "fail": 0,
+    "notRun": 6,
+    "blocked": 8,
+    "allPassed": false
+  },
+  "status": "BLOCKED",
+  "blocker": "The exact-current manifest contains no PASS records; real provider and release gates remain blocked or not run.",
+  "note": "This is a truth baseline for W14, not an acceptance manifest and not a production readiness claim."
+}
