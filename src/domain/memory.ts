@@ -61,6 +61,8 @@ export type SessionEpisodeReference = Omit<SessionEpisode, 'content'> & {
 
 export interface MemoryDecisionState {
   readonly decisionId: DecisionId;
+  readonly subject: string;
+  readonly proposal: string;
   readonly state?: DecisionState;
   readonly historicalUncertainty: boolean;
 }
@@ -79,6 +81,8 @@ export interface MemorySearchResult {
   readonly hits: readonly MemorySearchHit[];
   readonly conflicts: readonly string[];
   readonly asOfMs?: number;
+  /** `as_of` is domain valid time, not archive/import transaction time. */
+  readonly temporalSemantics?: 'valid_time_occurred_at';
 }
 
 const nonEmpty = (value: string): boolean => value.trim().length > 0;
@@ -442,6 +446,8 @@ export const searchMemory = (
         .sort((left, right) => left.decision.decisionId.localeCompare(right.decision.decisionId))
         .map(({ decision, state }) => ({
           decisionId: decision.decisionId,
+          subject: decision.subject,
+          proposal: decision.proposal,
           ...(state.state === undefined ? {} : { state: state.state }),
           historicalUncertainty: state.historicalUncertainty,
         }));
@@ -466,7 +472,11 @@ export const searchMemory = (
       && other.subject === decision.subject
       && other.proposal !== decision.proposal))
     .map(({ decision }) => `conflicting accepted decisions for ${decision.subject}: ${decision.decisionId}`);
-  return { hits, conflicts: [...new Set(conflicts)], ...(asOfMs === undefined ? {} : { asOfMs }) };
+  return {
+    hits,
+    conflicts: [...new Set(conflicts)],
+    ...(asOfMs === undefined ? {} : { asOfMs, temporalSemantics: 'valid_time_occurred_at' as const }),
+  };
 };
 
 export const unsupportedMemoryImporter = (reason: string): Result<never, DomainError> =>
