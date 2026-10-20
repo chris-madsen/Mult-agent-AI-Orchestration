@@ -14,6 +14,7 @@ const policy = {
   ...defaultLocalPolicy(workspace.value),
   cloudOptIn: true,
   allowedCloudProviders: ['vertex'] as const,
+  allowedCloudDataClassesByProvider: { vertex: ['project_document'] as const },
 };
 
 test('Vertex retries exactly once with a newly acquired token after HTTP 401', async () => {
