@@ -1,0 +1,640 @@
+{
+  "schemaVersion": 1,
+  "provider": "serena",
+  "providerVersion": "serena-agent/2.0.0",
+  "fixtureSha256": "a797557e7a7dc451d395f786a7d675a517a573ee2aa1d6bf4486ae55f4f64459",
+  "oracleSha256": "2937a609f896df4470c86f1010b6602a9c8ed056e1f726f6dbd6837f89fd73f7",
+  "sourceCommit": "06dcd8504a3ab1cb99af0e114495ce0b2dd86516",
+  "firstPass": [
+    {
+      "item": {
+        "id": "same-name-user-definition",
+        "operation": "definition",
+        "query": {
+          "file": "src/repositories.ts",
+          "marker": "return repo.save(value);",
+          "token": "save"
+        },
+        "expected": {
+          "file": "src/repositories.ts",
+          "marker": "save(value: string): string { return `user:",
+          "token": "save"
+        }
+      },
+      "observation": {
+        "name": "save",
+        "namePath": "UserRepository/save",
+        "relativePath": "src/repositories.ts",
+        "line": 1,
+        "column": 2,
+        "kind": "Method"
+      },
+      "durationMs": 5138.027384
+    },
+    {
+      "item": {
+        "id": "same-name-audit-definition",
+        "operation": "definition",
+        "query": {
+          "file": "src/repositories.ts",
+          "marker": "return repo.save(value);",
+          "token": "save",
+          "markerOccurrence": 2
+        },
+        "expected": {
+          "file": "src/repositories.ts",
+          "marker": "save(value: string): string { return `audit:",
+          "token": "save"
+        }
+      },
+      "observation": {
+        "name": "save",
+        "namePath": "AuditRepository/save",
+        "relativePath": "src/repositories.ts",
+        "line": 5,
+        "column": 2,
+        "kind": "Method"
+      },
+      "durationMs": 117.50669400000152
+    },
+    {
+      "item": {
+        "id": "derived-override-definition",
+        "operation": "definition",
+        "query": {
+          "file": "src/services.ts",
+          "marker": "return service.run(value);",
+          "token": "run"
+        },
+        "expected": {
+          "file": "src/services.ts",
+          "marker": "override run(value: string): string",
+          "token": "run"
+        }
+      },
+      "observation": {
+        "name": "run",
+        "namePath": "DerivedService/run",
+        "relativePath": "src/services.ts",
+        "line": 5,
+        "column": 11,
+        "kind": "Method"
+      },
+      "durationMs": 134.56905300000108
+    },
+    {
+      "item": {
+        "id": "base-definition",
+        "operation": "definition",
+        "query": {
+          "file": "src/services.ts",
+          "marker": "return service.run(value);",
+          "token": "run",
+          "markerOccurrence": 2
+        },
+        "expected": {
+          "file": "src/services.ts",
+          "marker": "run(value: string): string { return `base:",
+          "token": "run"
+        }
+      },
+      "observation": {
+        "name": "run",
+        "namePath": "BaseService/run",
+        "relativePath": "src/services.ts",
+        "line": 1,
+        "column": 2,
+        "kind": "Method"
+      },
+      "durationMs": 108.72901400000046
+    },
+    {
+      "item": {
+        "id": "unicode-definition",
+        "operation": "definition",
+        "query": {
+          "file": "src/unicode.ts",
+          "marker": "return сохранить('  данные  ');",
+          "token": "сохранить"
+        },
+        "expected": {
+          "file": "src/unicode.ts",
+          "marker": "export function сохранить(",
+          "token": "сохранить"
+        }
+      },
+      "observation": {
+        "name": "сохранить",
+        "namePath": "сохранить",
+        "relativePath": "src/unicode.ts",
+        "line": 0,
+        "column": 16,
+        "kind": "Function"
+      },
+      "durationMs": 132.09529499999917
+    },
+    {
+      "item": {
+        "id": "alias-source-references",
+        "operation": "references",
+        "query": {
+          "file": "src/alias-source.ts",
+          "marker": "export function persistRecord(",
+          "token": "persistRecord"
+        },
+        "expectedReferenceMarkers": [
+          {
+            "file": "src/alias-source.ts",
+            "marker": "export function persistRecord(",
+            "token": "persistRecord"
+          },
+          {
+            "file": "src/alias-use.ts",
+            "marker": "persistRecord as saveAlias",
+            "token": "persistRecord"
+          },
+          {
+            "file": "src/alias-use.ts",
+            "marker": "return saveAlias(value);",
+            "token": "saveAlias"
+          }
+        ]
+      },
+      "observation": [],
+      "durationMs": 158.63517000000138
+    },
+    {
+      "item": {
+        "id": "write-references",
+        "operation": "references",
+        "query": {
+          "file": "src/writes.ts",
+          "marker": "let count = 0;",
+          "token": "count"
+        },
+        "expectedReferenceMarkers": [
+          {
+            "file": "src/writes.ts",
+            "marker": "let count = 0;",
+            "token": "count"
+          },
+          {
+            "file": "src/writes.ts",
+            "marker": "count = count + 1;",
+            "token": "count"
+          },
+          {
+            "file": "src/writes.ts",
+            "marker": "count += 2;",
+            "token": "count"
+          },
+          {
+            "file": "src/writes.ts",
+            "marker": "return count;",
+            "token": "count"
+          }
+        ]
+      },
+      "observation": [
+        {
+          "name": "updateCounter",
+          "namePath": "updateCounter",
+          "relativePath": "src/writes.ts",
+          "symbolLine": 0,
+          "symbolColumn": 16,
+          "referenceLine": 2,
+          "referenceColumn": 2,
+          "kind": "Function"
+        },
+        {
+          "name": "updateCounter",
+          "namePath": "updateCounter",
+          "relativePath": "src/writes.ts",
+          "symbolLine": 0,
+          "symbolColumn": 16,
+          "referenceLine": 2,
+          "referenceColumn": 10,
+          "kind": "Function"
+        },
+        {
+          "name": "updateCounter",
+          "namePath": "updateCounter",
+          "relativePath": "src/writes.ts",
+          "symbolLine": 0,
+          "symbolColumn": 16,
+          "referenceLine": 3,
+          "referenceColumn": 2,
+          "kind": "Function"
+        },
+        {
+          "name": "updateCounter",
+          "namePath": "updateCounter",
+          "relativePath": "src/writes.ts",
+          "symbolLine": 0,
+          "symbolColumn": 16,
+          "referenceLine": 4,
+          "referenceColumn": 9,
+          "kind": "Function"
+        }
+      ],
+      "durationMs": 132.66107100000045
+    },
+    {
+      "item": {
+        "id": "broken-diagnostics",
+        "operation": "diagnostics",
+        "query": {
+          "file": "src/broken.ts"
+        },
+        "expected": {
+          "minErrors": 1
+        }
+      },
+      "observation": {
+        "errorCount": 2,
+        "grouped": {
+          "src/broken.ts": {
+            "Error": {
+              "<file>": [
+                {
+                  "message": "'}' expected.",
+                  "range": {
+                    "start": {
+                      "line": 7,
+                      "character": 49
+                    },
+                    "end": {
+                      "line": 7,
+                      "character": 49
+                    }
+                  },
+                  "code": 1005,
+                  "source": "typescript"
+                }
+              ],
+              "broken": [
+                {
+                  "message": "Function lacks ending return statement and return type does not include 'undefined'.",
+                  "range": {
+                    "start": {
+                      "line": 4,
+                      "character": 39
+                    },
+                    "end": {
+                      "line": 4,
+                      "character": 45
+                    }
+                  },
+                  "code": 2366,
+                  "source": "typescript"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "durationMs": 465.74260200000026
+    },
+    {
+      "item": {
+        "id": "large-tail-definition",
+        "operation": "definition",
+        "query": {
+          "file": "src/large.ts",
+          "marker": "return tailSemanticTarget(' tail ');",
+          "token": "tailSemanticTarget"
+        },
+        "expected": {
+          "file": "src/large.ts",
+          "marker": "export function tailSemanticTarget(",
+          "token": "tailSemanticTarget"
+        }
+      },
+      "observation": {
+        "name": "tailSemanticTarget",
+        "namePath": "tailSemanticTarget",
+        "relativePath": "src/large.ts",
+        "line": 2101,
+        "column": 16,
+        "kind": "Function"
+      },
+      "durationMs": 333.5444779999998
+    }
+  ],
+  "warmPass": [
+    {
+      "item": {
+        "id": "same-name-user-definition",
+        "operation": "definition",
+        "query": {
+          "file": "src/repositories.ts",
+          "marker": "return repo.save(value);",
+          "token": "save"
+        },
+        "expected": {
+          "file": "src/repositories.ts",
+          "marker": "save(value: string): string { return `user:",
+          "token": "save"
+        }
+      },
+      "observation": {
+        "name": "save",
+        "namePath": "UserRepository/save",
+        "relativePath": "src/repositories.ts",
+        "line": 1,
+        "column": 2,
+        "kind": "Method"
+      },
+      "durationMs": 130.31258100000014
+    },
+    {
+      "item": {
+        "id": "same-name-audit-definition",
+        "operation": "definition",
+        "query": {
+          "file": "src/repositories.ts",
+          "marker": "return repo.save(value);",
+          "token": "save",
+          "markerOccurrence": 2
+        },
+        "expected": {
+          "file": "src/repositories.ts",
+          "marker": "save(value: string): string { return `audit:",
+          "token": "save"
+        }
+      },
+      "observation": {
+        "name": "save",
+        "namePath": "AuditRepository/save",
+        "relativePath": "src/repositories.ts",
+        "line": 5,
+        "column": 2,
+        "kind": "Method"
+      },
+      "durationMs": 110.79258200000004
+    },
+    {
+      "item": {
+        "id": "derived-override-definition",
+        "operation": "definition",
+        "query": {
+          "file": "src/services.ts",
+          "marker": "return service.run(value);",
+          "token": "run"
+        },
+        "expected": {
+          "file": "src/services.ts",
+          "marker": "override run(value: string): string",
+          "token": "run"
+        }
+      },
+      "observation": {
+        "name": "run",
+        "namePath": "DerivedService/run",
+        "relativePath": "src/services.ts",
+        "line": 5,
+        "column": 11,
+        "kind": "Method"
+      },
+      "durationMs": 125.86429700000008
+    },
+    {
+      "item": {
+        "id": "base-definition",
+        "operation": "definition",
+        "query": {
+          "file": "src/services.ts",
+          "marker": "return service.run(value);",
+          "token": "run",
+          "markerOccurrence": 2
+        },
+        "expected": {
+          "file": "src/services.ts",
+          "marker": "run(value: string): string { return `base:",
+          "token": "run"
+        }
+      },
+      "observation": {
+        "name": "run",
+        "namePath": "BaseService/run",
+        "relativePath": "src/services.ts",
+        "line": 1,
+        "column": 2,
+        "kind": "Method"
+      },
+      "durationMs": 107.90928600000007
+    },
+    {
+      "item": {
+        "id": "unicode-definition",
+        "operation": "definition",
+        "query": {
+          "file": "src/unicode.ts",
+          "marker": "return сохранить('  данные  ');",
+          "token": "сохранить"
+        },
+        "expected": {
+          "file": "src/unicode.ts",
+          "marker": "export function сохранить(",
+          "token": "сохранить"
+        }
+      },
+      "observation": {
+        "name": "сохранить",
+        "namePath": "сохранить",
+        "relativePath": "src/unicode.ts",
+        "line": 0,
+        "column": 16,
+        "kind": "Function"
+      },
+      "durationMs": 122.52309500000047
+    },
+    {
+      "item": {
+        "id": "alias-source-references",
+        "operation": "references",
+        "query": {
+          "file": "src/alias-source.ts",
+          "marker": "export function persistRecord(",
+          "token": "persistRecord"
+        },
+        "expectedReferenceMarkers": [
+          {
+            "file": "src/alias-source.ts",
+            "marker": "export function persistRecord(",
+            "token": "persistRecord"
+          },
+          {
+            "file": "src/alias-use.ts",
+            "marker": "persistRecord as saveAlias",
+            "token": "persistRecord"
+          },
+          {
+            "file": "src/alias-use.ts",
+            "marker": "return saveAlias(value);",
+            "token": "saveAlias"
+          }
+        ]
+      },
+      "observation": [],
+      "durationMs": 128.27384100000017
+    },
+    {
+      "item": {
+        "id": "write-references",
+        "operation": "references",
+        "query": {
+          "file": "src/writes.ts",
+          "marker": "let count = 0;",
+          "token": "count"
+        },
+        "expectedReferenceMarkers": [
+          {
+            "file": "src/writes.ts",
+            "marker": "let count = 0;",
+            "token": "count"
+          },
+          {
+            "file": "src/writes.ts",
+            "marker": "count = count + 1;",
+            "token": "count"
+          },
+          {
+            "file": "src/writes.ts",
+            "marker": "count += 2;",
+            "token": "count"
+          },
+          {
+            "file": "src/writes.ts",
+            "marker": "return count;",
+            "token": "count"
+          }
+        ]
+      },
+      "observation": [
+        {
+          "name": "updateCounter",
+          "namePath": "updateCounter",
+          "relativePath": "src/writes.ts",
+          "symbolLine": 0,
+          "symbolColumn": 16,
+          "referenceLine": 2,
+          "referenceColumn": 2,
+          "kind": "Function"
+        },
+        {
+          "name": "updateCounter",
+          "namePath": "updateCounter",
+          "relativePath": "src/writes.ts",
+          "symbolLine": 0,
+          "symbolColumn": 16,
+          "referenceLine": 2,
+          "referenceColumn": 10,
+          "kind": "Function"
+        },
+        {
+          "name": "updateCounter",
+          "namePath": "updateCounter",
+          "relativePath": "src/writes.ts",
+          "symbolLine": 0,
+          "symbolColumn": 16,
+          "referenceLine": 3,
+          "referenceColumn": 2,
+          "kind": "Function"
+        },
+        {
+          "name": "updateCounter",
+          "namePath": "updateCounter",
+          "relativePath": "src/writes.ts",
+          "symbolLine": 0,
+          "symbolColumn": 16,
+          "referenceLine": 4,
+          "referenceColumn": 9,
+          "kind": "Function"
+        }
+      ],
+      "durationMs": 125.9952030000004
+    },
+    {
+      "item": {
+        "id": "broken-diagnostics",
+        "operation": "diagnostics",
+        "query": {
+          "file": "src/broken.ts"
+        },
+        "expected": {
+          "minErrors": 1
+        }
+      },
+      "observation": {
+        "errorCount": 2,
+        "grouped": {
+          "src/broken.ts": {
+            "Error": {
+              "<file>": [
+                {
+                  "message": "'}' expected.",
+                  "range": {
+                    "start": {
+                      "line": 7,
+                      "character": 49
+                    },
+                    "end": {
+                      "line": 7,
+                      "character": 49
+                    }
+                  },
+                  "code": 1005,
+                  "source": "typescript"
+                }
+              ],
+              "broken": [
+                {
+                  "message": "Function lacks ending return statement and return type does not include 'undefined'.",
+                  "range": {
+                    "start": {
+                      "line": 4,
+                      "character": 39
+                    },
+                    "end": {
+                      "line": 4,
+                      "character": 45
+                    }
+                  },
+                  "code": 2366,
+                  "source": "typescript"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "durationMs": 461.6517210000002
+    },
+    {
+      "item": {
+        "id": "large-tail-definition",
+        "operation": "definition",
+        "query": {
+          "file": "src/large.ts",
+          "marker": "return tailSemanticTarget(' tail ');",
+          "token": "tailSemanticTarget"
+        },
+        "expected": {
+          "file": "src/large.ts",
+          "marker": "export function tailSemanticTarget(",
+          "token": "tailSemanticTarget"
+        }
+      },
+      "observation": {
+        "name": "tailSemanticTarget",
+        "namePath": "tailSemanticTarget",
+        "relativePath": "src/large.ts",
+        "line": 2101,
+        "column": 16,
+        "kind": "Function"
+      },
+      "durationMs": 226.50348400000075
+    }
+  ]
+}
