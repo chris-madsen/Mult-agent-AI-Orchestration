@@ -16,7 +16,7 @@ export interface ProjectDataPolicy {
    * means no data class is authorized for that provider.
    */
   readonly allowedCloudDataClassesByProvider: Readonly<
-    Partial<Record<Exclude<Destination, 'local'>, readonly Exclude<DataClass, 'secret'>[]>>
+  Partial<Record<Exclude<Destination, 'local'>, readonly Exclude<DataClass, 'secret'>[]>>
   >;
   readonly deniedPathPrefixes: readonly string[];
 }
