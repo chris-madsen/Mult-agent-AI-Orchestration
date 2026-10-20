@@ -186,6 +186,7 @@ test('BTC-05 policy contracts fail closed for secrets and cross-workspace action
     ...policy,
     cloudOptIn: true,
     allowedCloudProviders: ['vertex'] as const,
+    allowedCloudDataClassesByProvider: { vertex: ['public'] as const },
   };
   assert.equal(mustOk(authorizeOutbound({
     workspaceId,
