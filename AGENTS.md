@@ -11,7 +11,24 @@ These instructions apply to **all work in this repository** (`src/`, `test/`, `s
 - Respect the accepted PRD and ADRs as architecture decisions. The relevant OpenSpec capability specs and Meyer contracts define observable acceptance. Implementation notes, spikes, review reports and execution plans contain evidence or work instructions; they do **not** override accepted ADRs.
 - If decisions conflict, the current explicit owner decision and accepted ADR take precedence; record a proposed ADR for any material unresolved or changed choice. **Never silently settle an open production provider choice.** Experimental implementation is allowed when scoped, labeled and safe; production promotion needs evidence and owner approval.
 
-## 2. Architecture and build-versus-buy
+## 2. Technology baseline
+
+- **TypeScript / Node.js** is the primary implementation language and runtime. Keep core domain, application and runtime-composition logic in the existing TypeScript architecture unless a measured need and an approved architecture decision justify otherwise.
+- **Effect** is the primary application/runtime composition framework. Preserve typed effects, explicit dependencies and typed failure semantics rather than introducing ad-hoc hidden global state.
+- Use the official maintained **MCP TypeScript SDK** for production MCP client/server transport and protocol integration.
+- **Python is allowed at explicit tooling/provider boundaries** where mature libraries are materially better suited, including embedding/model workers, Tree-sitter-related helpers, experiments and benchmark tooling. Do not move core ACE domain/application logic into Python without an architectural reason.
+- Treat every Python/native subprocess as a real provider boundary: use a typed/versioned protocol, effective runtime/model identity, bounded timeouts, cancellation, safe stderr/logging and explicit failure semantics.
+- **Shell scripts** are for reproducible bootstrap, orchestration and evidence collection, not core business logic.
+- **Docker + Kubernetes/k3s** are the deployment/infrastructure layer. Do not create a new service merely to mirror a DDD bounded context.
+- **Qdrant** supplies local vector retrieval; **Tree-sitter/ast-grep** supplies structural facts; semantic code intelligence comes from an **evidence-selected language-service provider**. The current evaluated semantic candidates include direct TypeScript Language Service and Serena; neither wins by implementation inertia.
+- **Vertex AI RAG** is the selected provider role for authorized project documentation under the data-policy constraints.
+- **Graphiti + FalkorDB** provide local-first derived temporal/project memory; immutable archived originals remain authoritative.
+- **Harbor** is the agent-level evaluation/benchmark orchestration layer.
+- **Rust/native code is not a default implementation language.** Introduce it only when profiling/benchmarks show a material need and the architecture change is approved.
+- Do not introduce another implementation language or runtime when the task can be solved cleanly inside the existing TypeScript architecture.
+- Keep exact dependency and runtime versions in manifests, lockfiles, images and retained evidence rather than freezing fast-changing version numbers in this file.
+
+## 3. Architecture and build-versus-buy
 
 - Maintain **one TypeScript + Effect modular monolith** and DDD bounded contexts, with supporting external infrastructure rather than a microservice per context. Use Rust only when benchmarks justify it.
 - Prefer proven maintained engines, libraries and official protocols to custom replacements. Any proposal to build a parser, embedding algorithm, vector database, memory graph, MCP transport, benchmark orchestrator or other mature infrastructure must have an owner-approved ADR with a measurable reason.
@@ -22,7 +39,7 @@ These instructions apply to **all work in this repository** (`src/`, `test/`, `s
 - Where accepted ADRs prescribe a comparison between candidate providers, compare them on matched, reproducible fixtures before recommending a final production choice. A provider already implemented is not automatically the winner. Do not turn an open comparison into an arbitrary selection.
 - Jev remains an optional experimental strategy selector until explicitly approved. Avoid speculative dashboards, full observability stacks, full call-graph/CPG platforms and new services outside agreed scope.
 
-## 3. Source truth, retrieval and context completeness
+## 4. Source truth, retrieval and context completeness
 
 - **Current verified source bytes outrank index payload and derived documentation.** For each code citation retain workspace, path, digest/revision, exact range, evidence mechanism, freshness and uncertainty.
 - Structural symbols require **real parsed spans**; a regex-identified name mapped to the whole file is not a symbol-precise result. Semantic references/definitions require validated language-service evidence; identical names and write accesses are not sufficient proof of definition identity.
@@ -32,7 +49,7 @@ These instructions apply to **all work in this repository** (`src/`, `test/`, `s
 - Failure paths must distinguish `unavailable`, `stale`, `not_ready`, `policy_denied` and `not_required`. Optional providers are queried only when relevant and permitted. Test doubles and degraded fallback must be explicitly identified and cannot satisfy real-provider acceptance gates.
 - Keep filesystem hot paths efficient: prioritize indexed candidates and targeted verification; benchmark any unavoidable workspace-wide scan or reindexing.
 
-## 4. Security, privacy and lifecycle
+## 5. Security, privacy and lifecycle
 
 - **Source code and raw dialogues stay local by default.** Cloud transfer requires documented workspace/data-class opt-in and a destination-specific authorization check **at transmission time**. Authenticated cloud credentials by themselves do not authorize an upload, resource creation or billable operation.
 - Vertex documentation may use the available supported Google credentials (including an already authenticated host `gcloud` CLI where applicable); never assume credentials, IAM, a RAG corpus or ADC exist everywhere. Do not print, commit or retain access tokens in logs or fixtures. Use minimally scoped, short-lived credentials where possible.
@@ -41,7 +58,7 @@ These instructions apply to **all work in this repository** (`src/`, `test/`, `s
 - Import/replay, background projections, queue acknowledgements, tombstones, cleanup and deletion must be idempotent and recovery-safe. No deletion may destroy shared original blobs still referenced by another episode. Cross-process and crash consistency must be tested under the actual storage semantics.
 - ACE is read-only with respect to the user's worktree. Policy denial and secret leakage fail closed, with safe diagnostics. Technical outages may degrade **truthfully**, never by silently switching to a forbidden destination.
 
-## 5. Bertrand Meyer design-by-contract and quality gates
+## 6. Bertrand Meyer design-by-contract and quality gates
 
 For changes affecting a user-visible capability, define **observable**:
 - **Preconditions (`require`)**: schema-valid, authorized input, registered workspace, required capability and fixtures.
@@ -54,14 +71,14 @@ Use `docs/docs/architecture/07-architecture-fitness-contracts.md` and applicable
 
 Keep evidence stages separate: `contract-designed` → `adapter-implemented` → `real-provider-tested` → `agent-E2E-tested` → `benchmark-evaluated` → `owner-approved`. Unpassed mandatory checks remain unchecked; a controlled exception explains a blocker but never closes a production gate.
 
-## 6. Benchmarks and reporting
+## 7. Benchmarks and reporting
 
 - Use Harbor for **paired, pinned, retrieval-demanding real agent tasks** against a strong native Codex baseline. Verify actual ACE MCP call counts and attributed provider usage; zero ACE calls cannot establish ACE-caused benefit.
 - Compare accepted task quality first, then total input/output/cached tokens without double counting, external embedding/LLM/indexing costs, latency, source integrity and failures. Preserve raw trials and independent holdouts; do not tune on frozen holdouts.
 - A measured result below 5× (or a regression) must be reported honestly; **the performance target is not a prerequisite to running experiments or benchmarks**. Do not assert savings from a forced trivial task.
 - Do not fabricate test runs, relax assertions to hide defects, suppress failed provider attempts, or mark a production criterion passed from mock-only evidence.
 
-## 7. Repository change discipline
+## 8. Repository change discipline
 
 - Work in reviewable branches and PRs; do not push directly to `main` unless the owner explicitly authorizes that operation. Preserve unrelated edits.
 - For affected capabilities run typecheck, lint, unit/contract tests, OpenSpec validation, real-provider integration, SDK conformance and agent E2E **as applicable**. Report precisely what was run, skipped, unavailable and why.
