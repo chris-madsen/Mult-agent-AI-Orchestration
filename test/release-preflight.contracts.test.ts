@@ -101,6 +101,8 @@ const externalDocument = (name: ReleaseExternalEvidence['name']): unknown => {
       packageLockSha256: digest,
       sbomSha256: digest,
       imageDigest: `sha256:${digest}`,
+      baseImageDigest: `sha256:${'e'.repeat(64)}`,
+      baseImageReference: `node:22-bookworm-slim@sha256:${'e'.repeat(64)}`,
     },
   };
 };
