@@ -66,6 +66,20 @@ const defaultFastEmbedArtifactModel = 'qdrant/paraphrase-multilingual-MiniLM-L12
 const defaultFastEmbedArtifactRevision = 'faf4aa4225822f3bc6376869cb1164e8e3feedd0';
 const defaultEmbeddingPreprocessing = 'raw_text_v1';
 
+type RuntimeTestFailpoint = 'after_qdrant_verify_before_publish';
+
+const configuredRuntimeTestFailpoint = (): RuntimeTestFailpoint | undefined => {
+  const requested = process.env.ACE_TEST_FAILPOINT?.trim();
+  if (requested === undefined || requested.length === 0) return undefined;
+  if (process.env.ACE_ENABLE_TEST_FAILPOINTS !== 'true') {
+    throw new Error('ACE_TEST_FAILPOINT requires ACE_ENABLE_TEST_FAILPOINTS=true');
+  }
+  if (requested !== 'after_qdrant_verify_before_publish') {
+    throw new Error('ACE_TEST_FAILPOINT is not a supported failpoint');
+  }
+  return requested;
+};
+
 const gcloudAccessToken = (): string | undefined => {
   try {
     const token = execFileSync('gcloud', ['auth', 'print-access-token'], {
@@ -108,6 +122,7 @@ const makeDocumentationProvider = (
 };
 
 const main = async (): Promise<void> => {
+  const runtimeTestFailpoint = configuredRuntimeTestFailpoint();
   const rootPath = resolve(required('ACE_WORKSPACE_ROOT'));
   const allowedRoots = (process.env.ACE_ALLOWED_ROOTS ?? rootPath)
     .split(':')
@@ -495,6 +510,13 @@ const main = async (): Promise<void> => {
                 readiness.unified_context = { state: 'not_ready', reason: 'qdrant_index_failed' };
                 process.stderr.write(`ace-mcp context NOT_READY: Qdrant indexing failed (${indexed.error.code}: ${indexed.error.message})\n`);
               } else {
+                if (runtimeTestFailpoint === 'after_qdrant_verify_before_publish') {
+                  process.stderr.write(
+                    'ace test failpoint reached name=after_qdrant_verify_before_publish\n',
+                  );
+                  process.kill(process.pid, 'SIGKILL');
+                  throw new Error('test failpoint failed to terminate the process');
+                }
                 const publishedNow = await snapshotState.publish(snapshotIdentity);
                 if (publishedNow._tag === 'Err') {
                   embeddings.close();
