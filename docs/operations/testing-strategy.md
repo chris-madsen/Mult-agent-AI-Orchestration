@@ -20,6 +20,7 @@ This document describes the operational test loop. Normative capability acceptan
 | `npm run check` | TypeScript strict typecheck only | Explicit type gate |
 | `npm run build` | Emit `dist/`; incremental state is reused locally | Runtime/E2E preparation |
 | `npm run verify:pr` | Typecheck + full deterministic tests + lint + build | Once before handoff and in CI |
+| `npm run verify:pr:affected` | Typecheck + affected deterministic tests + lint + build | Narrow PR verification in CI |
 
 A clean CI worker installs dependencies once with:
 
@@ -80,13 +81,12 @@ Several expensive commands against unchanged source should reuse the same emitte
 
 ## CI policy
 
-The deterministic PR workflow:
+The deterministic PR workflow is scope-aware:
 
 1. checkout;
-2. install locked dependencies once with `npm ci --ignore-scripts`;
-3. run the Python embedding evaluator regressions;
-4. install the pinned structural test dependency;
-5. self-check the impact selector;
-6. run `npm run verify:pr`.
+2. classify the PR from its changed paths;
+3. for documentation/evidence-only changes, run `git diff --check` without installing Node dependencies;
+4. for narrow source/test/script changes, install locked dependencies once, install the pinned structural provider, and run `npm run verify:pr:affected` with the PR base as `ACE_TEST_BASE`;
+5. for package/lock/configuration/CI/infrastructure/fixture changes and every push to `main`, run the full `npm run verify:pr` gate.
 
 Provider/k3s/Harbor/release evidence remains separate because those jobs require capability-specific infrastructure, authorization and retained evidence. A green deterministic PR workflow does not imply those production gates passed.
