@@ -123,6 +123,30 @@ export interface MtlsHostHelperOptions {
   readonly maxResponseBytes?: number;
 }
 
+interface MtlsCredentialMaterial {
+  readonly ca: Buffer;
+  readonly cert: Buffer;
+  readonly key: Buffer;
+}
+
+const readMtlsCredentialMaterial = async (
+  options: Pick<MtlsHostHelperOptions, 'caFile' | 'certificateFile' | 'privateKeyFile'>,
+): Promise<Result<MtlsCredentialMaterial, DomainError>> => {
+  const [ca, cert, key] = await Promise.all([
+    readFile(options.caFile),
+    readFile(options.certificateFile),
+    readFile(options.privateKeyFile),
+  ]).catch(() => [undefined, undefined, undefined] as const);
+  if (ca === undefined || cert === undefined || key === undefined) {
+    return err(domainError(
+      'AUTH_REQUIRED',
+      'worktree_helper_tls',
+      'mTLS CA, client certificate and private key are required',
+    ));
+  }
+  return ok({ ca, cert, key });
+};
+
 export const makeMtlsHostHelperTransport = async (options: MtlsHostHelperOptions): Promise<Result<HostHelperTransport, DomainError>> => {
   let endpoint: URL;
   try {
@@ -133,57 +157,65 @@ export const makeMtlsHostHelperTransport = async (options: MtlsHostHelperOptions
   if (endpoint.protocol !== 'https:' || endpoint.username !== '' || endpoint.password !== '') {
     return err(domainError('INVALID_INPUT', 'worktree_helper_url', 'host helper requires an credential-free https URL'));
   }
-  const [ca, cert, key] = await Promise.all([
-    readFile(options.caFile),
-    readFile(options.certificateFile),
-    readFile(options.privateKeyFile),
-  ]).catch(() => [undefined, undefined, undefined] as const);
-  if (ca === undefined || cert === undefined || key === undefined) {
-    return err(domainError('AUTH_REQUIRED', 'worktree_helper_tls', 'mTLS CA, client certificate and private key are required'));
-  }
+  // Fail early at startup, but do not retain these bytes: projected Kubernetes
+  // Secrets can rotate while ACE is running. Each request reloads the current
+  // credential material before opening the TLS connection.
+  const initialCredentials = await readMtlsCredentialMaterial(options);
+  if (initialCredentials._tag === 'Err') return initialCredentials;
+
   const timeoutMs = options.timeoutMs ?? 30_000;
   const maxResponseBytes = options.maxResponseBytes ?? 64 * 1024 * 1024;
   return ok({
-    invoke: (payload) => new Promise((resolve) => {
-      const body = Buffer.from(JSON.stringify(payload), 'utf8');
-      const request = httpsRequest(endpoint, {
-        method: 'POST',
-        ca,
-        cert,
-        key,
-        rejectUnauthorized: true,
-        servername: endpoint.hostname,
-        headers: {
-          'content-type': 'application/json',
-          'content-length': String(body.length),
-        },
-      }, (response) => {
-        const chunks: Buffer[] = [];
-        let total = 0;
-        response.on('data', (chunk: Buffer) => {
-          total += chunk.length;
-          if (total > maxResponseBytes) {
-            response.destroy(new Error('host helper response exceeds limit'));
-            return;
-          }
-          chunks.push(chunk);
-        });
-        response.on('end', () => {
-          if (response.statusCode !== 200) {
-            resolve(err(domainError('EXTERNAL_UNAVAILABLE', 'worktree_helper', 'host helper returned HTTP ' + String(response.statusCode ?? 'unknown'))));
-            return;
-          }
-          try {
-            resolve(parseWireResult(JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown));
-          } catch {
-            resolve(err(domainError('INVALID_EXTERNAL_RESPONSE', 'worktree_helper', 'host helper returned invalid JSON')));
-          }
-        });
+    invoke: async (payload) => {
+      const credentials = await readMtlsCredentialMaterial(options);
+      if (credentials._tag === 'Err') return credentials;
+      return new Promise((resolve) => {
+        const body = Buffer.from(JSON.stringify(payload), 'utf8');
+        let request;
+        try {
+          request = httpsRequest(endpoint, {
+            method: 'POST',
+            ca: credentials.value.ca,
+            cert: credentials.value.cert,
+            key: credentials.value.key,
+            rejectUnauthorized: true,
+            servername: endpoint.hostname,
+            headers: {
+              'content-type': 'application/json',
+              'content-length': String(body.length),
+            },
+          }, (response) => {
+            const chunks: Buffer[] = [];
+            let total = 0;
+            response.on('data', (chunk: Buffer) => {
+              total += chunk.length;
+              if (total > maxResponseBytes) {
+                response.destroy(new Error('host helper response exceeds limit'));
+                return;
+              }
+              chunks.push(chunk);
+            });
+            response.on('end', () => {
+              if (response.statusCode !== 200) {
+                resolve(err(domainError('EXTERNAL_UNAVAILABLE', 'worktree_helper', 'host helper returned HTTP ' + String(response.statusCode ?? 'unknown'))));
+                return;
+              }
+              try {
+                resolve(parseWireResult(JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown));
+              } catch {
+                resolve(err(domainError('INVALID_EXTERNAL_RESPONSE', 'worktree_helper', 'host helper returned invalid JSON')));
+              }
+            });
+          });
+        } catch {
+          resolve(err(domainError('AUTH_REQUIRED', 'worktree_helper_tls', 'mTLS credential material is invalid')));
+          return;
+        }
+        request.setTimeout(timeoutMs, () => request.destroy(new Error('host helper timed out')));
+        request.on('error', () => resolve(err(domainError('EXTERNAL_UNAVAILABLE', 'worktree_helper', 'mTLS host helper request failed'))));
+        request.end(body);
       });
-      request.setTimeout(timeoutMs, () => request.destroy(new Error('host helper timed out')));
-      request.on('error', () => resolve(err(domainError('EXTERNAL_UNAVAILABLE', 'worktree_helper', 'mTLS host helper request failed'))));
-      request.end(body);
-    }),
+    },
   });
 };
 
