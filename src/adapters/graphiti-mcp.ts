@@ -284,6 +284,7 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
             .map(({ episode, facts }) => ({
               episode: stripOriginal(episode, input.includeOriginal),
               matchingExcerpt: facts.join('\n'),
+              decisionStates: [],
             }));
           return ok({
             hits,

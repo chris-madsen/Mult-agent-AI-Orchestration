@@ -59,9 +59,18 @@ export type SessionEpisodeReference = Omit<SessionEpisode, 'content'> & {
   readonly content?: Uint8Array;
 };
 
+export interface MemoryDecisionState {
+  readonly decisionId: DecisionId;
+  readonly state?: DecisionState;
+  readonly historicalUncertainty: boolean;
+}
+
 export interface MemorySearchHit {
   readonly episode: SessionEpisodeReference;
   readonly matchingExcerpt: string;
+  /** Every decision sourced by this episode that is applicable at the requested valid time. */
+  readonly decisionStates: readonly MemoryDecisionState[];
+  /** Backward-compatible summary; omitted when multiple decisions would make it ambiguous. */
   readonly decisionState?: DecisionState;
   readonly historicalUncertainty?: boolean;
 }
@@ -423,14 +432,28 @@ export const searchMemory = (
     .filter((item) => item.matches.length > 0)
     .sort((left, right) => right.matches.length - left.matches.length || right.episode.occurredAtMs - left.episode.occurredAtMs)
     .map(({ episode, matches }) => {
-      const decision = decisions.find((candidate) => candidate.workspaceId === episode.workspaceId
-        && candidate.sourceEpisodeIds.includes(episode.episodeId));
-      const state = decision === undefined ? undefined : decisionStateAt(decision, asOfMs);
+      const decisionStates = decisions
+        .filter((candidate) => candidate.workspaceId === episode.workspaceId
+          && candidate.sourceEpisodeIds.includes(episode.episodeId))
+        .map((decision) => ({ decision, state: decisionStateAt(decision, asOfMs) }))
+        // A decision that is not valid yet must not appear as a current state.
+        // Legacy records remain visible as explicitly uncertain evidence.
+        .filter(({ state }) => state.state !== undefined || state.historicalUncertainty)
+        .sort((left, right) => left.decision.decisionId.localeCompare(right.decision.decisionId))
+        .map(({ decision, state }) => ({
+          decisionId: decision.decisionId,
+          ...(state.state === undefined ? {} : { state: state.state }),
+          historicalUncertainty: state.historicalUncertainty,
+        }));
+      const singleDecisionState = decisionStates.length === 1 ? decisionStates[0]?.state : undefined;
       return {
         episode,
         matchingExcerpt: matches.join(', '),
-        ...(state?.state === undefined ? {} : { decisionState: state.state }),
-        ...(state?.historicalUncertainty === true ? { historicalUncertainty: true } : {}),
+        decisionStates,
+        ...(singleDecisionState === undefined ? {} : { decisionState: singleDecisionState }),
+        ...(decisionStates.some((decision) => decision.historicalUncertainty)
+          ? { historicalUncertainty: true }
+          : {}),
       };
     });
   const effective = decisions

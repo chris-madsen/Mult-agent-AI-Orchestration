@@ -226,10 +226,52 @@ test('MVC-03 memory search is as-of and reports conflicting accepted claims', ()
   assert.equal(result.hits.length, 1);
   assert.equal(result.hits[0]?.episode.episodeId, first.episodeId);
   assert.equal(result.hits[0]?.decisionState, 'Accepted');
+  assert.deepEqual(result.hits[0]?.decisionStates.map((decision) => decision.decisionId), ['a']);
   assert.equal(result.conflicts.length, 2);
   const beforeAcceptance = searchMemory([first], 'decision', 11, [acceptedA]);
   assert.equal(beforeAcceptance.hits[0]?.decisionState, 'Proposed');
   assert.equal(decisionStateAt(acceptedA, 11).state, 'Proposed');
+});
+
+test('memory search returns every applicable decision for one episode without an ambiguous summary', () => {
+  const episode: SessionEpisode = {
+    episodeId: 'episode-multi-decision' as never, workspaceId, sessionId: 's-multi', sourcePointer: 'codex://s-multi/1',
+    occurredAtMs: 10, importedAtMs: 100, contentDigest: digest('multi'), content: new Uint8Array([1]),
+    searchText: 'shared decision', tombstoned: false,
+  };
+  const first = mustOk(makeDecisionRecord({
+    decisionId: 'decision-a' as never, workspaceId, subject: 'shared', proposal: 'first', validFromMs: 1,
+    sourceEpisodeIds: [episode.episodeId],
+  }));
+  const second = mustOk(makeDecisionRecord({
+    decisionId: 'decision-b' as never, workspaceId, subject: 'shared', proposal: 'second', validFromMs: 1,
+    sourceEpisodeIds: [episode.episodeId],
+  }));
+  const acceptedFirst = mustOk(transitionDecision(first, {
+    type: 'confirm', atMs: 11, approvalIdentity: 'owner:alice', sourceEpisodeIds: [episode.episodeId],
+  }));
+  const acceptedSecond = mustOk(transitionDecision(second, {
+    type: 'confirm', atMs: 12, approvalIdentity: 'owner:alice', sourceEpisodeIds: [episode.episodeId],
+  }));
+
+  const result = searchMemory([episode], 'shared', 12, [acceptedSecond, acceptedFirst]);
+  assert.deepEqual(result.hits[0]?.decisionStates, [
+    { decisionId: 'decision-a', state: 'Accepted', historicalUncertainty: false },
+    { decisionId: 'decision-b', state: 'Accepted', historicalUncertainty: false },
+  ]);
+  assert.equal(result.hits[0]?.decisionState, undefined);
+});
+
+test('as-of uses inclusive valid time, keeps late imports, and excludes tombstones', () => {
+  const lateImport: SessionEpisode = {
+    episodeId: 'episode-late-import' as never, workspaceId, sessionId: 's-late', sourcePointer: 'codex://s-late/1',
+    occurredAtMs: 10, importedAtMs: 100, contentDigest: digest('late'), content: new Uint8Array([1]),
+    searchText: 'late decision', tombstoned: false,
+  };
+  const visible = searchMemory([lateImport], 'late', 10);
+  assert.equal(visible.hits.length, 1, 'import time is not a hidden knowledge-time cutoff');
+  const tombstoned = searchMemory([{ ...lateImport, tombstoned: true }], 'late', 10);
+  assert.equal(tombstoned.hits.length, 0, 'tombstoned episodes are never returned');
 });
 
 test('RTE-01 deterministic routing handles exact symbols and ambiguous memory questions', () => {
