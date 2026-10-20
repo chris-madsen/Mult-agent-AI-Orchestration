@@ -124,11 +124,7 @@ const parseArgs = () => {
   return { base, dryRun, selfTest };
 };
 
-const detectBase = (explicitBase) => {
-  if (explicitBase) return explicitBase;
-  if (git(['rev-parse', '--verify', '--quiet', 'origin/main'], { allowFailure: true })) return 'origin/main';
-  return 'HEAD';
-};
+const detectBase = (explicitBase) => explicitBase ?? 'HEAD';
 
 const changedFilesFromGit = (base) => {
   const changed = new Set();
