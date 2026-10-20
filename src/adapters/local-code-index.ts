@@ -19,6 +19,7 @@ import {
 } from '../domain/retrieval.js';
 import type { StructuralAnalysisCachePort, StructuralAnalysisPort, WorkspaceFilePort } from '../application/ports.js';
 import type { StructuralAnalysis } from '../domain/semantic.js';
+import { decodeStrictSourceText } from '../domain/source-text.js';
 import type { ContentDigest, RepoPath, WorkspaceId } from '../domain/workspace.js';
 import { isSensitiveSourcePath } from '../domain/sensitive-path.js';
 
@@ -207,7 +208,13 @@ export const buildLocalCodeIndex = (
         sourceDigest: exact.value.digest,
         candidateIds: [],
       });
-      const source = Buffer.from(exact.value.bytes).toString('utf8');
+      const decoded = decodeStrictSourceText(exact.value.bytes);
+      if (decoded._tag === 'Err') {
+        warnings.push(observation.repoPath + ': ' + decoded.kind);
+        coverageFailures.push({ repoPath: observation.repoPath, kind: decoded.kind });
+        continue;
+      }
+      const source = decoded.text;
       if (source.length === 0) continue;
       let spans: readonly Span[];
       if (options.structural !== undefined) {
