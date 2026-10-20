@@ -34,7 +34,11 @@ import {
   switchQdrantAlias,
 } from '../adapters/qdrant-context-provider.js';
 import { makeAstGrepStructuralPort, resolveAstGrepProviderIdentity } from '../adapters/ast-grep-structural.js';
-import { makeLspSemanticAnalysisPort, resolveLspProviderIdentity } from '../adapters/lsp-semantic.js';
+import {
+  lspLanguageIdForPath,
+  makeLspSemanticAnalysisPort,
+  resolveLspProviderIdentity,
+} from '../adapters/lsp-semantic.js';
 import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
 import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
 import type { MemorySearchPort, WorkspaceFilePort } from '../application/ports.js';
@@ -57,6 +61,40 @@ const optionalPath = (value: string | undefined, fallback: string): string =>
 
 const optionalCommand = (value: string | undefined, fallback: string): string =>
   value === undefined || value.trim().length === 0 ? fallback : value.trim();
+
+const configuredStringArray = (name: string, fallback: readonly string[]): readonly string[] => {
+  const raw = process.env[name]?.trim();
+  if (raw === undefined || raw.length === 0) return fallback;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (cause) {
+    throw new Error(`${name} must be a JSON array of strings`, { cause });
+  }
+  if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === 'string')) {
+    throw new Error(`${name} must be a JSON array of strings`);
+  }
+  return parsed;
+};
+
+const configuredLanguageIds = (name: string): Readonly<Record<string, string>> | undefined => {
+  const raw = process.env[name]?.trim();
+  if (raw === undefined || raw.length === 0) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (cause) {
+    throw new Error(`${name} must be a JSON object mapping extensions to language IDs`, { cause });
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`${name} must be a JSON object mapping extensions to language IDs`);
+  }
+  const entries = Object.entries(parsed);
+  if (!entries.every(([extension, languageId]) => extension.startsWith('.') && typeof languageId === 'string' && languageId.length > 0)) {
+    throw new Error(`${name} must map dot-prefixed extensions to non-empty language IDs`);
+  }
+  return Object.fromEntries(entries) as Record<string, string>;
+};
 
 const commandBoundaryExists = (value: string): boolean => value.includes('/') ? existsSync(value) : true;
 
@@ -190,6 +228,9 @@ const main = async (): Promise<void> => {
     process.env.ACE_LSP_COMMAND,
     resolve('node_modules/.bin/typescript-language-server'),
   );
+  const lspArgs = configuredStringArray('ACE_LSP_ARGS', ['--stdio']);
+  const lspServerName = optionalCommand(process.env.ACE_LSP_SERVER, 'typescript-language-server');
+  const lspLanguageIds = configuredLanguageIds('ACE_LSP_LANGUAGE_IDS');
   const artifacts = makeFileArtifactStore(artifactDirectory);
   const providerTrace = makeFileProviderTrace(process.env.ACE_PROVIDER_TRACE_FILE);
   let memory: MemorySearchPort | undefined;
@@ -422,11 +463,16 @@ const main = async (): Promise<void> => {
             ));
             if (sourceFiles._tag === 'Err') return sourceFiles;
             const lspProviderIdentity = existsSync(lspCommand) && commandBoundaryExists(lspCommand)
-              ? await Effect.runPromise(resolveLspProviderIdentity({ command: lspCommand, snapshotIdentity: sourceKey }))
+              ? await Effect.runPromise(resolveLspProviderIdentity({
+                command: lspCommand,
+                args: lspArgs,
+                serverName: lspServerName,
+                snapshotIdentity: sourceKey,
+              }))
               : undefined;
             const semanticProviderVersion = lspProviderIdentity?._tag === 'Ok'
               ? lspProviderIdentity.value.version
-              : process.env.ACE_LSP_VERSION?.trim() || 'typescript-language-server/unavailable';
+              : process.env.ACE_LSP_VERSION?.trim() || `${lspServerName}/unavailable`;
             const configIdentity = build.workspaceManifest.files
               .filter((file) => /^tsconfig(?:\..+)?\.json$/u.test(file.repoPath))
               .map((file) => `${file.repoPath}:${file.sourceDigest}`).sort().join('|') || 'absent';
@@ -447,13 +493,16 @@ const main = async (): Promise<void> => {
             });
             const semantics = makeLspSemanticAnalysisPort({
               command: lspCommand,
+              args: lspArgs,
+              serverName: lspServerName,
               rootPath: registered.value.rootPath,
               files: sourceFiles.value,
+              ...(lspLanguageIds === undefined ? {} : { languageIds: lspLanguageIds }),
               providerVersion: semanticProviderVersion,
               snapshotIdentity: semanticIdentity,
               trace: providerTrace,
             });
-            const firstLspPath = build.indexedPaths.find((repoPath) => /\.(?:c|m)?tsx?$|\.jsx?$/u.test(repoPath));
+            const firstLspPath = build.indexedPaths.find((repoPath) => lspLanguageIdForPath(repoPath, lspLanguageIds) !== undefined);
             let lspReady = lspProviderIdentity?._tag === 'Ok' && firstLspPath !== undefined;
             if (firstLspPath !== undefined && lspProviderIdentity?._tag === 'Ok') {
               const languageServiceReady = await Effect.runPromise(semantics.diagnostics({ repoPath: firstLspPath }));
@@ -462,7 +511,7 @@ const main = async (): Promise<void> => {
             } else if (!lspReady) {
               process.stderr.write(firstLspPath === undefined
                 ? 'ace-mcp semantic LSP NOT_READY: no LSP-capable source language is present in this workspace\n'
-                : 'ace-mcp semantic LSP NOT_READY: typescript-language-server identity is unavailable\n');
+                : `ace-mcp semantic LSP NOT_READY: ${lspServerName} identity is unavailable\n`);
             }
             const finalSnapshot = await Effect.runPromise(files.snapshot(registered.value.rootPath, Date.now()));
             if (finalSnapshot._tag === 'Err') {

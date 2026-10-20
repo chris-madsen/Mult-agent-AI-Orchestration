@@ -28,7 +28,7 @@ ACE intentionally distinguishes failures that make the process configuration its
 | Pinned embedding identity/configuration mismatch, corrupt snapshot state, or trust-boundary failure | **fatal** — startup exits non-zero | no semantic retrieval claim | requested identity cannot be proven; do not fall back silently |
 | Transient embedding/provider timeout or unavailable startup probe | process stays alive | code/unified context = `not_ready` | retry/reconcile is required; provider failure is never promoted to `ready` |
 | Corrupt workspace/provider identity state or semantic snapshot identity race | **fatal** — startup exits non-zero | no current-source claim | continuing could break source/provider truth |
-| TypeScript Language Service construction/preflight failure after the selected real composition is being built | **fatal** for an invalid/corrupt semantic snapshot; otherwise `not_ready` for a transient provider outage | no selected semantic-provider claim | selected semantic contract is unavailable; exact bytes may remain citable without current semantic confirmation |
+| Selected LSP construction/preflight failure after the configured real composition is being built | **fatal** for an invalid/corrupt semantic snapshot; otherwise `not_ready` for a transient provider outage | no selected semantic-provider claim | selected semantic contract is unavailable; exact bytes may remain citable without current semantic confirmation |
 | Qdrant collection unavailable with fallback disabled | process stays alive | code/unified context = `not_ready` | MCP/tool surface may still report status; code retrieval is unavailable |
 | Qdrant collection unavailable with explicit local fallback enabled | process stays alive | code/unified context = `degraded` if fallback index builds, otherwise `not_ready` | development fallback only; never production semantic readiness |
 | Required embedding/ast-grep executable missing before provider startup | process stays alive | code/unified context = `not_ready` | installation/runtime dependency missing |
@@ -92,7 +92,19 @@ ACE_ENABLE_EXPERIMENTAL_QDRANT=true
 ACE_QDRANT_URL=http://127.0.0.1:6333
 ACE_EMBEDDING_WORKER=$PWD/scripts/fastembed-worker.sh
 ACE_AST_GREP_COMMAND=$PWD/node_modules/.bin/ast-grep
+# Optional generic LSP override; the default is typescript-language-server --stdio.
+ACE_LSP_COMMAND=$PWD/node_modules/.bin/typescript-language-server
+ACE_LSP_ARGS='["--stdio"]'
+ACE_LSP_SERVER=typescript-language-server
+# Add mappings only for a server that really supports those languages.
+ACE_LSP_LANGUAGE_IDS='{".rs":"rust"}'
 ```
+
+`ACE_LSP_ARGS` and `ACE_LSP_LANGUAGE_IDS` are parsed as JSON at startup. Invalid
+configuration fails closed. The runtime includes the command, arguments, server
+version and semantic snapshot identity in the provider fingerprint. Structural
+retrieval remains available for languages without an LSP; an `lsp` obligation for
+such a language is `not_ready`, never silently satisfied by ast-grep output.
 
 The name `ACE_ENABLE_EXPERIMENTAL_QDRANT` is intentional. It enables the real Qdrant-based runtime path; it does **not** mean the embedding or semantic provider has passed the production-selection gates.
 
@@ -174,6 +186,7 @@ These commands prepare or evaluate evidence; none should be replaced by an asser
 npm run compare:embeddings
 npm run gate:embedding-selection -- ...
 npm run compare:semantic-tsls
+npm run test:real-non-ts-lsp
 npm run gate:semantic-selection -- ...
 npm run report:retrieval-quality -- ...
 npm run gate:retrieval-quality -- ...
