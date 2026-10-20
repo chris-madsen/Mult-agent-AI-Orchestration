@@ -61,3 +61,34 @@ After restore, point a stopped/test ACE memory process at the restored root and 
 ## Full production evidence
 
 A successful local archive round-trip is necessary but not sufficient for W07/W15. Codex still needs to demonstrate the selected FalkorDB/Graphiti backup/restore procedure, Qdrant/index recovery where applicable, Kubernetes/PVC behavior, restart reconciliation and owner retention/deletion requirements. Only the combined retained evidence may use the full release label `operations-backup-restore`.
+
+## Machine-checkable operations evidence
+
+The combined production evidence has six stable checks:
+
+| ID | Required proof |
+| --- | --- |
+| `OPS-01` | ACE immutable archive + projection outbox backup, verify and restore preserve exact membership/digests |
+| `OPS-02` | Selected Graphiti/FalkorDB persistence backup + restore returns the expected derived state |
+| `OPS-03` | Qdrant/index recovery restores or truthfully rebuilds current snapshot membership without stale-current claims |
+| `OPS-04` | ACE/provider restart after restore reconciles pending work and reaches the expected readiness state |
+| `OPS-05` | Retention/deletion behavior after restore preserves survivors and keeps deleted episodes/tombstones deleted |
+| `OPS-06` | Restore occurs into an isolated destination and does not mutate the user worktree or unrelated secrets/state |
+
+Record the real run in a repository-contained JSON file with one record for every check. `PASS`/`FAIL` require the exact safe command, observations and retained artifact SHA-256. `NOT_RUN`/`BLOCKED` require an explicit limitation.
+
+Finalize it with:
+
+```bash
+npm run evidence:backup-restore -- \
+  artifacts/operations/raw-run.json \
+  artifacts/operations/backup-restore-evidence.json
+```
+
+For a hard gate:
+
+```bash
+ACE_REQUIRE_BACKUP_RESTORE_EVIDENCE=true npm run evidence:backup-restore -- ...
+```
+
+Only all six checks passing on the exact current commit emits `evidence = operations-backup-restore`. Any missing/failed/not-run check or retained-artifact digest mismatch remains incomplete and cannot satisfy the unified production preflight.
