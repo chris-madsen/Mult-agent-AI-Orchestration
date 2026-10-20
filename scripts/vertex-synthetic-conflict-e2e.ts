@@ -61,6 +61,7 @@ const main = async (): Promise<void> => {
     ...defaultLocalPolicy(workspace.value),
     cloudOptIn: true,
     allowedCloudProviders: ['vertex'] as const,
+    allowedCloudDataClassesByProvider: { vertex: ['project_document'] as const },
   };
   const provider = makeVertexRagRetrievalPort({
     project,
