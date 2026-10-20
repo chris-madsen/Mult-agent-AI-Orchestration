@@ -288,8 +288,17 @@ test('as-of uses inclusive valid time, keeps late imports, and excludes tombston
 test('RTE-01 deterministic routing handles exact symbols and ambiguous memory questions', () => {
   const exact = deterministicRoute({ requestId: 'r1', query: 'inspect save in src/save.ts', privateCode: true, jevOptIn: false });
   assert.deepEqual(exact.sources, ['code', 'structural']);
-  const ambiguous = deterministicRoute({ requestId: 'r2', query: 'why did we choose the retrieval architecture?', privateCode: true, jevOptIn: false });
-  assert.deepEqual(ambiguous.sources, ['documentation', 'memory']);
+  const fixtures = [
+    { query: 'why did we choose the retrieval architecture?', sources: ['documentation', 'memory'] },
+    { query: 'Почему мы раньше отклонили Graphiti?', sources: ['memory'] },
+    { query: 'Какое архитектурное обоснование выбора Qdrant?', sources: ['documentation'] },
+    { query: 'Что обсуждали на сессии о памяти?', sources: ['memory'] },
+    { query: 'Почему в ADR решили оставить память локальной?', sources: ['documentation', 'memory'] },
+  ] as const;
+  for (const [index, fixture] of fixtures.entries()) {
+    const route = deterministicRoute({ requestId: `r${index + 2}`, query: fixture.query, privateCode: true, jevOptIn: false });
+    assert.deepEqual(route.sources, fixture.sources, fixture.query);
+  }
 });
 
 test('RTE-02 private Jev is blocked without opt-in and wrong routes fail quality', () => {

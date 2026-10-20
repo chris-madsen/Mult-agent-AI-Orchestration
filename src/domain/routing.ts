@@ -40,12 +40,23 @@ export interface RoutingComparison {
 
 const hasAny = (query: string, terms: readonly string[]): boolean => terms.some((term) => query.toLocaleLowerCase().includes(term));
 
+const memoryIntentTerms = [
+  'decision', 'decided', 'alternative', 'session', 'discussion', 'memory', 'why did we',
+  'почему мы', 'зачем мы', 'решени', 'решили', 'приняли', 'отклони', 'отказал',
+  'обсужд', 'сесси', 'памят', 'истори',
+] as const;
+
+const documentationIntentTerms = [
+  'adr', 'architecture', 'rationale', 'documentation', 'design',
+  'архитектур', 'обоснован', 'документ', 'дизайн', 'проектирован', 'спецификац',
+] as const;
+
 export const deterministicRoute = (request: RouteRequest): RoutePlan => {
   const query = request.query.toLocaleLowerCase();
   const exactFile = /(?:^|\s|\/)[\w.-]+\.(?:ts|tsx|js|jsx|rs|py)(?::\d+)?(?:\s|$)/u.test(request.query);
   const exactSymbol = /\b[a-z_$][\w$]*\s*(?:\(|function\b|method\b)/iu.test(request.query);
-  const asksMemory = hasAny(query, ['decision', 'decided', 'alternative', 'session', 'discussion', 'memory', 'why did we']);
-  const asksDocs = hasAny(query, ['adr', 'architecture', 'rationale', 'documentation', 'design']);
+  const asksMemory = hasAny(query, memoryIntentTerms);
+  const asksDocs = hasAny(query, documentationIntentTerms);
   const sources: RouteSource[] = [];
   if (exactFile || exactSymbol || !asksMemory && !asksDocs) sources.push('code');
   if (exactFile || exactSymbol || hasAny(query, ['type', 'reference', 'call', 'implementation', 'diagnostic'])) sources.push('structural');
