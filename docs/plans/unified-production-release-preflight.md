@@ -13,12 +13,13 @@ The release policy points to repository-contained JSON artifacts for:
 3. Production-approved semantic-provider selection verdict.
 4. Retrieval-quality verdict on a `frozen_holdout`.
 5. Three-arm Harbor report with observed natural ACE use and complete cost telemetry.
-6. Real Graphiti lifecycle evidence (`evidence = real-graphiti-lifecycle`).
-7. Real Vertex synthetic conflict evidence (`evidence = real-vertex-synthetic-code-doc-conflict`).
-8. Real k3s live-worktree evidence (`evidence = real-k3s-live-worktree`).
-9. Backup/restore evidence (`evidence = operations-backup-restore`).
-10. Supply-chain evidence covering license/SBOM/image provenance (`evidence = supply-chain-provenance`).
-11. Explicit owner approval for the **exact release commit** and all three capabilities: code, documentation, memory.
+6. Exact-commit full-unified resource-budget evidence (`evidence = resource-budget-accepted`) using an owner-approved budget policy.
+7. Real Graphiti lifecycle evidence (`evidence = real-graphiti-lifecycle`).
+8. Real Vertex synthetic conflict evidence (`evidence = real-vertex-synthetic-code-doc-conflict`).
+9. Real k3s live-worktree evidence (`evidence = real-k3s-live-worktree`).
+10. Backup/restore evidence (`evidence = operations-backup-restore`).
+11. Supply-chain evidence covering license/SBOM/image provenance (`evidence = supply-chain-provenance`).
+12. Explicit owner approval for the **exact release commit** and all three capabilities: code, documentation, memory.
 
 The preflight re-validates the DBC manifest and re-hashes every artifact referenced by every DBC record. A retained artifact changed after the acceptance run blocks the release.
 
@@ -40,7 +41,8 @@ Keep the policy free of credentials. Paths must stay inside the repository.
     "embeddingSelection": "artifacts/release/embedding-selection.json",
     "semanticSelection": "artifacts/release/semantic-selection.json",
     "retrievalQuality": "artifacts/release/retrieval-quality.json",
-    "harborThreeArm": "artifacts/release/harbor-three-arm.json"
+    "harborThreeArm": "artifacts/release/harbor-three-arm.json",
+    "resourceBudget": "artifacts/release/resource-budget.json"
   },
   "externalEvidence": [
     { "name": "graphiti", "path": "artifacts/graphiti-real-lifecycle/evidence.json" },
@@ -76,6 +78,6 @@ That mode exits non-zero unless every mandatory gate is satisfied.
 
 ## What Codex must still produce in real environments
 
-Codex must run and retain the actual Serena comparison, Graphiti lifecycle, Vertex conflict retrieval, k3s live-worktree/race/restart checks, backup/restore procedure, supply-chain/SBOM/image checks and natural-use Harbor benchmark. Then regenerate DBC-01…14 on the final commit and obtain owner approval for that exact commit.
+Codex must run and retain the actual Serena comparison, Graphiti lifecycle, Vertex conflict retrieval, k3s live-worktree/race/restart checks, backup/restore procedure, supply-chain/SBOM/image checks, resource-budget measurements against the owner-approved policy, and natural-use Harbor benchmark. Then regenerate DBC-01…14 on the final commit and obtain owner approval for that exact commit.
 
 A limited code-only release is allowed by the project plan, but **this full-unified preflight must not be weakened to represent that narrower scope**. The separate profile is documented in `docs/plans/code-only-production-release-preflight.md` and emits only `READY_CODE_ONLY`; it cannot approve documentation or memory.
