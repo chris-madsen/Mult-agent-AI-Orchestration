@@ -31,6 +31,38 @@ const supplyChain: CodeReleaseExternalEvidence = {
   name: 'supply-chain',
   evidence: 'supply-chain-provenance',
   sha256: digest,
+  document: {
+    schemaVersion: 1,
+    evidence: 'supply-chain-provenance',
+    currentCommit: commit,
+    verdict: {
+      status: 'PASS',
+      evidence: 'supply-chain-provenance',
+      failures: [],
+      sourceCommit: commit,
+      packageLockSha256: digest,
+      sbomSha256: digest,
+      imageDigest: `sha256:${digest}`,
+    },
+  },
+};
+
+const k3sDocument = {
+  schemaVersion: 1,
+  evidence: 'real-k3s-live-worktree',
+  sourceCommit: commit,
+  currentCommit: commit,
+  checks: Array.from({ length: 10 }, (_, index) => ({
+    id: `K3S-${String(index + 1).padStart(2, '0')}`,
+    verdict: 'PASS',
+    artifacts: [{ path: `artifacts/k3s/${index + 1}.json`, sha256: digest, kind: 'fixture' }],
+  })),
+  verdict: {
+    evidence: 'real-k3s-live-worktree',
+    sourceCommit: commit,
+    allPassed: true,
+    failures: [],
+  },
 };
 
 const baseInput = () => ({
@@ -159,7 +191,7 @@ test('k3s code-only deployment requires real k3s worktree evidence while host de
     deployment: 'k3s',
     externalEvidence: [
       supplyChain,
-      { name: 'k3s-worktree', evidence: 'real-k3s-live-worktree', sha256: digest },
+      { name: 'k3s-worktree', evidence: 'real-k3s-live-worktree', sha256: digest, document: k3sDocument },
     ],
   });
   assert.equal(withK3s._tag, 'Ok');
