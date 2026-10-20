@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -99,8 +100,11 @@ const main = async (): Promise<void> => {
     });
     if (result._tag === 'Err') throw new Error(`${result.error.code}: ${result.error.message}`);
 
+    const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim().toLowerCase();
+    if (!/^[a-f0-9]{40,64}$/u.test(sourceCommit)) throw new Error('could not resolve exact Graphiti evidence source commit');
     const evidence = {
       evidence: 'real-graphiti-lifecycle',
+      sourceCommit,
       fixture: fixtureArg,
       fixtureSha256: createHash('sha256').update(fixtureBytes).digest('hex'),
       workspaceId: workspace.value,

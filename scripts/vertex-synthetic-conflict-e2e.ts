@@ -94,8 +94,11 @@ const main = async (): Promise<void> => {
     throw new Error('Vertex returned synthetic content without a source citation');
   }
 
+  const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim().toLowerCase();
+  if (!/^[a-f0-9]{40,64}$/u.test(sourceCommit)) throw new Error('could not resolve exact Vertex evidence source commit');
   const evidence = {
     evidence: 'real-vertex-synthetic-code-doc-conflict',
+    sourceCommit,
     requestId,
     project,
     location,

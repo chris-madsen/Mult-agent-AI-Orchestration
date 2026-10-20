@@ -7,6 +7,7 @@ import {
   type ReleaseExternalEvidence,
   type ReleaseOwnerApproval,
 } from '../src/domain/release-preflight.js';
+import { validateReleaseExternalEvidenceDocument } from '../src/domain/release-external-evidence.js';
 
 interface ReleasePolicy {
   readonly schemaVersion: 1;
@@ -102,29 +103,37 @@ for (const [recordIndex, rawRecord] of dbcRoot.records.entries()) {
   }
 }
 
+const currentCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim().toLowerCase();
+const allowedExternalNames = new Set<ReleaseExternalEvidence['name']>([
+  'graphiti',
+  'vertex',
+  'k3s-worktree',
+  'backup-restore',
+  'supply-chain',
+]);
 const externalEvidence: ReleaseExternalEvidence[] = [];
 const externalArtifacts: Array<{ readonly name: string; readonly path: string; readonly sha256: string }> = [];
 for (const raw of policy.externalEvidence) {
   if (typeof raw !== 'object' || raw === null
-    || typeof raw.name !== 'string' || typeof raw.path !== 'string') {
-    throw new Error('release policy externalEvidence entries require name/path');
+    || typeof raw.name !== 'string'
+    || !allowedExternalNames.has(raw.name as ReleaseExternalEvidence['name'])
+    || typeof raw.path !== 'string') {
+    throw new Error('release policy externalEvidence entries require an allowed name/path');
   }
+  const name = raw.name as ReleaseExternalEvidence['name'];
   const evidence = await readEvidence(raw.path);
-  const root = typeof evidence.value === 'object' && evidence.value !== null && !Array.isArray(evidence.value)
-    ? evidence.value as Record<string, unknown>
-    : undefined;
-  if (typeof root?.evidence !== 'string' || root.evidence.trim().length === 0) {
-    throw new Error(`external evidence ${raw.name} has no evidence label`);
+  const validated = validateReleaseExternalEvidenceDocument(name, evidence.value, currentCommit);
+  if (validated._tag === 'Err') {
+    throw new Error(`${validated.error.code}: ${validated.error.path}: ${validated.error.message}`);
   }
   externalEvidence.push({
-    name: raw.name,
-    evidence: root.evidence,
+    name,
+    evidence: validated.value.evidence,
     sha256: evidence.sha256,
+    document: evidence.value,
   });
-  externalArtifacts.push({ name: raw.name, path: evidence.path, sha256: evidence.sha256 });
+  externalArtifacts.push({ name, path: evidence.path, sha256: evidence.sha256 });
 }
-
-const currentCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim().toLowerCase();
 const verdict = evaluateReleasePreflight({
   currentCommit,
   dbc: dbc.value,

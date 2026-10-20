@@ -5,6 +5,7 @@ import {
   makeDbcEvidenceManifest,
   type DbcEvidenceRecord,
 } from './dbc-evidence.js';
+import { validateReleaseExternalEvidenceDocument } from './release-external-evidence.js';
 
 export type ReleaseCapability = 'code' | 'documentation' | 'memory';
 
@@ -19,6 +20,8 @@ export interface ReleaseExternalEvidence {
   readonly name: 'graphiti' | 'vertex' | 'k3s-worktree' | 'backup-restore' | 'supply-chain';
   readonly evidence: string;
   readonly sha256: string;
+  /** Parsed retained evidence; revalidated here so direct domain callers cannot bypass semantics. */
+  readonly document: unknown;
 }
 
 export interface ReleasePreflightInput {
@@ -134,7 +137,11 @@ export const evaluateReleasePreflight = (
       failures.push(`external_evidence_missing:${name}`);
       continue;
     }
-    if (evidence.evidence !== expectedEvidence || !sha256(evidence.sha256)) {
+    const validated = validateReleaseExternalEvidenceDocument(name, evidence.document, input.currentCommit);
+    if (evidence.evidence !== expectedEvidence
+      || !sha256(evidence.sha256)
+      || validated._tag === 'Err'
+      || validated.value.evidence !== expectedEvidence) {
       failures.push(`external_evidence_invalid:${name}`);
     }
   }

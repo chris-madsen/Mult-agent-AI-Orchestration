@@ -8,6 +8,7 @@ import {
   type CodeReleaseExternalEvidence,
 } from '../src/domain/code-release-preflight.js';
 import type { ReleaseOwnerApproval } from '../src/domain/release-preflight.js';
+import { validateReleaseExternalEvidenceDocument } from '../src/domain/release-external-evidence.js';
 
 interface CodeReleasePolicy {
   readonly schemaVersion: 1;
@@ -107,6 +108,7 @@ for (const [recordIndex, rawRecord] of dbcRoot.records.entries()) {
   }
 }
 
+const currentCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim().toLowerCase();
 const allowedExternal = new Set<CodeReleaseExternalEvidence['name']>(['supply-chain', 'k3s-worktree']);
 const externalEvidence: CodeReleaseExternalEvidence[] = [];
 const externalArtifacts: Array<{ readonly name: string; readonly path: string; readonly sha256: string }> = [];
@@ -116,22 +118,20 @@ for (const raw of policy.externalEvidence) {
     || typeof raw.path !== 'string') {
     throw new Error('code-only externalEvidence entries require an allowed name/path');
   }
+  const name = raw.name as CodeReleaseExternalEvidence['name'];
   const evidence = await readEvidence(raw.path);
-  const root = typeof evidence.value === 'object' && evidence.value !== null && !Array.isArray(evidence.value)
-    ? evidence.value as Record<string, unknown>
-    : undefined;
-  if (typeof root?.evidence !== 'string' || root.evidence.trim().length === 0) {
-    throw new Error(`external evidence ${raw.name} has no evidence label`);
+  const validated = validateReleaseExternalEvidenceDocument(name, evidence.value, currentCommit);
+  if (validated._tag === 'Err') {
+    throw new Error(`${validated.error.code}: ${validated.error.path}: ${validated.error.message}`);
   }
   externalEvidence.push({
-    name: raw.name as CodeReleaseExternalEvidence['name'],
-    evidence: root.evidence,
+    name,
+    evidence: validated.value.evidence,
     sha256: evidence.sha256,
+    document: evidence.value,
   });
-  externalArtifacts.push({ name: raw.name, path: evidence.path, sha256: evidence.sha256 });
+  externalArtifacts.push({ name, path: evidence.path, sha256: evidence.sha256 });
 }
-
-const currentCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim().toLowerCase();
 const verdict = evaluateCodeReleasePreflight({
   currentCommit,
   deployment: policy.deployment,

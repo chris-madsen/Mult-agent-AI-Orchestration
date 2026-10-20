@@ -6,6 +6,7 @@ import {
   type DbcId,
 } from './dbc-evidence.js';
 import type { ReleaseOwnerApproval } from './release-preflight.js';
+import { validateReleaseExternalEvidenceDocument } from './release-external-evidence.js';
 
 export type CodeReleaseDeployment = 'host' | 'k3s';
 
@@ -13,6 +14,7 @@ export interface CodeReleaseExternalEvidence {
   readonly name: 'supply-chain' | 'k3s-worktree';
   readonly evidence: string;
   readonly sha256: string;
+  readonly document: unknown;
 }
 
 export interface CodeReleasePreflightInput {
@@ -142,18 +144,36 @@ export const evaluateCodeReleasePreflight = (
 
   const supplyChain = evidenceByName.get('supply-chain');
   if (supplyChain === undefined) failures.push('external_evidence_missing:supply-chain');
-  else if (supplyChain.evidence !== 'supply-chain-provenance' || !sha256(supplyChain.sha256)) {
-    failures.push('external_evidence_invalid:supply-chain');
+  else {
+    const validated = validateReleaseExternalEvidenceDocument('supply-chain', supplyChain.document, input.currentCommit);
+    if (supplyChain.evidence !== 'supply-chain-provenance'
+      || !sha256(supplyChain.sha256)
+      || validated._tag === 'Err'
+      || validated.value.evidence !== 'supply-chain-provenance') {
+      failures.push('external_evidence_invalid:supply-chain');
+    }
   }
 
   const k3s = evidenceByName.get('k3s-worktree');
   if (input.deployment === 'k3s') {
     if (k3s === undefined) failures.push('external_evidence_missing:k3s-worktree');
-    else if (k3s.evidence !== 'real-k3s-live-worktree' || !sha256(k3s.sha256)) {
+    else {
+      const validated = validateReleaseExternalEvidenceDocument('k3s-worktree', k3s.document, input.currentCommit);
+      if (k3s.evidence !== 'real-k3s-live-worktree'
+        || !sha256(k3s.sha256)
+        || validated._tag === 'Err'
+        || validated.value.evidence !== 'real-k3s-live-worktree') {
+        failures.push('external_evidence_invalid:k3s-worktree');
+      }
+    }
+  } else if (k3s !== undefined) {
+    const validated = validateReleaseExternalEvidenceDocument('k3s-worktree', k3s.document, input.currentCommit);
+    if (k3s.evidence !== 'real-k3s-live-worktree'
+      || !sha256(k3s.sha256)
+      || validated._tag === 'Err'
+      || validated.value.evidence !== 'real-k3s-live-worktree') {
       failures.push('external_evidence_invalid:k3s-worktree');
     }
-  } else if (k3s !== undefined && (k3s.evidence !== 'real-k3s-live-worktree' || !sha256(k3s.sha256))) {
-    failures.push('external_evidence_invalid:k3s-worktree');
   }
 
   if (input.ownerApproval.status !== 'approved') failures.push('owner_approval_missing');
