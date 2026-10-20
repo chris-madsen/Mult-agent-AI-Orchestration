@@ -43,6 +43,46 @@ export const graphitiEpisodeUuid = (id: string): string => {
 const errorResult = (message: string): Result<never, DomainError> =>
   err(domainError('EXTERNAL_UNAVAILABLE', 'graphiti', message));
 
+/**
+ * Graphiti's fact search supports valid-time bounds, but the MCP tool remains
+ * top-k bounded.  Push the requested as-of boundary into the provider to
+ * avoid spending the bounded result set on facts that cannot be valid at the
+ * requested time; the exact local checks below remain authoritative.
+ */
+export const graphitiTemporalSearchArguments = (
+  asOfMs: number | undefined,
+): Result<Readonly<Record<string, unknown>>, DomainError> => {
+  if (asOfMs === undefined) return ok({});
+  if (!Number.isSafeInteger(asOfMs)) {
+    return err(domainError('INVALID_INPUT', 'as_of', 'Graphiti as-of time must be a safe integer millisecond timestamp'));
+  }
+  const referenceTime = new Date(asOfMs);
+  if (Number.isNaN(referenceTime.getTime())) {
+    return err(domainError('INVALID_INPUT', 'as_of', 'Graphiti as-of time must be representable as an ISO timestamp'));
+  }
+  const iso = referenceTime.toISOString();
+  return ok({ valid_at_before: iso, invalid_at_after: iso });
+};
+
+/**
+ * `get_episodes` exposes a bounded page but no cursor.  A missing UUID is
+ * therefore an absence proof only when the provider returned fewer than the
+ * requested maximum; a full page means the result is inconclusive.
+ */
+export const graphitiEpisodePageContains = (
+  expectedUuid: string,
+  episodeUuids: readonly string[],
+  maxEpisodes: number,
+): Result<boolean, DomainError> => {
+  if (expectedUuid.length === 0 || !Number.isSafeInteger(maxEpisodes) || maxEpisodes <= 0) {
+    return err(domainError('INVALID_INPUT', 'graphiti.episodes', 'episode page identity and positive page size are required'));
+  }
+  if (episodeUuids.includes(expectedUuid)) return ok(true);
+  return episodeUuids.length < maxEpisodes
+    ? ok(false)
+    : err(domainError('NOT_READY', 'graphiti.episodes', 'Graphiti episode presence is inconclusive because the provider page is full'));
+};
+
 const replyJsonObject = (reply: unknown): Result<Record<string, unknown>, DomainError> => {
   if (typeof reply !== 'object' || reply === null || Array.isArray(reply)) {
     return err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti', 'Graphiti MCP tool result must be an object'));
@@ -248,9 +288,16 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
           }
           const granted = authorize('memory_search');
           if (granted._tag === 'Err') return granted;
+          const temporalArguments = graphitiTemporalSearchArguments(input.asOfMs);
+          if (temporalArguments._tag === 'Err') return err(temporalArguments.error);
           const reply = await client.callTool({
             name: 'search_memory_facts',
-            arguments: { query: input.query, group_ids: [options.groupId], max_facts: 1000 },
+            arguments: {
+              query: input.query,
+              group_ids: [options.groupId],
+              max_facts: 1000,
+              ...temporalArguments.value,
+            },
           });
           const parsed = parseGraphitiFactSearchReply(reply);
           if (parsed._tag === 'Err') return parsed;
@@ -348,6 +395,7 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
             return err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti.episodes', 'Graphiti get_episodes requires an episodes array'));
           }
           const expected = graphitiEpisodeUuid(episodeId);
+          const episodeUuids: string[] = [];
           for (const raw of parsed.value.episodes) {
             if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
               return err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti.episodes', 'Graphiti episode must be an object'));
@@ -356,9 +404,9 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
             if (typeof episode.group_id === 'string' && episode.group_id !== options.groupId) {
               return err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti.group_id', 'Graphiti returned an episode from another group'));
             }
-            if (episode.uuid === expected) return ok(true);
+            if (typeof episode.uuid === 'string') episodeUuids.push(episode.uuid);
           }
-          return ok(false);
+          return graphitiEpisodePageContains(expected, episodeUuids, 100_000);
         },
         catch: () => domainError('EXTERNAL_UNAVAILABLE', 'graphiti', 'Graphiti projection reconciliation failed'),
       }).pipe(Effect.catchAll((cause) => Effect.succeed(err(cause)))),
