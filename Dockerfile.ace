@@ -35,7 +35,7 @@ ENV ACE_STATE_DIR=/var/lib/ace/state \
     ACE_TREE_SITTER_PYTHON=/opt/ace/.venv-system/bin/python \
     ACE_EMBEDDING_WORKER=/opt/ace/scripts/fastembed-worker.sh \
     ACE_EMBEDDING_PYTHON=/opt/ace/.venv-embedding-fast/bin/python \
-    TMPDIR=/tmp/ace
+    TMPDIR=/tmp
 
 USER node
 
