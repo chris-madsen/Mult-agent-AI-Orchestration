@@ -98,6 +98,17 @@ Do not implement a requirement merely because an old execution plan says it is m
 
 For concurrency, crash, recovery and provider-boundary defects, prefer deterministic barriers/failpoints and explicit state assertions over sleep-based timing tests. Test both the pure parser/contract behavior and the actual provider/runtime path when the provider is available.
 
+### Test execution and test-portfolio policy
+
+- Treat tests as a **maintained portfolio, not an append-only log**. A bug does not automatically justify a new test file or the same assertion at unit, contract and E2E layers.
+- Before adding a regression test, search for the existing cheapest test that owns the invariant. Prefer adding a focused table/case there. Keep a higher-level test only when it proves unique wiring, provider, process, crash or agent behavior that the lower layer cannot prove.
+- It is valid and desirable for a change to **merge or delete redundant tests** when equivalent protection remains. Test count is not a quality metric.
+- During the edit/fix inner loop use `npm run test:affected` (or an even narrower explicit test command). **Do not run the full suite after every edit.**
+- Run `npm run verify:pr` once when the change is ready for handoff/PR, and let CI repeat that deterministic full verification. Expensive real-provider, scale, k3s and Harbor suites run only when their capability changed, their acceptance evidence is being refreshed, or a release gate requires them.
+- The affected-test selector is intentionally conservative: broad build/test configuration changes fall back to the full deterministic suite; source changes use the reverse import graph; script changes use direct test references. A selector miss is a bug in the selector, not a reason to return permanently to full-suite inner loops.
+- In clean CI environments install locked dependencies **once** with `npm ci --ignore-scripts`. Do not rerun `npm ci` between test stages or after ordinary source edits in an already-installed workspace.
+- Build/typecheck work must not be duplicated accidentally. Typecheck is a separate gate from `npm test`; TypeScript incremental state may be reused locally. When several expensive E2E commands exercise the same unchanged source, compile once or rely on the incremental build rather than intentionally forcing repeated clean rebuilds.
+
 - Work in reviewable branches and PRs; do not push directly to `main` unless the owner explicitly authorizes that operation. Preserve unrelated edits.
 - For affected capabilities run typecheck, lint, unit/contract tests, OpenSpec validation, real-provider integration, SDK conformance and agent E2E **as applicable**. Report precisely what was run, skipped, unavailable and why.
 - Promote production capability only after applicable real evidence, security/permission checks, reproducible evaluation and explicit owner review. If a provider needs credentials or external services unavailable to the current runner, record a specific blocker rather than inventing success.
