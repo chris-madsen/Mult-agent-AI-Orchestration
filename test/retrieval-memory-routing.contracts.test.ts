@@ -487,7 +487,15 @@ test('EXT-02 Vertex and Graphiti boundaries deny before HTTP without policy/toke
     accessToken: () => 'must-not-be-used',
   });
   assert.equal(mustErr(await Effect.runPromise(deniedVertex.search({ workspaceId, query: 'ADR rationale', topK: 3 }))).code, 'POLICY_DENIED');
-  const allowedPolicy = { ...defaultLocalPolicy(workspaceId), cloudOptIn: true, allowedCloudProviders: ['vertex', 'other_external'] as const };
+  const allowedPolicy = {
+    ...defaultLocalPolicy(workspaceId),
+    cloudOptIn: true,
+    allowedCloudProviders: ['vertex', 'other_external'] as const,
+    allowedCloudDataClassesByProvider: {
+      vertex: ['project_document'] as const,
+      other_external: ['private_conversation'] as const,
+    },
+  };
   const missingTokenVertex = makeVertexDocumentationPort({ endpoint: 'https://vertex.invalid', http, policy: allowedPolicy, accessToken: () => undefined });
   assert.equal(mustErr(await Effect.runPromise(missingTokenVertex.search({ workspaceId, query: 'ADR rationale', topK: 3 }))).code, 'AUTH_REQUIRED');
   const episodeId = mustOk(makeEpisodeId('episode-external'));
@@ -534,7 +542,12 @@ test('EXT-04 Jev HTTP selector is policy-gated and validates the experimental ro
   const denied = await Effect.runPromise(selectJevRouteOverHttp({ endpoint: 'https://jev.invalid', http, policy: defaultLocalPolicy(workspaceId), accessToken: () => 'secret' }, request));
   assert.ok(['AUTH_REQUIRED', 'POLICY_DENIED'].includes(mustErr(denied).code));
   assert.equal(requests, 0);
-  const policy = { ...defaultLocalPolicy(workspaceId), cloudOptIn: true, allowedCloudProviders: ['jev'] as const };
+  const policy = {
+    ...defaultLocalPolicy(workspaceId),
+    cloudOptIn: true,
+    allowedCloudProviders: ['jev'] as const,
+    allowedCloudDataClassesByProvider: { jev: ['private_source'] as const },
+  };
   const selected = mustOk(await Effect.runPromise(selectJevRouteOverHttp({ endpoint: 'https://jev.invalid', http, policy, accessToken: () => 'token' }, request)));
   assert.equal(selected.strategy, 'jev_experimental');
   assert.deepEqual(selected.sources, ['memory', 'code']);
