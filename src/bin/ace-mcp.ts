@@ -527,20 +527,20 @@ const main = async (): Promise<void> => {
                     'ace retrieval cleanup skipped: explicit ACE_QDRANT_COLLECTION has no exclusive-owner confirmation\n',
                   );
                 } else {
-                  const activeKeys = await snapshotState.activeIndexKeys(registered.value.workspaceId);
-                  if (activeKeys._tag === 'Err') {
-                    process.stderr.write(`ace retrieval warning: snapshot lease inspection failed (${activeKeys.error.code})\n`);
-                  } else {
-                    const retained = new Set(activeKeys.value);
-                    retained.add(sourceKey);
-                    const cleaned = await Effect.runPromise(pruneQdrantUnleasedSnapshots(
-                      http, qdrantUrl, collection, registered.value.workspaceId, retained, qdrantAllowedHosts,
-                    ));
-                    if (cleaned._tag === 'Err') {
-                      process.stderr.write(`ace retrieval warning: lease-aware snapshot cleanup failed (${cleaned.error.code})\n`);
-                    } else if (cleaned.value.length > 0) {
-                      process.stderr.write(`ace retrieval cleanup removed_snapshots=${cleaned.value.length}\n`);
-                    }
+                  const cleaned = await snapshotState.withActiveIndexKeys(
+                    registered.value.workspaceId,
+                    async (activeKeys) => {
+                      const retained = new Set(activeKeys);
+                      retained.add(sourceKey);
+                      return Effect.runPromise(pruneQdrantUnleasedSnapshots(
+                        http, qdrantUrl, collection, registered.value.workspaceId, retained, qdrantAllowedHosts,
+                      ));
+                    },
+                  );
+                  if (cleaned._tag === 'Err') {
+                    process.stderr.write(`ace retrieval warning: lease-aware snapshot cleanup failed (${cleaned.error.code})\n`);
+                  } else if (cleaned.value.length > 0) {
+                    process.stderr.write(`ace retrieval cleanup removed_snapshots=${cleaned.value.length}\n`);
                   }
                 }
                 const sourceFiles = await Effect.runPromise(readVerifiedSemanticSnapshot(
