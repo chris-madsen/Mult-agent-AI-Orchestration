@@ -46,7 +46,8 @@
     "release:preflight": "tsx scripts/release-preflight.ts",
     "memory:backup": "tsx scripts/local-memory-backup.ts",
     "release:supply-chain": "tsx scripts/supply-chain-evidence.ts",
-    "release:preflight-code": "tsx scripts/code-release-preflight.ts"
+    "release:preflight-code": "tsx scripts/code-release-preflight.ts",
+    "evidence:k3s-worktree": "tsx scripts/k3s-worktree-evidence.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",
