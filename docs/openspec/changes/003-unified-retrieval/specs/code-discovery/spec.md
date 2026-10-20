@@ -34,6 +34,20 @@ The system SHALL version indexed code entries and invalidate stale candidates af
 - **WHEN** Qdrant is unavailable during rebuild
 - **THEN** the system reports stale/unavailable and does not manufacture current snippets
 
+### Requirement: Snapshot-bound coverage and race handling
+
+The system SHALL retain a deterministic digest of the workspace snapshot metadata and the parser identity with index coverage. A source whose exact read no longer matches the snapshot observation SHALL be excluded from the index and reported as a digest race; it SHALL NOT be treated as successfully indexed.
+
+#### Scenario: Source changes between snapshot and exact read
+
+- **WHEN** the workspace snapshot observes source digest D1 but the authoritative exact read returns D2
+- **THEN** the source is not sent to the structural provider, coverage records `digest_raced`, and the resulting index remains incomplete for the failed path
+
+#### Scenario: Coverage identity changes
+
+- **WHEN** the workspace snapshot metadata or parser identity changes
+- **THEN** the persisted coverage/snapshot identity changes and a previous Qdrant snapshot is not reused as if it were the same source state
+
 ### Requirement: Embedding provider selection
 
 The system SHALL support a locally allowed embedding path and SHALL require explicit project policy approval for cloud embeddings.
