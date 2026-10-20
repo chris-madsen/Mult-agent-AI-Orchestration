@@ -1,0 +1,38 @@
+# Official Graphiti MCP config shape at pinned commit 3cc723c.
+# Values containing credentials are injected from the process environment.
+# The pinned MCP currently does not expose sentence_transformers in its
+# EmbedderFactory; the preflight must remain not_ready until an upstream ref
+# supports this configuration. Do not replace this with a shim.
+server:
+  transport: "stdio"
+  host: "127.0.0.1"
+  port: 9098
+
+llm:
+  provider: "openai"
+  model: ${ACE_AMPLIFIER_FACE_MODEL:gpt-5.6-luna}
+  max_tokens: 4096
+  structured_output_mode: ${ACE_GRAPHITI_STRUCTURED_OUTPUT_MODE:json_object}
+  providers:
+    openai:
+      api_key: ${AMPLIFIER_AGENT_FACE_TOKEN}
+      api_url: ${ACE_AMPLIFIER_FACE_URL:http://127.0.0.1:9099/v1}
+
+embedder:
+  # Required target: local Graphiti-supported Sentence-Transformers provider.
+  # At the pinned MCP ref this is intentionally rejected by preflight.
+  provider: ${ACE_GRAPHITI_EMBEDDER_PROVIDER:sentence_transformers}
+  model: ${ACE_GRAPHITI_EMBEDDER_MODEL:all-MiniLM-L6-v2}
+  dimensions: 384
+
+database:
+  provider: "falkordb"
+  providers:
+    falkordb:
+      uri: ${FALKORDB_URI:redis://127.0.0.1:6379}
+      password: ${FALKORDB_PASSWORD:}
+      database: ${FALKORDB_DATABASE:ace_graphiti}
+
+graphiti:
+  group_id: ${ACE_GRAPHITI_GROUP_ID:ace-synthetic}
+  user_id: "ace"

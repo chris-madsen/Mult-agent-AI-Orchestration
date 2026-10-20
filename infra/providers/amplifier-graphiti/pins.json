@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "upstreams": {
+    "amplifierAgent": {
+      "repository": "https://github.com/microsoft/amplifier-agent.git",
+      "commit": "a289011169520f8cb2d023f0a486cbbb00082a8f",
+      "packages": ["packages/http", "packages/python", "packages/engine"],
+      "license": "MIT"
+    },
+    "amplifierModuleProviderOpenaiChatgpt": {
+      "repository": "https://github.com/microsoft/amplifier-module-provider-openai-chatgpt.git",
+      "commit": "b1341edd1545ba4b89a416184797ccfbc346413b",
+      "entryPoint": "provider-openai-chatgpt",
+      "license": "MIT"
+    },
+    "graphitiMcp": {
+      "repository": "https://github.com/getzep/graphiti.git",
+      "commit": "3cc723cd292eb5c2ac5ea2c5539270b8e1b6389f",
+      "path": "mcp_server",
+      "graphitiCoreMinimum": "0.31.1",
+      "license": "Apache-2.0"
+    }
+  },
+  "selection": {
+    "face": "amplifier-agent-http",
+    "oauthProvider": "openai-chatgpt/chatgpt_codex",
+    "graphitiTransport": "stdio",
+    "database": "falkordb",
+    "fixturePolicy": "committed-synthetic-only"
+  }
+}

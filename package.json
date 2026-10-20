@@ -10,6 +10,7 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src test --ext .ts --max-warnings=0",
     "probe:providers": "node scripts/provider-capability-probe.mjs",
+    "preflight:amplifier-graphiti": "tsx scripts/amplifier-graphiti-preflight.ts",
     "report:harbor-smoke": "tsx scripts/render-harbor-smoke-report.ts",
     "report:harbor-paired": "tsx scripts/render-harbor-paired-report.ts",
     "report:harbor-retrieval": "tsx scripts/render-harbor-retrieval-report.ts",
