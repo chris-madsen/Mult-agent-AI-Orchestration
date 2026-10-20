@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "58b571c6108a10b7abf19a30aebe7432f90eac1e",
+  "policySha256": "f1b4f74044164fe0c7ee84e2e33d34abeaf092a9c66678b6e85aae632be4010f",
+  "reports": [
+    {
+      "path": "benchmarks/reports/typescript-ls-provider-comparison-58b571c.json",
+      "sha256": "7693aac18a38bbf76e0f4a0c5ae9b6e91fa8e189587822f39a3f444e96ae1281"
+    },
+    {
+      "path": "benchmarks/reports/serena-semantic-provider-comparison-58b571c.json",
+      "sha256": "353c41ce9e9d93b1c2f033c13296ebca8a61cc02e1486754b03fa4a0da3b3f6b"
+    }
+  ],
+  "providerIds": [
+    "serena",
+    "typescript-language-service"
+  ],
+  "fixtureSha256": "a797557e7a7dc451d395f786a7d675a517a573ee2aa1d6bf4486ae55f4f64459",
+  "oracleSha256": "2937a609f896df4470c86f1010b6602a9c8ed056e1f726f6dbd6837f89fd73f7",
+  "verdict": {
+    "selectedProvider": "typescript-language-service",
+    "matchedComparison": true,
+    "measurementAccepted": true,
+    "productionApproved": false,
+    "status": "MEASUREMENT_PASS_APPROVAL_PENDING",
+    "failures": [
+      "owner_approval_missing"
+    ]
+  }
+}
