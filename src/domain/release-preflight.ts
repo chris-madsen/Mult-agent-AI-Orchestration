@@ -7,6 +7,7 @@ import {
 } from './dbc-evidence.js';
 import { validateReleaseExternalEvidenceDocument } from './release-external-evidence.js';
 import { validateResourceBudgetEvidenceDocument } from './resource-budget-evidence.js';
+import { validateRuntimeConfigEvidenceDocument } from './runtime-config-evidence.js';
 
 export type ReleaseCapability = 'code' | 'documentation' | 'memory';
 
@@ -33,6 +34,7 @@ export interface ReleasePreflightInput {
   readonly retrievalQuality: unknown;
   readonly harborThreeArm: unknown;
   readonly resourceBudget: unknown;
+  readonly runtimeConfig: unknown;
   readonly externalEvidence: readonly ReleaseExternalEvidence[];
   readonly ownerApproval: ReleaseOwnerApproval;
 }
@@ -138,6 +140,25 @@ export const evaluateReleasePreflight = (
   );
   if (resourceBudget._tag === 'Err' || !resourceBudget.value.allWithinBudget) {
     failures.push('resource_budget_not_accepted');
+  }
+
+  const runtimeConfig = validateRuntimeConfigEvidenceDocument(
+    input.runtimeConfig,
+    input.currentCommit,
+    'full-unified',
+    'k3s',
+  );
+  if (runtimeConfig._tag === 'Err') {
+    failures.push('runtime_config_not_accepted');
+  } else {
+    const selectedEmbedding = nested(input.embeddingSelection, 'verdict', 'selectedProvider');
+    const selectedSemantic = nested(input.semanticSelection, 'verdict', 'selectedProvider');
+    if (runtimeConfig.value.embeddingProvider !== selectedEmbedding) {
+      failures.push('runtime_embedding_provider_mismatch');
+    }
+    if (runtimeConfig.value.semanticProvider !== selectedSemantic) {
+      failures.push('runtime_semantic_provider_mismatch');
+    }
   }
 
   const externalByName = new Map(input.externalEvidence.map((item) => [item.name, item] as const));
