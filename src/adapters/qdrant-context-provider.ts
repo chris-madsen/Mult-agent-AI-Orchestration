@@ -894,8 +894,18 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
               );
             }
           } else {
+            const boundedMemoryEvidence = memories.value.evidenceCompleteness === 'provider_bounded_top_k';
+            if (boundedMemoryEvidence) {
+              warnings.push('memory: provider_bounded_top_k does not establish exhaustive history');
+              failed.push('memory');
+            }
             if (sourceIsRequested(requirements.memory)) {
-              sourceCoverage = setSourceCoverage(sourceCoverage, 'memory', 'satisfied');
+              sourceCoverage = setSourceCoverage(
+                sourceCoverage,
+                'memory',
+                boundedMemoryEvidence ? 'partial' : 'satisfied',
+                boundedMemoryEvidence ? 'provider_bounded_top_k' : undefined,
+              );
             }
             for (const [index, hit] of memories.value.hits.entries()) {
               const evidenceId = makeEvidenceId('memory-' + (index + 1));

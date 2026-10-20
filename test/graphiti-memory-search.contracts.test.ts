@@ -7,7 +7,12 @@ import { Effect } from 'effect';
 import { makeFileDecisionHistory } from '../src/adapters/file-decision-history.js';
 import { decisionStatesForEpisode, makeDecisionRecord, transitionDecision, type DecisionRecord } from '../src/domain/memory.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
-import { graphitiEpisodeUuid, parseGraphitiFactSearchReply } from '../src/adapters/graphiti-mcp.js';
+import {
+  graphitiEpisodePageContains,
+  graphitiEpisodeUuid,
+  graphitiTemporalSearchArguments,
+  parseGraphitiFactSearchReply,
+} from '../src/adapters/graphiti-mcp.js';
 
 const mustOk = <T, E>(result: { readonly _tag: 'Ok'; readonly value: T } | { readonly _tag: 'Err'; readonly error: E }): T => {
   assert.equal(result._tag, 'Ok');
@@ -52,6 +57,29 @@ test('Graphiti fact parser rejects an MCP error even when structured content loo
   });
   assert.equal(result._tag, 'Err');
   if (result._tag === 'Err') assert.equal(result.error.code, 'EXTERNAL_UNAVAILABLE');
+});
+
+test('Graphiti as-of searches use provider temporal bounds while retaining local exact verification', () => {
+  const argumentsForAsOf = mustOk(graphitiTemporalSearchArguments(Date.parse('2026-10-20T12:34:56.789Z')));
+  assert.deepEqual(argumentsForAsOf, {
+    valid_at_before: '2026-10-20T12:34:56.789Z',
+    invalid_at_after: '2026-10-20T12:34:56.789Z',
+  });
+  assert.deepEqual(mustOk(graphitiTemporalSearchArguments(undefined)), {});
+  const invalid = graphitiTemporalSearchArguments(Number.NaN);
+  assert.equal(invalid._tag, 'Err');
+  if (invalid._tag === 'Err') assert.equal(invalid.error.code, 'INVALID_INPUT');
+});
+
+test('Graphiti full episode pages do not become false absence proofs without a cursor', () => {
+  assert.deepEqual(
+    mustOk(graphitiEpisodePageContains('episode-1', ['episode-2'], 2)),
+    false,
+  );
+  const fullPage = graphitiEpisodePageContains('episode-1', ['episode-2', 'episode-3'], 2);
+  assert.equal(fullPage._tag, 'Err');
+  if (fullPage._tag === 'Err') assert.equal(fullPage.error.code, 'NOT_READY');
+  assert.equal(mustOk(graphitiEpisodePageContains('episode-1', ['episode-1', 'episode-2'], 2)), true);
 });
 
 test('ACE episode IDs map deterministically into Graphiti UUIDs without exposing source content', () => {

@@ -649,7 +649,7 @@ test('index coverage failures make an otherwise current result incomplete', asyn
 });
 
 
-test('Qdrant context merges archive-provenance memory without treating healthy empty memory as an outage', async () => {
+test('Qdrant context does not claim complete history from bounded Graphiti memory', async () => {
   const provider = makeQdrantContextProvider({
     workspaceId,
     rootPath: '/repo',
@@ -693,6 +693,7 @@ test('Qdrant context merges archive-provenance memory without treating healthy e
           matchingExcerpt: 'Local Qdrant was selected for private code retrieval.',
         }],
         conflicts: [],
+        evidenceCompleteness: 'provider_bounded_top_k',
       })),
     },
     newRequestId: () => 'memory-context-request',
@@ -700,7 +701,11 @@ test('Qdrant context merges archive-provenance memory without treating healthy e
   const bundle = mustOk(await Effect.runPromise(provider.search({
     workspaceId, query: 'why local qdrant', includeDocs: false, includeMemory: true,
   })));
-  assert.equal(bundle.complete, true);
+  assert.equal(bundle.complete, false);
+  assert.deepEqual(bundle.partialSources, ['memory']);
+  assert.equal(bundle.sourceCoverage?.find((item) => item.source === 'memory')?.status, 'partial');
+  assert.equal(bundle.sourceCoverage?.find((item) => item.source === 'memory')?.reason, 'provider_bounded_top_k');
+  assert.match(bundle.warnings.find((warning) => warning.startsWith('memory:')) ?? '', /not establish exhaustive history/u);
   const memoryEvidence = bundle.evidence.find((item) => item.source === 'memory');
   assert.equal(memoryEvidence?.citation, 'codex://session-memory/1');
   assert.equal(memoryEvidence?.proofClass, 'derived');
