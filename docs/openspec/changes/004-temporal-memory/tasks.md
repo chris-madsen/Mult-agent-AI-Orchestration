@@ -15,7 +15,7 @@
 
 ## Decisions and retrieval
 - [x] Implement DecisionRecord FSM with explicit confirmation, supersession, rejection and temporal intervals.
-- [x] Implement provider-independent temporal memory search with original episode pointers and conflict warnings.
+- [x] Implement provider-independent temporal memory search with original episode pointers, complete per-episode decision states, inclusive valid-time `as_of` semantics and conflict warnings.
 - [x] Implement authorized local archive deletion with tombstone and derived-projection purge boundary.
 - [x] Expose typed MCP memory provider port and inject the archive-backed Graphiti memory provider into `ace-mcp` when explicitly configured; gateway remains truthful `disabled/not_ready/degraded` when the provider is absent or fails startup.
 
