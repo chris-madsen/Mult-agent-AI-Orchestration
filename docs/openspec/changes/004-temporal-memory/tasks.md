@@ -17,7 +17,7 @@
 - [x] Implement DecisionRecord FSM with explicit confirmation, supersession, rejection and temporal intervals.
 - [x] Implement provider-independent temporal memory search with original episode pointers and conflict warnings.
 - [x] Define `as_of` as **valid-time** semantics: episode visibility is based on `occurredAtMs`, and decision state is reconstructed from `validFromMs` plus immutable transition timestamps. `importedAtMs` is archive/system provenance and is intentionally not a transaction-time filter. Supporting bitemporal import/system-time queries would require a separate specification/ADR.
-- [x] Preserve every decision supported by a matching episode. The legacy scalar `decisionState` is emitted only for the unambiguous single-linked-decision case; multi-decision hits expose deterministic `decisionStates` with decision ID, subject, proposal and state instead of silently choosing the first record.
+- [x] Preserve every decision supported by a matching episode. The legacy scalar `decisionState` is emitted only for the unambiguous single-linked-decision case; multi-decision hits expose deterministic `decisionViews` with decision ID, subject, proposal and state instead of silently choosing the first record.
 - [x] Implement authorized local archive deletion with tombstone and derived-projection purge boundary.
 - [x] Expose typed MCP memory provider port and inject the archive-backed Graphiti memory provider into `ace-mcp` when explicitly configured; gateway remains truthful `disabled/not_ready/degraded` when the provider is absent or fails startup.
 
