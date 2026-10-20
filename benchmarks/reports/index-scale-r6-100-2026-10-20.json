@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-20T11:10:22.674Z",
-  "sourceCommit": "1762d159b7196c31677d6efd54f86dfd72c7d317",
+  "generatedAt": "2026-10-20T11:12:03.571Z",
+  "sourceCommit": "f85da55ba7f2e2a5b1e04e1ea38da2e469fd468e",
   "fixture": {
     "baselineFiles": 100,
     "requestedChangedFiles": 1,
@@ -19,7 +19,7 @@
   "phases": [
     {
       "phase": "cold",
-      "elapsedMs": 15722.725256,
+      "elapsedMs": 15670.945442,
       "metrics": {
         "generation": 1,
         "indexedPaths": 100,
@@ -36,14 +36,14 @@
         "deltaUnchanged": 0,
         "reusedVectors": 0,
         "indexMode": "rebuilt",
-        "collection": "ace_code_be6a7028d576_ed5d525715a7_6b8415e1559a",
+        "collection": "ace_code_be6a7028d576_84b507b1d119_6b8415e1559a",
         "embeddingIdentity": "6b8415e1559a",
         "structuralIdentity": "0ec80d6b4183",
         "retrievalFingerprint": "b06c1391174d63b17f20f6332f49216260f315f9188c07bc74b32052fe0b46d8",
-        "indexKey": "4105b76349af466a9625618c08d3b8e71c836ad760463ff59fe1cea3d5758d85"
+        "indexKey": "aed650b53e83b43d34b3f634127a1650f9b463186684bc96a17e212711d451dc"
       },
       "response": {
-        "requestId": "21d69119-613d-4a07-8988-d10c0420b3b1",
+        "requestId": "24744def-d5f8-4378-b2a5-c2034ce516e4",
         "complete": true,
         "evidenceCount": 6,
         "codeEvidence": [
@@ -82,7 +82,7 @@
     },
     {
       "phase": "warm",
-      "elapsedMs": 6695.354752,
+      "elapsedMs": 6989.260151,
       "metrics": {
         "generation": 2,
         "indexedPaths": 100,
@@ -99,14 +99,14 @@
         "deltaUnchanged": 100,
         "reusedVectors": 100,
         "indexMode": "warm_reused",
-        "collection": "ace_code_be6a7028d576_ed5d525715a7_6b8415e1559a",
+        "collection": "ace_code_be6a7028d576_84b507b1d119_6b8415e1559a",
         "embeddingIdentity": "6b8415e1559a",
         "structuralIdentity": "0ec80d6b4183",
         "retrievalFingerprint": "b06c1391174d63b17f20f6332f49216260f315f9188c07bc74b32052fe0b46d8",
-        "indexKey": "4105b76349af466a9625618c08d3b8e71c836ad760463ff59fe1cea3d5758d85"
+        "indexKey": "aed650b53e83b43d34b3f634127a1650f9b463186684bc96a17e212711d451dc"
       },
       "response": {
-        "requestId": "84201499-42dc-464f-9841-0b7767d174bf",
+        "requestId": "a1b1e278-22a0-40ab-a31a-90bd4be12b49",
         "complete": true,
         "evidenceCount": 6,
         "codeEvidence": [
@@ -145,7 +145,7 @@
     },
     {
       "phase": "change-only",
-      "elapsedMs": 7159.665604,
+      "elapsedMs": 7489.805439,
       "metrics": {
         "generation": 3,
         "indexedPaths": 100,
@@ -162,14 +162,14 @@
         "deltaUnchanged": 97,
         "reusedVectors": 97,
         "indexMode": "rebuilt",
-        "collection": "ace_code_be6a7028d576_ed5d525715a7_6b8415e1559a",
+        "collection": "ace_code_be6a7028d576_84b507b1d119_6b8415e1559a",
         "embeddingIdentity": "6b8415e1559a",
         "structuralIdentity": "0ec80d6b4183",
         "retrievalFingerprint": "b06c1391174d63b17f20f6332f49216260f315f9188c07bc74b32052fe0b46d8",
-        "indexKey": "0406272f74afee860f5814acefa023a8090b4989d3bba872033e8f59d4623afa"
+        "indexKey": "8bbc54351a8e2c22fac2e9e5206da794291191e0622621daef75b3f85c97ff8d"
       },
       "response": {
-        "requestId": "46f50595-f710-4741-906d-d70e923bf8db",
+        "requestId": "ec027d2e-d839-49b1-9636-4578ac0f3038",
         "complete": true,
         "evidenceCount": 6,
         "codeEvidence": [
