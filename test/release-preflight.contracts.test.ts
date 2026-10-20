@@ -65,6 +65,34 @@ const externalDocument = (name: ReleaseExternalEvidence['name']): unknown => {
       archiveTombstoneVerified: true,
     },
   };
+  if (name === 'graphiti-crash-recovery') return {
+    schemaVersion: 1,
+    evidence: 'real-graphiti-crash-recovery',
+    sourceCommit: commit,
+    fixture: 'benchmarks/fixtures/graphiti-memory-lifecycle-v1.json',
+    fixtureSha256: digest,
+    workspaceId: 'workspace-crash-1',
+    groupId: 'group-crash-1',
+    episodeId: 'episode-crash-1',
+    graphitiVersion: 'graphiti/fixture-1',
+    inference: { llm: 'local-llm/fixture', embedder: 'local-embedder/fixture', reranker: 'local-reranker/fixture' },
+    crash: {
+      signal: 'SIGKILL',
+      failpoint: 'after_graphiti_enqueue_before_outbox_receipt',
+      providerStatusBeforeCrash: 'pending',
+      durableReceiptBeforeRecovery: { status: 'pending', attempts: 0 },
+    },
+    recovery: {
+      reconcilePasses: 2,
+      durableProjected: true,
+      projectionAttempts: 1,
+      provenanceHitCount: 1,
+      purgeVerified: true,
+      archiveTombstoneVerified: true,
+      outboxTombstoned: true,
+    },
+    traces: { crashWorkerSha256: digest, recoverySha256: 'c'.repeat(64) },
+  };
   if (name === 'vertex') return {
     evidence: 'real-vertex-synthetic-code-doc-conflict',
     sourceCommit: commit,
@@ -109,6 +137,7 @@ const externalDocument = (name: ReleaseExternalEvidence['name']): unknown => {
 
 const externalEvidence: ReleaseExternalEvidence[] = [
   ['graphiti', 'real-graphiti-lifecycle'],
+  ['graphiti-crash-recovery', 'real-graphiti-crash-recovery'],
   ['vertex', 'real-vertex-synthetic-code-doc-conflict'],
   ['k3s-worktree', 'real-k3s-live-worktree'],
   ['backup-restore', 'operations-backup-restore'],
@@ -374,4 +403,17 @@ test('full release blocks runtime scope/provider/config drift even when selectio
     assert.equal(cloudScopeDrift.value.status, 'BLOCKED');
     assert.ok(cloudScopeDrift.value.failures.includes('runtime_config_not_accepted'));
   }
+});
+
+
+test('full release requires Graphiti crash-recovery evidence in addition to the happy-path lifecycle', () => {
+  const input = baseInput();
+  const result = evaluateReleasePreflight({
+    ...input,
+    externalEvidence: input.externalEvidence.filter((item) => item.name !== 'graphiti-crash-recovery'),
+  });
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Err') throw new Error(result.error.message);
+  assert.equal(result.value.status, 'BLOCKED');
+  assert.ok(result.value.failures.includes('external_evidence_missing:graphiti-crash-recovery'));
 });
