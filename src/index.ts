@@ -5,6 +5,7 @@ export * from './domain/workspace.js';
 export * from './domain/evaluation.js';
 export * from './domain/retrieval.js';
 export * from './domain/memory.js';
+export * from './domain/harbor-three-arm.js';
 export * from './domain/routing.js';
 export * from './domain/semantic.js';
 export * from './application/ports.js';
