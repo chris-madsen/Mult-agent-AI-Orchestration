@@ -1,0 +1,219 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-20T11:10:22.674Z",
+  "sourceCommit": "1762d159b7196c31677d6efd54f86dfd72c7d317",
+  "fixture": {
+    "baselineFiles": 100,
+    "requestedChangedFiles": 1,
+    "gitDirty": true,
+    "d1Path": "src/item-00.ts",
+    "d1Digest": "ce289d591befc2c5b3b18a4cfce1b6696d238b38de6312f9f593ac7f821b404c",
+    "d2Digest": "8f67178cdc88ee7087b09ae09f6d636d4288c3cb5f43557f6f88ea109a5564bf"
+  },
+  "runtime": {
+    "node": "v24.15.0",
+    "qdrant": "qdrant/1.19.2",
+    "embeddingWorker": "fastembed-worker.sh",
+    "treeSitterHelper": "tree-sitter-structural.py"
+  },
+  "phases": [
+    {
+      "phase": "cold",
+      "elapsedMs": 15722.725256,
+      "metrics": {
+        "generation": 1,
+        "indexedPaths": 100,
+        "candidates": 100,
+        "coverageFailed": 0,
+        "structuralCacheHits": 0,
+        "structuralCacheMisses": 100,
+        "candidateCacheHits": 0,
+        "candidateCacheMisses": 100,
+        "deltaAdded": 100,
+        "deltaChanged": 0,
+        "deltaDeleted": 0,
+        "deltaRenamed": 0,
+        "deltaUnchanged": 0,
+        "reusedVectors": 0,
+        "indexMode": "rebuilt",
+        "collection": "ace_code_be6a7028d576_ed5d525715a7_6b8415e1559a",
+        "embeddingIdentity": "6b8415e1559a",
+        "structuralIdentity": "0ec80d6b4183",
+        "retrievalFingerprint": "b06c1391174d63b17f20f6332f49216260f315f9188c07bc74b32052fe0b46d8",
+        "indexKey": "4105b76349af466a9625618c08d3b8e71c836ad760463ff59fe1cea3d5758d85"
+      },
+      "response": {
+        "requestId": "21d69119-613d-4a07-8988-d10c0420b3b1",
+        "complete": true,
+        "evidenceCount": 6,
+        "codeEvidence": [
+          {
+            "citation": "src/item-00.ts:2-2",
+            "sourceDigest": "ce289d591befc2c5b3b18a4cfce1b6696d238b38de6312f9f593ac7f821b404c",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-38.ts:2-2",
+            "sourceDigest": "03e05ad12a71be8b2a18b6431d8f0676abf4edd0a96cda9eb3b593a79484c883",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-47.ts:2-2",
+            "sourceDigest": "426be7714b101790c0b08ea73d7b5650b295b9e1e584d4242ea6d57be2761d60",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-40.ts:2-2",
+            "sourceDigest": "b7b805bfd7dc89c31942df0b76a9f193c45680f8dce5b2d994e7b13987cb5c0e",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-39.ts:2-2",
+            "sourceDigest": "7377d345425d4d162ac324a7059f780da7f921a0ce524ea768aa137241646325",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-49.ts:2-2",
+            "sourceDigest": "0190883584bece6603b621a75c7f46344293835dbf55732495362b6099c1403e",
+            "freshness": "current"
+          }
+        ]
+      }
+    },
+    {
+      "phase": "warm",
+      "elapsedMs": 6695.354752,
+      "metrics": {
+        "generation": 2,
+        "indexedPaths": 100,
+        "candidates": 100,
+        "coverageFailed": 0,
+        "structuralCacheHits": 0,
+        "structuralCacheMisses": 0,
+        "candidateCacheHits": 100,
+        "candidateCacheMisses": 0,
+        "deltaAdded": 0,
+        "deltaChanged": 0,
+        "deltaDeleted": 0,
+        "deltaRenamed": 0,
+        "deltaUnchanged": 100,
+        "reusedVectors": 100,
+        "indexMode": "warm_reused",
+        "collection": "ace_code_be6a7028d576_ed5d525715a7_6b8415e1559a",
+        "embeddingIdentity": "6b8415e1559a",
+        "structuralIdentity": "0ec80d6b4183",
+        "retrievalFingerprint": "b06c1391174d63b17f20f6332f49216260f315f9188c07bc74b32052fe0b46d8",
+        "indexKey": "4105b76349af466a9625618c08d3b8e71c836ad760463ff59fe1cea3d5758d85"
+      },
+      "response": {
+        "requestId": "84201499-42dc-464f-9841-0b7767d174bf",
+        "complete": true,
+        "evidenceCount": 6,
+        "codeEvidence": [
+          {
+            "citation": "src/item-00.ts:2-2",
+            "sourceDigest": "ce289d591befc2c5b3b18a4cfce1b6696d238b38de6312f9f593ac7f821b404c",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-38.ts:2-2",
+            "sourceDigest": "03e05ad12a71be8b2a18b6431d8f0676abf4edd0a96cda9eb3b593a79484c883",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-47.ts:2-2",
+            "sourceDigest": "426be7714b101790c0b08ea73d7b5650b295b9e1e584d4242ea6d57be2761d60",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-40.ts:2-2",
+            "sourceDigest": "b7b805bfd7dc89c31942df0b76a9f193c45680f8dce5b2d994e7b13987cb5c0e",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-39.ts:2-2",
+            "sourceDigest": "7377d345425d4d162ac324a7059f780da7f921a0ce524ea768aa137241646325",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-49.ts:2-2",
+            "sourceDigest": "0190883584bece6603b621a75c7f46344293835dbf55732495362b6099c1403e",
+            "freshness": "current"
+          }
+        ]
+      }
+    },
+    {
+      "phase": "change-only",
+      "elapsedMs": 7159.665604,
+      "metrics": {
+        "generation": 3,
+        "indexedPaths": 100,
+        "candidates": 100,
+        "coverageFailed": 0,
+        "structuralCacheHits": 0,
+        "structuralCacheMisses": 3,
+        "candidateCacheHits": 97,
+        "candidateCacheMisses": 3,
+        "deltaAdded": 1,
+        "deltaChanged": 1,
+        "deltaDeleted": 1,
+        "deltaRenamed": 1,
+        "deltaUnchanged": 97,
+        "reusedVectors": 97,
+        "indexMode": "rebuilt",
+        "collection": "ace_code_be6a7028d576_ed5d525715a7_6b8415e1559a",
+        "embeddingIdentity": "6b8415e1559a",
+        "structuralIdentity": "0ec80d6b4183",
+        "retrievalFingerprint": "b06c1391174d63b17f20f6332f49216260f315f9188c07bc74b32052fe0b46d8",
+        "indexKey": "0406272f74afee860f5814acefa023a8090b4989d3bba872033e8f59d4623afa"
+      },
+      "response": {
+        "requestId": "46f50595-f710-4741-906d-d70e923bf8db",
+        "complete": true,
+        "evidenceCount": 6,
+        "codeEvidence": [
+          {
+            "citation": "src/item-00.ts:2-2",
+            "sourceDigest": "8f67178cdc88ee7087b09ae09f6d636d4288c3cb5f43557f6f88ea109a5564bf",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-38.ts:2-2",
+            "sourceDigest": "03e05ad12a71be8b2a18b6431d8f0676abf4edd0a96cda9eb3b593a79484c883",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-47.ts:2-2",
+            "sourceDigest": "426be7714b101790c0b08ea73d7b5650b295b9e1e584d4242ea6d57be2761d60",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-40.ts:2-2",
+            "sourceDigest": "b7b805bfd7dc89c31942df0b76a9f193c45680f8dce5b2d994e7b13987cb5c0e",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-39.ts:2-2",
+            "sourceDigest": "7377d345425d4d162ac324a7059f780da7f921a0ce524ea768aa137241646325",
+            "freshness": "current"
+          },
+          {
+            "citation": "src/item-49.ts:2-2",
+            "sourceDigest": "0190883584bece6603b621a75c7f46344293835dbf55732495362b6099c1403e",
+            "freshness": "current"
+          }
+        ]
+      }
+    }
+  ],
+  "claims": {
+    "coldMeasured": true,
+    "warmReuseVerified": true,
+    "changeOnlyMeasured": true,
+    "contentIndexKeyTransitionVerified": true,
+    "d2CitationDigestVerified": true,
+    "renameDeleteUntrackedObserved": true,
+    "note": "This runner measures real-provider startup/index/query behavior only. Production acceptance still requires the selected provider identities, repeated measurements and retained evidence."
+  }
+}
