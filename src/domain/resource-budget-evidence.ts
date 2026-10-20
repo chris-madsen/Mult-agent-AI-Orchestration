@@ -185,3 +185,87 @@ export const evaluateResourceBudgetEvidence = (
     failures,
   });
 };
+
+
+const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+
+/**
+ * Validate the finalized retained resource-budget document again at release time.
+ * This prevents callers from promoting a hand-authored outer evidence label.
+ */
+export const validateResourceBudgetEvidenceDocument = (
+  document: unknown,
+  currentCommit: string,
+  expectedScope: ResourceBudgetScope,
+): Result<ResourceBudgetEvidenceVerdict, DomainError> => {
+  const root = asRecord(document);
+  if (root === undefined
+    || root.schemaVersion !== 1
+    || root.evidence !== 'resource-budget-accepted'
+    || root.scope !== expectedScope
+    || root.sourceCommit !== currentCommit
+    || root.currentCommit !== currentCommit) {
+    return err(domainError(
+      'INVALID_BENCHMARK',
+      'resource_budget.document',
+      'finalized resource-budget evidence identity/scope does not match the release',
+    ));
+  }
+  const budgetPolicy = asRecord(root.budgetPolicy);
+  const environment = asRecord(root.measurementEnvironment);
+  const verdict = asRecord(root.verdict);
+  if (budgetPolicy === undefined
+    || environment === undefined
+    || verdict === undefined
+    || !Array.isArray(budgetPolicy.metrics)
+    || !Array.isArray(root.observed)
+    || verdict.evidence !== 'resource-budget-accepted'
+    || verdict.scope !== expectedScope
+    || verdict.sourceCommit !== currentCommit
+    || verdict.allWithinBudget !== true
+    || !Array.isArray(verdict.failures)
+    || verdict.failures.length !== 0
+    || typeof root.generatedAt !== 'string'
+    || typeof budgetPolicy.reference !== 'string'
+    || typeof budgetPolicy.sha256 !== 'string'
+    || typeof environment.runtime !== 'string'
+    || typeof environment.deployment !== 'string'
+    || typeof environment.hostClass !== 'string') {
+    return err(domainError(
+      'INVALID_BENCHMARK',
+      'resource_budget.document',
+      'finalized resource-budget evidence is incomplete',
+    ));
+  }
+
+  const rechecked = evaluateResourceBudgetEvidence({
+    schemaVersion: 1,
+    scope: expectedScope,
+    sourceCommit: currentCommit,
+    generatedAt: root.generatedAt,
+    budgetPolicy: {
+      reference: budgetPolicy.reference,
+      sha256: budgetPolicy.sha256,
+      metrics: budgetPolicy.metrics as ResourceBudgetMetric[],
+    },
+    measurementEnvironment: {
+      runtime: environment.runtime,
+      deployment: environment.deployment,
+      hostClass: environment.hostClass,
+    },
+    observed: root.observed as ResourceObservedMetric[],
+  }, currentCommit);
+  if (rechecked._tag === 'Err' || !rechecked.value.allWithinBudget) {
+    return rechecked._tag === 'Err'
+      ? rechecked
+      : err(domainError(
+        'INVALID_BENCHMARK',
+        'resource_budget.document',
+        'resource-budget measurements no longer satisfy the retained policy',
+      ));
+  }
+  return rechecked;
+};
