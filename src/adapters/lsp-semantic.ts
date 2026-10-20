@@ -23,6 +23,8 @@ import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
 
 export interface LspSemanticOptions {
   readonly command: string;
+  /** Arguments used to start the server in stdio mode; TS defaults to --stdio. */
+  readonly args?: readonly string[];
   readonly rootPath: string;
   readonly files: Readonly<Record<string, string>>;
   /** Extension-to-LSP language mapping supplied by the selected server. */
@@ -34,6 +36,8 @@ export interface LspSemanticOptions {
   readonly providerVersion?: string;
   readonly snapshotIdentity?: string;
   readonly timeoutMs?: number;
+  /** Debounce publishDiagnostics notifications before exposing a snapshot. */
+  readonly diagnosticSettleMs?: number;
   readonly trace?: ProviderTraceSink;
 }
 
@@ -43,6 +47,7 @@ export interface LspProviderIdentity {
   readonly protocol: 'lsp';
   readonly protocolVersion: 1;
   readonly command: string;
+  readonly args: readonly string[];
   readonly version: string;
   readonly snapshotIdentity: string;
   readonly fingerprint: string;
@@ -87,7 +92,7 @@ const setStreamRef = (stream: NodeJS.ReadableStream | NodeJS.WritableStream, ref
   method?.call(stream);
 };
 
-const languageIdForPath = (repoPath: string, languageIds?: Readonly<Record<string, string>>): string | undefined => {
+export const lspLanguageIdForPath = (repoPath: string, languageIds?: Readonly<Record<string, string>>): string | undefined => {
   const extension = path.extname(repoPath).toLocaleLowerCase();
   const configured = languageIds?.[extension];
   if (configured !== undefined) return configured;
@@ -101,6 +106,8 @@ const languageIdForPath = (repoPath: string, languageIds?: Readonly<Record<strin
     default: return undefined;
   }
 };
+
+const languageIdForPath = lspLanguageIdForPath;
 
 const uriFor = (rootPath: string, repoPath: string): string =>
   pathToFileURL(path.resolve(rootPath, repoPath)).toString();
@@ -174,6 +181,8 @@ const diagnosticCategory = (severity: unknown): SemanticDiagnostic['category'] =
   return 'message';
 };
 
+const serverArgs = (options: Pick<LspSemanticOptions, 'args'>): readonly string[] => options.args ?? ['--stdio'];
+
 const runVersion = (command: string): Promise<string> => new Promise((resolve, reject) => {
   const child = spawn(command, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
   const stdout: Buffer[] = [];
@@ -188,7 +197,7 @@ const runVersion = (command: string): Promise<string> => new Promise((resolve, r
   });
 });
 
-export const resolveLspProviderIdentity = (options: Pick<LspSemanticOptions, 'command' | 'snapshotIdentity' | 'serverName'>): Effect.Effect<Result<LspProviderIdentity, DomainError>> =>
+export const resolveLspProviderIdentity = (options: Pick<LspSemanticOptions, 'command' | 'args' | 'snapshotIdentity' | 'serverName'>): Effect.Effect<Result<LspProviderIdentity, DomainError>> =>
   recoverResult(Effect.tryPromise({
     try: async () => {
       try {
@@ -199,6 +208,7 @@ export const resolveLspProviderIdentity = (options: Pick<LspSemanticOptions, 'co
           protocol: 'lsp' as const,
           protocolVersion: 1 as const,
           command: options.command,
+          args: [...serverArgs(options)],
           version,
           snapshotIdentity: options.snapshotIdentity ?? 'unbound',
         };
@@ -212,7 +222,7 @@ export const resolveLspProviderIdentity = (options: Pick<LspSemanticOptions, 'co
 
 const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRuntime, DomainError>> => {
   try {
-    const child = spawn(options.command, ['--stdio'], {
+    const child = spawn(options.command, serverArgs(options), {
       cwd: options.rootPath,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -236,10 +246,13 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
     child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
     const diagnostics = new Map<string, readonly LspDiagnostic[]>();
     const diagnosticWaiters = new Map<string, Array<(value: readonly LspDiagnostic[]) => void>>();
+    const diagnosticSettleTimers = new Map<string, NodeJS.Timeout>();
+    const diagnosticSettleMs = options.diagnosticSettleMs ?? 250;
     connection.onNotification('textDocument/publishDiagnostics', (params: unknown) => {
       if (typeof params !== 'object' || params === null || Array.isArray(params)) return;
       const value = params as { uri?: unknown; diagnostics?: unknown };
       if (!nonEmptyString(value.uri) || !Array.isArray(value.diagnostics)) return;
+      const uri = value.uri;
       const items = value.diagnostics.flatMap((item): LspDiagnostic[] => {
         if (typeof item !== 'object' || item === null || Array.isArray(item)) return [];
         const diagnostic = item as Partial<LspDiagnostic>;
@@ -247,9 +260,15 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
           ? [diagnostic as LspDiagnostic]
           : [];
       });
-      diagnostics.set(value.uri, items);
-      for (const resolve of diagnosticWaiters.get(value.uri) ?? []) resolve(items);
-      diagnosticWaiters.delete(value.uri);
+      diagnostics.set(uri, items);
+      const previousTimer = diagnosticSettleTimers.get(uri);
+      if (previousTimer !== undefined) clearTimeout(previousTimer);
+      diagnosticSettleTimers.set(uri, setTimeout(() => {
+        diagnosticSettleTimers.delete(uri);
+        const settled = diagnostics.get(uri) ?? items;
+        for (const resolve of diagnosticWaiters.get(uri) ?? []) resolve(settled);
+        diagnosticWaiters.delete(uri);
+      }, diagnosticSettleMs));
     });
     connection.onRequest('workspace/configuration', () => []);
     connection.onRequest('client/registerCapability', () => null);
@@ -274,12 +293,19 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
       });
     }
     const close = (): void => {
+      for (const timer of diagnosticSettleTimers.values()) clearTimeout(timer);
+      diagnosticSettleTimers.clear();
+      diagnosticWaiters.clear();
       connection.dispose();
       child.kill('SIGTERM');
     };
     const waitForDiagnostics = (uri: string, timeoutMs: number): Promise<readonly LspDiagnostic[]> => {
       const current = diagnostics.get(uri);
-      if (current !== undefined) return Promise.resolve(current);
+      if (current !== undefined) {
+        return new Promise((resolve) => {
+          setTimeout(() => resolve(diagnostics.get(uri) ?? current), diagnosticSettleMs);
+        });
+      }
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           const waiters = diagnosticWaiters.get(uri) ?? [];
