@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { Effect } from 'effect';
 import { makeFileArtifactStore } from '../adapters/file-artifact-store.js';
 import {
@@ -14,6 +14,7 @@ import {
 import { makeFileStructuralAnalysisCache } from '../adapters/file-structural-analysis-cache.js';
 import { makeFileCodeCandidateCache } from '../adapters/file-code-candidate-cache.js';
 import { makeAsyncFileMemoryArchive } from '../adapters/file-memory-archive.js';
+import { makeFileDecisionHistory } from '../adapters/file-decision-history.js';
 import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
 import { makeHostWorkspacePort, makeMtlsHostHelperTransport } from '../adapters/host-worktree-helper.js';
 import { makeFetchHttpPort, makeQdrantCodeCandidatePort } from '../adapters/http-provider-boundaries.js';
@@ -211,6 +212,9 @@ const main = async (): Promise<void> => {
       throw new Error(cause instanceof Error ? cause.message : 'ACE_GRAPHITI_ARGS_JSON is invalid');
     }
     const archive = await makeAsyncFileMemoryArchive(archiveRoot);
+    const decisionHistory = makeFileDecisionHistory(
+      resolve(process.env.ACE_MEMORY_DECISIONS_PATH?.trim() || join(archiveRoot, 'decisions.json')),
+    );
     try {
       const graphiti = await makeGraphitiMcpPort({
         command,
@@ -219,6 +223,7 @@ const main = async (): Promise<void> => {
         workspaceId: registered.value.workspaceId,
         policy: defaultLocalPolicy(registered.value.workspaceId),
         archive,
+        decisionHistory,
         trace: providerTrace,
         providerVersion: process.env.ACE_GRAPHITI_VERSION?.trim() || 'graphiti-mcp/unknown',
       });

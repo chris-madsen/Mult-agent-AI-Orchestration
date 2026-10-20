@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { Effect } from 'effect';
 import { exportCodexHistory } from '../adapters/codex-session-history.js';
 import { makeAsyncFileMemoryArchive } from '../adapters/file-memory-archive.js';
+import { makeFileDecisionHistory } from '../adapters/file-decision-history.js';
 import { makeFileProjectionOutbox } from '../adapters/file-projection-outbox.js';
 import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
 import { makeFileProviderTrace } from '../adapters/provider-trace.js';
@@ -38,6 +39,9 @@ const run = async (): Promise<void> => {
   if (workspace._tag === 'Err') throw new Error(workspace.error.message);
   const archiveRoot = resolve(required('ACE_MEMORY_ARCHIVE_ROOT'));
   const archive = await makeAsyncFileMemoryArchive(archiveRoot);
+  const decisionHistory = makeFileDecisionHistory(
+    resolve(process.env.ACE_MEMORY_DECISIONS_PATH?.trim() || join(archiveRoot, 'decisions.json')),
+  );
   const outbox = await makeFileProjectionOutbox(join(archiveRoot, 'projection-outbox'));
   const providerTrace = makeFileProviderTrace(process.env.ACE_PROVIDER_TRACE_FILE);
   const createGraphiti = async () => makeGraphitiMcpPort({
@@ -46,6 +50,8 @@ const run = async (): Promise<void> => {
     groupId: required('ACE_GRAPHITI_GROUP_ID'),
     workspaceId: workspace.value,
     policy: defaultLocalPolicy(workspace.value),
+    archive,
+    decisionHistory,
     trace: providerTrace,
     providerVersion: process.env.ACE_GRAPHITI_VERSION?.trim() || 'graphiti-mcp/unknown',
   });
