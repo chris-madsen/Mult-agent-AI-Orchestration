@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -99,4 +99,38 @@ test('host helper transport refuses plaintext HTTP before reading TLS credential
   });
   assert.equal(result._tag, 'Err');
   if (result._tag === 'Err') assert.equal(result.error.code, 'INVALID_INPUT');
+});
+
+
+test('host helper transport reloads mTLS files so rotated or removed projected Secrets take effect', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-host-helper-mtls-'));
+  const caFile = join(root, 'ca.crt');
+  const certificateFile = join(root, 'tls.crt');
+  const privateKeyFile = join(root, 'tls.key');
+  await Promise.all([
+    writeFile(caFile, 'fixture-ca-v1'),
+    writeFile(certificateFile, 'fixture-cert-v1'),
+    writeFile(privateKeyFile, 'fixture-key-v1'),
+  ]);
+
+  const transport = await makeMtlsHostHelperTransport({
+    endpoint: 'https://127.0.0.1:7443/v1/worktree',
+    caFile,
+    certificateFile,
+    privateKeyFile,
+    timeoutMs: 50,
+  });
+  assert.equal(transport._tag, 'Ok');
+  if (transport._tag === 'Err') throw new Error(transport.error.message);
+
+  await unlink(certificateFile);
+  const afterRotationRemoval = await transport.value.invoke({
+    operation: 'canonicalize',
+    workspaceId: 'workspace-a',
+  });
+  assert.equal(afterRotationRemoval._tag, 'Err');
+  if (afterRotationRemoval._tag === 'Err') {
+    assert.equal(afterRotationRemoval.error.code, 'AUTH_REQUIRED');
+    assert.equal(afterRotationRemoval.error.path, 'worktree_helper_tls');
+  }
 });
