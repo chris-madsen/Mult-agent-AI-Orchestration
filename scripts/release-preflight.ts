@@ -110,6 +110,7 @@ for (const [recordIndex, rawRecord] of dbcRoot.records.entries()) {
 const currentCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim().toLowerCase();
 const allowedExternalNames = new Set<ReleaseExternalEvidence['name']>([
   'graphiti',
+  'graphiti-crash-recovery',
   'vertex',
   'k3s-worktree',
   'backup-restore',
