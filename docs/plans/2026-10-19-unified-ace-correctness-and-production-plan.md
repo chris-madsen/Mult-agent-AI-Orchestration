@@ -5,6 +5,8 @@
 **Статус:** **единый канонический execution backlog, предложен к ревью**; это не отчёт о прохождении E2E и не заявление о готовности. Предыдущие два плана сохраняются как источники и исторические записи, но **не должны независимо запускаться как конкурирующие очереди задач**.  
 **Цель:** завершить Adaptive Context Engine (ACE) как agent-neutral, read-only MCP context engine, сочетающий доказуемо актуальный код, разрешённую проектную документацию и локальную temporal memory, и измерить влияние на Codex в Harbor.
 
+> **Текущий implementation/evidence status:** см. [ACE implementation / evidence ledger — 2026-10-20](../reviews/2026-10-20-implementation-evidence-ledger.md). Ledger отделяет уже слитую реализацию от ещё не выполненных real-provider/Harbor/owner gates; открытые чекбоксы ниже не означают, что код отсутствует.
+
 > **Место в иерархии документов.** Этот файл — сводный координационный backlog с очередностью, зависимостями и Definition of Done. Он **не меняет** Accepted ADR, PRD и OpenSpec и не «закрывает» их чекбоксы. Авторитетный текущий подробный план исполнения: [OpenSpec 006 CODEX-EXECUTION-PLAN](../openspec/changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md). Normative acceptance: [DBC-01…14](../docs/architecture/07-architecture-fitness-contracts.md), [OpenSpec 006 tasks](../openspec/changes/006-production-retrieval-vertical-slice/tasks.md), [AGENTS.md](../../AGENTS.md). При конфликте актуальные прямые решения владельца и Accepted ADR имеют приоритет.
 
 ## 1. Что уже есть — **не переделывать ради галочки**
