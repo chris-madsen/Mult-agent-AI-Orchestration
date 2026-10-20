@@ -30,6 +30,7 @@ import {
   codeIndexKey,
   ensureQdrantCollection,
   makeQdrantContextProvider,
+  probeQdrantService,
   pruneQdrantUnleasedSnapshots,
   reuseOrPopulateQdrantSnapshot,
 } from '../adapters/qdrant-context-provider.js';
@@ -285,7 +286,56 @@ const main = async (): Promise<void> => {
       || resolve(embeddingProvider === 'sentence-transformers/pytorch'
         ? 'scripts/sentence-transformers-worker.sh'
         : 'scripts/fastembed-worker.sh');
-    if (!existsSync(embeddingWorker) || !existsSync(structuralPath) || !commandBoundaryExists(structuralPython)) {
+    const handleQdrantUnavailable = async (errorCode: string): Promise<void> => {
+      readiness.code_retrieval = { state: 'not_ready', reason: 'qdrant_collection_unavailable' };
+      readiness.unified_context = { state: 'not_ready', reason: 'qdrant_collection_unavailable' };
+      if (allowLocalFallback) {
+        const built = await Effect.runPromise(buildLocalCodeIndex(
+          files,
+          registered.value.workspaceId,
+          registered.value.rootPath,
+          {
+            generation,
+            ...(!existsSync(structuralPath) || !commandBoundaryExists(structuralPython) ? {} : {
+              structural: makeTreeSitterStructuralPort({
+                helperPath: structuralPath,
+                pythonCommand: structuralPython,
+              }),
+            }),
+          },
+        ));
+        if (built._tag === 'Err') {
+          process.stderr.write(
+            `ace-mcp context NOT_READY: qdrant failed and degraded index failed (${built.error.code})\n`,
+          );
+          return;
+        }
+        context = makeLocalContextProvider({
+          workspaceId: registered.value.workspaceId,
+          rootPath: registered.value.rootPath,
+          index: built.value.index,
+          files,
+          newRequestId: () => randomUUID(),
+          failedSources: ['qdrant'],
+          additionalWarnings: [`Qdrant unavailable: ${errorCode}`],
+        });
+        readiness.code_retrieval = { state: 'degraded', reason: 'lexical_fallback_qdrant_unavailable' };
+        readiness.unified_context = { state: 'degraded', reason: 'lexical_fallback_qdrant_unavailable' };
+        process.stderr.write(
+          `ace-mcp degraded retrieval workspace_id=${registered.value.workspaceId} generation=${generation} reason=qdrant_unavailable\n`,
+        );
+        return;
+      }
+      process.stderr.write(`ace-mcp context NOT_READY: qdrant service unavailable (${errorCode})\n`);
+    };
+    const qdrantReachable = await Effect.runPromise(probeQdrantService(
+      http,
+      qdrantUrl,
+      qdrantAllowedHosts,
+    ));
+    if (qdrantReachable._tag === 'Err') {
+      await handleQdrantUnavailable(qdrantReachable.error.code);
+    } else if (!existsSync(embeddingWorker) || !existsSync(structuralPath) || !commandBoundaryExists(structuralPython)) {
       readiness.code_retrieval = { state: 'not_ready', reason: 'provider_runtime_missing' };
       readiness.unified_context = { state: 'not_ready', reason: 'provider_runtime_missing' };
       process.stderr.write('ace-mcp context NOT_READY: configured embedding/Tree-sitter runtime files are missing\n');
@@ -324,48 +374,7 @@ const main = async (): Promise<void> => {
       ));
       if (inspected._tag === 'Err') {
         embeddings.close();
-        readiness.code_retrieval = { state: 'not_ready', reason: 'qdrant_collection_unavailable' };
-        readiness.unified_context = { state: 'not_ready', reason: 'qdrant_collection_unavailable' };
-        if (allowLocalFallback) {
-          const built = await Effect.runPromise(buildLocalCodeIndex(
-            files,
-            registered.value.workspaceId,
-            registered.value.rootPath,
-            {
-              generation,
-              ...(!existsSync(structuralPath) || !commandBoundaryExists(structuralPython) ? {} : {
-                structural: makeTreeSitterStructuralPort({
-                  helperPath: structuralPath,
-                  pythonCommand: structuralPython,
-                }),
-              }),
-            },
-          ));
-          if (built._tag === 'Err') {
-            process.stderr.write(
-              `ace-mcp context NOT_READY: qdrant failed and degraded index failed (${built.error.code})\n`,
-            );
-          } else {
-            context = makeLocalContextProvider({
-              workspaceId: registered.value.workspaceId,
-              rootPath: registered.value.rootPath,
-              index: built.value.index,
-              files,
-              newRequestId: () => randomUUID(),
-              failedSources: ['qdrant'],
-              additionalWarnings: [`Qdrant unavailable: ${inspected.error.code}`],
-            });
-            readiness.code_retrieval = { state: 'degraded', reason: 'lexical_fallback_qdrant_unavailable' };
-            readiness.unified_context = { state: 'degraded', reason: 'lexical_fallback_qdrant_unavailable' };
-            process.stderr.write(
-              `ace-mcp degraded retrieval workspace_id=${registered.value.workspaceId} generation=${generation} reason=qdrant_unavailable\n`,
-            );
-          }
-        } else {
-          process.stderr.write(
-            `ace-mcp context NOT_READY: qdrant collection check failed (${inspected.error.code})\n`,
-          );
-        }
+        await handleQdrantUnavailable(inspected.error.code);
       } else {
       const structuralOptions = {
         helperPath: structuralPath,
