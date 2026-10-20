@@ -27,6 +27,38 @@ const graphiti = {
   },
 };
 
+const graphitiCrashRecovery = {
+  schemaVersion: 1,
+  evidence: 'real-graphiti-crash-recovery',
+  sourceCommit: commit,
+  fixture: 'benchmarks/fixtures/graphiti-memory-lifecycle-v1.json',
+  fixtureSha256: digest,
+  workspaceId: 'workspace-crash-1',
+  groupId: 'group-crash-1',
+  episodeId: 'episode-crash-1',
+  graphitiVersion: 'graphiti/1.0',
+  inference: { llm: 'local-llm/1', embedder: 'local-embedder/1', reranker: 'local-reranker/1' },
+  crash: {
+    signal: 'SIGKILL',
+    failpoint: 'after_graphiti_enqueue_before_outbox_receipt',
+    providerStatusBeforeCrash: 'pending',
+    durableReceiptBeforeRecovery: { status: 'pending', attempts: 0 },
+  },
+  recovery: {
+    reconcilePasses: 2,
+    durableProjected: true,
+    projectionAttempts: 1,
+    provenanceHitCount: 1,
+    purgeVerified: true,
+    archiveTombstoneVerified: true,
+    outboxTombstoned: true,
+  },
+  traces: {
+    crashWorkerSha256: digest,
+    recoverySha256: 'c'.repeat(64),
+  },
+};
+
 const vertex = {
   evidence: 'real-vertex-synthetic-code-doc-conflict',
   sourceCommit: commit,
@@ -87,6 +119,7 @@ const supplyChain = {
 test('release external validator accepts internally consistent exact-commit evidence families', () => {
   for (const [name, document] of [
     ['graphiti', graphiti],
+    ['graphiti-crash-recovery', graphitiCrashRecovery],
     ['vertex', vertex],
     ['k3s-worktree', aggregate('real-k3s-live-worktree', 'K3S', 10)],
     ['backup-restore', aggregate('operations-backup-restore', 'OPS', 6)],
@@ -100,6 +133,7 @@ test('release external validator accepts internally consistent exact-commit evid
 test('a forged label without the underlying provider proof is rejected', () => {
   for (const [name, evidence] of [
     ['graphiti', 'real-graphiti-lifecycle'],
+    ['graphiti-crash-recovery', 'real-graphiti-crash-recovery'],
     ['vertex', 'real-vertex-synthetic-code-doc-conflict'],
     ['k3s-worktree', 'real-k3s-live-worktree'],
     ['backup-restore', 'operations-backup-restore'],
@@ -113,6 +147,7 @@ test('a forged label without the underlying provider proof is rejected', () => {
 test('external evidence from another commit cannot be promoted into the current release', () => {
   for (const [name, document] of [
     ['graphiti', graphiti],
+    ['graphiti-crash-recovery', graphitiCrashRecovery],
     ['vertex', vertex],
     ['k3s-worktree', aggregate('real-k3s-live-worktree', 'K3S', 10)],
     ['backup-restore', aggregate('operations-backup-restore', 'OPS', 6)],
@@ -162,4 +197,34 @@ test('aggregate and supply-chain evidence must contain an internal PASS, not onl
     verdict: { ...supplyChain.verdict, status: 'FAIL', failures: ['audit'] },
   }, commit);
   assert.equal(failedSupply._tag, 'Err');
+});
+
+
+test('Graphiti crash recovery requires the exact ack-gap SIGKILL, durable pending intent and retained traces', () => {
+  const graceful = validateReleaseExternalEvidenceDocument('graphiti-crash-recovery', {
+    ...graphitiCrashRecovery,
+    crash: { ...graphitiCrashRecovery.crash, signal: 'SIGTERM' },
+  }, commit);
+  assert.equal(graceful._tag, 'Err');
+
+  const noPendingIntent = validateReleaseExternalEvidenceDocument('graphiti-crash-recovery', {
+    ...graphitiCrashRecovery,
+    crash: {
+      ...graphitiCrashRecovery.crash,
+      durableReceiptBeforeRecovery: { status: 'projected', attempts: 1 },
+    },
+  }, commit);
+  assert.equal(noPendingIntent._tag, 'Err');
+
+  const noRecall = validateReleaseExternalEvidenceDocument('graphiti-crash-recovery', {
+    ...graphitiCrashRecovery,
+    recovery: { ...graphitiCrashRecovery.recovery, provenanceHitCount: 0 },
+  }, commit);
+  assert.equal(noRecall._tag, 'Err');
+
+  const noTrace = validateReleaseExternalEvidenceDocument('graphiti-crash-recovery', {
+    ...graphitiCrashRecovery,
+    traces: { ...graphitiCrashRecovery.traces, recoverySha256: 'unknown' },
+  }, commit);
+  assert.equal(noTrace._tag, 'Err');
 });
