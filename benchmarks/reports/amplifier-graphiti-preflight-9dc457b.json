@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "evidence": "amplifier-graphiti-preflight",
+  "generatedAt": "2026-10-20T14:28:52.282Z",
+  "status": "unavailable",
+  "pinned": {
+    "amplifierAgent": "a289011169520f8cb2d023f0a486cbbb00082a8f",
+    "amplifierChatGptProvider": "b1341edd1545ba4b89a416184797ccfbc346413b",
+    "graphiti": "3cc723cd292eb5c2ac5ea2c5539270b8e1b6389f"
+  },
+  "requestedModel": "gpt-5.6-luna",
+  "faceModel": "gpt-5.6-luna",
+  "faceUrl": "http://127.0.0.1:9099/v1",
+  "graphitiSourceRootConfigured": true,
+  "graphitiSourceRef": "3cc723cd292eb5c2ac5ea2c5539270b8e1b6389f",
+  "graphitiConfigPath": "/media/ilja/DATA/soft/consillium/harness/infra/providers/amplifier-graphiti/graphiti-config.yaml",
+  "graphitiCommandConfigured": true,
+  "liveCatalogModelIds": [],
+  "checks": [
+    {
+      "name": "face-loopback",
+      "status": "pass",
+      "detail": "Amplifier face URL is loopback-only"
+    },
+    {
+      "name": "face-token",
+      "status": "not_ready",
+      "detail": "AMPLIFIER_AGENT_FACE_TOKEN is missing"
+    },
+    {
+      "name": "face-models",
+      "status": "unavailable",
+      "detail": "Amplifier face /v1/models was not reachable"
+    },
+    {
+      "name": "face-model-alias",
+      "status": "blocked",
+      "detail": "configured face model alias is not advertised by /v1/models"
+    },
+    {
+      "name": "live-model-catalog",
+      "status": "unavailable",
+      "detail": "openai-chatgpt live catalog was not reachable"
+    },
+    {
+      "name": "requested-model-entitlement",
+      "status": "blocked",
+      "detail": "requested model is absent from the live account catalog; no request may use it"
+    },
+    {
+      "name": "graphiti-command",
+      "status": "pass",
+      "detail": "official Graphiti MCP command and argv are configured"
+    },
+    {
+      "name": "graphiti-source-ref",
+      "status": "pass",
+      "detail": "Graphiti MCP checkout matches the pinned commit"
+    },
+    {
+      "name": "graphiti-config",
+      "status": "pass",
+      "detail": "Graphiti config file is present"
+    },
+    {
+      "name": "secret-free-config",
+      "status": "pass",
+      "detail": "config contains no literal credential or access token"
+    },
+    {
+      "name": "structured-output",
+      "status": "pass",
+      "detail": "Graphiti is configured for json_object prompt/schema fallback"
+    },
+    {
+      "name": "falkordb-loopback",
+      "status": "pass",
+      "detail": "FalkorDB URI is loopback-only"
+    },
+    {
+      "name": "local-embedder",
+      "status": "blocked",
+      "detail": "pinned Graphiti MCP does not expose the requested local embedder; no fallback or shim is allowed"
+    },
+    {
+      "name": "local-reranker",
+      "status": "blocked",
+      "detail": "pinned Graphiti MCP cannot prove local reranker selection; provider-backed reranking is not accepted"
+    },
+    {
+      "name": "synthetic-policy",
+      "status": "pass",
+      "detail": "only the committed synthetic fixture is authorized for this preflight"
+    },
+    {
+      "name": "private-cloud-approval",
+      "status": "pass",
+      "detail": "private-cloud policy profile has an explicit owner approval reference"
+    }
+  ],
+  "productionClaims": {
+    "tokenSavings5x": false,
+    "graphitiLocalOnly": false
+  },
+  "note": "No bearer token, OAuth token, private dialogue, source bytes, or query payload is retained."
+}
