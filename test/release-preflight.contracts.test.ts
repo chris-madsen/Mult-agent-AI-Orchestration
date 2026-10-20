@@ -118,6 +118,58 @@ const externalEvidence: ReleaseExternalEvidence[] = [
   document: externalDocument(name as ReleaseExternalEvidence['name']),
 }));
 
+const resourceBudget = {
+  schemaVersion: 1,
+  generatedAt: '2026-10-20T00:00:00.000Z',
+  evidence: 'resource-budget-accepted',
+  scope: 'full-unified',
+  sourceCommit: commit,
+  currentCommit: commit,
+  budgetPolicy: {
+    reference: 'owner-resource-budget-v1',
+    sha256: digest,
+    metrics: [
+      ['process_peak_rss_bytes', 'bytes'],
+      ['startup_ready_ms', 'ms'],
+      ['cold_index_ms', 'ms'],
+      ['code_query_p95_ms', 'ms'],
+      ['documentation_query_p95_ms', 'ms'],
+      ['memory_query_p95_ms', 'ms'],
+    ].map(([metric, unit]) => ({
+      metric,
+      unit,
+      maximum: unit === 'bytes' ? 2_000_000_000 : 5_000,
+      minimumSamples: 3,
+    })),
+  },
+  measurementEnvironment: {
+    runtime: 'node/22|ace/0.1.0',
+    deployment: 'k3s',
+    hostClass: 'fixture-host',
+  },
+  observed: [
+    ['process_peak_rss_bytes', 'bytes'],
+    ['startup_ready_ms', 'ms'],
+    ['cold_index_ms', 'ms'],
+    ['code_query_p95_ms', 'ms'],
+    ['documentation_query_p95_ms', 'ms'],
+    ['memory_query_p95_ms', 'ms'],
+  ].map(([metric, unit]) => ({
+    metric,
+    unit,
+    observed: unit === 'bytes' ? 900_000_000 : 1_000,
+    sampleCount: 5,
+    method: 'retained-release-measurement',
+  })),
+  verdict: {
+    evidence: 'resource-budget-accepted',
+    scope: 'full-unified',
+    sourceCommit: commit,
+    allWithinBudget: true,
+    failures: [],
+  },
+};
+
 const baseInput = () => ({
   currentCommit: commit,
   dbc: {
@@ -137,6 +189,7 @@ const baseInput = () => ({
       metrics: { holdoutStatus: 'frozen_holdout' },
     },
   },
+  resourceBudget,
   harborThreeArm: {
     outcome: {
       productionAcceptance: 'measured-not-necessarily-5x',
@@ -232,4 +285,22 @@ test('Harbor diagnostic or incomplete-cost results can never produce unified rel
   if (result._tag === 'Err') throw new Error(result.error.message);
   assert.equal(result.value.status, 'BLOCKED');
   assert.ok(result.value.failures.includes('harbor_natural_use_acceptance_incomplete'));
+});
+
+
+test('full release blocks forged or over-budget resource evidence', () => {
+  const input = baseInput();
+  const result = evaluateReleasePreflight({
+    ...input,
+    resourceBudget: {
+      ...resourceBudget,
+      observed: resourceBudget.observed.map((item) => item.metric === 'memory_query_p95_ms'
+        ? { ...item, observed: 10_000 }
+        : item),
+    },
+  });
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Err') throw new Error(result.error.message);
+  assert.equal(result.value.status, 'BLOCKED');
+  assert.ok(result.value.failures.includes('resource_budget_not_accepted'));
 });
