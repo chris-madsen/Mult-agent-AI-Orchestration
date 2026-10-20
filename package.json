@@ -24,7 +24,7 @@
     "test:memory-process": "npm run build && node scripts/memory-process-e2e.mjs",
     "test:real-semantic": "npm run build && node scripts/real-semantic-retrieval-e2e.mjs",
     "probe:jev": "bash scripts/jev-readonly-probe.sh",
-    "test": "npm run check && tsx --test test/*.test.ts",
+    "test": "tsx --test test/*.test.ts",
     "memory:sync": "npm run build && node dist/bin/ace-memory.js",
     "gate:harbor": "tsx scripts/harbor-retrieval-gate.ts",
     "test:real-same-name": "npm run build && tsx scripts/real-same-name-lsp-e2e.ts",
@@ -59,7 +59,11 @@
     "test:real-qdrant-stale-count": "npm run build && node scripts/qdrant-stale-count-e2e.mjs",
     "test:real-qdrant-crash": "npm run build && node scripts/qdrant-snapshot-crash-e2e.mjs",
     "test:real-graphiti-crash": "npm run build && node scripts/graphiti-crash-recovery-e2e.mjs",
-    "compare:semantic-serena": "node scripts/serena-semantic-comparison.mjs"
+    "compare:semantic-serena": "node scripts/serena-semantic-comparison.mjs",
+    "test:fast": "npm test",
+    "test:affected": "node scripts/run-affected-tests.mjs",
+    "test:impact:self": "node scripts/run-affected-tests.mjs --self-test",
+    "verify:pr": "npm run check && npm run test:fast && npm run lint && npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",
