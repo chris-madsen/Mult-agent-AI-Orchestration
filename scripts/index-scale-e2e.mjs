@@ -35,6 +35,10 @@ const parseArgs = (argv) => {
 };
 
 const options = parseArgs(process.argv.slice(2));
+const phaseTimeoutMs = Number(process.env.ACE_INDEX_SCALE_PHASE_TIMEOUT_MS ?? 30 * 60_000);
+if (!Number.isSafeInteger(phaseTimeoutMs) || phaseTimeoutMs < 60_000 || phaseTimeoutMs > 60 * 60_000) {
+  throw new Error('ACE_INDEX_SCALE_PHASE_TIMEOUT_MS must be an integer between 60000 and 3600000');
+}
 const pad = String(options.files - 1).length;
 const fileName = (index) => `item-${String(index).padStart(pad, '0')}.ts`;
 const filePath = (workspace, index) => join(workspace, 'src', fileName(index));
@@ -159,7 +163,7 @@ const runOnce = (workspace, state, workspaceId, phase) => new Promise((resolveRu
     if (settled) return;
     settled = true;
     void stopChild().finally(() => rejectRun(new Error(`${phase} MCP request timed out: ${stderr.slice(-4000)}`)));
-  }, 15 * 60_000);
+  }, phaseTimeoutMs);
 
   child.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
   child.stdout.on('data', (chunk) => {

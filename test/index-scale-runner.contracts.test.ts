@@ -17,6 +17,7 @@ test('real index scale runner is syntactically valid and preserves the productio
   assert.match(script, /const stopChild = async/u);
   assert.match(script, /await stopChild\(\)/u);
   assert.match(script, /maxRetries: 10/u);
+  assert.match(script, /ACE_INDEX_SCALE_PHASE_TIMEOUT_MS/u);
 });
 
 test('scale runner fixture exercises changed, renamed, deleted and genuinely untracked paths', async () => {
