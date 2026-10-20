@@ -11,6 +11,13 @@ export interface ProjectDataPolicy {
   readonly policyVersion: number;
   readonly cloudOptIn: boolean;
   readonly allowedCloudProviders: readonly Exclude<Destination, 'local'>[];
+  /**
+   * Cloud permission is provider + data-class scoped. Missing provider mapping
+   * means no data class is authorized for that provider.
+   */
+  readonly allowedCloudDataClassesByProvider: Readonly<
+  Partial<Record<Exclude<Destination, 'local'>, readonly Exclude<DataClass, 'secret'>[]>>
+  >;
   readonly deniedPathPrefixes: readonly string[];
 }
 
@@ -25,7 +32,7 @@ export interface PolicyAction {
 
 export interface AccessDecision {
   readonly outcome: 'allowed' | 'denied';
-  readonly reasonCode: 'ALLOWED' | 'POLICY_DENIED' | 'AUTH_REQUIRED' | 'SECRET_DETECTED' | 'PATH_DENIED';
+  readonly reasonCode: 'ALLOWED' | 'POLICY_DENIED' | 'DATA_CLASS_DENIED' | 'AUTH_REQUIRED' | 'SECRET_DETECTED' | 'PATH_DENIED';
   readonly policyVersion: number;
   readonly destination: Destination;
 }
@@ -46,6 +53,7 @@ export const defaultLocalPolicy = (workspaceId: WorkspaceId): ProjectDataPolicy 
   policyVersion: 1,
   cloudOptIn: false,
   allowedCloudProviders: [],
+  allowedCloudDataClassesByProvider: {},
   deniedPathPrefixes: ['.env', '.git/', 'secrets/'],
 });
 
@@ -92,6 +100,18 @@ export const authorizeOutbound = (
       policyVersion: policy.policyVersion,
       destination: action.destination,
     });
+  }
+  if (action.destination !== 'local') {
+    const allowedDataClasses = policy.allowedCloudDataClassesByProvider[action.destination] ?? [];
+    if (action.dataClasses.length === 0
+      || action.dataClasses.some((dataClass) => dataClass === 'secret' || !allowedDataClasses.includes(dataClass))) {
+      return ok({
+        outcome: 'denied',
+        reasonCode: 'DATA_CLASS_DENIED',
+        policyVersion: policy.policyVersion,
+        destination: action.destination,
+      });
+    }
   }
   return ok({
     outcome: 'allowed',

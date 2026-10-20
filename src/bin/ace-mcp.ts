@@ -86,6 +86,9 @@ const makeDocumentationProvider = (
     ...defaultLocalPolicy(workspaceId),
     cloudOptIn,
     allowedCloudProviders: cloudOptIn ? ['vertex'] as const : [],
+    allowedCloudDataClassesByProvider: cloudOptIn
+      ? { vertex: ['project_document'] as const }
+      : {},
   };
   return makeVertexRagRetrievalPort({
     project,

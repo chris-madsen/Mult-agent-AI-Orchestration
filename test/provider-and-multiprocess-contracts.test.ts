@@ -122,7 +122,12 @@ test('Vertex v1beta1 retrieval uses real retrieveContexts wire shape and provena
     project: 'ace-dev',
     location: 'us-central1',
     corpusId: 'abc',
-    policy: { ...defaultLocalPolicy(ws), cloudOptIn: true, allowedCloudProviders: ['vertex'] },
+    policy: {
+      ...defaultLocalPolicy(ws),
+      cloudOptIn: true,
+      allowedCloudProviders: ['vertex'],
+      allowedCloudDataClassesByProvider: { vertex: ['project_document'] },
+    },
     accessToken: () => 'token',
     http,
   });
@@ -135,7 +140,13 @@ test('Vertex empty Europe corpus is a valid empty result, never invented documen
   const workspaceId = value(makeWorkspaceId('vertex-empty-europe'));
   const provider = makeVertexRagRetrievalPort({
     project: 'poetic-emblem-494722-v2', location: 'europe-west4', corpusId: '2305843009213693952',
-    accessToken: () => 'token', policy: { ...defaultLocalPolicy(workspaceId), cloudOptIn: true, allowedCloudProviders: ['vertex'] },
+    accessToken: () => 'token',
+    policy: {
+      ...defaultLocalPolicy(workspaceId),
+      cloudOptIn: true,
+      allowedCloudProviders: ['vertex'],
+      allowedCloudDataClassesByProvider: { vertex: ['project_document'] },
+    },
     http: { request: () => Effect.succeed(ok({ status: 200, body: {} })) },
   });
   const result = value(await Effect.runPromise(provider.search({ workspaceId, query: 'synthetic readiness probe', topK: 3 })));
@@ -161,7 +172,12 @@ test('Vertex blocks secret-like documentation queries before outbound HTTP even 
     project: 'ace-dev',
     location: 'europe-west4',
     corpusId: 'abc',
-    policy: { ...defaultLocalPolicy(ws), cloudOptIn: true, allowedCloudProviders: ['vertex'] },
+    policy: {
+      ...defaultLocalPolicy(ws),
+      cloudOptIn: true,
+      allowedCloudProviders: ['vertex'],
+      allowedCloudDataClassesByProvider: { vertex: ['project_document'] },
+    },
     accessToken: () => 'token',
     http: { request: () => { requests += 1; return Effect.succeed(ok({ status: 200, body: {} })); } },
   });

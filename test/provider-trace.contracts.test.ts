@@ -49,7 +49,12 @@ test('Vertex trace carries request correlation but no query or OAuth token', asy
     location: 'europe-west4',
     corpusId: 'fixture',
     accessToken: () => 'oauth-secret-value',
-    policy: { ...defaultLocalPolicy(workspace.value), cloudOptIn: true, allowedCloudProviders: ['vertex'] },
+    policy: {
+      ...defaultLocalPolicy(workspace.value),
+      cloudOptIn: true,
+      allowedCloudProviders: ['vertex'],
+      allowedCloudDataClassesByProvider: { vertex: ['project_document'] },
+    },
     http: { request: () => Effect.succeed(ok({ status: 200, body: {} })) },
     trace: { record: (event) => { events.push(event); } },
     providerVersion: 'vertex-rag/test',

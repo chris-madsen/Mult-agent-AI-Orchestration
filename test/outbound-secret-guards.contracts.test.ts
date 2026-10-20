@@ -20,6 +20,11 @@ const allowedPolicy: ProjectDataPolicy = {
   ...defaultLocalPolicy(workspaceId),
   cloudOptIn: true,
   allowedCloudProviders: ['vertex', 'jev', 'other_external'],
+  allowedCloudDataClassesByProvider: {
+    vertex: ['project_document'],
+    jev: ['private_source', 'public'],
+    other_external: ['private_conversation'],
+  },
 };
 
 test('secret-bearing Vertex query is denied before token lookup and HTTP', async () => {
