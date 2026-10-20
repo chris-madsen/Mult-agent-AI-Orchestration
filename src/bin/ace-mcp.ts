@@ -467,7 +467,7 @@ const main = async (): Promise<void> => {
                 throw new Error(`Qdrant prior snapshot lookup failed (${previous.error.code})`);
               }
               const fileDelta = diffSnapshotFileManifests(
-                previous.value?.fileManifest ?? [],
+                published.value ? built.value.fileManifest : previous.value?.fileManifest ?? [],
                 built.value.fileManifest,
               );
               if (!published.value) {
