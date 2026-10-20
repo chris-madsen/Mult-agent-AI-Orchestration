@@ -110,6 +110,9 @@ For concurrency, crash, recovery and provider-boundary defects, prefer determini
 - Build/typecheck work must not be duplicated accidentally. Typecheck is a separate gate from `npm test`; TypeScript incremental state may be reused locally. When several expensive E2E commands exercise the same unchanged source, compile once or rely on the incremental build rather than intentionally forcing repeated clean rebuilds.
 
 - Work in reviewable branches and PRs; do not push directly to `main` unless the owner explicitly authorizes that operation. Preserve unrelated edits.
+- **Every completed repository change MUST be delivered through a pull request targeting `main`**, including documentation, tests, benchmarks, configuration, infrastructure and evidence-only changes. A local commit or a pushed feature branch without a PR is not completed work; the completion report MUST include the PR number or URL.
+- Before starting unrelated work, inspect the remote branches and existing PRs. If a usable completed change is already stranded on a branch without a PR, create its PR to `main` before moving on. Do not leave completed work stranded or silently assume that another branch contains it.
+- If PR creation is blocked by authentication, network, repository policy or another external dependency, report the work as `blocked`/`not_done` rather than claiming completion.
 - For affected capabilities run typecheck, lint, unit/contract tests, OpenSpec validation, real-provider integration, SDK conformance and agent E2E **as applicable**. Report precisely what was run, skipped, unavailable and why.
 - Promote production capability only after applicable real evidence, security/permission checks, reproducible evaluation and explicit owner review. If a provider needs credentials or external services unavailable to the current runner, record a specific blocker rather than inventing success.
 
