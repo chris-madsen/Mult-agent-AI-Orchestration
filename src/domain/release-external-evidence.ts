@@ -3,6 +3,7 @@ import { err, ok, type Result } from './result.js';
 
 export type ReleaseExternalEvidenceName =
   | 'graphiti'
+  | 'graphiti-crash-recovery'
   | 'vertex'
   | 'k3s-worktree'
   | 'backup-restore'
@@ -77,6 +78,100 @@ const validateGraphiti = (
     return err(domainError('INVALID_BENCHMARK', 'external.graphiti.inference', 'Graphiti local inference identities must be explicit'));
   }
   return ok({ name: 'graphiti', evidence: root.evidence, sourceCommit: commit.value });
+};
+
+const validateGraphitiCrashRecovery = (
+  root: Record<string, unknown>,
+  currentCommit: string,
+): Result<ValidatedReleaseExternalEvidence, DomainError> => {
+  if (root.schemaVersion !== 1
+    || root.evidence !== 'real-graphiti-crash-recovery'
+    || !sha256(root.fixtureSha256)
+    || !nonEmpty(root.fixture)
+    || !nonEmpty(root.workspaceId)
+    || !nonEmpty(root.groupId)
+    || !nonEmpty(root.episodeId)
+    || !nonEmpty(root.graphitiVersion)
+    || root.graphitiVersion === 'unknown') {
+    return err(domainError(
+      'INVALID_BENCHMARK',
+      'external.graphiti-crash-recovery',
+      'Graphiti crash-recovery evidence identity/version metadata is incomplete',
+    ));
+  }
+  const commit = exactCommit(
+    root.sourceCommit,
+    currentCommit,
+    'external.graphiti-crash-recovery.sourceCommit',
+  );
+  if (commit._tag === 'Err') return commit;
+
+  const inference = record(root.inference);
+  if (inference === undefined
+    || !nonEmpty(inference.llm) || inference.llm === 'unknown'
+    || !nonEmpty(inference.embedder) || inference.embedder === 'unknown'
+    || !nonEmpty(inference.reranker) || inference.reranker === 'unknown') {
+    return err(domainError(
+      'INVALID_BENCHMARK',
+      'external.graphiti-crash-recovery.inference',
+      'Graphiti crash-recovery inference identities must be explicit',
+    ));
+  }
+
+  const crash = record(root.crash);
+  const durableBefore = record(crash?.durableReceiptBeforeRecovery);
+  if (crash === undefined
+    || crash.signal !== 'SIGKILL'
+    || crash.failpoint !== 'after_graphiti_enqueue_before_outbox_receipt'
+    || !nonEmpty(crash.providerStatusBeforeCrash)
+    || durableBefore === undefined
+    || durableBefore.status !== 'pending'
+    || durableBefore.attempts !== 0) {
+    return err(domainError(
+      'INVALID_BENCHMARK',
+      'external.graphiti-crash-recovery.crash',
+      'Graphiti crash proof must show SIGKILL in the enqueue/outbox acknowledgement gap',
+    ));
+  }
+
+  const recovery = record(root.recovery);
+  if (recovery === undefined
+    || recovery.durableProjected !== true
+    || recovery.purgeVerified !== true
+    || recovery.archiveTombstoneVerified !== true
+    || recovery.outboxTombstoned !== true
+    || typeof recovery.reconcilePasses !== 'number'
+    || !Number.isSafeInteger(recovery.reconcilePasses)
+    || recovery.reconcilePasses < 1
+    || typeof recovery.projectionAttempts !== 'number'
+    || !Number.isSafeInteger(recovery.projectionAttempts)
+    || recovery.projectionAttempts < 1
+    || typeof recovery.provenanceHitCount !== 'number'
+    || !Number.isSafeInteger(recovery.provenanceHitCount)
+    || recovery.provenanceHitCount < 1) {
+    return err(domainError(
+      'INVALID_BENCHMARK',
+      'external.graphiti-crash-recovery.recovery',
+      'Graphiti crash-recovery proof is incomplete',
+    ));
+  }
+
+  const traces = record(root.traces);
+  if (traces === undefined
+    || !sha256(traces.crashWorkerSha256)
+    || !sha256(traces.recoverySha256)) {
+    return err(domainError(
+      'INVALID_BENCHMARK',
+      'external.graphiti-crash-recovery.traces',
+      'Graphiti crash-recovery evidence requires retained safe provider trace digests',
+    ));
+  }
+
+  return ok({
+    name: 'graphiti-crash-recovery',
+    evidence: root.evidence,
+    sourceCommit: commit.value,
+  });
 };
 
 const validateVertex = (
@@ -205,6 +300,8 @@ export const validateReleaseExternalEvidenceDocument = (
   switch (name) {
     case 'graphiti':
       return validateGraphiti(root, currentCommit);
+    case 'graphiti-crash-recovery':
+      return validateGraphitiCrashRecovery(root, currentCommit);
     case 'vertex':
       return validateVertex(root, currentCommit);
     case 'k3s-worktree':
