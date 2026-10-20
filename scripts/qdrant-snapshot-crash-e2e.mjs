@@ -298,6 +298,17 @@ const assertEvidence = (context, citationPart, contentPart) => {
   return hit;
 };
 
+const assertCurrentOrNotReady = (response, citationPart, contentPart) => {
+  if (response.status === 'not_ready') {
+    assert.equal(response.capability, 'workspace_manifest', JSON.stringify(response));
+    return 'not_ready';
+  }
+  const context = response.status === 'ok' ? response.result : response;
+  assert.equal(context?.complete, true, JSON.stringify(response));
+  assertEvidence(context, citationPart, contentPart);
+  return 'complete';
+};
+
 const hashFileIfPresent = async (path) => {
   try {
     const bytes = await readFile(path);
@@ -330,8 +341,7 @@ try {
     'writer killed before publication must not change the current alias');
 
   const afterCrash = await reader.query('stableSnapshotSentinel stable-sentinel-v1', true);
-  assert.equal(afterCrash.status, 'not_ready', JSON.stringify(afterCrash));
-  assert.equal(afterCrash.capability, 'workspace_manifest', JSON.stringify(afterCrash));
+  const afterCrashStatus = assertCurrentOrNotReady(afterCrash, 'src/stable.ts', 'stable-sentinel-v1');
 
   restartedWriter = makeProtocolProcess('writer-c', writerState, traces.restartedWriter);
   await restartedWriter.initialize();
@@ -344,8 +354,7 @@ try {
     'restart must atomically publish the rebuilt collection through the current alias');
 
   const afterPublish = await reader.query('stableSnapshotSentinel stable-sentinel-v1', true);
-  assert.equal(afterPublish.status, 'not_ready', JSON.stringify(afterPublish));
-  assert.equal(afterPublish.capability, 'workspace_manifest', JSON.stringify(afterPublish));
+  const afterPublishStatus = assertCurrentOrNotReady(afterPublish, 'src/stable.ts', 'stable-sentinel-v1');
 
   const providerTraceDigests = {
     reader: await hashFileIfPresent(traces.reader),
@@ -380,9 +389,9 @@ try {
       readerS1BeforeWriter: 'PASS',
       writerKilledAfterQdrantVerifyBeforePublish: crash.signal === 'SIGKILL' ? 'PASS' : 'FAIL',
       currentAliasStayedOnS1DuringInterruptedBuild: aliasAfterCrash === initialAliasTarget ? 'PASS' : 'FAIL',
-      readerRejectedDirtyTreeWithoutOldComplete: afterCrash.status === 'not_ready' ? 'PASS' : 'FAIL',
+      readerDirtyTreeOutcome: afterCrashStatus === 'complete' ? 'PASS_RECONCILED' : 'PASS_NOT_READY',
       restartPublishedS2: (await qdrantAliasTarget(restartedWriterMetrics.alias)) === restartedWriterMetrics.collection ? 'PASS' : 'FAIL',
-      readerRemainedFailClosedAfterS2Publish: afterPublish.status === 'not_ready' ? 'PASS' : 'FAIL',
+      readerPostPublishOutcome: afterPublishStatus === 'complete' ? 'PASS_RECONCILED' : 'PASS_NOT_READY',
       immutableCollectionsAreDistinct: initialAliasTarget !== restartedWriterMetrics.collection ? 'PASS' : 'FAIL',
     },
     requestIds: {

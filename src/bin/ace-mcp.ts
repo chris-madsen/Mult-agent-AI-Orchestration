@@ -5,13 +5,15 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Effect } from 'effect';
+import { domainError, type DomainError } from '../domain/errors.js';
+import { err, ok, type Result } from '../domain/result.js';
 import { makeFileArtifactStore } from '../adapters/file-artifact-store.js';
 import { makeAsyncFileMemoryArchive } from '../adapters/file-memory-archive.js';
 import { makeFileDecisionHistory } from '../adapters/file-decision-history.js';
 import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
 import { makeHostWorkspacePort, makeMtlsHostHelperTransport } from '../adapters/host-worktree-helper.js';
 import { makeFetchHttpPort, makeQdrantCodeCandidatePort } from '../adapters/http-provider-boundaries.js';
-import { buildLocalCodeIndex } from '../adapters/local-code-index.js';
+import { buildLocalCodeIndex, type LocalCodeIndexBuild } from '../adapters/local-code-index.js';
 import { makeNodeWorkspacePort } from '../adapters/node-workspace-port.js';
 import {
   makeProcessEmbeddingPort,
@@ -25,6 +27,7 @@ import {
   qdrantCurrentAlias,
   ensureQdrantCollection,
   makeQdrantContextProvider,
+  type QdrantContextConfig,
   probeQdrantService,
   resolveQdrantAlias,
   reuseOrPopulateQdrantSnapshot,
@@ -37,6 +40,7 @@ import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
 import type { MemorySearchPort, WorkspaceFilePort } from '../application/ports.js';
 import { defaultLocalPolicy } from '../domain/policy.js';
 import { makeWorkspaceId, type WorkspaceId } from '../domain/workspace.js';
+import { workspaceManifestFromSnapshot, workspaceManifestEqual } from '../domain/workspace-manifest.js';
 import { observeWorkspace, registerWorkspace } from '../application/workspace-service.js';
 import { readVerifiedSemanticSnapshot, semanticSnapshotIdentity } from '../application/semantic-snapshot.js';
 import { makeMcpGateway, type CapabilityReadiness } from '../gateway/mcp-gateway.js';
@@ -372,6 +376,192 @@ const main = async (): Promise<void> => {
             process.stderr.write(`ace retrieval warning: structural identity unverified; cache disabled and cross-restart snapshot reuse intentionally disabled (${structuralIdentity.error.code})\n`);
           }
           const structural = makeAstGrepStructuralPort(structuralOptions);
+          let latestBuild: LocalCodeIndexBuild | undefined;
+          let nextGeneration = generation;
+          let reconciliationTail: Promise<void> = Promise.resolve();
+          const publishBuild = async (
+            build: LocalCodeIndexBuild,
+            buildGeneration: number,
+          ): Promise<Result<QdrantContextConfig, DomainError>> => {
+            for (const warning of build.warnings) process.stderr.write(`ace retrieval warning: ${warning}\n`);
+            const sourceKey = codeIndexKey(build.index, build.coverage, retrievalFingerprint, build.fileManifest);
+            const collection = qdrantCollectionName(workspaceKey, embeddingFingerprint, sourceKey);
+            const currentAlias = qdrantCurrentAlias(workspaceKey, embeddingFingerprint);
+            const inspected = await Effect.runPromise(ensureQdrantCollection(
+              http, qdrantUrl, collection, effectiveEmbedding.dimension, qdrantAllowedHosts,
+            ));
+            if (inspected._tag === 'Err') return inspected;
+            const previousAlias = await Effect.runPromise(resolveQdrantAlias(
+              http, qdrantUrl, currentAlias, qdrantAllowedHosts,
+            ));
+            if (previousAlias._tag === 'Err') {
+              process.stderr.write(`ace retrieval warning: previous Qdrant alias could not be resolved; vectors will be recomputed (${previousAlias.error.code})\n`);
+            }
+            const buildQdrant = makeQdrantCodeCandidatePort({
+              baseUrl: qdrantUrl,
+              collection,
+              http,
+              allowedHosts: qdrantAllowedHosts,
+              providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
+              trace: providerTrace,
+            });
+            const indexed = await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
+              build.index, buildQdrant, embeddings, http, qdrantUrl, collection,
+              registered.value.workspaceId, sourceKey, qdrantAllowedHosts, true, undefined,
+              embeddingFingerprint, previousAlias._tag === 'Ok' ? previousAlias.value : undefined,
+            ));
+            if (indexed._tag === 'Err') return indexed;
+            process.stderr.write(`ace-mcp qdrant candidate verified workspace_id=${registered.value.workspaceId} index_key=${sourceKey} collection=${collection} alias=${currentAlias} reused_vectors=${indexed.value.reusedVectorCount}\n`);
+            if (runtimeTestFailpoint === 'after_qdrant_verify_before_publish') {
+              process.stderr.write('ace test failpoint reached name=after_qdrant_verify_before_publish\n');
+              process.kill(process.pid, 'SIGKILL');
+              throw new Error('test failpoint failed to terminate the process');
+            }
+            const sourceFiles = await Effect.runPromise(readVerifiedSemanticSnapshot(
+              files, registered.value.rootPath, build.indexedPaths, build.fileManifest,
+            ));
+            if (sourceFiles._tag === 'Err') return sourceFiles;
+            const lspProviderIdentity = existsSync(lspCommand) && commandBoundaryExists(lspCommand)
+              ? await Effect.runPromise(resolveLspProviderIdentity({ command: lspCommand, snapshotIdentity: sourceKey }))
+              : undefined;
+            const semanticProviderVersion = lspProviderIdentity?._tag === 'Ok'
+              ? lspProviderIdentity.value.version
+              : process.env.ACE_LSP_VERSION?.trim() || 'typescript-language-server/unavailable';
+            const configIdentity = build.workspaceManifest.files
+              .filter((file) => /^tsconfig(?:\..+)?\.json$/u.test(file.repoPath))
+              .map((file) => `${file.repoPath}:${file.sourceDigest}`).sort().join('|') || 'absent';
+            const declarationIdentity = build.workspaceManifest.files
+              .filter((file) => file.repoPath.endsWith('.d.ts'))
+              .map((file) => `${file.repoPath}:${file.sourceDigest}`).sort().join('|') || 'absent';
+            const packageLockIdentity = build.workspaceManifest.files
+              .filter((file) => /(?:^|\/)(?:package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock)$/u.test(file.repoPath))
+              .map((file) => `${file.repoPath}:${file.sourceDigest}`).sort().join('|') || 'absent';
+            const semanticIdentity = semanticSnapshotIdentity({
+              indexKey: sourceKey,
+              tsconfigIdentity: configIdentity,
+              projectReferencesIdentity: configIdentity,
+              moduleResolutionIdentity: 'node-next|allowJs=true|checkJs=false|target=es2022',
+              declarationsIdentity: declarationIdentity,
+              packageLockIdentity,
+              providerIdentity: `${lspCommand}|${semanticProviderVersion}|${lspProviderIdentity?._tag === 'Ok' ? lspProviderIdentity.value.fingerprint : 'unverified'}`,
+            });
+            const semantics = makeLspSemanticAnalysisPort({
+              command: lspCommand,
+              rootPath: registered.value.rootPath,
+              files: sourceFiles.value,
+              providerVersion: semanticProviderVersion,
+              snapshotIdentity: semanticIdentity,
+              trace: providerTrace,
+            });
+            const firstLspPath = build.indexedPaths.find((repoPath) => /\.(?:c|m)?tsx?$|\.jsx?$/u.test(repoPath));
+            let lspReady = lspProviderIdentity?._tag === 'Ok' && firstLspPath !== undefined;
+            if (firstLspPath !== undefined && lspProviderIdentity?._tag === 'Ok') {
+              const languageServiceReady = await Effect.runPromise(semantics.diagnostics({ repoPath: firstLspPath }));
+              lspReady = languageServiceReady._tag === 'Ok';
+              if (!lspReady) process.stderr.write(`ace-mcp semantic LSP NOT_READY: preflight failed (${languageServiceReady._tag === 'Err' ? languageServiceReady.error.code : 'unknown'})\n`);
+            } else if (!lspReady) {
+              process.stderr.write(firstLspPath === undefined
+                ? 'ace-mcp semantic LSP NOT_READY: no LSP-capable source language is present in this workspace\n'
+                : 'ace-mcp semantic LSP NOT_READY: typescript-language-server identity is unavailable\n');
+            }
+            const finalSnapshot = await Effect.runPromise(files.snapshot(registered.value.rootPath, Date.now()));
+            if (finalSnapshot._tag === 'Err') {
+              semantics.close();
+              return finalSnapshot;
+            }
+            const finalManifest = workspaceManifestFromSnapshot(finalSnapshot.value, scopeFingerprint);
+            if (!workspaceManifestEqual(build.workspaceManifest, finalManifest)) {
+              semantics.close();
+              return err(domainError('WORKTREE_RACED', 'workspace_manifest', 'workspace changed while assembling the semantic snapshot'));
+            }
+            const switched = await Effect.runPromise(switchQdrantAlias(
+              http, qdrantUrl, currentAlias, collection, qdrantAllowedHosts,
+            ));
+            if (switched._tag === 'Err') {
+              semantics.close();
+              return switched;
+            }
+            const qdrant = makeQdrantCodeCandidatePort({
+              baseUrl: qdrantUrl,
+              collection: currentAlias,
+              http,
+              allowedHosts: qdrantAllowedHosts,
+              providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
+              trace: providerTrace,
+            });
+            const oldCloseSemantics = closeSemantics;
+            closeSemantics = semantics.close;
+            if (oldCloseSemantics !== undefined) oldCloseSemantics();
+            readiness.semantic_lsp = lspReady
+              ? { state: 'ready', reason: 'real_lsp_provider_preflight_passed' }
+              : { state: 'not_ready', reason: 'lsp_provider_unavailable' };
+            const documentation = makeDocumentationProvider(registered.value.workspaceId, http, providerTrace);
+            if (process.env.ACE_ENABLE_VERTEX === 'true') {
+              readiness.documentation = process.env.ACE_CLOUD_DOCS_OPT_IN !== 'true'
+                ? { state: 'disabled', reason: 'cloud_docs_opt_in_false' }
+                : documentation === undefined
+                  ? { state: 'not_ready', reason: 'vertex_configuration_missing' }
+                  : { state: 'degraded', reason: 'provider_configured_not_health_probed' };
+            }
+            readiness.code_retrieval = build.coverage.failedPaths === 0
+              ? { state: 'ready', reason: 'real_provider_preflight_passed' }
+              : { state: 'degraded', reason: 'index_coverage_partial' };
+            readiness.unified_context = build.coverage.failedPaths === 0
+              ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
+              : { state: 'degraded', reason: 'index_coverage_partial' };
+            process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${buildGeneration} indexed_paths=${build.indexedPaths.length} candidates=${build.index.candidates.length} coverage_failed=${build.coverage.failedPaths} source_snapshot_digest=${build.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
+            return ok({
+              workspaceId: registered.value.workspaceId,
+              rootPath: registered.value.rootPath,
+              files,
+              qdrant,
+              embeddings,
+              artifacts,
+              semantics,
+              newRequestId: () => randomUUID(),
+              ...(indexed.value.reused ? {} : { generation: buildGeneration }),
+              indexKey: sourceKey,
+              candidateLimit,
+              coverage: build.coverage,
+              workspaceManifest: build.workspaceManifest,
+              scopeFingerprint,
+              semanticSnapshotIdentity: semanticIdentity,
+              trace: providerTrace,
+              ...(documentation === undefined ? {} : { documentation }),
+              ...(memory === undefined ? {} : { memory }),
+            });
+          };
+          const reconcileRuntime: NonNullable<QdrantContextConfig['reconcile']> = (currentManifest, delta) => {
+            const run = async (): Promise<Result<QdrantContextConfig, DomainError>> => {
+              if (latestBuild === undefined) return err(domainError('NOT_READY', 'workspace_manifest', 'initial retrieval snapshot is not available'));
+              const rebuildGeneration = nextGeneration + 1;
+              const rebuilt = await Effect.runPromise(buildLocalCodeIndex(
+                files,
+                registered.value.workspaceId,
+                registered.value.rootPath,
+                {
+                  generation: rebuildGeneration,
+                  previous: latestBuild,
+                  scopeFingerprint,
+                  structural,
+                  parserVersion: structuralOptions.providerVersion,
+                },
+              ));
+              if (rebuilt._tag === 'Err') return rebuilt;
+              if (!workspaceManifestEqual(rebuilt.value.workspaceManifest, currentManifest)) {
+                return err(domainError('WORKTREE_RACED', 'workspace_manifest', 'workspace changed during reconciliation'));
+              }
+              const published = await publishBuild(rebuilt.value, rebuildGeneration);
+              if (published._tag === 'Err') return published;
+              latestBuild = rebuilt.value;
+              nextGeneration = rebuildGeneration;
+              process.stderr.write(`ace-mcp workspace reconciled changed=${delta.changed.length} added=${delta.added.length} deleted=${delta.deleted.length} renamed=${delta.renamed.length} scope_changed=${delta.scopeChanged}\n`);
+              return ok({ ...published.value, reconcile: reconcileRuntime });
+            };
+            const scheduled = reconciliationTail.then(run, run);
+            reconciliationTail = scheduled.then(() => undefined, () => undefined);
+            return Effect.promise(() => scheduled);
+          };
           const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
             generation,
             scopeFingerprint,
@@ -384,197 +574,15 @@ const main = async (): Promise<void> => {
             readiness.unified_context = { state: 'not_ready', reason: 'structural_index_failed' };
             process.stderr.write(`ace-mcp context NOT_READY: structural index failed (${built.error.code})\n`);
           } else {
-            for (const warning of built.value.warnings) process.stderr.write(`ace retrieval warning: ${warning}\n`);
-            // Snapshot identity covers every successfully read in-scope source,
-            // including files that produce zero symbols, plus the verified embedding
-            // and structural parser runtime identities.
-            const sourceKey = codeIndexKey(
-              built.value.index,
-              built.value.coverage,
-              retrievalFingerprint,
-              built.value.fileManifest,
-            );
-            const collection = qdrantCollectionName(workspaceKey, embeddingFingerprint, sourceKey);
-            const currentAlias = qdrantCurrentAlias(workspaceKey, embeddingFingerprint);
-            const inspected = await Effect.runPromise(ensureQdrantCollection(
-              http,
-              qdrantUrl,
-              collection,
-              effectiveEmbedding.dimension,
-              qdrantAllowedHosts,
-            ));
-            if (inspected._tag === 'Err') {
+            const published = await publishBuild(built.value, generation);
+            if (published._tag === 'Err') {
               embeddings.close();
-              await handleQdrantUnavailable(inspected.error.code);
-            }
-            if (inspected._tag === 'Ok') {
-              const previousAlias = await Effect.runPromise(resolveQdrantAlias(
-                http,
-                qdrantUrl,
-                currentAlias,
-                qdrantAllowedHosts,
-              ));
-              if (previousAlias._tag === 'Err') {
-                process.stderr.write(`ace retrieval warning: previous Qdrant alias could not be resolved; vectors will be recomputed (${previousAlias.error.code})\n`);
-              }
-              const buildQdrant = makeQdrantCodeCandidatePort({
-                baseUrl: qdrantUrl,
-                collection,
-                http,
-                allowedHosts: qdrantAllowedHosts,
-                providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
-                trace: providerTrace,
-              });
-              const indexed = await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
-                built.value.index, buildQdrant, embeddings, http, qdrantUrl, collection,
-                registered.value.workspaceId, sourceKey, qdrantAllowedHosts, true, undefined,
-                embeddingFingerprint,
-                previousAlias._tag === 'Ok' ? previousAlias.value : undefined,
-              ));
-              if (indexed._tag === 'Err') {
-                embeddings.close();
-                readiness.code_retrieval = { state: 'not_ready', reason: 'qdrant_index_failed' };
-                readiness.unified_context = { state: 'not_ready', reason: 'qdrant_index_failed' };
-                process.stderr.write(`ace-mcp context NOT_READY: Qdrant indexing failed (${indexed.error.code}: ${indexed.error.message})\n`);
-              } else {
-                process.stderr.write(`ace-mcp qdrant candidate verified workspace_id=${registered.value.workspaceId} index_key=${sourceKey} collection=${collection} alias=${currentAlias} reused_vectors=${indexed.value.reusedVectorCount}\n`);
-                if (runtimeTestFailpoint === 'after_qdrant_verify_before_publish') {
-                  process.stderr.write(
-                    'ace test failpoint reached name=after_qdrant_verify_before_publish\n',
-                  );
-                  process.kill(process.pid, 'SIGKILL');
-                  throw new Error('test failpoint failed to terminate the process');
-                }
-                const switched = await Effect.runPromise(switchQdrantAlias(
-                  http,
-                  qdrantUrl,
-                  currentAlias,
-                  collection,
-                  qdrantAllowedHosts,
-                ));
-                if (switched._tag === 'Err') {
-                  embeddings.close();
-                  readiness.code_retrieval = { state: 'not_ready', reason: 'qdrant_alias_unavailable' };
-                  readiness.unified_context = { state: 'not_ready', reason: 'qdrant_alias_unavailable' };
-                  process.stderr.write(`ace-mcp context NOT_READY: Qdrant alias publication failed (${switched.error.code})\n`);
-                }
-                if (switched._tag === 'Ok') {
-                  const qdrant = makeQdrantCodeCandidatePort({
-                    baseUrl: qdrantUrl,
-                    collection: currentAlias,
-                    http,
-                    allowedHosts: qdrantAllowedHosts,
-                    providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
-                    trace: providerTrace,
-                  });
-                  const sourceFiles = await Effect.runPromise(readVerifiedSemanticSnapshot(
-                    files,
-                    registered.value.rootPath,
-                    built.value.indexedPaths,
-                    built.value.fileManifest,
-                  ));
-                  if (sourceFiles._tag === 'Err') {
-                    embeddings.close();
-                    throw new Error(`LSP semantic snapshot could not be bound to indexed source bytes (${sourceFiles.error.code})`);
-                  }
-                  const lspProviderIdentity = existsSync(lspCommand) && commandBoundaryExists(lspCommand)
-                    ? await Effect.runPromise(resolveLspProviderIdentity({
-                      command: lspCommand,
-                      snapshotIdentity: sourceKey,
-                    }))
-                    : undefined;
-                  const semanticProviderVersion = lspProviderIdentity?._tag === 'Ok'
-                    ? lspProviderIdentity.value.version
-                    : process.env.ACE_LSP_VERSION?.trim() || 'typescript-language-server/unavailable';
-                  const configIdentity = built.value.workspaceManifest.files
-                    .filter((file) => /^tsconfig(?:\..+)?\.json$/u.test(file.repoPath))
-                    .map((file) => `${file.repoPath}:${file.sourceDigest}`)
-                    .sort()
-                    .join('|') || 'absent';
-                  const declarationIdentity = built.value.workspaceManifest.files
-                    .filter((file) => file.repoPath.endsWith('.d.ts'))
-                    .map((file) => `${file.repoPath}:${file.sourceDigest}`)
-                    .sort()
-                    .join('|') || 'absent';
-                  const packageLockIdentity = built.value.workspaceManifest.files
-                    .filter((file) => /(?:^|\/)(?:package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock)$/u.test(file.repoPath))
-                    .map((file) => `${file.repoPath}:${file.sourceDigest}`)
-                    .sort()
-                    .join('|') || 'absent';
-                  const semanticIdentity = semanticSnapshotIdentity({
-                    indexKey: sourceKey,
-                    tsconfigIdentity: configIdentity,
-                    projectReferencesIdentity: configIdentity,
-                    moduleResolutionIdentity: 'node-next|allowJs=true|checkJs=false|target=es2022',
-                    declarationsIdentity: declarationIdentity,
-                    packageLockIdentity,
-                    providerIdentity: `${lspCommand}|${semanticProviderVersion}|${lspProviderIdentity?._tag === 'Ok' ? lspProviderIdentity.value.fingerprint : 'unverified'}`,
-                  });
-                  const semantics = makeLspSemanticAnalysisPort({
-                    command: lspCommand,
-                    rootPath: registered.value.rootPath,
-                    files: sourceFiles.value,
-                    providerVersion: semanticProviderVersion,
-                    snapshotIdentity: semanticIdentity,
-                    trace: providerTrace,
-                  });
-                  closeSemantics = semantics.close;
-                  const firstLspPath = built.value.indexedPaths.find((repoPath) => /\.(?:c|m)?tsx?$|\.jsx?$/u.test(repoPath));
-                  let lspReady = lspProviderIdentity?._tag === 'Ok' && firstLspPath !== undefined;
-                  if (firstLspPath !== undefined && lspProviderIdentity?._tag === 'Ok') {
-                    const languageServiceReady = await Effect.runPromise(semantics.diagnostics({ repoPath: firstLspPath }));
-                    lspReady = languageServiceReady._tag === 'Ok';
-                    if (!lspReady) process.stderr.write(`ace-mcp semantic LSP NOT_READY: preflight failed (${languageServiceReady._tag === 'Err' ? languageServiceReady.error.code : 'unknown'})\n`);
-                  } else if (!lspReady) {
-                    process.stderr.write(firstLspPath === undefined
-                      ? 'ace-mcp semantic LSP NOT_READY: no LSP-capable source language is present in this workspace\n'
-                      : 'ace-mcp semantic LSP NOT_READY: typescript-language-server identity is unavailable\n');
-                  }
-                  readiness.semantic_lsp = lspReady
-                    ? { state: 'ready', reason: 'real_lsp_provider_preflight_passed' }
-                    : { state: 'not_ready', reason: 'lsp_provider_unavailable' };
-                  const documentation = makeDocumentationProvider(registered.value.workspaceId, http, providerTrace);
-                  if (process.env.ACE_ENABLE_VERTEX === 'true') {
-                    if (process.env.ACE_CLOUD_DOCS_OPT_IN !== 'true') {
-                      readiness.documentation = { state: 'disabled', reason: 'cloud_docs_opt_in_false' };
-                    } else if (documentation === undefined) {
-                      readiness.documentation = { state: 'not_ready', reason: 'vertex_configuration_missing' };
-                    } else {
-                      readiness.documentation = { state: 'degraded', reason: 'provider_configured_not_health_probed' };
-                    }
-                  }
-                  context = makeQdrantContextProvider({
-                    workspaceId: registered.value.workspaceId,
-                    rootPath: registered.value.rootPath,
-                    files,
-                    qdrant,
-                    embeddings,
-                    artifacts,
-                    semantics,
-                    newRequestId: () => randomUUID(),
-                    // A warm index can have an older observation epoch; the precise
-                    // content-derived indexKey is authoritative and every snippet is
-                    // reverified against current bytes. Do not relabel its generation.
-                    ...(indexed.value.reused ? {} : { generation }),
-                    indexKey: sourceKey,
-                    candidateLimit,
-                    coverage: built.value.coverage,
-                    workspaceManifest: built.value.workspaceManifest,
-                    scopeFingerprint,
-                    semanticSnapshotIdentity: semanticIdentity,
-                    trace: providerTrace,
-                    ...(documentation === undefined ? {} : { documentation }),
-                    ...(memory === undefined ? {} : { memory }),
-                  });
-                  readiness.code_retrieval = built.value.coverage.failedPaths === 0
-                    ? { state: 'ready', reason: 'real_provider_preflight_passed' }
-                    : { state: 'degraded', reason: 'index_coverage_partial' };
-                  readiness.unified_context = built.value.coverage.failedPaths === 0
-                    ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
-                    : { state: 'degraded', reason: 'index_coverage_partial' };
-                  process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} source_snapshot_digest=${built.value.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
-                }
-              }
+              readiness.code_retrieval = { state: 'not_ready', reason: 'qdrant_index_failed' };
+              readiness.unified_context = { state: 'not_ready', reason: 'qdrant_index_failed' };
+              process.stderr.write(`ace-mcp context NOT_READY: retrieval publication failed (${published.error.code}: ${published.error.message})\n`);
+            } else {
+              latestBuild = built.value;
+              context = makeQdrantContextProvider({ ...published.value, reconcile: reconcileRuntime });
             }
           }
         }

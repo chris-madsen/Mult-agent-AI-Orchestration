@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto';
 import { Effect } from 'effect';
 import { domainError } from '../domain/errors.js';
-import { ok, type Result } from '../domain/result.js';
+import { err, ok, type Result } from '../domain/result.js';
 import {
   createCodeIndex,
   indexCandidate,
   makeCandidateId,
   makeCodeCandidate,
   type CandidateId,
+  type CodeCandidate,
   type CodeIndex,
   type Generation,
   type IndexCoverageFailure,
@@ -40,6 +41,8 @@ export interface LocalCodeIndexBuild {
 
 export interface LocalCodeIndexerOptions {
   readonly generation: number;
+  /** Previous verified build used for request-time changed-file catch-up. */
+  readonly previous?: LocalCodeIndexBuild;
   readonly extensions?: readonly string[];
   // Selected structural provider. There is deliberately no parser fallback: a
   // missing provider is an explicit coverage failure.
@@ -131,16 +134,20 @@ export const buildLocalCodeIndex = (
   options: LocalCodeIndexerOptions,
 ): Effect.Effect<Result<LocalCodeIndexBuild, ReturnType<typeof domainError>>> =>
   Effect.gen(function* () {
-    const indexResult = createCodeIndex(options.generation);
-    if (indexResult._tag === 'Err') return indexResult;
-    const generation = options.generation as Generation;
     const extensions = new Set(options.extensions ?? defaultExtensions);
     const snapshot = yield* files.snapshot(rootPath, Date.now());
     if (snapshot._tag === 'Err') return snapshot;
     const sourceSnapshotDigest = snapshotDigest(snapshot.value);
+    const workspaceManifest = workspaceManifestFromSnapshot(
+      snapshot.value,
+      options.scopeFingerprint ?? createHash('sha256').update(JSON.stringify({
+        extensions: [...extensions].sort(),
+        sensitivePathPolicy: 'default-v1',
+      }), 'utf8').digest('hex'),
+    );
+    const generation = options.generation as Generation;
     const parserVersion = options.parserVersion
       ?? (options.structural === undefined ? 'unconfigured-structural-provider' : 'unverified-structural-provider');
-    let index = indexResult.value;
     const warnings: string[] = [];
     const indexedPaths: RepoPath[] = [];
     const coverageFailures: IndexCoverageFailure[] = [];
@@ -148,6 +155,54 @@ export const buildLocalCodeIndex = (
     let attemptedPaths = 0;
     let policyExcludedPaths = 0;
     let outOfScopePaths = 0;
+    const previous = options.previous;
+    const canReusePreviousFiles = previous !== undefined
+      && previous.workspaceManifest.scopeFingerprint === workspaceManifest.scopeFingerprint;
+    const previousFiles = new Map(previous?.fileManifest.map((file) => [file.repoPath, file] as const) ?? []);
+    const previousCandidates = new Map<RepoPath, readonly CodeCandidate[]>(
+      [...(previous?.index.candidates ?? [])].reduce((entries, candidate) => {
+        const current = entries.get(candidate.repoPath) ?? [];
+        entries.set(candidate.repoPath, [...current, candidate]);
+        return entries;
+      }, new Map<RepoPath, readonly CodeCandidate[]>()),
+    );
+    const previousFailures = new Map<RepoPath, readonly IndexCoverageFailure[]>(
+      [...(previous?.coverage.failures ?? [])].reduce((entries, failure) => {
+        const current = entries.get(failure.repoPath) ?? [];
+        entries.set(failure.repoPath, [...current, failure]);
+        return entries;
+      }, new Map<RepoPath, readonly IndexCoverageFailure[]>()),
+    );
+    const previousWarnings = new Map<RepoPath, readonly string[]>(
+      [...(previous?.warnings ?? [])].reduce((entries, warning) => {
+        const path = warning.split(':', 1)[0] as RepoPath;
+        const current = entries.get(path) ?? [];
+        entries.set(path, [...current, warning]);
+        return entries;
+      }, new Map<RepoPath, readonly string[]>()),
+    );
+    const reusableCandidates: CodeCandidate[] = [];
+    const reusablePaths = new Set<RepoPath>();
+    if (canReusePreviousFiles && previous !== undefined) {
+      for (const observation of snapshot.value.files) {
+        const prior = previousFiles.get(observation.repoPath);
+        if (prior === undefined || prior.sourceDigest !== observation.digest) continue;
+        const candidates = previousCandidates.get(observation.repoPath) ?? [];
+        reusableCandidates.push(...candidates.map((candidate) => ({
+          ...candidate,
+          generation,
+          indexedAtMs: Date.now(),
+        })));
+        reusablePaths.add(observation.repoPath);
+        for (const failure of previousFailures.get(observation.repoPath) ?? []) {
+          coverageFailures.push(failure);
+        }
+        warnings.push(...(previousWarnings.get(observation.repoPath) ?? []));
+      }
+    }
+    const indexResult = createCodeIndex(options.generation, reusableCandidates);
+    if (indexResult._tag === 'Err') return indexResult;
+    let index = indexResult.value;
     if (options.structural === undefined) {
       warnings.push('Structural provider is not configured; no parser fallback is used');
     }
@@ -164,6 +219,18 @@ export const buildLocalCodeIndex = (
         continue;
       }
       attemptedPaths += 1;
+      if (reusablePaths.has(observation.repoPath)) {
+        const prior = previousFiles.get(observation.repoPath);
+        if (prior === undefined || prior.sourceDigest !== observation.digest) {
+          return err(domainError('WORKTREE_RACED', observation.repoPath, 'reused structural identity no longer matches the authoritative snapshot'));
+        }
+        fileManifest.set(observation.repoPath, {
+          sourceDigest: observation.digest,
+          candidateIds: [...(previousCandidates.get(observation.repoPath) ?? [])].map((candidate) => candidate.candidateId),
+        });
+        if (previous?.indexedPaths.includes(observation.repoPath)) indexedPaths.push(observation.repoPath);
+        continue;
+      }
       const exact = yield* files.readExact(rootPath, observation.repoPath);
       if (exact._tag === 'Err') {
         warnings.push(observation.repoPath + ': ' + exact.error.code);
@@ -282,12 +349,6 @@ export const buildLocalCodeIndex = (
           candidateIds: [...value.candidateIds].sort(),
         }))
         .sort((left, right) => left.repoPath.localeCompare(right.repoPath)),
-      workspaceManifest: workspaceManifestFromSnapshot(
-        snapshot.value,
-        options.scopeFingerprint ?? createHash('sha256').update(JSON.stringify({
-          extensions: [...extensions].sort(),
-          sensitivePathPolicy: 'default-v1',
-        }), 'utf8').digest('hex'),
-      ),
+      workspaceManifest,
     });
   });

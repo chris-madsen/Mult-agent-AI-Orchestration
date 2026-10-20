@@ -179,6 +179,106 @@ test('Qdrant context refuses an old complete result after a missed watcher event
   if (dirty._tag === 'Err') assert.equal(dirty.error.code, 'NOT_READY');
 });
 
+test('Qdrant context accepts an authoritative catch-up only after the hook returns the current manifest', async () => {
+  let currentSnapshot = {
+    headRevision: 'head-1',
+    files: [{ repoPath: 'src/save.ts' as never, digest: digest as never, sizeBytes: source.length, state: 'tracked' as const, observedAtMs: 1 }],
+    removedPaths: [],
+  };
+  let reconcileCalls = 0;
+  const reconciledFiles: WorkspaceFilePort = { ...files, snapshot: () => Effect.succeed(ok(currentSnapshot)) };
+  const initialManifest = workspaceManifestFromSnapshot(currentSnapshot, 'scope-a');
+  const provider = makeQdrantContextProvider({
+    workspaceId,
+    rootPath: '/repo',
+    files: reconciledFiles,
+    qdrant,
+    embeddings,
+    artifacts,
+    semantics,
+    workspaceManifest: initialManifest,
+    newRequestId: () => 'manifest-catch-up',
+    reconcile: (currentManifest) => {
+      reconcileCalls += 1;
+      return Effect.succeed(ok({
+        workspaceId,
+        rootPath: '/repo',
+        files: reconciledFiles,
+        qdrant,
+        embeddings,
+        artifacts,
+        semantics,
+        workspaceManifest: currentManifest,
+        newRequestId: () => 'manifest-catch-up-after-reconcile',
+      }));
+    },
+  });
+  currentSnapshot = {
+    ...currentSnapshot,
+    files: [{ ...currentSnapshot.files[0]!, digest: 'f'.repeat(64) as never }],
+  };
+  const result = await Effect.runPromise(provider.search({
+    workspaceId,
+    query: 'save',
+    includeCode: true,
+    includeDocs: false,
+    includeMemory: false,
+    sourceRequirements: {
+      code: { requirement: 'required', allowed: true },
+      structural: { requirement: 'optional', allowed: true },
+      documentation: { requirement: 'not_requested', allowed: true },
+      memory: { requirement: 'not_requested', allowed: true },
+    },
+  }));
+  assert.equal(result._tag, 'Ok');
+  assert.equal(reconcileCalls, 1);
+});
+
+test('Qdrant context rejects a reconciliation result whose manifest is already stale', async () => {
+  let currentSnapshot = {
+    headRevision: 'head-1',
+    files: [{ repoPath: 'src/save.ts' as never, digest: digest as never, sizeBytes: source.length, state: 'tracked' as const, observedAtMs: 1 }],
+    removedPaths: [],
+  };
+  const reconciledFiles: WorkspaceFilePort = { ...files, snapshot: () => Effect.succeed(ok(currentSnapshot)) };
+  const initialManifest = workspaceManifestFromSnapshot(currentSnapshot, 'scope-a');
+  const provider = makeQdrantContextProvider({
+    workspaceId,
+    rootPath: '/repo',
+    files: reconciledFiles,
+    qdrant,
+    embeddings,
+    artifacts,
+    semantics,
+    workspaceManifest: initialManifest,
+    newRequestId: () => 'manifest-race',
+    reconcile: () => Effect.succeed(ok({
+      workspaceId,
+      rootPath: '/repo',
+      files: reconciledFiles,
+      qdrant,
+      embeddings,
+      artifacts,
+      semantics,
+      workspaceManifest: initialManifest,
+      newRequestId: () => 'manifest-race-after-reconcile',
+    })),
+  });
+  currentSnapshot = {
+    ...currentSnapshot,
+    files: [{ ...currentSnapshot.files[0]!, digest: 'e'.repeat(64) as never }],
+  };
+  const result = await Effect.runPromise(provider.search({
+    workspaceId,
+    query: 'save',
+    includeCode: true,
+    includeDocs: false,
+    includeMemory: false,
+  }));
+  assert.equal(result._tag, 'Err');
+  if (result._tag === 'Err') assert.equal(result.error.code, 'NOT_READY');
+});
+
 const workspaceId = mustOk(makeWorkspaceId('coverage-workspace'));
 const sourceLine = 'export function save(): string { return "ok"; }';
 const source = Buffer.from(sourceLine + '\n');
