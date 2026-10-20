@@ -94,6 +94,61 @@ test('Qdrant snapshot manifest is reusable only after atomic publication', async
   if (changedFileDigest._tag === 'Ok') assert.equal(changedFileDigest.value, false);
 });
 
+
+
+test('snapshot state owner is stable per state root and distinct across independent roots', async () => {
+  const firstRoot = await mkdtemp(join(tmpdir(), 'ace-snapshot-owner-a-'));
+  const secondRoot = await mkdtemp(join(tmpdir(), 'ace-snapshot-owner-b-'));
+  const first = await makeFileQdrantSnapshotState(firstRoot);
+  const reopened = await makeFileQdrantSnapshotState(firstRoot);
+  const second = await makeFileQdrantSnapshotState(secondRoot);
+
+  assert.match(first.stateOwnerId, /^[a-f0-9]{64}$/u);
+  assert.equal(reopened.stateOwnerId, first.stateOwnerId);
+  assert.notEqual(second.stateOwnerId, first.stateOwnerId);
+});
+
+test('conservative lease mode never reaps a foreign/dead-looking PID automatically', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-snapshot-conservative-'));
+  const simulatedForeignPid = 737373;
+  const writer = await makeFileQdrantSnapshotState(root, {
+    processId: simulatedForeignPid,
+    processStatus: () => 'alive',
+  });
+  const lease = await writer.acquireLease(workspaceId, indexKey);
+  assert.equal(lease._tag, 'Ok');
+  if (lease._tag === 'Err') throw new Error('lease setup failed');
+
+  const inspector = await makeFileQdrantSnapshotState(root, {
+    // This simulates a different PID namespace where process.kill(pid, 0)
+    // would report ESRCH even though the remote reader still exists.
+    processStatus: () => 'dead',
+  });
+  const active = await inspector.activeIndexKeys(workspaceId);
+  assert.equal(active._tag, 'Ok');
+  if (active._tag === 'Ok') assert.deepEqual([...active.value], [indexKey]);
+});
+
+test('dead PID reaping is available only through explicit local-process mode', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-snapshot-local-process-'));
+  const simulatedPid = 838383;
+  const writer = await makeFileQdrantSnapshotState(root, {
+    processId: simulatedPid,
+    processStatus: () => 'alive',
+  });
+  const lease = await writer.acquireLease(workspaceId, indexKey);
+  assert.equal(lease._tag, 'Ok');
+  if (lease._tag === 'Err') throw new Error('lease setup failed');
+
+  const inspector = await makeFileQdrantSnapshotState(root, {
+    processStatus: () => 'dead',
+    leaseReapMode: 'local-process',
+  });
+  const active = await inspector.activeIndexKeys(workspaceId);
+  assert.equal(active._tag, 'Ok');
+  if (active._tag === 'Ok') assert.deepEqual([...active.value], []);
+});
+
 test('snapshot leases retain all active keys until each owner closes explicitly', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ace-snapshot-lease-'));
   const state = await makeFileQdrantSnapshotState(root);
@@ -134,6 +189,7 @@ test('orphaned snapshot lease from a dead local process is recovered after resta
 
   const restarted = await makeFileQdrantSnapshotState(root, {
     processStatus: (processId) => processId === deadPid ? 'dead' : 'unknown',
+    leaseReapMode: 'local-process',
     nowMs: () => 200,
   });
   const active = await restarted.activeIndexKeys(workspaceId);
