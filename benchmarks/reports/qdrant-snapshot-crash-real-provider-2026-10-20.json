@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "evidence": "real-qdrant-snapshot-crash-lifecycle",
+  "generatedAt": "2026-10-20T11:49:37.386Z",
+  "sourceCommit": "23870393e5ce5c46e9daa7f31147632113504f26",
+  "fixtureCommit": "5eb3e513d8e829fcff381c1fd6d9adf2cabfa261",
+  "qdrant": {
+    "urlKind": "local-loopback",
+    "collection": "ace_ca_crash_e13556e386824507bf99dd34fbcce728",
+    "version": "qdrant/1.19.2"
+  },
+  "runtime": {
+    "node": "v24.15.0",
+    "embeddingWorker": "fastembed-worker.sh",
+    "treeSitterHelper": "tree-sitter-structural.py"
+  },
+  "checks": {
+    "readerS1BeforeWriter": "PASS",
+    "writerKilledAfterQdrantVerifyBeforePublish": "PASS",
+    "interruptedManifestStayedBuilding": "PASS",
+    "readerS1AfterWriterCrash": "PASS",
+    "restartPublishedS2": "PASS",
+    "readerS1AfterS2Publish": "PASS",
+    "stateOwnersDistinct": "PASS",
+    "sharedExplicitCollectionGcSkipped": "PASS"
+  },
+  "requestIds": {
+    "readerInitial": "97fba830-a3ac-44f5-940e-9105ee0937e6",
+    "readerAfterCrash": "31fc0b30-e9ce-4f90-9cb0-37212366ff66",
+    "writerV2": "7cfeaa88-a876-4778-9cac-9c1fc98d52a4",
+    "readerAfterPublish": "b6faa04d-ea36-44ee-87c7-682c9a6ae579"
+  },
+  "providerTraceDigests": {
+    "reader": "a0011ac6fdf6b6f695953013f7b81de6c2f9012c8ef7ced606e0eb8a43cd7c56",
+    "crashedWriter": "068843b1288076efb5a61775fa377fab8e41fd4b6a56b0aa4d9fb1f9ba2727d7",
+    "restartedWriter": "8e099f82db76e3bb6b2800b84ffe843f52cedf8a886f79df0e3756533a08e214"
+  },
+  "note": "This is bounded real-provider C-A/W04 evidence only. It does not approve provider identities, performance budgets, DBC-13 or production release.",
+  "providerTraceFiles": {
+    "reader": "benchmarks/reports/qdrant-snapshot-crash-real-provider-2026-10-20-reader-provider-trace.jsonl",
+    "crashedWriter": "benchmarks/reports/qdrant-snapshot-crash-real-provider-2026-10-20-crashedWriter-provider-trace.jsonl",
+    "restartedWriter": "benchmarks/reports/qdrant-snapshot-crash-real-provider-2026-10-20-restartedWriter-provider-trace.jsonl"
+  }
+}
