@@ -70,7 +70,7 @@ if (warm._tag === 'Err') throw new Error(`${warm.error.code}: ${warm.error.messa
 
 const report: SemanticProviderReport = {
   provider: 'typescript-language-service',
-  providerVersion: `typescript/${ts.version}`,
+  providerVersion: `typescript-language-server/6.0.2|typescript/${ts.version}`,
   fixtureSha256,
   oracleSha256,
   caseResults: warm.value.caseResults,
@@ -80,7 +80,7 @@ const report: SemanticProviderReport = {
   runtime: {
     node: process.version,
     typescript: ts.version,
-    adapter: 'ace-direct-typescript-ls/v1',
+    adapter: 'ace-generic-lsp-jsonrpc/v1',
   },
   sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   command: 'npm run compare:semantic-tsls',

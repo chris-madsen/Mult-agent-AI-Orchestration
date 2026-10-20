@@ -3,8 +3,8 @@ export type ProviderTraceStatus = 'success' | 'failure';
 export type ProviderTraceName =
   | 'embedding'
   | 'qdrant'
-  | 'tree_sitter'
-  | 'typescript_language_service'
+  | 'ast_grep'
+  | 'lsp'
   | 'vertex_rag'
   | 'graphiti'
   | 'source_verification';

@@ -11,7 +11,6 @@ data:
   ACE_QDRANT_URL: http://qdrant:6333
   ACE_QDRANT_LOCAL_HOSTS: qdrant
   ACE_ENABLE_EXPERIMENTAL_QDRANT: "true"
-  ACE_ALLOW_LOCAL_FALLBACK: "false"
   ACE_REQUIRE_PINNED_EMBEDDING: "true"
   ACE_ENABLE_VERTEX: "false"
   ACE_ENABLE_GRAPHITI: "false"
@@ -19,8 +18,7 @@ data:
   ACE_STATE_DIR: /var/lib/ace/state
   ACE_ARTIFACT_DIR: /var/lib/ace/artifacts
   FASTEMBED_CACHE_PATH: /var/lib/ace/model-cache
-  ACE_TREE_SITTER_HELPER: /opt/ace/scripts/tree-sitter-structural.py
-  ACE_TREE_SITTER_PYTHON: /opt/ace/.venv-system/bin/python
+  ACE_AST_GREP_COMMAND: /opt/ace/node_modules/.bin/ast-grep
   ACE_EMBEDDING_WORKER: /opt/ace/scripts/fastembed-worker.sh
   ACE_EMBEDDING_PYTHON: /opt/ace/.venv-embedding-fast/bin/python
   ACE_WORKTREE_HELPER_TLS_CA: /var/run/ace-worktree-tls/ca.crt

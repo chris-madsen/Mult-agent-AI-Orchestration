@@ -29,8 +29,7 @@ const runOnce = () => new Promise((resolveRun, rejectRun) => {
       ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
       ACE_QDRANT_URL: qdrantUrl,
       ACE_EMBEDDING_WORKER: resolve(import.meta.dirname, 'fastembed-worker.sh'),
-      ACE_TREE_SITTER_HELPER: resolve(import.meta.dirname, 'tree-sitter-structural.py'),
-      ACE_TREE_SITTER_PYTHON: process.env.ACE_TREE_SITTER_PYTHON ?? resolve('.venv-system/bin/python'),
+      ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });

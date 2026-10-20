@@ -10,7 +10,7 @@ test('real index scale runner is syntactically valid and preserves the productio
   });
   const script = await readFile('scripts/index-scale-e2e.mjs', 'utf8');
   assert.match(script, /ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true'/u);
-  assert.match(script, /ACE_ALLOW_LOCAL_FALLBACK: 'false'/u);
+  assert.doesNotMatch(script, /ACE_ALLOW_LOCAL_FALLBACK/u);
   assert.match(script, /phase: 'cold'|runOnce\(workspace, state, workspaceId, 'cold'\)/u);
   assert.match(script, /runOnce\(workspace, state, workspaceId, 'warm'\)/u);
   assert.match(script, /runOnce\(workspace, state, workspaceId, 'change-only'\)/u);
@@ -42,10 +42,6 @@ test('scale runner records machine-readable timing/cache/delta metrics without c
   const script = await readFile('scripts/index-scale-e2e.mjs', 'utf8');
   for (const token of [
     'elapsedMs',
-    'structuralCacheHits',
-    'structuralCacheMisses',
-    'candidateCacheHits',
-    'candidateCacheMisses',
     'reusedVectors',
     'warmReuseVerified',
     'changeOnlyMeasured',

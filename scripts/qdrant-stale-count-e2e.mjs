@@ -17,7 +17,6 @@ if ((firstArg === '--output' && secondArg === undefined) || process.argv.length 
 const root = await mkdtemp(join(tmpdir(), 'ace-qdrant-stale-count-'));
 const workspace = join(root, 'workspace');
 const state = join(root, 'state');
-const collection = `ace_ca_stale_count_${randomUUID().replaceAll('-', '')}`;
 const workspaceId = `qdrant-stale-count-${randomUUID()}`;
 const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
 const source = [
@@ -41,6 +40,7 @@ const metricsFrom = (stderr) => {
   };
   return {
     collection: value('collection'),
+    alias: value('alias'),
     indexKey: value('index_key'),
     indexMode: value('index_mode'),
     reusedVectors: Number(value('reused_vectors')),
@@ -58,14 +58,11 @@ const runOnce = async (label) => new Promise((resolveRun, rejectRun) => {
       ACE_STATE_DIR: state,
       ACE_WORKSPACE_ID: workspaceId,
       ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
-      ACE_ALLOW_LOCAL_FALLBACK: 'false',
       ACE_QDRANT_URL: qdrantUrl,
-      ACE_QDRANT_COLLECTION: collection,
       ACE_EMBEDDING_WORKER: process.env.ACE_EMBEDDING_WORKER
         ?? resolve(import.meta.dirname, 'fastembed-worker.sh'),
-      ACE_TREE_SITTER_HELPER: process.env.ACE_TREE_SITTER_HELPER
-        ?? resolve(import.meta.dirname, 'tree-sitter-structural.py'),
-      ACE_TREE_SITTER_PYTHON: process.env.ACE_TREE_SITTER_PYTHON ?? resolve('.venv-system/bin/python'),
+      ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND
+        ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -165,7 +162,7 @@ const runOnce = async (label) => new Promise((resolveRun, rejectRun) => {
 });
 
 const deleteOnePoint = async (metrics) => {
-  const endpoint = `${qdrantUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(collection)}/points/scroll`;
+  const endpoint = `${qdrantUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(metrics.collection)}/points/scroll`;
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -185,7 +182,7 @@ const deleteOnePoint = async (metrics) => {
   const pointId = body.result?.points?.[0]?.id;
   assert.notEqual(pointId, undefined, bodyText);
   const deleted = await fetch(
-    `${qdrantUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(collection)}/points/delete?wait=true`,
+    `${qdrantUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(metrics.collection)}/points/delete?wait=true`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -205,7 +202,7 @@ try {
   const second = await runOnce('second');
   assert.equal(second.metrics.indexKey, first.metrics.indexKey);
   assert.equal(second.metrics.indexMode, 'rebuilt', 'count mismatch must not be warm-reused');
-  assert.equal(second.metrics.reusedVectors, 0, 'same snapshot count rebuild has no trusted prior seed');
+  assert.ok(second.metrics.reusedVectors > 0, 'rebuild may reuse unchanged vectors by content identity');
 
   const result = {
     schemaVersion: 1,
@@ -222,7 +219,8 @@ try {
         || resolve(import.meta.dirname, 'fastembed-worker.sh')),
     },
     mutation: {
-      collection,
+      collection: first.metrics.collection,
+      alias: first.metrics.alias,
       indexKey: first.metrics.indexKey,
       deletedPointId,
       firstGeneration: first.metrics.generation,
@@ -233,6 +231,7 @@ try {
       realPointDeletedBetweenRuns: 'PASS',
       staleCountWasNotWarmReused: 'PASS',
       sameSnapshotKeyRebuilt: 'PASS',
+      unchangedVectorsReusedByContentIdentity: second.metrics.reusedVectors > 0 ? 'PASS' : 'FAIL',
       secondCitationCurrent: 'PASS',
     },
     claims: {
@@ -252,10 +251,5 @@ try {
   }
   process.stdout.write(serialized);
 } finally {
-  try {
-    await fetch(`${qdrantUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(collection)}`, { method: 'DELETE' });
-  } catch {
-    // The generated collection is unique; failed cleanup is not treated as success.
-  }
   await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
 }

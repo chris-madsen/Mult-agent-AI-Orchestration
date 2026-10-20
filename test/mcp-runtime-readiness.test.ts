@@ -90,7 +90,6 @@ test('DBC-01 missing selected providers returns NOT_READY from the actual MCP ex
     ACE_WORKSPACE_ID: 'dbc01-test-workspace',
     ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
     ACE_QDRANT_URL: 'http://127.0.0.1:6339',
-    ACE_ALLOW_LOCAL_FALLBACK: 'false',
   });
   assertNotReady(response);
 });
@@ -125,7 +124,6 @@ test('DBC-01 embedding preflight failure keeps the MCP executable alive', async 
       ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
       ACE_QDRANT_URL: `http://127.0.0.1:${address.port}`,
       ACE_EMBEDDING_WORKER: worker,
-      ACE_ALLOW_LOCAL_FALLBACK: 'false',
     });
     assertNotReady(response);
   } finally {

@@ -17,7 +17,6 @@ if ((firstArg === '--output' && secondArg === undefined) || process.argv.length 
 const root = await mkdtemp(join(tmpdir(), 'ace-qdrant-timeout-'));
 const workspace = join(root, 'workspace');
 const state = join(root, 'state');
-const collection = `ace_ca_timeout_${randomUUID().replaceAll('-', '')}`;
 const workspaceId = `qdrant-timeout-${randomUUID()}`;
 const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
 const source = 'export function timeoutSentinel(): string { return "timeout"; }\n';
@@ -39,17 +38,14 @@ const requestProcess = async () => {
       ACE_STATE_DIR: state,
       ACE_WORKSPACE_ID: workspaceId,
       ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
-      ACE_ALLOW_LOCAL_FALLBACK: 'false',
       ACE_QDRANT_URL: qdrantUrl,
-      ACE_QDRANT_COLLECTION: collection,
       ACE_ENABLE_TEST_FAILPOINTS: 'true',
       ACE_EMBEDDING_DELAY_MS: '1000',
       ACE_EMBEDDING_TIMEOUT_MS: '100',
       ACE_EMBEDDING_WORKER: process.env.ACE_EMBEDDING_WORKER
         ?? resolve(import.meta.dirname, 'fastembed-worker.sh'),
-      ACE_TREE_SITTER_HELPER: process.env.ACE_TREE_SITTER_HELPER
-        ?? resolve(import.meta.dirname, 'tree-sitter-structural.py'),
-      ACE_TREE_SITTER_PYTHON: process.env.ACE_TREE_SITTER_PYTHON ?? resolve('.venv-system/bin/python'),
+      ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND
+        ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -169,10 +165,5 @@ try {
   }
   process.stdout.write(serialized);
 } finally {
-  try {
-    await fetch(`${qdrantUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(collection)}`, { method: 'DELETE' });
-  } catch {
-    // The collection is uniquely named; failure is retained in provider logs.
-  }
   await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
 }

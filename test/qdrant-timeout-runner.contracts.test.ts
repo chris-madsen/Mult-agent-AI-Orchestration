@@ -12,7 +12,6 @@ test('real Qdrant embedding-timeout runner is syntactically valid and double opt
   for (const token of [
     'dist/bin/ace-mcp.js',
     "ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true'",
-    "ACE_ALLOW_LOCAL_FALLBACK: 'false'",
     "ACE_ENABLE_TEST_FAILPOINTS: 'true'",
     "ACE_EMBEDDING_DELAY_MS: '1000'",
     "ACE_EMBEDDING_TIMEOUT_MS: '100'",

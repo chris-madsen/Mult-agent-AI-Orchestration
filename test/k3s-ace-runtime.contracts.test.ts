@@ -5,7 +5,7 @@ import test from 'node:test';
 test('ACE image requires an operator-supplied pinned base and contains pinned local provider runtimes', async () => {
   const dockerfile = await readFile('Dockerfile.ace', 'utf8');
   assert.match(dockerfile, /^ARG ACE_NODE_IMAGE\nFROM \$\{ACE_NODE_IMAGE\}/mu);
-  assert.match(dockerfile, /tree-sitter==0\.26\.0 tree-sitter-typescript==0\.23\.2/u);
+  assert.match(dockerfile, /ACE_AST_GREP_COMMAND=\/opt\/ace\/node_modules\/\.bin\/ast-grep/u);
   assert.match(dockerfile, /fastembed==0\.7\.4 onnxruntime==1\.31\.0/u);
   assert.match(dockerfile, /npm ci --ignore-scripts/u);
   assert.match(dockerfile, /npm prune --omit=dev --ignore-scripts/u);
@@ -20,7 +20,7 @@ test('k3s ACE runtime stays stdio-only and fail-closed by default', async () => 
   assert.match(manifest, /runAsNonRoot: true/u);
   assert.match(manifest, /readOnlyRootFilesystem: true/u);
   assert.match(manifest, /drop: \["ALL"\]/u);
-  assert.match(manifest, /ACE_ALLOW_LOCAL_FALLBACK: "false"/u);
+  assert.doesNotMatch(manifest, /ACE_ALLOW_LOCAL_FALLBACK/u);
   assert.match(manifest, /ACE_REQUIRE_PINNED_EMBEDDING: "true"/u);
   assert.match(manifest, /ACE_ENABLE_VERTEX: "false"/u);
   assert.match(manifest, /ACE_ENABLE_GRAPHITI: "false"/u);

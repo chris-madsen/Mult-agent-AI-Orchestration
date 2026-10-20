@@ -1,4 +1,4 @@
-import type { ContextBundle, RetrievalEvidence } from './retrieval.js';
+import type { ContextBundle, ContextDeliveryMetrics, RetrievalEvidence } from './retrieval.js';
 
 /**
  * User-visible retrieval intent is a delivery choice, not a different trust
@@ -13,6 +13,34 @@ export type ContextDeliveryIntent = 'locate' | 'inspect';
 export const resolveDeliveryIntent = (intent: string | undefined): ContextDeliveryIntent =>
   intent === 'inspect' || intent === 'full' || intent === 'implementation' ? 'inspect' : 'locate';
 
+const utf8Bytes = (value: string): number => new TextEncoder().encode(value).byteLength;
+
+export const deliveryMetricsFor = (
+  bundle: Omit<ContextBundle, 'deliveryMetrics'>,
+): ContextDeliveryMetrics => {
+  const initialEvidenceBytes = bundle.evidence.reduce((total, item) => total + utf8Bytes(item.content), 0);
+  const uniqueContent = new Map<string, number>();
+  for (const item of bundle.evidence) {
+    const key = item.sourceDigest ?? item.content;
+    uniqueContent.set(key, Math.max(uniqueContent.get(key) ?? 0, utf8Bytes(item.content)));
+  }
+  const uniqueContentBytes = [...uniqueContent.values()].reduce((total, bytes) => total + bytes, 0);
+  const expansionBytesAvailable = bundle.evidence.reduce(
+    (total, item) => total + (item.expansionTotalBytes ?? 0),
+    0,
+  );
+  const expansionHandleCount = bundle.evidence.filter((item) => item.expansionHandle !== undefined).length;
+  const structuredContentBytes = utf8Bytes(JSON.stringify(bundle));
+  return {
+    initialEvidenceBytes,
+    structuredContentBytes,
+    uniqueContentBytes,
+    duplicateContentBytes: Math.max(0, initialEvidenceBytes - uniqueContentBytes),
+    expansionBytesAvailable,
+    expansionHandleCount,
+  };
+};
+
 /** A structural declaration rather than arbitrary substring truncation. */
 const declarationLine = (content: string): string =>
   (() => {
@@ -26,7 +54,9 @@ export const projectContextForDelivery = (
   bundle: ContextBundle,
   intent: ContextDeliveryIntent,
 ): ContextBundle => {
-  if (intent === 'inspect') return bundle;
+  if (intent === 'inspect') {
+    return { ...bundle, deliveryMetrics: deliveryMetricsFor(bundle) };
+  }
   let inlinedCode = 0;
   const evidence: RetrievalEvidence[] = bundle.evidence.map((item) => {
     if (item.source !== 'code' || item.expansionHandle === undefined) return item;
@@ -45,7 +75,8 @@ export const projectContextForDelivery = (
       originalSpanLines: lines.length,
     };
   });
-  return { ...bundle, evidence };
+  const projected = { ...bundle, evidence };
+  return { ...projected, deliveryMetrics: deliveryMetricsFor(projected) };
 };
 
 type ContextCarrier = Readonly<Record<string, unknown>>;

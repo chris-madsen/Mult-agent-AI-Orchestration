@@ -38,6 +38,7 @@ test('route requirements distinguish required, optional, denied and not-requeste
   assert.deepEqual(rationale, {
     code: { requirement: 'not_requested', allowed: true },
     structural: { requirement: 'not_requested', allowed: true },
+    lsp: { requirement: 'not_requested', allowed: true },
     documentation: { requirement: 'required', allowed: true },
     memory: { requirement: 'required', allowed: true },
   });
@@ -46,6 +47,7 @@ test('route requirements distinguish required, optional, denied and not-requeste
   assert.deepEqual(enriched, {
     code: { requirement: 'optional', allowed: true },
     structural: { requirement: 'optional', allowed: true },
+    lsp: { requirement: 'optional', allowed: true },
     documentation: { requirement: 'required', allowed: true },
     memory: { requirement: 'required', allowed: true },
   });
@@ -90,6 +92,7 @@ test('explicit source obligations override deterministic routing and reject over
   assert.deepEqual(resolved.value, {
     code: { requirement: 'optional', allowed: true },
     structural: { requirement: 'not_requested', allowed: true },
+    lsp: { requirement: 'not_requested', allowed: true },
     documentation: { requirement: 'required', allowed: true },
     memory: { requirement: 'not_requested', allowed: true },
   });

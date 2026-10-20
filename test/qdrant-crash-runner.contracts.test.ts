@@ -11,27 +11,24 @@ test('real Qdrant crash runner is syntactically valid and uses the production AC
   const script = await readFile('scripts/qdrant-snapshot-crash-e2e.mjs', 'utf8');
   for (const token of [
     "ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true'",
-    "ACE_ALLOW_LOCAL_FALLBACK: 'false'",
     'dist/bin/ace-mcp.js',
     'after_qdrant_verify_before_publish',
-    'reader-state',
-    'writer-state',
-    'ACE_QDRANT_COLLECTION: collection',
-    'sharedExplicitCollectionGcSkipped',
+    '/aliases',
+    'currentAliasStayedOnS1DuringInterruptedBuild',
     'real-qdrant-snapshot-crash-lifecycle',
   ]) assert.ok(script.includes(token), token);
 });
 
-test('interrupted-writer runner proves building-not-published recovery and active S1 survival', async () => {
+test('interrupted-writer runner proves alias-not-switched recovery and active S1 survival', async () => {
   const script = await readFile('scripts/qdrant-snapshot-crash-e2e.mjs', 'utf8');
-  assert.match(script, /assert\.equal\(building\.status, 'building'/u);
-  assert.match(script, /assert\.equal\(published\.status, 'published'/u);
+  assert.match(script, /currentAliasStayedOnS1DuringInterruptedBuild/u);
+  assert.match(script, /restartPublishedS2/u);
   assert.match(script, /reader\.query\('stableSnapshotSentinel stable-sentinel-v1'\)/u);
   assert.match(script, /reader\.query\('stableSnapshotSentinel stable-sentinel-v1', true\)/u);
   assert.match(script, /reader must expose partial coverage/u);
   assert.match(script, /restartedWriter\.query\('mutableSnapshotSentinel mutable-sentinel-v2'\)/u);
-  assert.match(script, /cleanup skipped: explicit ACE_QDRANT_COLLECTION/u);
-  assert.match(script, /assert\.notEqual\(readerOwner\.trim\(\), writerOwner\.trim\(\)/u);
+  assert.match(script, /current alias/u);
+  assert.match(script, /immutableCollectionsAreDistinct/u);
 });
 
 test('runtime failpoint is double-opt-in and release config capture refuses failpoint environments', async () => {

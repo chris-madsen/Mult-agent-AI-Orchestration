@@ -23,6 +23,11 @@ import {
 } from '../domain/source-coverage.js';
 import { diffWorkspaceManifests, workspaceManifestFromSnapshot, workspaceManifestEqual, type WorkspaceManifest } from '../domain/workspace-manifest.js';
 
+/**
+ * Test/spike-only degraded provider. It is intentionally not part of the
+ * production MCP composition or public package exports.
+ */
+
 export interface LocalContextProviderOptions {
   readonly workspaceId: WorkspaceId;
   readonly rootPath: string;
@@ -142,6 +147,15 @@ export const makeLocalContextProvider = (options: LocalContextProviderOptions) =
       sourceCoverage = setSourceCoverage(
         sourceCoverage,
         'structural',
+        'unavailable',
+        includeCode ? 'semantic_provider_not_available_in_local_fallback' : 'not_executed',
+      );
+    }
+    const lspRequirement = requirements.lsp ?? { requirement: 'not_requested' as const, allowed: true };
+    if (lspRequirement.requirement !== 'not_requested' && lspRequirement.allowed) {
+      sourceCoverage = setSourceCoverage(
+        sourceCoverage,
+        'lsp',
         'unavailable',
         includeCode ? 'semantic_provider_not_available_in_local_fallback' : 'not_executed',
       );

@@ -7,7 +7,6 @@ import {
   mkdir,
   mkdtemp,
   readFile,
-  readdir,
   rm,
   writeFile,
 } from 'node:fs/promises';
@@ -34,11 +33,6 @@ const traces = {
   crashedWriter: join(root, 'crashed-writer-provider-trace.jsonl'),
   restartedWriter: join(root, 'restarted-writer-provider-trace.jsonl'),
 };
-const configuredCollection = process.env.ACE_QDRANT_CRASH_COLLECTION?.trim();
-const collection = configuredCollection && configuredCollection.length > 0
-  ? configuredCollection
-  : `ace_ca_crash_${randomUUID().replaceAll('-', '')}`;
-const ownsCollection = configuredCollection === undefined || configuredCollection.length === 0;
 const workspaceId = `qdrant-crash-${randomUUID()}`;
 const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
 const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
@@ -88,18 +82,12 @@ const baseEnv = (stateDir, traceFile, failpoint = false) => ({
   ACE_STATE_DIR: stateDir,
   ACE_WORKSPACE_ID: workspaceId,
   ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
-  ACE_ALLOW_LOCAL_FALLBACK: 'false',
   ACE_QDRANT_URL: qdrantUrl,
-  ACE_QDRANT_COLLECTION: collection,
-  // Intentionally absent: ACE_QDRANT_COLLECTION_EXCLUSIVE_OWNER.
-  // Shared explicit collection must therefore skip automatic GC.
   ACE_PROVIDER_TRACE_FILE: traceFile,
   ACE_EMBEDDING_WORKER: process.env.ACE_EMBEDDING_WORKER
     ?? resolve(import.meta.dirname, 'fastembed-worker.sh'),
-  ACE_TREE_SITTER_HELPER: process.env.ACE_TREE_SITTER_HELPER
-    ?? resolve(import.meta.dirname, 'tree-sitter-structural.py'),
-  ACE_TREE_SITTER_PYTHON: process.env.ACE_TREE_SITTER_PYTHON
-    ?? resolve('.venv-system/bin/python'),
+  ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND
+    ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
   ...(failpoint ? {
     ACE_ENABLE_TEST_FAILPOINTS: 'true',
     ACE_TEST_FAILPOINT: 'after_qdrant_verify_before_publish',
@@ -221,6 +209,38 @@ const makeProtocolProcess = (label, stateDir, traceFile) => {
   return { child, initialize, query, stop, stderr: () => stderr };
 };
 
+const parseStartupMetrics = (stderr) => {
+  const line = stderr.split('\n').reverse().find((item) => item.includes('ace-mcp real retrieval workspace_id='));
+  if (line === undefined) throw new Error(`missing real retrieval metrics: ${stderr.slice(-4000)}`);
+  const values = {};
+  for (const match of line.matchAll(/([a-z_]+)=([^\s]+)/gu)) values[match[1]] = match[2];
+  const required = (name) => {
+    const value = values[name];
+    if (value === undefined || value.length === 0) throw new Error(`missing startup metric ${name}`);
+    return value;
+  };
+  const digest = (name) => {
+    const value = required(name);
+    if (!/^[a-f0-9]{64}$/u.test(value)) throw new Error(`invalid startup digest ${name}`);
+    return value;
+  };
+  return {
+    indexKey: digest('index_key'),
+    retrievalFingerprint: digest('retrieval_fingerprint'),
+    collection: required('collection'),
+    alias: required('alias'),
+    indexMode: required('index_mode'),
+  };
+};
+
+const qdrantAliasTarget = async (alias) => {
+  const response = await fetch(`${qdrantUrl.replace(/\/$/u, '')}/aliases`);
+  if (!response.ok) throw new Error(`Qdrant alias inspection failed: HTTP ${response.status}`);
+  const body = await response.json();
+  const target = body?.result?.aliases?.find((item) => item?.alias_name === alias);
+  return target?.collection_name;
+};
+
 const runCrashWriter = async () => {
   const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
     cwd: repository,
@@ -249,15 +269,6 @@ const runCrashWriter = async () => {
   assert.match(stderr, /ace test failpoint reached name=after_qdrant_verify_before_publish/u);
   assert.equal(outcome.signal, 'SIGKILL', `expected SIGKILL, got ${JSON.stringify(outcome)}`);
   return { ...outcome, stderr };
-};
-
-const findSingleManifest = async (stateDir) => {
-  const rootDir = join(stateDir, 'qdrant-snapshots', 'manifests');
-  const entries = await readdir(rootDir, { recursive: true });
-  const jsonFiles = entries.filter((entry) => String(entry).endsWith('.json'));
-  assert.equal(jsonFiles.length, 1, `expected one manifest in ${stateDir}, got ${jsonFiles.length}`);
-  const path = join(rootDir, String(jsonFiles[0]));
-  return JSON.parse(await readFile(path, 'utf8'));
 };
 
 const assertEvidence = (context, citationPart, contentPart) => {
@@ -291,12 +302,16 @@ try {
   await reader.initialize();
   const initial = await reader.query('stableSnapshotSentinel stable-sentinel-v1');
   const initialHit = assertEvidence(initial, 'src/stable.ts', 'stable-sentinel-v1');
+  const readerMetrics = parseStartupMetrics(reader.stderr());
+  const initialAliasTarget = await qdrantAliasTarget(readerMetrics.alias);
+  assert.equal(initialAliasTarget, readerMetrics.collection,
+    'current alias must target the verified initial collection');
 
   await mutateToV2();
   const crash = await runCrashWriter();
-  const building = await findSingleManifest(writerState);
-  assert.equal(building.status, 'building',
-    'writer killed before publication must leave an unpublished building manifest');
+  const crashedWriterMetrics = parseStartupMetrics(crash.stderr);
+  assert.equal(await qdrantAliasTarget(readerMetrics.alias), initialAliasTarget,
+    'writer killed before publication must not change the current alias');
 
   const afterCrash = await reader.query('stableSnapshotSentinel stable-sentinel-v1', true);
   assert.equal(afterCrash.complete, false,
@@ -309,10 +324,11 @@ try {
   await restartedWriter.initialize();
   const v2 = await restartedWriter.query('mutableSnapshotSentinel mutable-sentinel-v2');
   assertEvidence(v2, 'src/mutable.ts', 'mutable-sentinel-v2');
-
-  const published = await findSingleManifest(writerState);
-  assert.equal(published.status, 'published',
-    'restart must finish and atomically publish the previously interrupted snapshot');
+  const restartedWriterMetrics = parseStartupMetrics(restartedWriter.stderr());
+  assert.notEqual(restartedWriterMetrics.collection, initialAliasTarget,
+    'changed source must publish a distinct immutable collection');
+  assert.equal(await qdrantAliasTarget(restartedWriterMetrics.alias), restartedWriterMetrics.collection,
+    'restart must atomically publish the rebuilt collection through the current alias');
 
   const afterPublish = await reader.query('stableSnapshotSentinel stable-sentinel-v1', true);
   assert.equal(afterPublish.complete, false,
@@ -320,15 +336,6 @@ try {
   const afterPublishHit = assertEvidence(afterPublish, 'src/stable.ts', 'stable-sentinel-v1');
   assert.equal(afterPublishHit.sourceDigest, initialHit.sourceDigest,
     'publishing S2 must not destroy the active reader S1 snapshot');
-
-  const [readerOwner, writerOwner] = await Promise.all([
-    readFile(join(readerState, 'qdrant-snapshots', 'state-owner-id'), 'utf8'),
-    readFile(join(writerState, 'qdrant-snapshots', 'state-owner-id'), 'utf8'),
-  ]);
-  assert.notEqual(readerOwner.trim(), writerOwner.trim(),
-    'different ACE_STATE_DIR roots must have distinct persistent state-owner identities');
-  assert.match(reader.stderr(), /cleanup skipped: explicit ACE_QDRANT_COLLECTION/u);
-  assert.match(restartedWriter.stderr(), /cleanup skipped: explicit ACE_QDRANT_COLLECTION/u);
 
   const providerTraceDigests = {
     reader: await hashFileIfPresent(traces.reader),
@@ -346,25 +353,27 @@ try {
       urlKind: qdrantUrl.startsWith('http://127.0.0.1') || qdrantUrl.startsWith('http://localhost')
         ? 'local-loopback'
         : 'configured-local-host',
-      collection,
+      alias: readerMetrics.alias,
+      initialCollection: initialAliasTarget,
+      crashedWriterCollection: crashedWriterMetrics.collection,
+      restartedWriterCollection: restartedWriterMetrics.collection,
       version: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
     },
     runtime: {
       node: process.version,
       embeddingWorker: basename(process.env.ACE_EMBEDDING_WORKER?.trim()
         || resolve(import.meta.dirname, 'fastembed-worker.sh')),
-      treeSitterHelper: basename(process.env.ACE_TREE_SITTER_HELPER?.trim()
-        || resolve(import.meta.dirname, 'tree-sitter-structural.py')),
+      astGrepCommand: basename(process.env.ACE_AST_GREP_COMMAND?.trim()
+        || resolve(import.meta.dirname, '../node_modules/.bin/ast-grep')),
     },
     checks: {
       readerS1BeforeWriter: 'PASS',
       writerKilledAfterQdrantVerifyBeforePublish: crash.signal === 'SIGKILL' ? 'PASS' : 'FAIL',
-      interruptedManifestStayedBuilding: building.status === 'building' ? 'PASS' : 'FAIL',
+      currentAliasStayedOnS1DuringInterruptedBuild: (await qdrantAliasTarget(readerMetrics.alias)) === initialAliasTarget ? 'PASS' : 'FAIL',
       readerS1AfterWriterCrash: 'PASS',
-      restartPublishedS2: published.status === 'published' ? 'PASS' : 'FAIL',
+      restartPublishedS2: (await qdrantAliasTarget(restartedWriterMetrics.alias)) === restartedWriterMetrics.collection ? 'PASS' : 'FAIL',
       readerS1AfterS2Publish: 'PASS',
-      stateOwnersDistinct: readerOwner.trim() !== writerOwner.trim() ? 'PASS' : 'FAIL',
-      sharedExplicitCollectionGcSkipped: 'PASS',
+      immutableCollectionsAreDistinct: initialAliasTarget !== restartedWriterMetrics.collection ? 'PASS' : 'FAIL',
     },
     requestIds: {
       readerInitial: initial.requestId,
@@ -392,15 +401,5 @@ try {
 } finally {
   if (restartedWriter !== undefined) await restartedWriter.stop().catch(() => undefined);
   if (reader !== undefined) await reader.stop().catch(() => undefined);
-  if (ownsCollection) {
-    try {
-      await fetch(
-        qdrantUrl.replace(/\/$/u, '') + '/collections/' + encodeURIComponent(collection),
-        { method: 'DELETE' },
-      );
-    } catch {
-      // Best effort only. Unique generated collection names avoid deleting shared data.
-    }
-  }
   await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
 }

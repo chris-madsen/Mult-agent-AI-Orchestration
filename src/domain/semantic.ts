@@ -2,20 +2,44 @@ import type { DomainError } from './errors.js';
 import { err, ok, type Result } from './result.js';
 import type { ContentDigest } from './workspace.js';
 
-export type StructuralKind = 'class' | 'function' | 'interface' | 'type' | 'enum' | 'method';
+export type StructuralKind =
+  | 'class'
+  | 'function'
+  | 'interface'
+  | 'type'
+  | 'enum'
+  | 'method'
+  | 'struct'
+  | 'trait'
+  | 'impl'
+  | 'module'
+  | 'field'
+  | 'enum_variant'
+  | 'import'
+  | 'export'
+  | 'unknown';
 
 export interface StructuralSymbol {
   readonly name: string;
   readonly kind: StructuralKind;
+  /** Provider-native node kind; never used as a semantic identity. */
+  readonly providerKind?: string;
+  /** Canonical language name reported by the structural provider. */
+  readonly language?: string;
   readonly startLine: number;
   readonly startColumn: number;
   readonly endLine: number;
   readonly endColumn: number;
-  /** Exact Tree-sitter identifier-node location; columns are UTF-8 bytes, one-based. */
+  /** Optional exact byte offsets supplied by a structural provider. */
+  readonly startByteOffset?: number;
+  readonly endByteOffset?: number;
+  /** Exact identifier-node location; columns are UTF-8 bytes, one-based. */
   readonly nameStartLine?: number;
   readonly nameStartColumn?: number;
   readonly nameEndLine?: number;
   readonly nameEndColumn?: number;
+  readonly isImport?: boolean;
+  readonly isExported?: boolean;
 }
 
 export interface StructuralAnalysis {
@@ -56,7 +80,10 @@ export interface SemanticDiagnostic {
   readonly code: number;
 }
 
-const kinds: ReadonlySet<string> = new Set(['class', 'function', 'interface', 'type', 'enum', 'method']);
+const kinds: ReadonlySet<string> = new Set([
+  'class', 'function', 'interface', 'type', 'enum', 'method', 'struct', 'trait',
+  'impl', 'module', 'field', 'enum_variant', 'import', 'export', 'unknown',
+]);
 
 export const makeStructuralAnalysis = (input: {
   readonly repoPath: unknown;
@@ -77,6 +104,20 @@ export const makeStructuralAnalysis = (input: {
     if (!kinds.has(symbol.kind) || symbol.name.trim().length === 0) {
       return err({ code: 'INVALID_RETRIEVAL', path: `symbols[${index}]`, message: 'invalid structural symbol' });
     }
+    const byteOffsets = [symbol.startByteOffset, symbol.endByteOffset];
+    const suppliedByteOffsets = byteOffsets.filter((value) => value !== undefined);
+    if (suppliedByteOffsets.length !== 0
+      && (suppliedByteOffsets.length !== 2
+        || !suppliedByteOffsets.every((value) => Number.isSafeInteger(value) && (value as number) >= 0)
+        || (symbol.endByteOffset as number) <= (symbol.startByteOffset as number))) {
+      return err({ code: 'INVALID_RETRIEVAL', path: `symbols[${index}].byte_range`, message: 'structural byte range must be complete and increasing' });
+    }
+    if (symbol.providerKind !== undefined && symbol.providerKind.trim().length === 0) {
+      return err({ code: 'INVALID_RETRIEVAL', path: `symbols[${index}].provider_kind`, message: 'provider kind must not be empty' });
+    }
+    if (symbol.language !== undefined && symbol.language.trim().length === 0) {
+      return err({ code: 'INVALID_RETRIEVAL', path: `symbols[${index}].language`, message: 'structural language must not be empty' });
+    }
     if (![symbol.startLine, symbol.startColumn, symbol.endLine, symbol.endColumn].every((value) => Number.isSafeInteger(value) && value >= 1)) {
       return err({ code: 'INVALID_RETRIEVAL', path: `symbols[${index}]`, message: 'invalid structural range' });
     }
@@ -88,5 +129,10 @@ export const makeStructuralAnalysis = (input: {
       return err({ code: 'INVALID_RETRIEVAL', path: `symbols[${index}].name_range`, message: 'structural name range must be complete and positive' });
     }
   }
-  return ok({ repoPath: input.repoPath.trim(), sourceDigest: input.sourceDigest as ContentDigest, symbols: input.symbols.map((symbol) => ({ ...symbol })), hasSyntaxErrors: input.hasSyntaxErrors });
+  return ok({
+    repoPath: input.repoPath.trim(),
+    sourceDigest: input.sourceDigest as ContentDigest,
+    symbols: input.symbols.map((symbol) => ({ ...symbol })),
+    hasSyntaxErrors: input.hasSyntaxErrors,
+  });
 };

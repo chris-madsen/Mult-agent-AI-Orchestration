@@ -6,7 +6,6 @@ import {
   mkdir,
   mkdtemp,
   readFile,
-  readdir,
   rm,
   writeFile,
 } from 'node:fs/promises';
@@ -32,7 +31,6 @@ if (runnerArgs.length === 1) {
 const root = await mkdtemp(join(tmpdir(), 'ace-qdrant-concurrency-'));
 const workspace = join(root, 'workspace');
 const state = join(root, 'shared-state');
-const collection = `ace_ca_concurrency_${randomUUID().replaceAll('-', '')}`;
 const workspaceId = `qdrant-concurrency-${randomUUID()}`;
 const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
 const embeddingDelayMs = process.env.ACE_QDRANT_CONCURRENCY_EMBEDDING_DELAY_MS?.trim() || '750';
@@ -40,6 +38,7 @@ const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
   cwd: repository,
   encoding: 'utf8',
 }).trim().toLowerCase();
+const publishedCollections = new Set();
 
 const sourcePath = join(workspace, 'src', 'concurrent-sentinel.ts');
 const source = [
@@ -77,14 +76,13 @@ const parseStartupMetrics = (stderr) => {
     return value;
   };
   return {
-    generation: Number(required('generation')),
     indexKey: digest('index_key'),
     retrievalFingerprint: digest('retrieval_fingerprint'),
     collection: required('collection'),
     indexMode: required('index_mode'),
-    stateOwner: required('state_owner'),
     embeddingIdentity: required('embedding_identity'),
     structuralIdentity: required('structural_identity'),
+    alias: required('alias'),
   };
 };
 
@@ -99,16 +97,13 @@ const makeClient = (label) => {
       ACE_STATE_DIR: state,
       ACE_WORKSPACE_ID: workspaceId,
       ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
-      ACE_ALLOW_LOCAL_FALLBACK: 'false',
       ACE_QDRANT_URL: qdrantUrl,
-      ACE_QDRANT_COLLECTION: collection,
       ACE_PROVIDER_TRACE_FILE: traceFile,
       ACE_EMBEDDING_DELAY_MS: embeddingDelayMs,
       ACE_EMBEDDING_WORKER: process.env.ACE_EMBEDDING_WORKER
         ?? resolve(import.meta.dirname, 'fastembed-worker.sh'),
-      ACE_TREE_SITTER_HELPER: process.env.ACE_TREE_SITTER_HELPER
-        ?? resolve(import.meta.dirname, 'tree-sitter-structural.py'),
-      ACE_TREE_SITTER_PYTHON: process.env.ACE_TREE_SITTER_PYTHON ?? resolve('.venv-system/bin/python'),
+      ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND
+        ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -241,15 +236,12 @@ const findEvidence = (context) => {
   return evidence;
 };
 
-const findManifests = async () => {
-  const manifestRoot = join(state, 'qdrant-snapshots', 'manifests');
-  const entries = await readdir(manifestRoot, { recursive: true });
-  const manifests = [];
-  for (const entry of entries) {
-    if (!String(entry).endsWith('.json')) continue;
-    manifests.push(JSON.parse(await readFile(join(manifestRoot, String(entry)), 'utf8')));
-  }
-  return manifests;
+const qdrantAliasTarget = async (alias) => {
+  const response = await fetch(`${qdrantUrl.replace(/\/$/u, '')}/aliases`);
+  if (!response.ok) throw new Error(`Qdrant alias inspection failed: HTTP ${response.status}`);
+  const body = await response.json();
+  const target = body?.result?.aliases?.find((item) => item?.alias_name === alias);
+  return target?.collection_name;
 };
 
 const digestIfPresent = async (path) => {
@@ -274,17 +266,14 @@ try {
   const secondEvidence = findEvidence(secondContext);
   const firstMetrics = parseStartupMetrics(first.stderr());
   const secondMetrics = parseStartupMetrics(second.stderr());
-  assert.equal(firstMetrics.collection, collection);
-  assert.equal(secondMetrics.collection, collection);
+  assert.equal(firstMetrics.collection, secondMetrics.collection);
   assert.equal(firstMetrics.indexKey, secondMetrics.indexKey, 'writers must converge on one content snapshot');
   assert.equal(firstMetrics.retrievalFingerprint, secondMetrics.retrievalFingerprint);
-  assert.equal(firstMetrics.stateOwner, secondMetrics.stateOwner, 'shared state root must expose one owner identity');
+  assert.equal(firstMetrics.alias, secondMetrics.alias, 'writers must converge on one current alias');
   assert.equal(firstEvidence.sourceDigest, secondEvidence.sourceDigest);
-
-  const manifests = await findManifests();
-  assert.equal(manifests.length, 1, `expected one shared manifest, got ${manifests.length}`);
-  assert.equal(manifests[0]?.status, 'published', JSON.stringify(manifests));
-  assert.equal(manifests[0]?.indexKey, firstMetrics.indexKey);
+  publishedCollections.add(firstMetrics.collection);
+  assert.equal(await qdrantAliasTarget(firstMetrics.alias), firstMetrics.collection,
+    'current alias must target the verified immutable collection');
 
   const result = {
     schemaVersion: 1,
@@ -303,21 +292,20 @@ try {
         ? 'local-loopback' : 'configured-local-host',
       embeddingWorker: basename(process.env.ACE_EMBEDDING_WORKER?.trim()
         || resolve(import.meta.dirname, 'fastembed-worker.sh')),
-      treeSitterHelper: basename(process.env.ACE_TREE_SITTER_HELPER?.trim()
-        || resolve(import.meta.dirname, 'tree-sitter-structural.py')),
+      astGrepCommand: basename(process.env.ACE_AST_GREP_COMMAND?.trim()
+        || resolve(import.meta.dirname, '../node_modules/.bin/ast-grep')),
       embeddingDelayMs: Number(embeddingDelayMs),
     },
     concurrency: {
       elapsedMs,
-      collection,
+      collection: firstMetrics.collection,
+      alias: firstMetrics.alias,
       indexKey: firstMetrics.indexKey,
       retrievalFingerprint: firstMetrics.retrievalFingerprint,
       writers: [
         { label: 'writer-a', metrics: firstMetrics, requestId: firstContext.requestId },
         { label: 'writer-b', metrics: secondMetrics, requestId: secondContext.requestId },
       ],
-      sharedStateOwner: firstMetrics.stateOwner,
-      manifestStatus: manifests[0].status,
     },
     checks: {
       bothRequestsComplete: 'PASS',
@@ -325,8 +313,8 @@ try {
       citationsShareD1Digest: 'PASS',
       writersConvergedOnIndexKey: 'PASS',
       writersConvergedOnProviderFingerprint: 'PASS',
-      sharedManifestPublished: 'PASS',
-      noDuplicateSnapshotManifest: 'PASS',
+      currentAliasPublished: (await qdrantAliasTarget(firstMetrics.alias)) === firstMetrics.collection ? 'PASS' : 'FAIL',
+      noDuplicateCollectionForSameIndex: firstMetrics.collection === secondMetrics.collection ? 'PASS' : 'FAIL',
     },
     providerTraceDigests: {
       writerA: await digestIfPresent(first.traceFile),
@@ -351,7 +339,9 @@ try {
   if (second !== undefined) await second.stop().catch(() => undefined);
   if (first !== undefined) await first.stop().catch(() => undefined);
   try {
-    await fetch(`${qdrantUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(collection)}`, { method: 'DELETE' });
+    for (const collection of publishedCollections) {
+      await fetch(`${qdrantUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(collection)}`, { method: 'DELETE' });
+    }
   } catch {
     // The generated collection name is unique; a failed cleanup is retained as a blocker in the command output.
   }

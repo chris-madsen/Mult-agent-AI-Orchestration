@@ -28,6 +28,8 @@ const kubectlArgs = (args) => kubeconfig === undefined ? args : ['--kubeconfig',
 const report = {
   generatedAt: new Date().toISOString(),
   commands: [
+    commandProbe('ast-grep'),
+    commandProbe('typescript-language-server'),
     commandProbe('harbor'),
     commandProbe('tb'),
     commandProbe('terminal-bench'),
@@ -39,8 +41,6 @@ const report = {
     pythonProbe('harbor'),
     pythonProbe('terminal_bench'),
     pythonProbe('graphiti_core'),
-    pythonProbe('tree_sitter'),
-    pythonProbe('ast_grep_py'),
     pythonProbe('pygls'),
   ],
   codexJsonCapability: run('codex', ['exec', '--json', '--help']),

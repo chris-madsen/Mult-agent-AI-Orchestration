@@ -23,6 +23,7 @@ import { makeAsyncFileMemoryArchive } from '../src/adapters/file-memory-archive.
 import { buildLocalCodeIndex } from '../src/adapters/local-code-index.js';
 import { makeLocalContextProvider } from '../src/adapters/local-context-provider.js';
 import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
+import { makeAstGrepStructuralPort } from '../src/adapters/ast-grep-structural.js';
 import {
   makeGraphitiProjectionPort,
   makeQdrantCodeCandidatePort,
@@ -117,7 +118,10 @@ test('RVC-03 filesystem indexer uses exact workspace reads and exposes stale sou
   await mkdir(join(root, 'src'), { recursive: true });
   await writeFile(join(root, 'src', 'save.ts'), 'export function save(value: string) { return value; }\n', 'utf8');
   const files = makeNodeWorkspacePort({ allowedRoots: [parent] });
-  const built = await Effect.runPromise(buildLocalCodeIndex(files, workspaceId, root, { generation: 1 }));
+  const built = await Effect.runPromise(buildLocalCodeIndex(files, workspaceId, root, {
+    generation: 1,
+    structural: makeAstGrepStructuralPort({ command: join(process.cwd(), 'node_modules/.bin/ast-grep') }),
+  }));
   const result = mustOk(built);
   assert.equal(result.index.candidates.length, 1);
   assert.equal(result.index.candidates[0]?.symbolName, 'save');
@@ -361,6 +365,7 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
     sourceRequirements: {
       code: { requirement: 'required', allowed: true },
       structural: { requirement: 'optional', allowed: true },
+      lsp: { requirement: 'optional', allowed: true },
       documentation: { requirement: 'not_requested', allowed: true },
       memory: { requirement: 'not_requested', allowed: true },
     },
@@ -382,6 +387,7 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
     sourceRequirements: {
       code: { requirement: 'not_requested', allowed: true },
       structural: { requirement: 'not_requested', allowed: true },
+      lsp: { requirement: 'not_requested', allowed: true },
       documentation: { requirement: 'required', allowed: true },
       memory: { requirement: 'required', allowed: true },
     },
@@ -398,6 +404,7 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
   assert.deepEqual(lastContextInput?.sourceRequirements, {
     code: { requirement: 'optional', allowed: true },
     structural: { requirement: 'not_requested', allowed: true },
+    lsp: { requirement: 'not_requested', allowed: true },
     documentation: { requirement: 'required', allowed: true },
     memory: { requirement: 'not_requested', allowed: true },
   });
@@ -423,6 +430,7 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
     sourceRequirements: {
       code: { requirement: 'not_requested', allowed: true },
       structural: { requirement: 'not_requested', allowed: true },
+      lsp: { requirement: 'not_requested', allowed: true },
       documentation: { requirement: 'required', allowed: false },
       memory: { requirement: 'required', allowed: false },
     },
@@ -450,6 +458,7 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
     sourceRequirements: {
       code: { requirement: 'optional', allowed: true },
       structural: { requirement: 'optional', allowed: true },
+      lsp: { requirement: 'optional', allowed: true },
       documentation: { requirement: 'required', allowed: false },
       memory: { requirement: 'required', allowed: false },
     },

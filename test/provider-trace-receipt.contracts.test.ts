@@ -16,7 +16,7 @@ const coverage: readonly SourceCoverage[] = [
 ];
 
 const event = (
-  provider: 'embedding' | 'qdrant' | 'typescript_language_service' | 'vertex_rag' | 'graphiti' | 'source_verification',
+  provider: 'embedding' | 'qdrant' | 'ast_grep' | 'lsp' | 'vertex_rag' | 'graphiti' | 'source_verification',
   status: 'success' | 'failure' = 'success',
   id = requestId,
 ) => ({
@@ -35,7 +35,7 @@ test('trace receipt completes only when every required query-time branch is corr
     event('embedding'),
     event('qdrant'),
     event('source_verification'),
-    event('typescript_language_service'),
+    event('ast_grep'),
     event('vertex_rag'),
     event('graphiti'),
     event('embedding', 'success', 'another-request'),
