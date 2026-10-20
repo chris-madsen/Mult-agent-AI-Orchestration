@@ -18,6 +18,9 @@ test('real index scale runner is syntactically valid and preserves the productio
   assert.match(script, /await stopChild\(\)/u);
   assert.match(script, /maxRetries: 10/u);
   assert.match(script, /ACE_INDEX_SCALE_PHASE_TIMEOUT_MS/u);
+  assert.match(script, /retrieval_fingerprint/u);
+  assert.match(script, /index_key/u);
+  assert.doesNotMatch(script, /snapshot_identity/u);
 });
 
 test('scale runner fixture exercises changed, renamed, deleted and genuinely untracked paths', async () => {
@@ -29,6 +32,9 @@ test('scale runner fixture exercises changed, renamed, deleted and genuinely unt
   assert.match(script, /deltaRenamed >= 1/u);
   assert.match(script, /deltaDeleted >= 1/u);
   assert.match(script, /deltaAdded >= 1/u);
+  assert.match(script, /changed\.metrics\.indexKey, cold\.metrics\.indexKey/u);
+  assert.match(script, /d2Digest/u);
+  assert.match(script, /d2Evidence\?\.sourceDigest/u);
 });
 
 test('scale runner records machine-readable timing/cache/delta metrics without calling them production proof', async () => {
