@@ -1,206 +1,383 @@
-# ACE remaining work, quality-safe reuse and benchmark readiness
+# ACE remaining work and benchmark readiness — current-main refresh
 
 **Date:** 2026-10-20  
-**Product-code review baseline:** `5a033daaa44b5a4540c71e8c1be59d6f0d5a1283`  
-**Plan revision:** quality-safe reuse update; preserves the owner decisions added in `c7223cc7ff82fc304fcbdfefc5aa51a864620738`. This is an execution plan, not a new full-code audit or a claim that the tasks below have passed.  
-**Owner decision:** Qwen3:14b is the first experimental local-only Graphiti extraction model on the owner's 64 GB RAM machine. Do not assume a discrete GPU. The model is selected for the experiment, not production-approved and not tied to a mandatory serving runtime.  
-**Sources:** [production gap review](../plans/2026-10-20-unified-ace-production-gap-review.md), [expanded review](./2026-10-20-unified-plan-progress-1227.md), [semantic findings](./2026-10-20-semantic-bugs-review.md), [canonical backlog](../plans/2026-10-19-unified-ace-correctness-and-production-plan.md).
+**Audited main:** `bdb54950fe889cdee5f8fe936e773c9c5fb61aa8`  
+**Major synchronization:** merged PR #88 (`feat(ace): consolidate unified-plan correctness and evidence`) plus PR #89.  
+**Not counted:** open PR #90 is not in `main` and is intentionally excluded from this status.  
+**Prior review baseline:** the previous revision still reasoned from `5a033daaa44b5a4540c71e8c1be59d6f0d5a1283`, so several “remaining” code findings had become stale.  
+**Owner decision retained:** **Qwen3:14b** is the first experimental local-only Graphiti extraction model on the owner's 64 GB RAM machine. No high-end discrete GPU is assumed. Amplifier is not on the normal Graphiti or Harbor path.
 
-## 1. Objective and claim boundaries
+This document answers one question only: **what still remains after the synchronized current `main`?** It is not a new claim of production readiness.
 
-ACE should avoid repeated online search, rereading and reconstruction by reusing locally computed work. It must not save tokens by silently withholding task-relevant information or presenting historical results as current facts.
+## 1. Current conclusion
 
-Distinguish:
-- reusable deterministic artifacts: exact bytes, AST spans, embeddings and indexed candidates;
-- dependency-sensitive semantic results: definitions, references, types and diagnostics;
-- retrieved evidence bundles, which depend on query, source requirements, policy and source versions;
-- derived memory claims, which have provenance and temporal validity, not automatic truth;
-- agent conclusions, which must not be cached as verified facts merely because they were previously generated.
+The remaining work is now materially smaller than in the previous revision.
 
-An index cache is not a cache of completed model reasoning. No generic answer/LLM-result memoization service is required by this plan. If proposed later, it needs its own correctness and economics evidence.
+PR #88 closed several concrete correctness defects at the implementation + deterministic-test level:
 
-### Two finish lines remain separate
+- Graphiti MCP errors can no longer be parsed as successful empty results;
+- memory deletion now has a durable deletion fence against stale projectors;
+- reconciliation can rebuild a missing projection intent from immutable archive truth;
+- Qdrant lease inspection/pruning is fenced against concurrent acquire and fails closed on non-ENOENT filesystem errors;
+- Harbor cost completeness is now structured rather than inferred from free-form text;
+- raw DBC artifacts are hashed as bytes instead of being forced through JSON parsing.
 
-1. **Exploratory benchmark:** raw native/optional-natural/forced diagnostic trials may run now when native Codex auth works. Known failures and incomplete telemetry must be retained; no automatic acceptance claim follows.
-2. **Quality-safe benchmark interpretation:** fix the applicable reuse hazards and F-05, pass the scoped correctness fixtures, then evaluate frozen task quality and economics. Full-unified production additionally requires memory/docs/k3s/operations/provider/license/owner gates.
+The project therefore has **three separate finish lines** and they must not be mixed again:
 
-Graphiti, Vertex, k3s, SBOM/signing and final production provider approval are not prerequisites for collecting a code-only exploratory benchmark. They must not be smuggled onto that critical path. Conversely, a known stale-code defect relevant to a dirty-tree benchmark cannot be dismissed as production-only.
+1. **First honest code-only token smoke:** can run as soon as Harbor has a working real Codex subscription/OAuth route. Use a frozen/read-only exact commit. Graphiti, Vertex, k3s production containment, SBOM/signing and final provider approval do **not** block this first measurement.
+2. **Quality-safe warm/dirty-tree benchmark:** additionally requires the still-open live-worktree membership and semantic dependency invalidation work below. This is necessary before claiming that persistent ACE reuse remains correct while the repository changes.
+3. **Full-unified production release:** additionally requires provider selections, Graphiti, Vertex, k3s, operations, resource/supply-chain evidence, the remaining DBCs and exact-release owner approval.
 
-Historical forced-use evidence is unchanged: native 891,950 versus forced ACE 1,571,768 raw tokens; native/ACE = 0.567482x. This does not measure natural tool choice. A 5x target is a hypothesis, not an entry gate.
+The historical forced-use result remains only a diagnostic: native used 891,950 raw tokens versus 1,571,768 for forced ACE (native/ACE ≈ 0.567x). It does not answer whether Codex will naturally use ACE or save tokens.
 
-## 2. Quality-safe reuse contract
+## 2. Historical gap findings — current status
 
-Reuse is authorized only for its declared scope. Every delivered item must distinguish:
-- byte integrity and exact original pointer;
-- source/snapshot identity and time of verification;
-- semantic dependency/configuration identity where applicable;
-- required-source coverage and any unresolved changes;
-- claim valid time, approval state and uncertainty for memory;
-- whether the result was freshly computed, reused unchanged, revalidated or invalidated.
+| Finding | Current status on audited `main` | Remaining work |
+|---|---|---|
+| **F-01 Graphiti `isError` parsing** | **DONE — code/test level** | `replyJsonObject()` now rejects MCP `isError` before parsing structured/text JSON. Real Graphiti lifecycle evidence remains separate. |
+| **F-02 delete/reconcile resurrection** | **DONE — code/test level** | Durable `beginDeletion/finalizeDeletion` fence blocks stale projection receipts and survives restart. Real multi-process Graphiti delete/reconcile acceptance still belongs to W06/W07. |
+| **F-03 archive → projection-intent crash gap** | **DONE — code/test level** | `reconcileProjectionIntents` scans immutable archived episodes and recreates missing intents for admitted episodes. Real crash/restart provider evidence still remains. |
+| **F-04 Qdrant lease acquire vs cleanup race** | **DONE — code/test level; bounded real concurrency evidence exists** | Workspace lease mutation fence + non-recursive `rmdir` + fail-closed EACCES/EIO handling are implemented. Production DBC-13 still needs selected-stack/target-storage evidence. |
+| **F-05 Harbor cost/acceptance oracle** | **DONE — code/test level** | Structured `complete/partial/unknown` telemetry, required numeric components, non-null counters and execution identity checks are implemented. What is missing is an actual natural-use Harbor run, not another oracle rewrite. |
+| **F-06 release-validation depth** | **PARTIAL** | Release validation now checks current commit, evidence identities, report/config hashes and consistency. It still does not independently replay every primary measurement from raw artifacts; retain exact source reports and strengthen binding where a forged standalone verdict could still be authored. |
+| **F-07 JSON-only DBC artifact loader** | **DONE — code/test level** | Release CLI hashes DBC artifacts as raw bytes and parses JSON only where the contract requires structured JSON. |
+| **F-08 temporal decision truth in Graphiti path** | **PARTIAL** | Decision history is now wired into the real Graphiti adapter; `decisionStates` and `conflicts` are populated. Historical recall is still provider-bounded top-K (currently max 1000) with local time filtering, so complete as-of recall is not yet proven. |
+| **F-09 English-centric routing** | **OPEN** | Deterministic routing still uses English substring intent checks. Explicit source obligations should replace hidden intent inference for correctness-sensitive mixed-source requests. |
+| **F-10 startup/readiness drift** | **OPEN** | Current docs say embedding preflight failure is fatal, while current runtime/tests intentionally keep MCP alive and expose `not_ready`. Choose one policy and align code, tests and operations docs. |
+| **F-11 owner-approval trust root** | **OPEN — release governance** | Define what makes owner approval authoritative: protected PR/commit, signed attestation, or another explicit trust root. |
+| **F-12 stale execution/status docs** | **OPEN — documentation** | Some OpenSpec/execution-plan text still describes already-completed comparisons or pre-Qwen Graphiti selection. Refresh status without rewriting historical evidence. |
 
-Do not overload `freshness=current`: archive bytes being intact does not establish that a historical decision remains effective. Likewise, `complete` means the declared authorized retrieval plan was fulfilled, not that every fact relevant to any possible interpretation of the user's task has been found.
+### Important correction
 
-State verification as of a named observation/snapshot boundary. A final read cannot guarantee that the worktree will never change after the response. If an edit occurs during assembly, retry under a bounded policy or return explicit partial/stale status. Never claim an atomic whole-project snapshot from unrelated sequential reads without an appropriate consistency mechanism.
+The old semantic-bugs review and old remaining-work plan must no longer be read as a live backlog. F-01 through F-05 and F-07 above have concrete current-main fixes. Do not reimplement them merely because an older review says “fix”.
 
-New observable behavior belongs in applicable OpenSpec deltas; this plan does not silently amend Accepted ADRs or close DBC checkboxes.
+## 3. What current evidence has already established
 
-## 3. Finite safety work packages
+### Code retrieval / Qdrant
 
-### S0 — Reuse boundary and build-versus-buy decision
+Already retained:
 
-- [ ] Inventory actual cache keys, read sets, invalidation triggers, validity labels and callers. Record which gaps are reproduced versus static risks; do not assume old review findings remain unfixed.
-- [ ] Prefer existing maintained provider lifecycle/cache facilities. Compare Serena's actual live-project behavior with the direct TS-LS path on the same fixtures, not just one definition response.
-- [ ] A direct TS Language Service host is responsible for input versions and project updates; frozen snapshots are valid only when explicitly treated as frozen. Do not implement a second home-grown language-server lifecycle if an existing provider/client satisfies the contract.
-- [ ] Keep ACE-specific code narrow: policy, source verification, evidence composition and approved archive semantics. Any extra watcher/coordinator/store must have a concrete unmet requirement, not be added by default.
+- real Qdrant + FastEmbed + Tree-sitter + TypeScript LS composition;
+- 1k and 10k cold/warm/change-only scale evidence;
+- changed/add/delete/rename/untracked delta handling across restarted runs;
+- interrupted snapshot publication/crash evidence;
+- same-snapshot concurrent writers converging on one published snapshot;
+- stale-count recovery against real Qdrant;
+- embedding startup timeout produces truthful `not_ready`;
+- deterministic lease-fence and fail-closed filesystem regressions.
 
-**Exit:** a small implementation decision and test matrix, not a new framework. Serena is a candidate, not silently selected as production-approved. If accepted provider decisions change, use owner review/ADR as required.
+These are meaningful sub-gates, but they do **not** prove live long-running worktree invalidation or final target PVC/k3s persistence semantics.
 
-### S1 — Worktree membership, index and byte freshness
+### Semantic provider comparison
 
-- [ ] Track content changes AND added/deleted/renamed/untracked files, extension/policy scope and relevant generated/config files. Verifying only returned hits cannot establish that the current index covers newly added code.
-- [ ] Use a maintained filesystem/provider notification mechanism with a defined synchronization barrier before query execution. Notifications are hints, not proof of completeness: handle startup catch-up, watcher overflow/disconnect and missed-event recovery using bounded reconciliation.
-- [ ] Reuse AST/candidates/embeddings for unchanged source+provider identities; update affected entries and manifest membership. Do not reparse/re-embed the entire repository per request as the default fix.
-- [ ] Bind query execution to a published index/coverage observation. Pending relevant updates or unknown watcher state must trigger catch-up or truthful partial/not-ready behavior, not a silently complete old index.
-- [ ] Preserve final exact selected-source digest/range verification and lossless authorized expansion. Excluded secret files must remain excluded after edits and recovery.
+The matched comparison is now real and complete enough to make the technical difference explicit:
 
-**RED fixtures:** start ACE, then add the sole correct implementation; delete/rename a previous hit; edit during query; lose an event; recover after watcher failure; change policy scope. Assert the new candidate becomes reachable or the response explicitly identifies incomplete coverage. Fresh old hits must not conceal missing new files.
+- direct TypeScript Language Service: **9/9** frozen oracle cases;
+- Serena 2.0.0: **7/9**, failing the retained alias-source-reference and write-reference cases;
+- direct TS-LS also measured materially lower warm p95 on the retained comparison.
 
-**Exit:** real long-lived MCP queries before/after changes, with exact source and membership identities. A restart-only test is not proof of live invalidation.
+The repository policy currently names `typescript-language-service` as the selected candidate, but owner approval is still `pending`. The old task text saying the Serena comparison still needs to be performed is stale.
 
-### S2 — Semantic dependency validity
+### k3s worktree
 
-- [ ] Maintain a provider-managed live project, or explicitly invalidate/rebuild the affected semantic snapshot. Do not retain script versions forever as `1` while claiming live semantics.
-- [ ] Include dependencies and relevant tsconfig/project references/module-resolution settings, package manifests/lockfiles, declaration files and provider versions in the semantic validity policy. A selected file's digest alone is insufficient.
-- [ ] Establish one consistent source view for AST, index and semantic provider; reject mixed generations. Semantic cache entries require an appropriate dependency/project version, not just symbol name/path.
-- [ ] When dependency identity cannot be verified, keep exact code bytes usable but downgrade semantic certainty; never promote an uncertain relationship to verified semantic evidence.
+K3S-01 through K3S-09 passed in real evidence. **Only K3S-10 remains failed**: an unrelated workload can reach the helper TLS boundary. mTLS rejects it, but the accepted containment requirement also forbids reachability.
 
-**RED fixtures:** unchanged A imports modified B; changed re-export/alias/type; changed tsconfig resolution; dependency removed; same-name symbols, overloads, CRLF/BOM/astral Unicode. Compare warmed and fresh-provider results against the same oracle.
+### Vertex
 
-**Exit:** warm reuse produces the same valid semantic result as a fresh supported provider for these cases, or explicitly refuses current-semantic confirmation. Reuse is not required when its validity cannot be established.
+The real provider was reached and policy enforcement passed, but the committed synthetic fixture was not present in the authorized corpus. Citation/version conflict evidence therefore remains blocked on the synthetic fixture import.
 
-### S3 — Explicit source obligations instead of hidden keyword routing
+### Operations / supply chain
 
-- [ ] Make required/optional/not-requested sources explicit in the request contract and expose the executed plan. Preserve compatibility of existing flags, but remove the hidden assumption that English keyword matching proves task intent.
-- [ ] Prefer agent-selected code/docs/memory requests or explicit source sets. Existing routing may remain a transparent opt-in suggestion; do not fix quality by endlessly growing a multilingual substring list.
-- [ ] Distinguish disabled-by-caller, policy-denied, no-match, unavailable, stale and uncovered. Missing required sources cannot become complete because optional hits exist.
-- [ ] Provide a straightforward request/expansion path for omitted sources and originals. Native agent tools remain available; do not require ACE-only exploration or silently send forbidden data to a fallback destination.
-- [ ] Do not add another routing LLM merely to replace a few keyword tests. Add complexity only if measured quality/usage justifies it.
+- local archive backup/restore: OPS-01 and OPS-06 pass;
+- Graphiti/FalkorDB/Qdrant/reconcile restore scenarios remain blocked;
+- production npm audit is clean at the retained run;
+- npm SBOM exists;
+- immutable image digest/provenance/signature and independent license review are still missing.
 
-**RED fixtures:** RU/EN/mixed/paraphrased requests for historical choices; architectural bug requiring code+docs; keyword distractors; explicit opt-outs; required provider outage. Assert actual provider call sets and structured coverage, not only planner labels.
+## 4. Remaining work for the first token-savings answer
 
-**Exit:** caller can state obligations unambiguously, and `complete` refers to those obligations. Claims of autonomous intent coverage require separate held-out routing evidence.
+This is the shortest path and should be executed before expanding the production backlog again.
 
-### S4 — Memory: provenance is not current truth
+### B0 — Run a real natural-use Harbor smoke
 
-- [ ] Preserve original bytes/digest/time/pointer separately from derived fact validity and owner approval. Add explicit evidence labels rather than using archive integrity as `current` claim validity.
-- [ ] For ordinary current-state queries, validate facts at the effective query time; for historical queries, use explicit valid-time `as_of`. Preserve invalidation/supersession and uncertainty in returned hits/bundles.
-- [ ] Use supported upstream temporal filtering/pagination where available. Post-filtering only the current top 50 cannot establish historical recall completeness; report limits or use a supported retrieval path that satisfies the declared historical scope.
-- [ ] Join validated decision history into the actual Graphiti-backed MCP path. Empty decision/conflict annotations must not masquerade as proof that no decisions/conflicts exist.
-- [ ] Fix F-01 error-first MCP parsing: an error-bearing empty result is not successful search or proof of deletion.
-- [ ] Fix F-02/F-03: durable projection/deletion intent, discover archived admitted episodes without receipt, fencing/CAS against concurrent projector, and terminal tombstone protection. Prefer supported storage/transaction primitives; atomic rename of one receipt is not a distributed transaction.
+- [ ] Use Harbor's native Codex auth-file support with the owner's existing Codex/ChatGPT subscription. **Do not add Amplifier for Harbor.**
+- [ ] Confirm one exact model ID available to that subscription and pin the same model + reasoning effort in native, optional-natural ACE and forced-diagnostic arms. Do not use a dynamic “latest” catalog.
+- [ ] Run the existing three-arm 3×3 job on one exact, frozen/read-only source commit.
+- [ ] Retain raw Codex/Harbor JSONL, task outcomes, token counters, ACE call counts and provider correlation.
+- [ ] Report separately: native quality/tokens; natural ACE quality/tokens; how often natural Codex invoked ACE; forced arm only as a diagnostic.
 
-**RED fixtures:** current query returns a superseded fact; historical pre/post-confirmation state; multiple decisions per episode; later imports; error+empty facts/episodes; kill after archive persist but before outbox.begin; concurrent reconcile after purge; stale writer attempts to overwrite tombstoned. Verify originals survive unverified deletion and derived facts do not resurrect.
+**This is enough to obtain the first honest answer to “does the current ACE reduce Codex raw tokens on these tasks?”**
 
-**Scope:** P for full memory, B only if memory is enabled in the measured workload. Do not enable unverified memory silently in a code-only experiment.
+Complete local-infrastructure dollar telemetry is required for formal end-to-end economic acceptance, but it is **not** required to truthfully report provider-reported raw token counts as token counts.
 
-### S5 — Snapshot ownership and evidence validity
+Current blocker evidence is `harbor-natural-use-blocked-7bb3e02.json`: the previous attempt had no valid real OAuth Codex route. F-05 itself is no longer the blocker.
 
-- [ ] Close F-04: synchronize acquire/close/GC; no recursive removal based on stale emptiness; fail closed on filesystem uncertainty. Preserve state-owner isolation and conservative PID behavior.
-- [ ] Test new lease between inspection/deletion, same-snapshot writers, crash mid-upsert and before publication. Existing two-root crash evidence with shared GC disabled proves a narrower scenario, not active-GC safety.
-- [ ] Fix F-05: runtime schemas, structured measured/estimated/unknown cost components, finite valid counters, source verdict and matched execution model/task/config identities. Free-form costScope text cannot establish complete telemetry.
-- [ ] Retain F-06/F-07/F-11 release work: semantic evidence validation, raw-byte hashing for text/JSONL/binary DBC artifacts, exact scope/config binding and a protected approval trust root.
+### B1 — Then freeze a real holdout before any general savings claim
 
-**Exit:** negative input cannot yield false acceptance, failed required work cannot yield complete, and concurrent reuse cannot lose its protection. No new generic evidence platform is required.
+After the smoke:
 
-## 4. Execution order and benchmark matrix
+- [ ] freeze a larger unseen multi-repository TypeScript/JavaScript task holdout;
+- [ ] predeclare quality/non-inferiority acceptance before inspecting final results;
+- [ ] preserve failures and repeated trials;
+- [ ] include behavior-not-name, same-name symbols, cross-file dependency work and at least the repository-state modes actually claimed.
 
-1. Freeze a baseline commit and add deterministic S1/S2/S3 safety fixtures; choose the smallest upstream-backed integration in S0. Reconfirm defects before modifying source.
-2. Fix F-05 before trusting automated acceptance. Raw diagnostic trials can run earlier with explicit limitations.
-3. For a trustworthy code-only dirty-tree/reuse result, pass applicable S1/S2/S3/S5 scenarios first. Exclude memory/docs explicitly; do not wait for Graphiti/Vertex/k3s/full release.
-4. Run native vs ACE optional-natural on the existing 3x3 smoke; forced ACE remains diagnostic. Use native Harbor Codex auth.json support, not Amplifier. Pin identical model/reasoning/task commits/instructions/budgets across matched arms; preserve failures.
-5. Freeze a multi-repository holdout and predeclare quality acceptance before inspecting results. Include fresh sessions, persistent warm sessions, dependency edits, file membership changes, same-name/behavior queries and recovery.
-6. Benchmark the relevant ready-made alternative (Codex+Serena) on matched fixtures; compare read-only retrieval separately from extra editing/refactoring capabilities. This comparison informs architecture/provider selection; it does not block the first native-vs-ACE smoke.
-7. In parallel finish S4 with the selected Qwen3:14b local Graphiti path, then full-unified provider/deployment/recovery evidence.
-8. Freeze a release candidate and run exact-commit DBC/runtime/resources/supply-chain gates and scoped owner review.
+If the claim is only **frozen read-only code retrieval**, S1/S2 below may be explicitly outside the first smoke scope. If the claim includes **persistent warm sessions or repository edits**, S1/S2 must pass first.
 
-### What to measure
+## 5. Remaining code work before a quality-safe warm/dirty-tree benchmark
 
-Primary: accepted task outcome, hidden functional/regression checks, critical constraint retention and final patch correctness. Predeclare a justified non-inferiority policy and repeat stochastic trials; a tiny all-green smoke is not a universal quality guarantee. Quality is checked before claiming economic improvement; a regression is reported even when tokens fall.
+These are the main product-code items still open.
 
-Economics: total/cached/uncached input and output, online model calls, repeated native reads, reused/recomputed local operations, useful evidence consumed, expansion frequency, startup versus steady-state latency, RSS and measured or explicitly unknown local infrastructure cost. Do not count reduced AST/embedding compute as automatically reduced cloud input tokens.
+### S1 — Live worktree membership reconciliation
 
-For local reuse, compare cold and warm behavior against a fresh-result oracle. Log safe full snapshot/provider/config identities and selected source digests, without query/source/secrets in trace metadata. The existing `snapshot_identity` log field is a provider fingerprint; do not treat its stability across edits as proof of a stale index. Use distinct provider identity and content index_key fields.
+Current ACE observes/builds a source snapshot during startup. Exact returned snippets are re-read, but a long-lived process does not yet prove that a newly added sole implementation, deletion, rename or scope change has entered/leaved the candidate universe before a later query.
 
-Deliverable per change: failing fixture/oracle, implementation or upstream config change, compatibility notes, relevant OpenSpec delta, exact tested commit, deterministic/real-provider results and blockers. Reuse existing runners; do not build another benchmark orchestrator.
+Use the simplest correctness mechanism first:
 
-## 5. Preserve the existing upstream and owner decisions
+- [ ] before a query that claims current complete code coverage, reconcile a lightweight authoritative workspace manifest (path/scope + content identity) against the published `index_key`;
+- [ ] if membership/content changed, catch up before claiming `complete`, reusing the existing per-file structural/candidate/vector caches for unchanged files;
+- [ ] if catch-up cannot complete, return explicit partial/`not_ready` rather than an old complete index;
+- [ ] treat filesystem watchers only as a performance hint/optimization, **not** as the source of truth. Do not build a new watcher framework unless measurement shows manifest reconciliation is too expensive.
 
-### Graphiti
+Required regressions:
 
-Qwen3:14b remains the selected first experimental local-only extractor on 64 GB RAM. Use a mature Graphiti-supported OpenAI-compatible local serving runtime; no discrete-GPU assumption. Ollama is permitted experimentally but is not a required/default ACE dependency. Configure upstream OpenAIGenericClient, supported local embedding endpoint and upstream local BGE reranker; do not implement an ACE-specific inference stack or copy a custom SentenceTransformers factory to work around upstream documentation drift.
+- add the only correct implementation after MCP startup;
+- delete/rename the previous hit;
+- change an excluded/included path;
+- edit during context assembly;
+- simulate missed watcher notification if a watcher optimization is later used.
 
-Pin Graphiti and all model/artifact/runtime/quantization/structured-output identities. Verify the selected revision's actual factories: upstream README support and implementation have previously disagreed (issue #1556). Run frozen extraction/recall/structured-output/temporal tests on RU/EN/mixed episodes; record false facts, schema failures, latency and peak RSS. If accurate but slow, use asynchronous background projection rather than weakening quality. Only if this selected candidate fails the correctness gate should alternatives be considered. Amplifier/cloud-memory Plan B requires the owner's explicit reopening and data authorization.
+This replaces the previous plan's stronger “must build a notification mechanism” wording with a smaller, correctness-first solution.
 
-### Vertex and k3s
+### S2 — Semantic dependency/snapshot invalidation
 
-Retain the owner-authorized Europe corpus and narrow synthetic/public scope. Supply permitted GCS prefix/IAM, execute existing synthetic import and citation-conflict runners, retain provider evidence; private code/dialogue upload is not implicitly authorized.
+The direct TS-LS adapter currently creates one immutable language-service snapshot whose in-snapshot script versions are all `"1"`. That is valid for a frozen source snapshot, but not a claim that semantic relationships remain live after dependency/config changes.
 
-Use existing Kubernetes NetworkPolicy, mTLS helper and deployment. Add site-specific necessary egress, verify policy enforcement and execute K3S-01…10. Do not invent a firewall controller/service mesh or require k3s production containment for a Docker efficacy experiment.
+- [ ] rebuild/invalidate the semantic snapshot when the code `index_key` or semantic dependency fingerprint changes;
+- [ ] include relevant `tsconfig`/project references, module-resolution settings, declarations and package/lockfile inputs in that semantic dependency identity;
+- [ ] bind AST/index/TS-LS evidence to one compatible source generation;
+- [ ] if dependency identity is uncertain, keep exact bytes usable but do not label stale semantic relationships as verified-current.
 
-### Release and authentication
+Required regressions:
 
-Harbor uses native Codex authentication (`CODEX_AUTH_JSON_PATH` / supported auth-file mechanism). Confirm flags against the pinned Harbor version; never log/commit credentials. If the currently pinned model is unavailable, choose one available exact ID for every matched arm, not a dynamic catalog per trial. Amplifier is not on the normal benchmark path.
+- unchanged A imports modified B;
+- changed alias/re-export/type;
+- changed tsconfig resolution;
+- dependency removed;
+- same-name symbols/overloads;
+- warmed result must match a fresh-provider oracle or truthfully refuse semantic confirmation.
 
-Production embedding/semantic approval remains separate from experimental use. Run matched Serena/direct-provider comparison or explicitly revise the accepted decision; do not silently approve an already-implemented provider.
+A full custom live-language-server lifecycle is not required if rebuilding the supported TS-LS snapshot on dependency identity change is sufficient.
 
-Use standard BuildKit/buildx or Syft SBOM/provenance, Cosign/Sigstore signatures, standard OS/k8s resource measurement and existing ACE validators. Review embedding artifacts staged outside the OCI image separately: image SBOM does not establish model license/provenance. Final approval references exact release commit, capabilities and retained evidence.
+### S3 — Explicit source obligations
 
-## 6. Existing findings and scope mapping
+This is **not required for the first code-only frozen smoke**, but remains required before claiming robust unified code+docs+memory intent handling.
 
-Historical F-01…F-12 are retained as review findings, not declared newly reproduced or fixed by this document:
+Current source coverage types distinguish required/optional/not-requested, but MCP requirements are still derived from deterministic English keyword routing plus boolean include flags.
 
-| Finding | Work package / scope |
-|---|---|
-| F-01 MCP error handling | S4; full memory correctness |
-| F-02 delete/reconcile resurrection | S4; full memory correctness |
-| F-03 archive/intent crash gap | S4; full memory recovery |
-| F-04 lease/cleanup races | S5; code reuse where concurrency/GC is exercised |
-| F-05 Harbor cost/acceptance oracle | S5; B for automated benchmark acceptance |
-| F-06 release evidence depth | S5/release; P |
-| F-07 JSON-only DBC artifact loader | S5/release; P |
-| F-08 temporal runtime truth | S4; P or B if memory is measured |
-| F-09 English-centric routing | S3; explicit obligations preferred over more keyword rules |
-| F-10 startup/readiness drift | align implementation/runbook/tests; distinguish identity failure from transient outage |
-| F-11 approval trust root | release governance; P |
-| F-12 stale plans | reconcile current status and historical evidence; no retroactive invention of PASS |
+- [ ] add an explicit request-level source obligation contract (for example required/optional source sets) while keeping existing booleans backward-compatible;
+- [ ] expose the executed source plan/coverage;
+- [ ] let routing be a transparent suggestion, not the hidden authority for whether docs/memory were required;
+- [ ] keep denied, unavailable, no-match, stale and not-requested distinct;
+- [ ] add RU/EN/mixed/paraphrase fixtures without solving the problem by endlessly adding substring synonyms.
 
-S1/S2 additionally address live membership and semantic dependency invalidation; these are not satisfied merely by checking selected source digests. Do not inflate this list into a new framework or infer production incidents from static review alone.
+Do not introduce a routing LLM unless measured evidence later justifies one.
 
-## 7. Stop-fixing-forever rule and Definition of Done
+### S4 — Resolve F-10 readiness semantics
 
-Classify work by scope:
-- **B:** invalidates the measured native-vs-ACE comparison or quality/reuse claim in the selected workload.
-- **P:** blocks the accepted production capability/deployment, not raw exploratory experiments.
-- **D:** optional frameworks, broader languages/HA/observability or unmeasured convenience.
+- [ ] decide whether a pinned embedding **identity mismatch** is fatal while a transient provider startup outage is `not_ready`, or whether both should be one policy;
+- [ ] align `ace-mcp.ts`, `mcp-runtime-readiness.test.ts`, real timeout evidence and `ace-configuration-and-readiness-matrix.md`;
+- [ ] retain the distinction between “process can report status” and “provider is production-ready”.
 
-The update does not move full memory/docs/k3s/signing into B for a code-only benchmark. It does move applicable stale-index/dependency/source-obligation hazards into the quality gate for a benchmark that claims safe warm/dirty reuse. A frozen read-only smoke may run while those hazards are explicitly excluded and reported as limitations.
+The current code/tests demonstrate non-fatal `not_ready` for embedding preflight failure, while the operations document still calls that class fatal.
 
-Safe-reuse acceptance requires: declared scope/version, verified applicable identities, observable invalidation/recovery, lossless authorized expansion, honest uncertainty/coverage, and regression fixtures demonstrating no wrong-current reuse in the tested cases. This is evidence within a scope, not a universal no-bugs guarantee.
+## 6. Remaining provider-selection and retrieval-quality work
 
-Full production still needs the applicable DBC-01…14, provider selections, Graphiti/Vertex/k3s/recovery, resource/license evidence and owner sign-off. Existing historical DBC checkboxes are not modified by this plan. No new DBC IDs and no 5x prerequisite are introduced.
+### W01 — Embeddings
 
-## Upstream references retained for implementation verification
+FastEmbed/ONNX is the measured current candidate, but production selection remains open.
 
-- https://github.com/harbor-framework/harbor/blob/main/src/harbor/agents/installed/codex.py
-- https://github.com/microsoft/amplifier-module-provider-openai-chatgpt
-- https://github.com/getzep/graphiti/blob/main/mcp_server/src/services/factories.py
-- https://github.com/getzep/graphiti/blob/main/mcp_server/README.md
-- https://github.com/getzep/graphiti/issues/1556
-- https://docs.k3s.io/networking/networking-services
-- https://kubernetes.io/docs/concepts/services-networking/network-policies/
-- https://docs.docker.com/build/metadata/attestations/sbom/
-- https://github.com/anchore/syft
-- https://docs.sigstore.dev/quickstart/quickstart-cosign/
-- https://github.com/oraios/serena
-- https://github.com/microsoft/TypeScript/wiki/Using-the-Language-Service-API
-- https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/
+- [ ] build the required unseen multi-repository holdout rather than reusing the nine-case development/frozen comparison as the final production corpus;
+- [ ] predeclare selection thresholds/policy **before** seeing final holdout outcomes;
+- [ ] retain authoritative model/runtime license evidence and target-host resource measurements;
+- [ ] run the existing selection gate;
+- [ ] obtain owner approval for the exact selected provider/artifact.
+
+### W02 — Semantic provider
+
+The matched Serena-vs-TS-LS comparison itself is **done**.
+
+Remaining:
+
+- [ ] finish S2 live dependency/snapshot correctness;
+- [ ] owner reviews the retained 9/9 TS-LS vs 7/9 Serena evidence and explicitly approves the production semantic provider (or rejects/reopens the choice).
+
+Do not rerun a broad provider search merely because old task text still says “compare Serena”.
+
+### W03 — Retrieval quality
+
+- [ ] freeze an unseen multi-repository retrieval holdout;
+- [ ] run lexical/vector/current strategy ablations on exactly that holdout;
+- [ ] predeclare quality/compactness thresholds before the final selected-strategy verdict;
+- [ ] retain recall/MRR/nDCG, payload size, duplicate hits, expansion calls, repeated native reads and latency;
+- [ ] introduce hybrid/reranking complexity only if this measured ablation justifies it.
+
+## 7. Remaining Graphiti / memory work
+
+The next step is **not** Amplifier and not another open-ended model search.
+
+### Selected path
+
+- **Qwen3:14b**, local-only, 64 GB RAM target host;
+- serve through a maintained Graphiti-compatible OpenAI-compatible local endpoint;
+- pin an upstream Graphiti revision whose actual factories support the chosen local LLM/embedder/reranker composition;
+- use upstream/local embedding and BGE reranking facilities rather than an ACE-specific inference framework.
+
+The PR #88 Amplifier/Graphiti preflight remains useful historical negative evidence, but its unavailable OAuth/live-catalog path is **superseded as the current next step** by the owner's Qwen3:14b local-first decision.
+
+### Still required
+
+- [ ] stand up Qwen3:14b locally and retain exact model/quantization/runtime identity;
+- [ ] prove structured extraction quality on frozen RU/EN/mixed memory fixtures: decisions, proposed-vs-accepted, supersession, constraints, unresolved questions, contradictions and irrelevant chatter;
+- [ ] measure schema failures, false facts, latency and peak RSS on the 64 GB RAM host;
+- [ ] run real Graphiti + FalkorDB add/search/provenance/purge lifecycle;
+- [ ] run crash/reconcile/deletion concurrency with the now-implemented durable fences/intents;
+- [ ] close DBC-11 with real provider evidence;
+- [ ] finish F-08 historical/as-of completeness: use supported pagination/filtering where possible, or explicitly bound the claim instead of treating provider top-K as exhaustive;
+- [ ] complete Graphiti/FalkorDB backup/restore and post-restore reconciliation/retention scenarios (OPS-02/04/05).
+
+If Qwen3:14b is accurate but slow, prefer asynchronous/background projection. Only if it fails the correctness gate should another LLM/backend be considered. Subscription-backed Amplifier remains an owner-authorized Plan B, not current architecture.
+
+## 8. Remaining Vertex work
+
+The corpus already exists and the real retrieval endpoint has been reached.
+
+Remaining:
+
+- [ ] provide/approve the dedicated synthetic `gs://ace-vertex-synthetic...` prefix and necessary IAM for the committed public/synthetic fixture only;
+- [ ] run the existing synthetic import command;
+- [ ] rerun the real conflict retrieval;
+- [ ] retain citation, version/server identity and request/provider evidence;
+- [ ] close DBC-14.
+
+Do not broaden this into private source/dialogue upload authorization.
+
+## 9. Remaining k3s / operations work
+
+### k3s
+
+K3S-01…09 are already PASS.
+
+Only current live-worktree containment blocker:
+
+- [ ] provide a site-specific host firewall / cluster egress rule so unrelated workloads cannot reach the helper TLS address/port;
+- [ ] rerun K3S-10 and the finalizer.
+
+Do not build a custom network-policy controller or service mesh.
+
+### Persistence / backup
+
+- [ ] target Qdrant/PVC restore evidence (OPS-03);
+- [ ] Graphiti/FalkorDB restore (OPS-02);
+- [ ] restart reconciliation after restored provider state (OPS-04);
+- [ ] retention/deletion behavior after restore (OPS-05);
+- [ ] finish DBC-13 on the selected deployment/storage stack, using the already-retained scale/concurrency/crash evidence rather than repeating it blindly.
+
+## 10. Remaining release-integrity work
+
+### F-06 evidence binding
+
+- [ ] retain primary provider/retrieval/Harbor measurement artifacts alongside selection verdicts;
+- [ ] ensure release preflight can verify that the referenced primary artifacts/config identities actually match the digests and exact release scope rather than trusting a hand-authored standalone verdict.
+
+Do not rebuild a generic evidence platform; strengthen only the remaining trust boundary.
+
+### F-11 approval trust root
+
+- [ ] define the authoritative owner-signoff mechanism for the exact release commit/capability scope (for example protected PR approval, signed attestation, or another explicit governed record);
+- [ ] make release preflight reference that mechanism instead of treating arbitrary well-shaped approval JSON as sufficient authority.
+
+### F-12 stale documents
+
+- [ ] refresh OpenSpec/task/execution-plan current-state text that still says the Serena comparison is pending or that the Graphiti model is unselected;
+- [ ] preserve dated historical reviews as historical evidence; do not rewrite old failures into PASS.
+
+### Resource and supply chain
+
+- [ ] owner supplies real resource-budget thresholds/minimum sample policy;
+- [ ] measure exact-release RSS/startup/index/query metrics on the selected target environment;
+- [ ] build the immutable release image and retain its digest;
+- [ ] generate standard provenance/SBOM evidence and verify image signature (BuildKit/Syft/Cosign are the intended ready-made tools);
+- [ ] perform independent license review for runtime packages **and separately for downloaded model artifacts** such as the embedding model/Qwen artifact when outside the OCI image;
+- [ ] bind all of the above to the exact release commit.
+
+## 11. Remaining DBCs
+
+The current normative task list still has these seven DBCs open:
+
+- **DBC-01** — approved production embedding + semantic composition;
+- **DBC-03** — frozen real semantic retrieval quality;
+- **DBC-04** — semantic provider approval after matched comparison;
+- **DBC-11** — real Graphiti purge/deletion correctness;
+- **DBC-12** — natural-use Harbor attribution/economics;
+- **DBC-13** — selected-stack restart/persistence/performance;
+- **DBC-14** — real Vertex cited docs-vs-current-code conflict.
+
+Checked DBC-02/05/06/07/08/09/10 do not need to be reimplemented. They need exact-release evidence only when the final release bundle is frozen.
+
+## 12. Execution order from current main
+
+### Now — learn whether ACE is worth it
+
+1. **Fix Harbor access, not ACE:** use the real Codex subscription auth route and exact pinned model.
+2. Run frozen/read-only **native vs optional-natural ACE 3×3** immediately.
+3. Inspect natural ACE call rate, quality and raw token ratio. Preserve a bad result if it is bad.
+
+### Next — make warm reuse trustworthy
+
+4. Implement **S1 workspace-manifest reconciliation** using existing per-file caches; watcher only if later needed for performance.
+5. Implement **S2 semantic dependency fingerprint/rebuild**.
+6. Run live long-lived MCP regressions and then freeze the larger multi-repository benchmark holdout.
+7. Add **S3 explicit source obligations** before unified/multilingual intent claims.
+
+### In parallel — close full-unified providers
+
+8. W01 embedding final holdout/policy/owner approval; W02 semantic owner approval; W03 retrieval-quality gate.
+9. Qwen3:14b + Graphiti real lifecycle/recovery/backup.
+10. Vertex synthetic import/citation.
+11. K3S-10 containment and remaining provider/storage backup evidence.
+
+### Release
+
+12. Resolve F-10/F-06/F-11/F-12.
+13. Generate exact-release DBC/resource/runtime/supply-chain evidence.
+14. Final owner approval for the exact release commit and capability scope.
+
+## 13. Stop-fixing-forever rule
+
+Every new proposed task must be classified before implementation:
+
+- **B0 — immediate token-smoke blocker:** prevents a truthful frozen/read-only native-vs-natural token measurement.
+- **B1 — warm/dirty benchmark blocker:** can make persistent reuse return an incorrect/currently incomplete answer under repository changes.
+- **P — production blocker:** required for accepted full-unified release, but not for the first code-only measurement.
+- **D — deferred:** optional framework, future provider, convenience or unmeasured architecture expansion.
+
+Current classification:
+
+- working Harbor Codex auth/model route: **B0**;
+- S1/S2: **B1**;
+- S3: **B1 only for unified/multilingual intent claims**, otherwise P;
+- Graphiti/Vertex/K3S-10/backup/supply-chain/final approvals: **P**;
+- Amplifier: **D / Plan B only**;
+- 5×: **measurement result**, never an entry condition.
+
+No task enters B0 merely because it is required for eventual production. It must explain how its absence invalidates the frozen/read-only token measurement.
+
+## 14. When can token savings finally be measured?
+
+**First useful smoke:** as soon as the real Codex subscription authentication works in Harbor. The previous F-05 validation weakness is fixed in current code. No Graphiti/Vertex/k3s/SBOM work needs to happen first.
+
+**Result worth generalizing to persistent ACE use:** after S1/S2 and a frozen multi-repository holdout with predeclared quality criteria.
+
+**Full production:** only after the P-class provider/deployment/release gates above.
+
+This separation is intentional. The project must learn whether ACE produces useful token economics **before** turning every production concern into a prerequisite for measuring the product idea.
