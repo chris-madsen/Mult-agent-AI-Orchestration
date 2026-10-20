@@ -7,6 +7,7 @@ import {
 } from './dbc-evidence.js';
 import type { ReleaseOwnerApproval } from './release-preflight.js';
 import { validateReleaseExternalEvidenceDocument } from './release-external-evidence.js';
+import { validateResourceBudgetEvidenceDocument } from './resource-budget-evidence.js';
 
 export type CodeReleaseDeployment = 'host' | 'k3s';
 
@@ -25,6 +26,7 @@ export interface CodeReleasePreflightInput {
   readonly semanticSelection: unknown;
   readonly retrievalQuality: unknown;
   readonly harborThreeArm: unknown;
+  readonly resourceBudget: unknown;
   readonly externalEvidence: readonly CodeReleaseExternalEvidence[];
   readonly ownerApproval: ReleaseOwnerApproval;
 }
@@ -137,6 +139,15 @@ export const evaluateCodeReleasePreflight = (
     || nested(harborOutcome, 'naturalProviderCorrelationVerified') !== true
     || nested(harborOutcome, 'costTelemetryComplete') !== true) {
     failures.push('harbor_natural_use_acceptance_incomplete');
+  }
+
+  const resourceBudget = validateResourceBudgetEvidenceDocument(
+    input.resourceBudget,
+    input.currentCommit,
+    'code-only',
+  );
+  if (resourceBudget._tag === 'Err' || !resourceBudget.value.allWithinBudget) {
+    failures.push('resource_budget_not_accepted');
   }
 
   const evidenceByName = new Map(input.externalEvidence.map((item) => [item.name, item] as const));

@@ -6,6 +6,7 @@ import {
   type DbcEvidenceRecord,
 } from './dbc-evidence.js';
 import { validateReleaseExternalEvidenceDocument } from './release-external-evidence.js';
+import { validateResourceBudgetEvidenceDocument } from './resource-budget-evidence.js';
 
 export type ReleaseCapability = 'code' | 'documentation' | 'memory';
 
@@ -31,6 +32,7 @@ export interface ReleasePreflightInput {
   readonly semanticSelection: unknown;
   readonly retrievalQuality: unknown;
   readonly harborThreeArm: unknown;
+  readonly resourceBudget: unknown;
   readonly externalEvidence: readonly ReleaseExternalEvidence[];
   readonly ownerApproval: ReleaseOwnerApproval;
 }
@@ -127,6 +129,15 @@ export const evaluateReleasePreflight = (
     || nested(harborOutcome, 'naturalProviderCorrelationVerified') !== true
     || nested(harborOutcome, 'costTelemetryComplete') !== true) {
     failures.push('harbor_natural_use_acceptance_incomplete');
+  }
+
+  const resourceBudget = validateResourceBudgetEvidenceDocument(
+    input.resourceBudget,
+    input.currentCommit,
+    'full-unified',
+  );
+  if (resourceBudget._tag === 'Err' || !resourceBudget.value.allWithinBudget) {
+    failures.push('resource_budget_not_accepted');
   }
 
   const externalByName = new Map(input.externalEvidence.map((item) => [item.name, item] as const));
