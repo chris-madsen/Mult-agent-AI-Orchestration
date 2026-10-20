@@ -26,13 +26,97 @@ const dbcRecords = (): DbcEvidenceRecord[] => dbcIds.map((dbcId) => ({
   observed: [`${dbcId} acceptance contract passed`],
 }));
 
+const aggregateDocument = (
+  evidence: 'real-k3s-live-worktree' | 'operations-backup-restore',
+  prefix: 'K3S' | 'OPS',
+  count: number,
+) => ({
+  schemaVersion: 1,
+  evidence,
+  sourceCommit: commit,
+  currentCommit: commit,
+  checks: Array.from({ length: count }, (_, index) => ({
+    id: `${prefix}-${String(index + 1).padStart(2, '0')}`,
+    verdict: 'PASS',
+    artifacts: [{ path: `artifacts/${prefix.toLowerCase()}/${index + 1}.json`, sha256: digest, kind: 'fixture' }],
+  })),
+  verdict: { evidence, sourceCommit: commit, allPassed: true, failures: [] },
+});
+
+const externalDocument = (name: ReleaseExternalEvidence['name']): unknown => {
+  if (name === 'graphiti') return {
+    evidence: 'real-graphiti-lifecycle',
+    sourceCommit: commit,
+    fixture: 'benchmarks/fixtures/graphiti-memory-lifecycle-v1.json',
+    fixtureSha256: digest,
+    providerTrace: 'artifacts/graphiti/provider-trace.jsonl',
+    graphitiVersion: 'graphiti/fixture-1',
+    inference: { llm: 'local-llm/fixture', embedder: 'local-embedder/fixture', reranker: 'local-reranker/fixture' },
+    lifecycle: {
+      episodeId: 'episode-1',
+      sourcePointer: 'codex://fixture/1',
+      sourceDigest: digest,
+      projectionKey: 'episode-1:extractor-v1',
+      projectionAttempts: 1,
+      projectionObserved: true,
+      provenanceHitCount: 1,
+      requestId: 'graphiti-request-1',
+      purgeVerified: true,
+      archiveTombstoneVerified: true,
+    },
+  };
+  if (name === 'vertex') return {
+    evidence: 'real-vertex-synthetic-code-doc-conflict',
+    sourceCommit: commit,
+    requestId: 'vertex-request-1',
+    project: 'fixture-project',
+    location: 'europe-west4',
+    corpusId: 'fixture-corpus',
+    providerTrace: 'artifacts/vertex/provider-trace.jsonl',
+    documentation: {
+      fixtureSha256: digest,
+      fixtureVersion: 'vertex-conflict-v1',
+      citations: ['gs://fixture/adr.md'],
+      retrievedEvidenceIds: ['vertex-evidence-1'],
+      claim: 'wait-for-operator-confirmation',
+    },
+    currentCode: {
+      fixtureSha256: digest,
+      symbol: 'aceVertexConflictPolicy',
+      claim: 'retry-immediately',
+    },
+    conflict: { detectedByGate: true, priorityForCurrentBehavior: 'current-code' },
+  };
+  if (name === 'k3s-worktree') return aggregateDocument('real-k3s-live-worktree', 'K3S', 10);
+  if (name === 'backup-restore') return aggregateDocument('operations-backup-restore', 'OPS', 6);
+  return {
+    schemaVersion: 1,
+    evidence: 'supply-chain-provenance',
+    currentCommit: commit,
+    verdict: {
+      status: 'PASS',
+      evidence: 'supply-chain-provenance',
+      failures: [],
+      sourceCommit: commit,
+      packageLockSha256: digest,
+      sbomSha256: digest,
+      imageDigest: `sha256:${digest}`,
+    },
+  };
+};
+
 const externalEvidence: ReleaseExternalEvidence[] = [
-  { name: 'graphiti', evidence: 'real-graphiti-lifecycle', sha256: digest },
-  { name: 'vertex', evidence: 'real-vertex-synthetic-code-doc-conflict', sha256: digest },
-  { name: 'k3s-worktree', evidence: 'real-k3s-live-worktree', sha256: digest },
-  { name: 'backup-restore', evidence: 'operations-backup-restore', sha256: digest },
-  { name: 'supply-chain', evidence: 'supply-chain-provenance', sha256: digest },
-];
+  ['graphiti', 'real-graphiti-lifecycle'],
+  ['vertex', 'real-vertex-synthetic-code-doc-conflict'],
+  ['k3s-worktree', 'real-k3s-live-worktree'],
+  ['backup-restore', 'operations-backup-restore'],
+  ['supply-chain', 'supply-chain-provenance'],
+].map(([name, evidence]) => ({
+  name: name as ReleaseExternalEvidence['name'],
+  evidence,
+  sha256: digest,
+  document: externalDocument(name as ReleaseExternalEvidence['name']),
+}));
 
 const baseInput = () => ({
   currentCommit: commit,
