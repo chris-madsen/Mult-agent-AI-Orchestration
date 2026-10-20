@@ -355,231 +355,237 @@ const main = async (): Promise<void> => {
       const embeddingReady = await Effect.runPromise(embeddings.probe());
       if (embeddingReady._tag === 'Err') {
         embeddings.close();
-        throw new Error(`embedding provider preflight failed (${embeddingReady.error.code})`);
-      }
-      const effectiveEmbedding = embeddings.identity();
-      if (effectiveEmbedding === undefined) {
-        embeddings.close();
-        throw new Error('embedding provider preflight did not return a verified effective identity');
-      }
-      const embeddingFingerprint = verifiedEmbeddingIdentityFingerprint(effectiveEmbedding);
-      const collection = configuredCollection
-        || `ace_code_${workspaceKey}_${snapshotState.stateOwnerId.slice(0, 12)}_${embeddingFingerprint.slice(0, 12)}`;
-      const inspected = await Effect.runPromise(ensureQdrantCollection(
-        http,
-        qdrantUrl,
-        collection,
-        effectiveEmbedding.dimension,
-        qdrantAllowedHosts,
-      ));
-      if (inspected._tag === 'Err') {
-        embeddings.close();
-        await handleQdrantUnavailable(inspected.error.code);
+        readiness.code_retrieval = { state: 'not_ready', reason: 'embedding_provider_unavailable' };
+        readiness.unified_context = { state: 'not_ready', reason: 'embedding_provider_unavailable' };
+        process.stderr.write(`ace-mcp context NOT_READY: embedding provider preflight failed (${embeddingReady.error.code})\n`);
       } else {
-        const structuralOptions = {
-          helperPath: structuralPath,
-          pythonCommand: structuralPython,
-          providerVersion: process.env.ACE_TREE_SITTER_VERSION?.trim() || 'tree-sitter/0.26.0',
-          trace: providerTrace,
-        };
-        const structuralIdentity = await Effect.runPromise(resolveTreeSitterProviderIdentity(structuralOptions));
-        const structuralCache = structuralIdentity._tag === 'Ok'
-          ? await makeFileStructuralAnalysisCache(resolve(stateDirectory, 'structural-cache'))
-          : undefined;
-        const structuralFingerprint = structuralIdentity._tag === 'Ok'
-          ? structuralIdentity.value.fingerprint
-          : createHash('sha256')
-            .update(`unverified-structural-runtime:${randomUUID()}`, 'utf8')
-            .digest('hex');
-        const candidateProviderFingerprint = createHash('sha256')
-          .update(`candidate-builder-v1|${structuralFingerprint}`, 'utf8')
-          .digest('hex');
-        const candidateCache = structuralIdentity._tag === 'Ok'
-          ? await makeFileCodeCandidateCache(resolve(stateDirectory, 'candidate-cache'))
-          : undefined;
-        const retrievalFingerprint = createHash('sha256')
-          .update(JSON.stringify({
-            embedding: embeddingFingerprint,
-            structural: structuralFingerprint,
-          }), 'utf8')
-          .digest('hex');
-        if (structuralIdentity._tag === 'Err') {
-          process.stderr.write(`ace retrieval warning: structural identity unverified; cache disabled and cross-restart snapshot reuse intentionally disabled (${structuralIdentity.error.code})\n`);
-        }
-        const structural = makeTreeSitterStructuralPort(structuralOptions);
-        const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
-          generation,
-          structural,
-          parserVersion: structuralOptions.providerVersion,
-          ...(structuralCache === undefined || structuralIdentity._tag === 'Err' ? {} : {
-            structuralCache,
-            structuralProviderFingerprint: structuralIdentity.value.fingerprint,
-          }),
-          ...(candidateCache === undefined ? {} : {
-            candidateCache,
-            candidateProviderFingerprint,
-          }),
-        }));
-        if (built._tag === 'Err') {
+        const effectiveEmbedding = embeddings.identity();
+        if (effectiveEmbedding === undefined) {
           embeddings.close();
-          readiness.code_retrieval = { state: 'not_ready', reason: 'structural_index_failed' };
-          readiness.unified_context = { state: 'not_ready', reason: 'structural_index_failed' };
-          process.stderr.write(`ace-mcp context NOT_READY: structural index failed (${built.error.code})\n`);
+          readiness.code_retrieval = { state: 'not_ready', reason: 'embedding_identity_unavailable' };
+          readiness.unified_context = { state: 'not_ready', reason: 'embedding_identity_unavailable' };
+          process.stderr.write('ace-mcp context NOT_READY: embedding provider preflight returned no verified effective identity\n');
         } else {
-          for (const warning of built.value.warnings) process.stderr.write(`ace retrieval warning: ${warning}\n`);
-          // Snapshot identity covers every successfully read in-scope source,
-          // including files that produce zero symbols, plus the verified embedding
-          // and structural parser runtime identities.
-          const sourceKey = codeIndexKey(
-            built.value.index,
-            built.value.coverage,
-            retrievalFingerprint,
-            built.value.fileManifest,
-          );
-          const snapshotIdentity = {
-            workspaceId: registered.value.workspaceId,
-            indexKey: sourceKey,
-            candidateIds: built.value.index.candidates.map((candidate) => candidate.candidateId),
-            fileManifest: built.value.fileManifest,
-            coverage: built.value.coverage,
-            providerFingerprint: retrievalFingerprint,
-          };
-          const lease = await snapshotState.acquireLease(registered.value.workspaceId, sourceKey);
-          if (lease._tag === 'Err') {
-            embeddings.close();
-            throw new Error(`Qdrant snapshot lease failed (${lease.error.code})`);
-          }
-          snapshotLease = lease.value;
-          const published = await snapshotState.isPublished(snapshotIdentity);
-          if (published._tag === 'Err') {
-            embeddings.close();
-            throw new Error(`Qdrant snapshot manifest check failed (${published.error.code})`);
-          }
-          const previous = await snapshotState.latestPublished(
-            registered.value.workspaceId, retrievalFingerprint, sourceKey,
-          );
-          if (previous._tag === 'Err') {
-            embeddings.close();
-            throw new Error(`Qdrant prior snapshot lookup failed (${previous.error.code})`);
-          }
-          const fileDelta = diffSnapshotFileManifests(
-            previous.value?.fileManifest ?? [],
-            built.value.fileManifest,
-          );
-          if (!published.value) {
-            const begun = await snapshotState.beginBuild(snapshotIdentity);
-            if (begun._tag === 'Err') {
-              embeddings.close();
-              throw new Error(`Qdrant snapshot manifest begin failed (${begun.error.code})`);
-            }
-          }
-          const qdrant = makeQdrantCodeCandidatePort({
-            baseUrl: qdrantUrl,
-            collection,
+          const embeddingFingerprint = verifiedEmbeddingIdentityFingerprint(effectiveEmbedding);
+          const collection = configuredCollection
+        || `ace_code_${workspaceKey}_${snapshotState.stateOwnerId.slice(0, 12)}_${embeddingFingerprint.slice(0, 12)}`;
+          const inspected = await Effect.runPromise(ensureQdrantCollection(
             http,
-            allowedHosts: qdrantAllowedHosts,
-            providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
-            trace: providerTrace,
-          });
-          const indexed = await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
-            built.value.index, qdrant, embeddings, http, qdrantUrl, collection,
-            registered.value.workspaceId, sourceKey, qdrantAllowedHosts, published.value, previous.value?.indexKey,
+            qdrantUrl,
+            collection,
+            effectiveEmbedding.dimension,
+            qdrantAllowedHosts,
           ));
-          if (indexed._tag === 'Err') {
+          if (inspected._tag === 'Err') {
             embeddings.close();
-            readiness.code_retrieval = { state: 'not_ready', reason: 'qdrant_index_failed' };
-            readiness.unified_context = { state: 'not_ready', reason: 'qdrant_index_failed' };
-            process.stderr.write(`ace-mcp context NOT_READY: Qdrant indexing failed (${indexed.error.code}: ${indexed.error.message})\n`);
+            await handleQdrantUnavailable(inspected.error.code);
           } else {
-            const publishedNow = await snapshotState.publish(snapshotIdentity);
-            if (publishedNow._tag === 'Err') {
-              embeddings.close();
-              throw new Error(`Qdrant snapshot publish failed (${publishedNow.error.code})`);
+            const structuralOptions = {
+              helperPath: structuralPath,
+              pythonCommand: structuralPython,
+              providerVersion: process.env.ACE_TREE_SITTER_VERSION?.trim() || 'tree-sitter/0.26.0',
+              trace: providerTrace,
+            };
+            const structuralIdentity = await Effect.runPromise(resolveTreeSitterProviderIdentity(structuralOptions));
+            const structuralCache = structuralIdentity._tag === 'Ok'
+              ? await makeFileStructuralAnalysisCache(resolve(stateDirectory, 'structural-cache'))
+              : undefined;
+            const structuralFingerprint = structuralIdentity._tag === 'Ok'
+              ? structuralIdentity.value.fingerprint
+              : createHash('sha256')
+                .update(`unverified-structural-runtime:${randomUUID()}`, 'utf8')
+                .digest('hex');
+            const candidateProviderFingerprint = createHash('sha256')
+              .update(`candidate-builder-v1|${structuralFingerprint}`, 'utf8')
+              .digest('hex');
+            const candidateCache = structuralIdentity._tag === 'Ok'
+              ? await makeFileCodeCandidateCache(resolve(stateDirectory, 'candidate-cache'))
+              : undefined;
+            const retrievalFingerprint = createHash('sha256')
+              .update(JSON.stringify({
+                embedding: embeddingFingerprint,
+                structural: structuralFingerprint,
+              }), 'utf8')
+              .digest('hex');
+            if (structuralIdentity._tag === 'Err') {
+              process.stderr.write(`ace retrieval warning: structural identity unverified; cache disabled and cross-restart snapshot reuse intentionally disabled (${structuralIdentity.error.code})\n`);
             }
-            if (!collectionGcAllowed) {
-              process.stderr.write(
-                'ace retrieval cleanup skipped: explicit ACE_QDRANT_COLLECTION has no exclusive-owner confirmation\n',
-              );
+            const structural = makeTreeSitterStructuralPort(structuralOptions);
+            const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
+              generation,
+              structural,
+              parserVersion: structuralOptions.providerVersion,
+              ...(structuralCache === undefined || structuralIdentity._tag === 'Err' ? {} : {
+                structuralCache,
+                structuralProviderFingerprint: structuralIdentity.value.fingerprint,
+              }),
+              ...(candidateCache === undefined ? {} : {
+                candidateCache,
+                candidateProviderFingerprint,
+              }),
+            }));
+            if (built._tag === 'Err') {
+              embeddings.close();
+              readiness.code_retrieval = { state: 'not_ready', reason: 'structural_index_failed' };
+              readiness.unified_context = { state: 'not_ready', reason: 'structural_index_failed' };
+              process.stderr.write(`ace-mcp context NOT_READY: structural index failed (${built.error.code})\n`);
             } else {
-              const activeKeys = await snapshotState.activeIndexKeys(registered.value.workspaceId);
-              if (activeKeys._tag === 'Err') {
-                process.stderr.write(`ace retrieval warning: snapshot lease inspection failed (${activeKeys.error.code})\n`);
-              } else {
-                const retained = new Set(activeKeys.value);
-                retained.add(sourceKey);
-                const cleaned = await Effect.runPromise(pruneQdrantUnleasedSnapshots(
-                  http, qdrantUrl, collection, registered.value.workspaceId, retained, qdrantAllowedHosts,
-                ));
-                if (cleaned._tag === 'Err') {
-                  process.stderr.write(`ace retrieval warning: lease-aware snapshot cleanup failed (${cleaned.error.code})\n`);
-                } else if (cleaned.value.length > 0) {
-                  process.stderr.write(`ace retrieval cleanup removed_snapshots=${cleaned.value.length}\n`);
+              for (const warning of built.value.warnings) process.stderr.write(`ace retrieval warning: ${warning}\n`);
+              // Snapshot identity covers every successfully read in-scope source,
+              // including files that produce zero symbols, plus the verified embedding
+              // and structural parser runtime identities.
+              const sourceKey = codeIndexKey(
+                built.value.index,
+                built.value.coverage,
+                retrievalFingerprint,
+                built.value.fileManifest,
+              );
+              const snapshotIdentity = {
+                workspaceId: registered.value.workspaceId,
+                indexKey: sourceKey,
+                candidateIds: built.value.index.candidates.map((candidate) => candidate.candidateId),
+                fileManifest: built.value.fileManifest,
+                coverage: built.value.coverage,
+                providerFingerprint: retrievalFingerprint,
+              };
+              const lease = await snapshotState.acquireLease(registered.value.workspaceId, sourceKey);
+              if (lease._tag === 'Err') {
+                embeddings.close();
+                throw new Error(`Qdrant snapshot lease failed (${lease.error.code})`);
+              }
+              snapshotLease = lease.value;
+              const published = await snapshotState.isPublished(snapshotIdentity);
+              if (published._tag === 'Err') {
+                embeddings.close();
+                throw new Error(`Qdrant snapshot manifest check failed (${published.error.code})`);
+              }
+              const previous = await snapshotState.latestPublished(
+                registered.value.workspaceId, retrievalFingerprint, sourceKey,
+              );
+              if (previous._tag === 'Err') {
+                embeddings.close();
+                throw new Error(`Qdrant prior snapshot lookup failed (${previous.error.code})`);
+              }
+              const fileDelta = diffSnapshotFileManifests(
+                previous.value?.fileManifest ?? [],
+                built.value.fileManifest,
+              );
+              if (!published.value) {
+                const begun = await snapshotState.beginBuild(snapshotIdentity);
+                if (begun._tag === 'Err') {
+                  embeddings.close();
+                  throw new Error(`Qdrant snapshot manifest begin failed (${begun.error.code})`);
                 }
               }
-            }
-            const sourceFiles = await Effect.runPromise(readVerifiedSemanticSnapshot(
-              files,
-              registered.value.rootPath,
-              built.value.indexedPaths,
-              built.value.fileManifest,
-            ));
-            if (sourceFiles._tag === 'Err') {
-              embeddings.close();
-              throw new Error(`TypeScript language-service snapshot could not be bound to indexed source bytes (${sourceFiles.error.code})`);
-            }
-            const semantics = makeTypeScriptLanguageServicePort({
-              rootPath: registered.value.rootPath,
-              files: sourceFiles.value,
-              providerVersion: process.env.ACE_TYPESCRIPT_VERSION?.trim() || 'typescript/5.9.3',
-              trace: providerTrace,
-            });
-            const firstIndexedPath = built.value.indexedPaths[0];
-            if (firstIndexedPath === undefined) {
-              embeddings.close();
-              throw new Error('no source files passed the structural provider');
-            }
-            const languageServiceReady = await Effect.runPromise(semantics.diagnostics({ repoPath: firstIndexedPath }));
-            if (languageServiceReady._tag === 'Err') {
-              embeddings.close();
-              throw new Error(`TypeScript language service preflight failed (${languageServiceReady.error.code})`);
-            }
-            const documentation = makeDocumentationProvider(registered.value.workspaceId, http, providerTrace);
-            if (process.env.ACE_ENABLE_VERTEX === 'true') {
-              if (process.env.ACE_CLOUD_DOCS_OPT_IN !== 'true') {
-                readiness.documentation = { state: 'disabled', reason: 'cloud_docs_opt_in_false' };
-              } else if (documentation === undefined) {
-                readiness.documentation = { state: 'not_ready', reason: 'vertex_configuration_missing' };
+              const qdrant = makeQdrantCodeCandidatePort({
+                baseUrl: qdrantUrl,
+                collection,
+                http,
+                allowedHosts: qdrantAllowedHosts,
+                providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
+                trace: providerTrace,
+              });
+              const indexed = await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
+                built.value.index, qdrant, embeddings, http, qdrantUrl, collection,
+                registered.value.workspaceId, sourceKey, qdrantAllowedHosts, published.value, previous.value?.indexKey,
+              ));
+              if (indexed._tag === 'Err') {
+                embeddings.close();
+                readiness.code_retrieval = { state: 'not_ready', reason: 'qdrant_index_failed' };
+                readiness.unified_context = { state: 'not_ready', reason: 'qdrant_index_failed' };
+                process.stderr.write(`ace-mcp context NOT_READY: Qdrant indexing failed (${indexed.error.code}: ${indexed.error.message})\n`);
               } else {
-                readiness.documentation = { state: 'degraded', reason: 'provider_configured_not_health_probed' };
+                const publishedNow = await snapshotState.publish(snapshotIdentity);
+                if (publishedNow._tag === 'Err') {
+                  embeddings.close();
+                  throw new Error(`Qdrant snapshot publish failed (${publishedNow.error.code})`);
+                }
+                if (!collectionGcAllowed) {
+                  process.stderr.write(
+                    'ace retrieval cleanup skipped: explicit ACE_QDRANT_COLLECTION has no exclusive-owner confirmation\n',
+                  );
+                } else {
+                  const activeKeys = await snapshotState.activeIndexKeys(registered.value.workspaceId);
+                  if (activeKeys._tag === 'Err') {
+                    process.stderr.write(`ace retrieval warning: snapshot lease inspection failed (${activeKeys.error.code})\n`);
+                  } else {
+                    const retained = new Set(activeKeys.value);
+                    retained.add(sourceKey);
+                    const cleaned = await Effect.runPromise(pruneQdrantUnleasedSnapshots(
+                      http, qdrantUrl, collection, registered.value.workspaceId, retained, qdrantAllowedHosts,
+                    ));
+                    if (cleaned._tag === 'Err') {
+                      process.stderr.write(`ace retrieval warning: lease-aware snapshot cleanup failed (${cleaned.error.code})\n`);
+                    } else if (cleaned.value.length > 0) {
+                      process.stderr.write(`ace retrieval cleanup removed_snapshots=${cleaned.value.length}\n`);
+                    }
+                  }
+                }
+                const sourceFiles = await Effect.runPromise(readVerifiedSemanticSnapshot(
+                  files,
+                  registered.value.rootPath,
+                  built.value.indexedPaths,
+                  built.value.fileManifest,
+                ));
+                if (sourceFiles._tag === 'Err') {
+                  embeddings.close();
+                  throw new Error(`TypeScript language-service snapshot could not be bound to indexed source bytes (${sourceFiles.error.code})`);
+                }
+                const semantics = makeTypeScriptLanguageServicePort({
+                  rootPath: registered.value.rootPath,
+                  files: sourceFiles.value,
+                  providerVersion: process.env.ACE_TYPESCRIPT_VERSION?.trim() || 'typescript/5.9.3',
+                  trace: providerTrace,
+                });
+                const firstIndexedPath = built.value.indexedPaths[0];
+                if (firstIndexedPath === undefined) {
+                  embeddings.close();
+                  throw new Error('no source files passed the structural provider');
+                }
+                const languageServiceReady = await Effect.runPromise(semantics.diagnostics({ repoPath: firstIndexedPath }));
+                if (languageServiceReady._tag === 'Err') {
+                  embeddings.close();
+                  throw new Error(`TypeScript language service preflight failed (${languageServiceReady.error.code})`);
+                }
+                const documentation = makeDocumentationProvider(registered.value.workspaceId, http, providerTrace);
+                if (process.env.ACE_ENABLE_VERTEX === 'true') {
+                  if (process.env.ACE_CLOUD_DOCS_OPT_IN !== 'true') {
+                    readiness.documentation = { state: 'disabled', reason: 'cloud_docs_opt_in_false' };
+                  } else if (documentation === undefined) {
+                    readiness.documentation = { state: 'not_ready', reason: 'vertex_configuration_missing' };
+                  } else {
+                    readiness.documentation = { state: 'degraded', reason: 'provider_configured_not_health_probed' };
+                  }
+                }
+                context = makeQdrantContextProvider({
+                  workspaceId: registered.value.workspaceId,
+                  rootPath: registered.value.rootPath,
+                  files,
+                  qdrant,
+                  embeddings,
+                  artifacts,
+                  semantics,
+                  newRequestId: () => randomUUID(),
+                  // A warm index can have an older observation epoch; the precise
+                  // content-derived indexKey is authoritative and every snippet is
+                  // reverified against current bytes. Do not relabel its generation.
+                  ...(indexed.value.reused ? {} : { generation }),
+                  indexKey: sourceKey,
+                  candidateLimit,
+                  coverage: built.value.coverage,
+                  trace: providerTrace,
+                  ...(documentation === undefined ? {} : { documentation }),
+                  ...(memory === undefined ? {} : { memory }),
+                });
+                readiness.code_retrieval = built.value.coverage.failedPaths === 0
+                  ? { state: 'ready', reason: 'real_provider_preflight_passed' }
+                  : { state: 'degraded', reason: 'index_coverage_partial' };
+                readiness.unified_context = built.value.coverage.failedPaths === 0
+                  ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
+                  : { state: 'degraded', reason: 'index_coverage_partial' };
+                process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} structural_cache_hits=${built.value.structuralCacheHits} structural_cache_misses=${built.value.structuralCacheMisses} candidate_cache_hits=${built.value.candidateCacheHits} candidate_cache_misses=${built.value.candidateCacheMisses} embedding_identity=${embeddingFingerprint.slice(0, 12)} structural_identity=${structuralFingerprint.slice(0, 12)} candidate_identity=${candidateProviderFingerprint.slice(0, 12)} snapshot_identity=${retrievalFingerprint.slice(0, 12)} delta_added=${fileDelta.added.length} delta_changed=${fileDelta.changed.length} delta_deleted=${fileDelta.deleted.length} delta_renamed=${fileDelta.renamed.length} delta_unchanged=${fileDelta.unchanged.length} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} state_owner=${snapshotState.stateOwnerId.slice(0, 12)} lease_reap_mode=${configuredLeaseReapMode}\n`);
               }
             }
-            context = makeQdrantContextProvider({
-              workspaceId: registered.value.workspaceId,
-              rootPath: registered.value.rootPath,
-              files,
-              qdrant,
-              embeddings,
-              artifacts,
-              semantics,
-              newRequestId: () => randomUUID(),
-              // A warm index can have an older observation epoch; the precise
-              // content-derived indexKey is authoritative and every snippet is
-              // reverified against current bytes. Do not relabel its generation.
-              ...(indexed.value.reused ? {} : { generation }),
-              indexKey: sourceKey,
-              candidateLimit,
-              coverage: built.value.coverage,
-              trace: providerTrace,
-              ...(documentation === undefined ? {} : { documentation }),
-              ...(memory === undefined ? {} : { memory }),
-            });
-            readiness.code_retrieval = built.value.coverage.failedPaths === 0
-              ? { state: 'ready', reason: 'real_provider_preflight_passed' }
-              : { state: 'degraded', reason: 'index_coverage_partial' };
-            readiness.unified_context = built.value.coverage.failedPaths === 0
-              ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
-              : { state: 'degraded', reason: 'index_coverage_partial' };
-            process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} structural_cache_hits=${built.value.structuralCacheHits} structural_cache_misses=${built.value.structuralCacheMisses} candidate_cache_hits=${built.value.candidateCacheHits} candidate_cache_misses=${built.value.candidateCacheMisses} embedding_identity=${embeddingFingerprint.slice(0, 12)} structural_identity=${structuralFingerprint.slice(0, 12)} candidate_identity=${candidateProviderFingerprint.slice(0, 12)} snapshot_identity=${retrievalFingerprint.slice(0, 12)} delta_added=${fileDelta.added.length} delta_changed=${fileDelta.changed.length} delta_deleted=${fileDelta.deleted.length} delta_renamed=${fileDelta.renamed.length} delta_unchanged=${fileDelta.unchanged.length} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} state_owner=${snapshotState.stateOwnerId.slice(0, 12)} lease_reap_mode=${configuredLeaseReapMode}\n`);
           }
         }
       }
