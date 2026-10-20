@@ -10,6 +10,10 @@ import {
 } from '../src/domain/runtime-config-evidence.js';
 
 const [scopeArg, deploymentArg, captureReferenceArg, outputArg] = process.argv.slice(2);
+if (process.env.ACE_ENABLE_TEST_FAILPOINTS === 'true'
+  || (process.env.ACE_TEST_FAILPOINT?.trim().length ?? 0) > 0) {
+  throw new Error('release runtime configuration evidence refuses environments with ACE test failpoints enabled');
+}
 if (scopeArg === undefined || deploymentArg === undefined || captureReferenceArg === undefined || outputArg === undefined) {
   throw new Error(
     'Usage: tsx scripts/runtime-config-evidence.ts <code-only|full-unified> <host|k3s> <capture-reference> <output.json>',
