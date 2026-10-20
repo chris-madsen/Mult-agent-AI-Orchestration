@@ -265,7 +265,10 @@ const mutateFixture = async (workspace) => {
   await rename(filePath(workspace, 1), renamed);
   await unlink(filePath(workspace, 2));
 
-  for (let index = 3; index < 3 + options.changed; index += 1) {
+  // item 0 above is the first modified existing file. Add exactly
+  // changed-1 additional modifications so --changed N has literal meaning.
+  for (let offset = 0; offset < options.changed - 1; offset += 1) {
+    const index = 3 + offset;
     await writeFile(
       filePath(workspace, index),
       `// scale fixture modified\nexport function scaleItemModified${index}(): number { return ${index + 1}; }\n`,
