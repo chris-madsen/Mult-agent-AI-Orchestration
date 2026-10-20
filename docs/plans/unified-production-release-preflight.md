@@ -78,4 +78,4 @@ That mode exits non-zero unless every mandatory gate is satisfied.
 
 Codex must run and retain the actual Serena comparison, Graphiti lifecycle, Vertex conflict retrieval, k3s live-worktree/race/restart checks, backup/restore procedure, supply-chain/SBOM/image checks and natural-use Harbor benchmark. Then regenerate DBC-01…14 on the final commit and obtain owner approval for that exact commit.
 
-A limited code-only release is allowed by the project plan, but **this full-unified preflight must not be weakened to represent that narrower scope**. A separate explicitly limited release profile should be used if the owner chooses that path.
+A limited code-only release is allowed by the project plan, but **this full-unified preflight must not be weakened to represent that narrower scope**. The separate profile is documented in `docs/plans/code-only-production-release-preflight.md` and emits only `READY_CODE_ONLY`; it cannot approve documentation or memory.
