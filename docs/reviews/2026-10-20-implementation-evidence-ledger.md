@@ -2,18 +2,20 @@
 
 **Purpose:** W00 truth baseline. This file separates code that exists from real-provider, agent-E2E, benchmark and owner-approval evidence. It does not replace the normative unified plan or DBC manifests.
 
-**Exact-main W00 receipt commit:** `6a410f2434c4175d57f932efb8d291372b931636`  
-**Implementation review through:** `8ab84f9c86ef84ea4e47ac3c673bf3d401bdea0d` (merge PR #80).  
+**Exact-main W00 receipt commit:** `8ab84f9c86ef84ea4e47ac3c673bf3d401bdea0d`
+**Implementation review through:** `59a0f38c512e73860f6b5e4f324b36c64209fc0c` (merge PR #81).
 **Supersedes:** the stale baseline at `33766c721e9628fecc7d4ad4b9ac503432d69e2d`.  
 **Scope rule:** merged implementation through the review commit is counted below. The W00 receipt itself proves only its exact receipt commit; later PR CI is not silently re-labeled as a new exact-main baseline receipt.
 
-Since the previous ledger refresh, the relevant additional merged changes are PRs **#74, #75, #76, #78, #79 and #80**. PR #77 was superseded without merge. The exact-main W00 receipt was run from a clean
-checkout of `6a410f2434c4175d57f932efb8d291372b931636`: `artifacts/baseline/baseline.json`, SHA-256
-`322c7a53144677c217f50770f73af62d8837bc93265c3e3381f56d99539205fd`; it reports
+Since the previous ledger refresh, the relevant additional merged changes are PRs **#74, #75, #76, #78, #79, #80 and #81**. PR #77 was superseded without merge. The exact-main W00 receipt was run from a clean
+checkout of `8ab84f9c86ef84ea4e47ac3c673bf3d401bdea0d`: `artifacts/baseline-2026-10-20-current/baseline.json`, SHA-256
+`cc9075a1e05565a7498eff8b105a15113de7b727ffc2b03209fbe86337e0385e`; it reports
 `status=PASS`, mandatory checks `PASS`, and OpenSpec 001–006 strict validation
 `PASS`. The generated artifact directory remains Git-ignored; the digest and
 source commit above are retained here so the receipt is not confused with a
-provider or production approval.
+provider or production approval. The later #81 documentation-only merge is
+covered by the implementation-review commit above; a final release commit still
+needs its own exact-main receipt.
 
 ## Evidence vocabulary
 
@@ -48,7 +50,7 @@ The normal contract workflow runs locked install, typecheck, embedding evaluator
 
 | Prerequisite | Implementation state | Remaining normative evidence |
 |---|---|---|
-| **C-A snapshot isolation / publish / GC** | **real sub-gate + implemented+contracted**: content-derived snapshot identity, atomic manifest states, state-owner isolation, conservative lease reaping, narrow maintenance payloads, membership checks and lease-aware GC; retained real Qdrant crash lifecycle on commit `07b143b` proves S1 survives writer SIGKILL before S2 publish and survives S2 restart/publication across distinct state roots | repeat/target-storage concurrency as needed, selected-provider scale evidence, and k3s/storage semantics before normative DBC-13 closure |
+| **C-A snapshot isolation / publish / GC** | **real sub-gate + implemented+contracted**: content-derived snapshot identity, atomic manifest states, state-owner isolation, conservative lease reaping, narrow maintenance payloads, membership checks and lease-aware GC; retained real Qdrant crash lifecycle on commit `07b143b` proves S1 survives writer SIGKILL before S2 publish and survives S2 restart/publication across distinct state roots | expanded kill/timeout/same-snapshot-writer matrix, target-storage/k3s semantics and exact-release DBC-13 evidence |
 | **C-B exact semantic identity** | **implemented+contracted**: AST identifier anchors, UTF-8 handling, TS-LS exact-symbol oracle, shared Serena-vs-TS-LS fixture | matched Serena run, dirty-worktree/provider snapshot proof, owner semantic-provider approval |
 | **C-C coverage truth** | **implemented+contracted**: failed paths propagate into index/context completeness; binary/invalid text and sensitive paths are explicit | real mixed-provider/dirty-tree acceptance receipts |
 | **C-D effective embedding identity** | **implemented+contracted**: worker reports effective model/artifact/runtime/mode; parent verifies identity; default Qdrant namespace uses the verified receipt fingerprint; production selection gate is non-self-approving | frozen unseen multi-repo comparison, license review, target-host measurements, owner approval |
@@ -58,11 +60,11 @@ The normal contract workflow runs locked install, typecheck, embedding evaluator
 
 | Work package | Current implementation state | What remains before normative closure |
 |---|---|---|
-| **W00 truth baseline** | **real sub-gate**: exact-main receipt at `6a410f2` has clean workspace, mandatory checks PASS and OpenSpec 001–006 strict PASS; this ledger and DBC evidence tooling remain current | reconcile current OpenSpec task checkboxes only from retained provider/agent evidence; W00 receipt is not production acceptance |
+| **W00 truth baseline** | **real sub-gate**: exact-main receipt at `8ab84f9` has clean workspace, mandatory checks PASS and OpenSpec 001–006 strict PASS; implementation review is current through `59a0f38` | reconcile current OpenSpec task checkboxes only from retained provider/agent evidence; W00 receipt is not production acceptance |
 | **W01 embedding** | comparison runner, full ranking metrics, pinned identity and explicit selection/owner-approval gate **implemented+contracted** | frozen unseen multi-repo run, authoritative licenses, host perf, owner approval |
 | **W02 Serena vs TS LS** | shared 2000+ line oracle and direct TS-LS runner/gate **implemented+contracted**; direct TS-LS local evidence exists | run Serena on identical fixture/oracle, fair cold/warm/RSS/license comparison, owner approval |
 | **W03 retrieval quality** | ranked-ID quality/compactness evaluator, neutral ablation report and predeclared gate **implemented+contracted** | real frozen multi-repo lexical/vector/hybrid runs; implement hybrid only if measurement justifies it |
-| **W04 incremental index** | per-file identities, vector reuse, structural/candidate caches, atomic snapshot state, real-provider 1k/10k cold/warm/change-only runner, and interrupted-writer/concurrent-reader runner **implemented+contracted**; bounded real Qdrant crash lifecycle is retained 8/8 PASS with safe provider traces | execute/retain 1k/10k measurements on the selected provider/host; target-storage/k3s concurrency and remaining exact-release DBC-13 evidence |
+| **W04 incremental index** | per-file identities, vector reuse, structural/candidate caches, atomic snapshot state, real-provider 1k/10k cold/warm/change-only runner, and interrupted-writer/concurrent-reader runner **implemented+contracted**; retained local real-provider evidence covers 1k/10k scale and an 8/8 PASS Qdrant crash lifecycle with safe provider traces | repeat/selected-provider/target-host measurements; target-storage/k3s concurrency and remaining exact-release DBC-13 evidence |
 | **W05 Vertex docs** | policy-before-network, secret egress guard, one-shot auth refresh, synthetic conflict E2E runner **implemented+contracted** | authorized synthetic corpus import/retrieval run, citations/version evidence, quota/cost record |
 | **W06 Graphiti extraction** | archive-backed Graphiti adapter, provenance-safe fact search and real lifecycle runner **implemented+contracted** | actual supported local LLM/embedder/reranker run against FalkorDB; latency/cost/outbound proof |
 | **W07 memory reliability** | durable outbox, reconciliation, verified purge-before-tombstone, bounded retries/dead-letter/manual repair, temporal decisions, local backup/restore, and a real Graphiti acknowledgement-gap SIGKILL/recovery runner **implemented+contracted**; full release preflight now requires separate crash-recovery evidence | execute the Graphiti/FalkorDB crash-recovery runner with explicit inference identities; retain provider backup/restore proof and any required concurrent-storage evidence |
@@ -113,7 +115,7 @@ The provider-trace receipt is run directly with `npx tsx scripts/provider-trace-
 
 ## Next owner/Codex execution order
 
-1. Execute the W04 1k/10k runner on the selected real provider/host and retain every run; the bounded interrupted-writer Qdrant sub-gate is already retained and must not be rerun merely for a checkbox.
+1. Repeat the W04 1k/10k runner on the selected provider/host and close the remaining target-storage/concurrency cases; the retained local sub-gates must not be relabeled as production approval.
 2. Run W01/W02 frozen provider selections and obtain owner decisions.
 3. Run W05 real Vertex and W06 happy-path Graphiti with the already-defined safe fixtures.
 4. Run the separate W07 real Graphiti SIGKILL/reconcile/purge gate and operations backup/restore evidence.
