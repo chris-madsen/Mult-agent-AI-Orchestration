@@ -32,6 +32,8 @@ const audit = {
 const provenance: ImageProvenanceRecord = {
   schemaVersion: 1,
   imageDigest: 'sha256:' + 'd'.repeat(64),
+  baseImageDigest: 'sha256:' + 'e'.repeat(64),
+  baseImageReference: 'node:22-bookworm-slim@sha256:' + 'e'.repeat(64),
   sourceCommit: commit,
   sbomSha256,
   packageLockSha256,
@@ -152,4 +154,37 @@ test('supply-chain gate rejects a generic audit command or malformed SBOM instea
     licenseReview,
   });
   assert.equal(malformedSbom._tag, 'Err');
+});
+
+
+test('floating or mismatched base images are rejected even when the final image is signed', () => {
+  const floating = evaluateSupplyChainEvidence({
+    currentCommit: commit,
+    packageLockSha256,
+    sbomSha256,
+    sbom,
+    productionAudit: audit,
+    auditCommand: 'npm audit --omit=dev --audit-level=high --json',
+    imageProvenance: {
+      ...provenance,
+      baseImageReference: 'node:22-bookworm-slim',
+    },
+    licenseReview,
+  });
+  assert.equal(floating._tag, 'Err');
+
+  const mismatched = evaluateSupplyChainEvidence({
+    currentCommit: commit,
+    packageLockSha256,
+    sbomSha256,
+    sbom,
+    productionAudit: audit,
+    auditCommand: 'npm audit --omit=dev --audit-level=high --json',
+    imageProvenance: {
+      ...provenance,
+      baseImageDigest: 'sha256:' + 'f'.repeat(64),
+    },
+    licenseReview,
+  });
+  assert.equal(mismatched._tag, 'Err');
 });
