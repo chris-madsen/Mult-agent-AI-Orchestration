@@ -266,6 +266,10 @@ const main = async (): Promise<void> => {
     }
     const embeddingDimension = Number(process.env.ACE_EMBEDDING_DIMENSION ?? '384');
     if (!Number.isSafeInteger(embeddingDimension) || embeddingDimension < 1) throw new Error('ACE_EMBEDDING_DIMENSION must be a positive integer');
+    const embeddingTimeoutMs = Number(process.env.ACE_EMBEDDING_TIMEOUT_MS ?? '120000');
+    if (!Number.isSafeInteger(embeddingTimeoutMs) || embeddingTimeoutMs < 100 || embeddingTimeoutMs > 3_600_000) {
+      throw new Error('ACE_EMBEDDING_TIMEOUT_MS must be an integer between 100 and 3600000');
+    }
     const embeddingConfig: ResolvedEmbeddingConfig = {
       provider: embeddingProvider,
       model: embeddingModel,
@@ -293,6 +297,10 @@ const main = async (): Promise<void> => {
     for (const name of ['ACE_EMBEDDING_PYTHON', 'ACE_EMBEDDING_LD_LIBRARY_PATH', 'FASTEMBED_CACHE_PATH', 'HF_HOME', 'HF_HUB_CACHE']) {
       const value = process.env[name]?.trim();
       if (value !== undefined && value.length > 0) embeddingEnvironment[name] = value;
+    }
+    if (process.env.ACE_ENABLE_TEST_FAILPOINTS === 'true') {
+      const delay = process.env.ACE_EMBEDDING_DELAY_MS?.trim();
+      if (delay !== undefined && delay.length > 0) embeddingEnvironment.ACE_EMBEDDING_DELAY_MS = delay;
     }
     const candidateLimit = Number(process.env.ACE_CONTEXT_CANDIDATE_LIMIT ?? '6');
     if (!Number.isSafeInteger(candidateLimit) || candidateLimit < 1 || candidateLimit > 20) throw new Error('ACE_CONTEXT_CANDIDATE_LIMIT must be an integer between 1 and 20');
@@ -363,6 +371,7 @@ const main = async (): Promise<void> => {
       const embeddings = makeProcessEmbeddingPort({
         command: embeddingWorker,
         dimension: embeddingDimension,
+        timeoutMs: embeddingTimeoutMs,
         providerVersion: `${embeddingProvider}|model=${embeddingModel}@${embeddingRevision}|artifact=${embeddingArtifactModel}@${embeddingArtifactRevision}#${embeddingArtifactDigest}`,
         trace: providerTrace,
         env: embeddingEnvironment,
