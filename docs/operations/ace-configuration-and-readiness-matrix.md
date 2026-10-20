@@ -59,6 +59,28 @@ and the configured model/artifact revision and digest values required by `ace-mc
 
 If `ACE_ALLOW_LOCAL_FALLBACK=true`, Qdrant/provider failure may fall back to the explicitly degraded local path. This flag must never be used to turn a failed production dependency into a silent `ready` state.
 
+### Qdrant snapshot ownership and garbage collection
+
+The default Qdrant collection name includes a persistent random **state-owner ID** stored under the configured `ACE_STATE_DIR`. Two ACE processes using different state directories therefore do not share the same automatic-GC namespace even when they point at the same Qdrant service.
+
+Snapshot lease cleanup is conservative by default:
+
+```bash
+ACE_QDRANT_LEASE_REAP_MODE=conservative
+```
+
+In this mode a valid lease file is never deleted merely because its PID appears dead. This is intentional: PID liveness is not portable across hosts, containers, or PID namespaces. A crashed reader can leave an old snapshot retained, but a live remote reader is not destroyed by a false `ESRCH`.
+
+`ACE_QDRANT_LEASE_REAP_MODE=local-process` may be used only when the operator guarantees that all processes sharing that state directory are in the same PID namespace and local process-liveness checks are authoritative.
+
+If `ACE_QDRANT_COLLECTION` is set explicitly, ACE treats it as potentially shared and skips automatic snapshot GC unless:
+
+```bash
+ACE_QDRANT_COLLECTION_EXCLUSIVE_OWNER=true
+```
+
+That flag is an operator assertion, not auto-detection. Do not set it for a collection shared by independent state roots.
+
 ## Documentation / Vertex
 
 Vertex is opt-in twice: the provider must be enabled and cloud document egress must be explicitly permitted.
