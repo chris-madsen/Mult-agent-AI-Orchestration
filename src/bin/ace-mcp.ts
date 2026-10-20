@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { Effect } from 'effect';
 import { makeFileArtifactStore } from '../adapters/file-artifact-store.js';
 import {
@@ -14,6 +14,7 @@ import {
 import { makeFileStructuralAnalysisCache } from '../adapters/file-structural-analysis-cache.js';
 import { makeFileCodeCandidateCache } from '../adapters/file-code-candidate-cache.js';
 import { makeAsyncFileMemoryArchive } from '../adapters/file-memory-archive.js';
+import { makeFileDecisionHistory } from '../adapters/file-decision-history.js';
 import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
 import { makeHostWorkspacePort, makeMtlsHostHelperTransport } from '../adapters/host-worktree-helper.js';
 import { makeFetchHttpPort, makeQdrantCodeCandidatePort } from '../adapters/http-provider-boundaries.js';
@@ -211,6 +212,9 @@ const main = async (): Promise<void> => {
       throw new Error(cause instanceof Error ? cause.message : 'ACE_GRAPHITI_ARGS_JSON is invalid');
     }
     const archive = await makeAsyncFileMemoryArchive(archiveRoot);
+    const decisionHistory = makeFileDecisionHistory(
+      resolve(process.env.ACE_MEMORY_DECISIONS_PATH?.trim() || join(archiveRoot, 'decisions.json')),
+    );
     try {
       const graphiti = await makeGraphitiMcpPort({
         command,
@@ -219,6 +223,7 @@ const main = async (): Promise<void> => {
         workspaceId: registered.value.workspaceId,
         policy: defaultLocalPolicy(registered.value.workspaceId),
         archive,
+        decisionHistory,
         trace: providerTrace,
         providerVersion: process.env.ACE_GRAPHITI_VERSION?.trim() || 'graphiti-mcp/unknown',
       });
@@ -261,6 +266,10 @@ const main = async (): Promise<void> => {
     }
     const embeddingDimension = Number(process.env.ACE_EMBEDDING_DIMENSION ?? '384');
     if (!Number.isSafeInteger(embeddingDimension) || embeddingDimension < 1) throw new Error('ACE_EMBEDDING_DIMENSION must be a positive integer');
+    const embeddingTimeoutMs = Number(process.env.ACE_EMBEDDING_TIMEOUT_MS ?? '120000');
+    if (!Number.isSafeInteger(embeddingTimeoutMs) || embeddingTimeoutMs < 100 || embeddingTimeoutMs > 3_600_000) {
+      throw new Error('ACE_EMBEDDING_TIMEOUT_MS must be an integer between 100 and 3600000');
+    }
     const embeddingConfig: ResolvedEmbeddingConfig = {
       provider: embeddingProvider,
       model: embeddingModel,
@@ -288,6 +297,10 @@ const main = async (): Promise<void> => {
     for (const name of ['ACE_EMBEDDING_PYTHON', 'ACE_EMBEDDING_LD_LIBRARY_PATH', 'FASTEMBED_CACHE_PATH', 'HF_HOME', 'HF_HUB_CACHE']) {
       const value = process.env[name]?.trim();
       if (value !== undefined && value.length > 0) embeddingEnvironment[name] = value;
+    }
+    if (process.env.ACE_ENABLE_TEST_FAILPOINTS === 'true') {
+      const delay = process.env.ACE_EMBEDDING_DELAY_MS?.trim();
+      if (delay !== undefined && delay.length > 0) embeddingEnvironment.ACE_EMBEDDING_DELAY_MS = delay;
     }
     const candidateLimit = Number(process.env.ACE_CONTEXT_CANDIDATE_LIMIT ?? '6');
     if (!Number.isSafeInteger(candidateLimit) || candidateLimit < 1 || candidateLimit > 20) throw new Error('ACE_CONTEXT_CANDIDATE_LIMIT must be an integer between 1 and 20');
@@ -358,6 +371,7 @@ const main = async (): Promise<void> => {
       const embeddings = makeProcessEmbeddingPort({
         command: embeddingWorker,
         dimension: embeddingDimension,
+        timeoutMs: embeddingTimeoutMs,
         providerVersion: `${embeddingProvider}|model=${embeddingModel}@${embeddingRevision}|artifact=${embeddingArtifactModel}@${embeddingArtifactRevision}#${embeddingArtifactDigest}`,
         trace: providerTrace,
         env: embeddingEnvironment,
@@ -527,20 +541,20 @@ const main = async (): Promise<void> => {
                     'ace retrieval cleanup skipped: explicit ACE_QDRANT_COLLECTION has no exclusive-owner confirmation\n',
                   );
                 } else {
-                  const activeKeys = await snapshotState.activeIndexKeys(registered.value.workspaceId);
-                  if (activeKeys._tag === 'Err') {
-                    process.stderr.write(`ace retrieval warning: snapshot lease inspection failed (${activeKeys.error.code})\n`);
-                  } else {
-                    const retained = new Set(activeKeys.value);
-                    retained.add(sourceKey);
-                    const cleaned = await Effect.runPromise(pruneQdrantUnleasedSnapshots(
-                      http, qdrantUrl, collection, registered.value.workspaceId, retained, qdrantAllowedHosts,
-                    ));
-                    if (cleaned._tag === 'Err') {
-                      process.stderr.write(`ace retrieval warning: lease-aware snapshot cleanup failed (${cleaned.error.code})\n`);
-                    } else if (cleaned.value.length > 0) {
-                      process.stderr.write(`ace retrieval cleanup removed_snapshots=${cleaned.value.length}\n`);
-                    }
+                  const cleaned = await snapshotState.withActiveIndexKeys(
+                    registered.value.workspaceId,
+                    async (activeKeys) => {
+                      const retained = new Set(activeKeys);
+                      retained.add(sourceKey);
+                      return Effect.runPromise(pruneQdrantUnleasedSnapshots(
+                        http, qdrantUrl, collection, registered.value.workspaceId, retained, qdrantAllowedHosts,
+                      ));
+                    },
+                  );
+                  if (cleaned._tag === 'Err') {
+                    process.stderr.write(`ace retrieval warning: lease-aware snapshot cleanup failed (${cleaned.error.code})\n`);
+                  } else if (cleaned.value.length > 0) {
+                    process.stderr.write(`ace retrieval cleanup removed_snapshots=${cleaned.value.length}\n`);
                   }
                 }
                 const sourceFiles = await Effect.runPromise(readVerifiedSemanticSnapshot(
@@ -605,7 +619,7 @@ const main = async (): Promise<void> => {
                 readiness.unified_context = built.value.coverage.failedPaths === 0
                   ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
                   : { state: 'degraded', reason: 'index_coverage_partial' };
-                process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} structural_cache_hits=${built.value.structuralCacheHits} structural_cache_misses=${built.value.structuralCacheMisses} candidate_cache_hits=${built.value.candidateCacheHits} candidate_cache_misses=${built.value.candidateCacheMisses} embedding_identity=${embeddingFingerprint.slice(0, 12)} structural_identity=${structuralFingerprint.slice(0, 12)} candidate_identity=${candidateProviderFingerprint.slice(0, 12)} snapshot_identity=${retrievalFingerprint.slice(0, 12)} delta_added=${fileDelta.added.length} delta_changed=${fileDelta.changed.length} delta_deleted=${fileDelta.deleted.length} delta_renamed=${fileDelta.renamed.length} delta_unchanged=${fileDelta.unchanged.length} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} state_owner=${snapshotState.stateOwnerId.slice(0, 12)} lease_reap_mode=${configuredLeaseReapMode}\n`);
+                process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${generation} indexed_paths=${built.value.indexedPaths.length} candidates=${built.value.index.candidates.length} coverage_failed=${built.value.coverage.failedPaths} structural_cache_hits=${built.value.structuralCacheHits} structural_cache_misses=${built.value.structuralCacheMisses} candidate_cache_hits=${built.value.candidateCacheHits} candidate_cache_misses=${built.value.candidateCacheMisses} embedding_identity=${embeddingFingerprint.slice(0, 12)} structural_identity=${structuralFingerprint.slice(0, 12)} candidate_identity=${candidateProviderFingerprint.slice(0, 12)} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} delta_added=${fileDelta.added.length} delta_changed=${fileDelta.changed.length} delta_deleted=${fileDelta.deleted.length} delta_renamed=${fileDelta.renamed.length} delta_unchanged=${fileDelta.unchanged.length} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} state_owner=${snapshotState.stateOwnerId.slice(0, 12)} lease_reap_mode=${configuredLeaseReapMode}\n`);
               }
             }
           }

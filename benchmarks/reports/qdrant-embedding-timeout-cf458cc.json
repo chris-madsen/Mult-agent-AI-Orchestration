@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "evidence": "real-qdrant-embedding-timeout",
+  "generatedAt": "2026-10-20T13:51:35.333Z",
+  "sourceCommit": "cf458ccb7c253dbc502f91596b2ea6d296380bec",
+  "fixture": {
+    "workspaceId": "qdrant-timeout-8547077c-0f41-4237-b496-089b7e9bcd4e",
+    "sourcePath": "src/timeout-sentinel.ts",
+    "sourceDigest": "3ee8a6674cf8ec80bad551d045101ec77c289db45dfbad684f946d428a45ae1a"
+  },
+  "runtime": {
+    "node": "v24.15.0",
+    "qdrant": "qdrant/1.19.2",
+    "qdrantUrlKind": "local-loopback",
+    "embeddingTimeoutMs": 100,
+    "embeddingDelayMs": 1000,
+    "testFailpointsDoubleOptIn": true
+  },
+  "checks": {
+    "realWorkerTimedOut": "PASS",
+    "mcpProcessRemainedAlive": "PASS",
+    "readinessStayedNotReady": "PASS",
+    "contextDidNotSimulateSuccess": "PASS",
+    "localFallbackDisabled": "PASS"
+  },
+  "observed": {
+    "status": {
+      "workspace_id": "qdrant-timeout-8547077c-0f41-4237-b496-089b7e9bcd4e",
+      "observation_epoch": 1,
+      "index_status": "not_ready",
+      "capabilities": {
+        "worktree": {
+          "state": "ready",
+          "reason": "local_exact_read_ready"
+        },
+        "code_retrieval": {
+          "state": "not_ready",
+          "reason": "embedding_provider_unavailable"
+        },
+        "unified_context": {
+          "state": "not_ready",
+          "reason": "embedding_provider_unavailable"
+        },
+        "project_memory": {
+          "state": "disabled",
+          "reason": "graphiti_disabled"
+        },
+        "documentation": {
+          "state": "disabled",
+          "reason": "vertex_disabled"
+        }
+      },
+      "freshness": "observed",
+      "git_status": "unknown"
+    },
+    "context": {
+      "status": "not_ready",
+      "capability": "unified_context",
+      "code": "NOT_READY",
+      "detail": "unified_context is not implemented in foundation; no provider success is simulated"
+    },
+    "stderrDigest": "44eaecd32d1fb8edcd9180a4d613091d46d7188a03ee1919d9c4aa29dc068766"
+  },
+  "claims": {
+    "timeoutMeasured": true,
+    "cancellationMeasured": false,
+    "productionApproved": false,
+    "tokenSavings5x": false,
+    "graphitiLocalOnly": false,
+    "note": "Real local FastEmbed timeout evidence only. MCP request cancellation during pre-serve startup remains an explicit architecture gap."
+  }
+}

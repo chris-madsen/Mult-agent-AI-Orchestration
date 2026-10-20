@@ -39,10 +39,9 @@ const containedPath = (input: string): string => {
   return rel.split('\\').join('/');
 };
 
-const readEvidence = async (path: string): Promise<{
+const readEvidenceBytes = async (path: string): Promise<{
   readonly path: string;
   readonly bytes: Uint8Array;
-  readonly value: unknown;
   readonly sha256: string;
 }> => {
   const safe = containedPath(path);
@@ -50,9 +49,17 @@ const readEvidence = async (path: string): Promise<{
   return {
     path: safe,
     bytes,
-    value: JSON.parse(bytes.toString('utf8')) as unknown,
     sha256: createHash('sha256').update(bytes).digest('hex'),
   };
+};
+const readEvidenceJson = async (path: string): Promise<{
+  readonly path: string;
+  readonly bytes: Uint8Array;
+  readonly value: unknown;
+  readonly sha256: string;
+}> => {
+  const evidence = await readEvidenceBytes(path);
+  return { ...evidence, value: JSON.parse(evidence.bytes.toString('utf8')) as unknown };
 };
 
 const [policyArg, outputArg] = process.argv.slice(2);
@@ -60,7 +67,7 @@ if (policyArg === undefined || outputArg === undefined) {
   throw new Error('Usage: tsx scripts/code-release-preflight.ts <code-release-policy.json> <output.json>');
 }
 
-const policyEvidence = await readEvidence(policyArg);
+const policyEvidence = await readEvidenceJson(policyArg);
 const policy = policyEvidence.value as Partial<CodeReleasePolicy>;
 if (policy.schemaVersion !== 1
   || policy.scope !== 'code-only'
@@ -78,13 +85,13 @@ for (const key of ['dbc', 'embeddingSelection', 'semanticSelection', 'retrievalQ
 }
 
 const [dbc, embedding, semantic, retrieval, harbor, resourceBudget, runtimeConfig] = await Promise.all([
-  readEvidence(artifacts.dbc),
-  readEvidence(artifacts.embeddingSelection),
-  readEvidence(artifacts.semanticSelection),
-  readEvidence(artifacts.retrievalQuality),
-  readEvidence(artifacts.harborThreeArm),
-  readEvidence(artifacts.resourceBudget),
-  readEvidence(artifacts.runtimeConfig),
+  readEvidenceJson(artifacts.dbc),
+  readEvidenceJson(artifacts.embeddingSelection),
+  readEvidenceJson(artifacts.semanticSelection),
+  readEvidenceJson(artifacts.retrievalQuality),
+  readEvidenceJson(artifacts.harborThreeArm),
+  readEvidenceJson(artifacts.resourceBudget),
+  readEvidenceJson(artifacts.runtimeConfig),
 ]);
 
 const dbcRoot = typeof dbc.value === 'object' && dbc.value !== null && !Array.isArray(dbc.value)
@@ -105,7 +112,7 @@ for (const [recordIndex, rawRecord] of dbcRoot.records.entries()) {
     if (typeof artifact.path !== 'string' || typeof artifact.sha256 !== 'string') {
       throw new Error(`DBC artifact ${recordIndex}:${artifactIndex} identity is incomplete`);
     }
-    const retained = await readEvidence(artifact.path);
+    const retained = await readEvidenceBytes(artifact.path);
     if (retained.sha256 !== artifact.sha256) {
       throw new Error(`DBC artifact digest mismatch: ${retained.path}`);
     }
@@ -123,7 +130,7 @@ for (const raw of policy.externalEvidence) {
     throw new Error('code-only externalEvidence entries require an allowed name/path');
   }
   const name = raw.name as CodeReleaseExternalEvidence['name'];
-  const evidence = await readEvidence(raw.path);
+  const evidence = await readEvidenceJson(raw.path);
   const validated = validateReleaseExternalEvidenceDocument(name, evidence.value, currentCommit);
   if (validated._tag === 'Err') {
     throw new Error(`${validated.error.code}: ${validated.error.path}: ${validated.error.message}`);

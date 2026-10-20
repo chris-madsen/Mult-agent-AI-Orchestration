@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "status": "blocked-before-valid-quality-verdict",
+  "generatedAt": "2026-10-20T12:25:49.048Z",
+  "sourceCommit": "f62fb558f6f9e91a2b49905714da031c9de0094d",
+  "jobs": {
+    "native": {
+      "jobConfig": "benchmarks/harbor/ace-suite/retrieval-native-paired-job.json",
+      "jobsDirectory": "artifacts/harbor-retrieval-native-paired-3x3-serial-current2-2026-10-20",
+      "requestedTrials": 9,
+      "validQualityVerdict": false,
+      "observed": "Codex agent authentication failed before task completion; no quality result is accepted."
+    },
+    "firstAttempt": {
+      "jobConfig": "benchmarks/harbor/ace-suite/retrieval-native-paired-job.json",
+      "jobsDirectory": "artifacts/harbor-retrieval-native-paired-3x3-serial-current-2026-10-20",
+      "validQualityVerdict": false,
+      "observed": "Run was stopped after Harbor artifact collection failed because /tmp/ace-artifacts was absent in the task container; this fixture issue was fixed in the current commit."
+    }
+  },
+  "runtime": {
+    "harbor": "0.24.0",
+    "docker": "24.0.6",
+    "codexCli": "0.148.0-alpha.9",
+    "configuredModel": "gpt-5.6-luna",
+    "configuredReasoning": "high",
+    "configuredArms": [
+      "native-codex-natural",
+      "codex-plus-ace-optional-natural",
+      "codex-plus-ace-forced-diagnostic"
+    ]
+  },
+  "blockers": [
+    "The configured gpt-5.6-luna model is not present in the available local gateway model list.",
+    "Inside Docker, Codex attempted direct api.openai.com access and failed authentication before producing a task result.",
+    "The local OpenAI-compatible gateway is bound to host loopback 127.0.0.1:8000 and is not reachable from the Docker bridge at 172.17.0.1:8000."
+  ],
+  "gateBoundary": "No native, optional-natural or forced Harbor result from these attempts may be used for DBC-12, cost comparison, or 5x claims."
+}

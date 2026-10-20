@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
@@ -41,6 +41,15 @@ export interface FileQdrantSnapshotStateOptions {
    * dead PID only when the operator guarantees one shared PID namespace.
    */
   readonly leaseReapMode?: SnapshotLeaseReapMode;
+  /** Test-only fault injection for lease-directory reads. */
+  readonly readDirectory?: (path: string, withFileTypes?: boolean) => Promise<readonly (string | SnapshotDirectoryEntry)[]>;
+  /** Test-only barrier before an empty lease directory is removed. */
+  readonly beforeLeaseDirectoryRemoval?: (path: string) => Promise<void>;
+}
+
+export interface SnapshotDirectoryEntry {
+  readonly name: string;
+  readonly isDirectory: () => boolean;
 }
 
 interface StoredSnapshotLease {
@@ -65,6 +74,11 @@ export interface FileQdrantSnapshotState {
   readonly publish: (identity: SnapshotManifestIdentity) => Promise<Result<void, DomainError>>;
   readonly acquireLease: (workspaceId: WorkspaceId, indexKey: string) => Promise<Result<SnapshotLease, DomainError>>;
   readonly activeIndexKeys: (workspaceId: WorkspaceId) => Promise<Result<ReadonlySet<string>, DomainError>>;
+  /** Hold the lease mutation fence across active-key inspection and pruning. */
+  readonly withActiveIndexKeys: <T>(
+    workspaceId: WorkspaceId,
+    action: (activeIndexKeys: ReadonlySet<string>) => Promise<Result<T, DomainError>>,
+  ) => Promise<Result<T, DomainError>>;
 }
 
 const validIndexKey = (value: string): boolean => /^[a-f0-9]{64}$/u.test(value);
@@ -214,13 +228,146 @@ export const makeFileQdrantSnapshotState = async (
   const leasesRoot = join(rootPath, 'leases');
   await mkdir(manifestsRoot, { recursive: true });
   await mkdir(leasesRoot, { recursive: true });
+  const locksRoot = join(leasesRoot, '.locks');
+  await mkdir(locksRoot, { recursive: true });
   const stateOwnerId = await readOrCreateStateOwnerId(rootPath);
   const leaseReapMode = options.leaseReapMode ?? 'conservative';
+
+  const readDirectory = options.readDirectory ?? ((path: string, withFileTypes = false) =>
+    withFileTypes
+      ? readdir(path, { withFileTypes: true })
+      : readdir(path));
+  const delay = (milliseconds: number): Promise<void> => new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
 
   const manifestPath = (workspaceId: WorkspaceId, indexKey: string): string =>
     join(manifestsRoot, workspaceKey(workspaceId), `${indexKey}.json`);
   const leasePath = (workspaceId: WorkspaceId, indexKey: string): string =>
     join(leasesRoot, workspaceKey(workspaceId), indexKey);
+
+  const leaseLockPath = (workspaceId: WorkspaceId): string =>
+    join(locksRoot, `${workspaceKey(workspaceId)}.lock`);
+
+  const withLeaseLock = async <T>(
+    workspaceId: WorkspaceId,
+    action: () => Promise<Result<T, DomainError>>,
+  ): Promise<Result<T, DomainError>> => {
+    const lockPath = leaseLockPath(workspaceId);
+    let acquired = false;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      try {
+        await mkdir(lockPath);
+        acquired = true;
+        break;
+      } catch (cause) {
+        const code = (cause as NodeJS.ErrnoException).code;
+        if (code !== 'EEXIST') {
+          return err(domainError('PERSISTENCE_FAILED', 'snapshot_lease', 'could not acquire snapshot lease mutation fence'));
+        }
+        await delay(5);
+      }
+    }
+    if (!acquired) {
+      return err(domainError(
+        'PERSISTENCE_FAILED',
+        'snapshot_lease',
+        'snapshot lease mutation fence remained held; refusing an unsafe concurrent decision',
+      ));
+    }
+
+    let result: Result<T, DomainError>;
+    try {
+      result = await action();
+    } catch {
+      result = err(domainError('PERSISTENCE_FAILED', 'snapshot_lease', 'snapshot lease mutation failed'));
+    }
+    try {
+      await rmdir(lockPath);
+    } catch {
+      return err(domainError('PERSISTENCE_FAILED', 'snapshot_lease', 'could not release snapshot lease mutation fence'));
+    }
+    return result;
+  };
+
+  const removeEmptyLeaseDirectory = async (directory: string): Promise<boolean> => {
+    await options.beforeLeaseDirectoryRemoval?.(directory);
+    try {
+      await rmdir(directory);
+      return true;
+    } catch (cause) {
+      const code = (cause as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return true;
+      if (code === 'ENOTEMPTY' || code === 'EEXIST') return false;
+      throw cause;
+    }
+  };
+
+  const readLeaseNames = async (directory: string): Promise<readonly string[]> => {
+    try {
+      const entries = await readDirectory(directory, false);
+      return entries.filter((entry): entry is string => typeof entry === 'string' && entry.endsWith('.json'));
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw cause;
+    }
+  };
+
+  const inspectActiveIndexKeys = async (workspaceId: WorkspaceId): Promise<ReadonlySet<string>> => {
+    const root = join(leasesRoot, workspaceKey(workspaceId));
+    let keys: readonly (string | SnapshotDirectoryEntry)[];
+    try {
+      keys = await readDirectory(root, true);
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return new Set<string>();
+      throw cause;
+    }
+    const active = new Set<string>();
+    for (const entry of keys) {
+      if (typeof entry === 'string' || !entry.isDirectory() || !validIndexKey(entry.name)) continue;
+      const directory = join(root, entry.name);
+      const leases = await readLeaseNames(directory);
+      let hasLiveOrUnknownLease = false;
+      for (const name of leases) {
+        const path = join(directory, name);
+        let stored: StoredSnapshotLease;
+        try {
+          stored = JSON.parse(await readFile(path, 'utf8')) as StoredSnapshotLease;
+        } catch {
+          throw new Error('could not parse snapshot lease while deciding whether Qdrant data is safe to prune');
+        }
+        if (stored.schemaVersion !== 1
+          || stored.workspaceId !== workspaceId
+          || stored.indexKey !== entry.name
+          || stored.leaseId.trim().length === 0
+          || !Number.isSafeInteger(stored.processId)
+          || stored.processId <= 0
+          || !Number.isSafeInteger(stored.acquiredAtMs)
+          || stored.acquiredAtMs < 0) {
+          throw new Error('invalid snapshot lease identity; refusing unsafe garbage collection');
+        }
+        const status = (options.processStatus ?? defaultProcessStatus)(stored.processId);
+        if (leaseReapMode === 'local-process' && status === 'dead') {
+          await rm(path, { force: true });
+        } else {
+          // Conservative mode intentionally retains even apparently-dead
+          // PIDs because PID liveness is not portable across containers,
+          // hosts or PID namespaces. A leaked snapshot is safer than
+          // deleting data under an active remote reader.
+          hasLiveOrUnknownLease = true;
+        }
+      }
+      if (hasLiveOrUnknownLease) {
+        active.add(entry.name);
+      } else if (!(await removeEmptyLeaseDirectory(directory))) {
+        // A legacy writer or an operator may have populated the directory
+        // outside this process. Treat an observed non-empty directory as
+        // active instead of pruning on a stale empty observation.
+        active.add(entry.name);
+      }
+    }
+    return active;
+  };
 
   const validate = (identity: SnapshotManifestIdentity): Result<SnapshotManifestIdentity, DomainError> => {
     if (!validIndexKey(identity.indexKey) || !/^[a-f0-9]{64}$/u.test(identity.providerFingerprint)) {
@@ -360,96 +507,58 @@ export const makeFileQdrantSnapshotState = async (
       if (!validIndexKey(indexKey)) {
         return err(domainError('INVALID_INPUT', 'index_key', 'snapshot lease requires a SHA-256 index key'));
       }
-      const directory = leasePath(workspaceId, indexKey);
-      await mkdir(directory, { recursive: true });
-      const leaseId = randomUUID();
-      const path = join(directory, `${leaseId}.json`);
-      try {
-        const stored: StoredSnapshotLease = {
-          schemaVersion: 1,
-          workspaceId,
-          indexKey,
+      return withLeaseLock(workspaceId, async () => {
+        const directory = leasePath(workspaceId, indexKey);
+        await mkdir(directory, { recursive: true });
+        const leaseId = randomUUID();
+        const path = join(directory, `${leaseId}.json`);
+        try {
+          const stored: StoredSnapshotLease = {
+            schemaVersion: 1,
+            workspaceId,
+            indexKey,
+            leaseId,
+            processId: options.processId ?? process.pid,
+            acquiredAtMs: options.nowMs?.() ?? Date.now(),
+          };
+          await writeFile(path, JSON.stringify(stored), { flag: 'wx' });
+        } catch {
+          return err(domainError('PERSISTENCE_FAILED', 'snapshot_lease', 'could not acquire Qdrant snapshot lease'));
+        }
+        let closed = false;
+        return ok({
           leaseId,
-          processId: options.processId ?? process.pid,
-          acquiredAtMs: options.nowMs?.() ?? Date.now(),
-        };
-        await writeFile(path, JSON.stringify(stored), { flag: 'wx' });
-      } catch {
-        return err(domainError('PERSISTENCE_FAILED', 'snapshot_lease', 'could not acquire Qdrant snapshot lease'));
-      }
-      let closed = false;
-      return ok({
-        leaseId,
-        indexKey,
-        close: async () => {
-          if (closed) return;
-          closed = true;
-          await rm(path, { force: true });
-          const remaining = await readdir(directory).catch(() => [] as string[]);
-          if (remaining.length === 0) await rm(directory, { recursive: true, force: true });
-        },
+          indexKey,
+          close: async () => {
+            if (closed) return;
+            closed = true;
+            const closedResult = await withLeaseLock(workspaceId, async () => {
+              try {
+                await rm(path, { force: true });
+                await removeEmptyLeaseDirectory(directory);
+                return ok(undefined);
+              } catch {
+                return err(domainError('PERSISTENCE_FAILED', 'snapshot_lease', 'could not close Qdrant snapshot lease'));
+              }
+            });
+            if (closedResult._tag === 'Err') throw new Error(closedResult.error.message);
+          },
+        });
       });
     },
-    activeIndexKeys: async (workspaceId) => {
-      const root = join(leasesRoot, workspaceKey(workspaceId));
+    activeIndexKeys: async (workspaceId) => withLeaseLock(workspaceId, async () => {
       try {
-        const keys = await readdir(root, { withFileTypes: true });
-        const active = new Set<string>();
-        for (const entry of keys) {
-          if (!entry.isDirectory() || !validIndexKey(entry.name)) continue;
-          const directory = join(root, entry.name);
-          const leases = (await readdir(directory).catch(() => [] as string[]))
-            .filter((name) => name.endsWith('.json'));
-          let hasLiveOrUnknownLease = false;
-          for (const name of leases) {
-            const path = join(directory, name);
-            let stored: StoredSnapshotLease;
-            try {
-              stored = JSON.parse(await readFile(path, 'utf8')) as StoredSnapshotLease;
-            } catch {
-              return err(domainError(
-                'PERSISTENCE_FAILED',
-                'snapshot_lease',
-                'could not parse snapshot lease while deciding whether Qdrant data is safe to prune',
-              ));
-            }
-            if (stored.schemaVersion !== 1
-              || stored.workspaceId !== workspaceId
-              || stored.indexKey !== entry.name
-              || stored.leaseId.trim().length === 0
-              || !Number.isSafeInteger(stored.processId)
-              || stored.processId <= 0
-              || !Number.isSafeInteger(stored.acquiredAtMs)
-              || stored.acquiredAtMs < 0) {
-              return err(domainError(
-                'PERSISTENCE_FAILED',
-                'snapshot_lease',
-                'invalid snapshot lease identity; refusing unsafe garbage collection',
-              ));
-            }
-            const status = (options.processStatus ?? defaultProcessStatus)(stored.processId);
-            if (leaseReapMode === 'local-process' && status === 'dead') {
-              await rm(path, { force: true });
-            } else {
-              // Conservative mode intentionally retains even apparently-dead
-              // PIDs because PID liveness is not portable across containers,
-              // hosts or PID namespaces. A leaked snapshot is safer than
-              // deleting data under an active remote reader.
-              hasLiveOrUnknownLease = true;
-            }
-          }
-          if (hasLiveOrUnknownLease) {
-            active.add(entry.name);
-          } else {
-            await rm(directory, { recursive: true, force: true });
-          }
-        }
-        return ok(active);
-      } catch (cause) {
-        return (cause as NodeJS.ErrnoException).code === 'ENOENT'
-          ? ok(new Set<string>())
-          : err(domainError('PERSISTENCE_FAILED', 'snapshot_lease', 'could not inspect Qdrant snapshot leases'));
+        return ok(await inspectActiveIndexKeys(workspaceId));
+      } catch {
+        return err(domainError('PERSISTENCE_FAILED', 'snapshot_lease', 'could not inspect Qdrant snapshot leases'));
       }
-    },
+    }),
+    withActiveIndexKeys: async (workspaceId, action) => withLeaseLock(workspaceId, async () => {
+      try {
+        return await action(await inspectActiveIndexKeys(workspaceId));
+      } catch {
+        return err(domainError('PERSISTENCE_FAILED', 'snapshot_lease', 'could not inspect Qdrant snapshot leases'));
+      }
+    }),
   };
 };

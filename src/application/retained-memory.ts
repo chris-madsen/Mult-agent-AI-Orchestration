@@ -1,13 +1,14 @@
 import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
-import type { GraphProjectionPort, GraphProjectionStatePort } from './ports.js';
+import type { GraphProjectionPort, GraphProjectionStatePort, ProjectionOutboxPort } from './ports.js';
 import type { EpisodeId } from '../domain/memory.js';
 import type { AsyncMemoryArchivePort } from '../adapters/file-memory-archive.js';
 
 export interface VerifiedProjectionDeleteOptions {
   readonly verificationAttempts?: number;
   readonly verificationDelayMs?: number;
+  readonly deletionFence?: ProjectionOutboxPort;
 }
 
 const boundedPositiveInteger = (value: number | undefined, fallback: number): number =>
@@ -37,6 +38,10 @@ export const deleteEpisodeWithProjection = (
   id: EpisodeId,
   options: VerifiedProjectionDeleteOptions = {},
 ): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
+  if (options.deletionFence !== undefined) {
+    const fenced = yield* Effect.promise(() => options.deletionFence!.beginDeletion(id));
+    if (fenced._tag === 'Err') return fenced;
+  }
   const purged = yield* graph.purge(id);
   if (purged._tag === 'Err') return purged;
 
@@ -68,6 +73,10 @@ export const deleteEpisodeWithProjection = (
       'archive',
       'Graphiti purge was verified but archive delete failed; retry and reconcile before accepting deletion',
     ));
+  }
+  if (options.deletionFence !== undefined) {
+    const finalized = yield* Effect.promise(() => options.deletionFence!.finalizeDeletion(id));
+    if (finalized._tag === 'Err') return finalized;
   }
   return ok(undefined);
 });

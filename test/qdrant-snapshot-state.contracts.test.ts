@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -7,6 +7,7 @@ import {
   diffSnapshotFileManifests,
   makeFileQdrantSnapshotState,
 } from '../src/adapters/file-qdrant-snapshot-state.js';
+import { ok } from '../src/domain/result.js';
 
 const workspaceId = 'snapshot-state-workspace' as never;
 const indexKey = 'a'.repeat(64);
@@ -231,10 +232,10 @@ test('corrupt lease metadata blocks garbage collection rather than being silentl
   if (lease._tag === 'Err') throw new Error('lease setup failed');
 
   const { createHash } = await import('node:crypto');
-  const { readdir, writeFile } = await import('node:fs/promises');
+  const { readdir: readFiles, writeFile } = await import('node:fs/promises');
   const workspaceKey = createHash('sha256').update(workspaceId).digest('hex').slice(0, 32);
   const directory = join(root, 'leases', workspaceKey, indexKey);
-  const [leaseFile] = await readdir(directory);
+  const [leaseFile] = await readFiles(directory);
   assert.notEqual(leaseFile, undefined);
   if (leaseFile === undefined) return;
   await writeFile(join(directory, leaseFile), '{not-json', 'utf8');
@@ -242,6 +243,81 @@ test('corrupt lease metadata blocks garbage collection rather than being silentl
   const active = await state.activeIndexKeys(workspaceId);
   assert.equal(active._tag, 'Err');
   if (active._tag === 'Err') assert.equal(active.error.code, 'PERSISTENCE_FAILED');
+});
+
+test('active-key inspection fences acquire until the retain-and-prune decision is complete', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-snapshot-fence-'));
+  let entered!: () => void;
+  const inspectionEntered = new Promise<void>((resolve) => { entered = resolve; });
+  let release!: () => void;
+  const releaseInspection = new Promise<void>((resolve) => { release = resolve; });
+  const state = await makeFileQdrantSnapshotState(root, {
+    processId: 737373,
+    processStatus: () => 'dead',
+    leaseReapMode: 'local-process',
+    beforeLeaseDirectoryRemoval: async () => {
+      entered();
+      await releaseInspection;
+    },
+  });
+  const first = await state.acquireLease(workspaceId, indexKey);
+  assert.equal(first._tag, 'Ok');
+  if (first._tag === 'Err') throw new Error('lease setup failed');
+
+  const inspected = state.withActiveIndexKeys(workspaceId, async (active) => ok([...active]));
+  await inspectionEntered;
+  let secondAcquired = false;
+  const second = state.acquireLease(workspaceId, indexKey).then((result) => {
+    secondAcquired = true;
+    return result;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(secondAcquired, false);
+
+  release();
+  const inspectedResult = await inspected;
+  assert.equal(inspectedResult._tag, 'Ok');
+  if (inspectedResult._tag === 'Ok') assert.deepEqual(inspectedResult.value, []);
+  const secondResult = await second;
+  assert.equal(secondResult._tag, 'Ok');
+  if (secondResult._tag === 'Ok') await secondResult.value.close();
+});
+
+test('lease directory read permission and I/O failures block garbage collection', async () => {
+  const permissionRoot = await mkdtemp(join(tmpdir(), 'ace-snapshot-eacces-'));
+  const permissionState = await makeFileQdrantSnapshotState(permissionRoot, {
+    readDirectory: async (_path, withFileTypes = false) => {
+      if (withFileTypes) throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      return [];
+    },
+  });
+  const permissionResult = await permissionState.activeIndexKeys(workspaceId);
+  assert.equal(permissionResult._tag, 'Err');
+  if (permissionResult._tag === 'Err') assert.equal(permissionResult.error.code, 'PERSISTENCE_FAILED');
+
+  const ioRoot = await mkdtemp(join(tmpdir(), 'ace-snapshot-eio-'));
+  const writer = await makeFileQdrantSnapshotState(ioRoot);
+  const lease = await writer.acquireLease(workspaceId, indexKey);
+  assert.equal(lease._tag, 'Ok');
+  if (lease._tag === 'Err') throw new Error('lease setup failed');
+  const ioState = await makeFileQdrantSnapshotState(ioRoot, {
+    readDirectory: async (path, withFileTypes = false) => {
+      if (!withFileTypes) throw Object.assign(new Error('I/O failure'), { code: 'EIO' });
+      return readdir(path, { withFileTypes: true });
+    },
+  });
+  const ioResult = await ioState.activeIndexKeys(workspaceId);
+  assert.equal(ioResult._tag, 'Err');
+  if (ioResult._tag === 'Err') assert.equal(ioResult.error.code, 'PERSISTENCE_FAILED');
+  await lease.value.close();
+});
+
+test('missing lease workspace is an empty state, while non-ENOENT failures are not', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-snapshot-enoent-'));
+  const state = await makeFileQdrantSnapshotState(root);
+  const result = await state.activeIndexKeys(workspaceId);
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Ok') assert.deepEqual([...result.value], []);
 });
 
 

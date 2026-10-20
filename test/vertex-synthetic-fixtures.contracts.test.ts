@@ -23,3 +23,10 @@ test('Vertex synthetic import script cannot accept an arbitrary local upload pat
   assert.equal(script.includes('ACE_VERTEX_LOCAL_SOURCE'), false);
   assert.equal(script.includes('ragCorpora"'), false, 'script must not create a new corpus');
 });
+
+test('Vertex synthetic retrieval opts in only to the documented project class', async () => {
+  const script = await readFile('scripts/vertex-synthetic-conflict-e2e.ts', 'utf8');
+  assert.match(script, /cloudOptIn: true/u);
+  assert.match(script, /allowedCloudProviders: \['vertex'\] as const/u);
+  assert.match(script, /allowedCloudDataClassesByProvider: \{ vertex: \['project_document'\] as const \}/u);
+});

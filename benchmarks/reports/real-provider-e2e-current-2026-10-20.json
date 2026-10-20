@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-20T12:05:50.650Z",
+  "sourceCommit": "bd0986e75c518dc45eb5f696c9842446e63a093c",
+  "runtime": {
+    "node": "v24.15.0",
+    "qdrant": "qdrant/1.19.2",
+    "qdrantUrl": "http://127.0.0.1:6333",
+    "embeddingWorker": "scripts/fastembed-worker.sh",
+    "treeSitterHelper": "scripts/tree-sitter-structural.py"
+  },
+  "commands": [
+    "node scripts/real-provider-e2e.mjs",
+    "ACE_REAL_PROVIDER_RACE=true node scripts/real-provider-e2e.mjs",
+    "ACE_REAL_PROVIDER_OUTAGE=true node scripts/real-provider-e2e.mjs",
+    "ACE_REAL_PROVIDER_HARD_OUTAGE=true node scripts/real-provider-e2e.mjs",
+    "node scripts/real-provider-restart-e2e.mjs"
+  ],
+  "cases": {
+    "happy": {
+      "status": "provider-pass",
+      "fixture": "2000-line TypeScript source / 25-line target function",
+      "qdrant": "http://127.0.0.1:6333",
+      "citation": "service.ts:1-25",
+      "freshness": "current",
+      "source_digest": "49ee6a02de93468eb1d88a8de10f0fa2eb21a186db33362c01f8c30f7e41b152",
+      "expansion_bytes": 63482,
+      "complete": true
+    },
+    "race": {
+      "status": "provider-pass",
+      "race": true,
+      "complete": false,
+      "warnings": [
+        "service.ts: source changed during retrieval",
+        "code: changed_during_request"
+      ],
+      "partial_sources": [
+        "code"
+      ]
+    },
+    "outage": {
+      "status": "provider-partial-is-honest",
+      "outage": true,
+      "complete": false,
+      "warnings": [
+        "Qdrant unavailable: EXTERNAL_UNAVAILABLE",
+        "Local lexical fallback is not a production Qdrant + semantic retrieval implementation"
+      ],
+      "partial_sources": [
+        "code"
+      ]
+    },
+    "hardOutage": {
+      "status": "provider-failure-is-honest",
+      "hard_outage": true,
+      "code": "NOT_READY"
+    },
+    "restart": {
+      "status": "provider-pass",
+      "first_generation": 1,
+      "warm_generation": 2,
+      "warm_index_reused": true,
+      "second_generation": 3,
+      "collection": "ace_code_3722c635e41f_e2690bdd6eb5_6b8415e1559a",
+      "obsolete_generation_pruned": true,
+      "first_digest": "af54532725fa378c039f9d1d819a03096a82a85aaa4bc3b1642d51fb5aa99528",
+      "second_digest": "054d87d0189a6e9df618eb362b41a6e2fa99af87708f22b7db9020efed2a0494"
+    }
+  },
+  "rawOutputSha256": {
+    "happy": "f99fae96253ab7c56b9ed03033c699669b041ebaf62434d38e79eabcb4613359",
+    "race": "fbe255d024897209bb82cef237bee0201521097665a7f701528cfac0d217d5f7",
+    "outage": "ed861e17996480b2facc5281f5571a987fbfa8bcc617c1d408fc1dd1aacd9c26",
+    "hardOutage": "beb4c4d36e8c89d2d8fcb96a17be622ee6a62fe5ae496c72c3a43b6cc146c8cf",
+    "restart": "debf73dc9c9f7911906b48ea02985dcd10e5ac5f3b93d2a9406452d00e85a55a"
+  },
+  "claims": {
+    "realProviderHappyPath": true,
+    "dirtyTreeRaceTruthfulPartial": true,
+    "degradedOutageTruthfulPartial": true,
+    "hardOutageNotReady": true,
+    "restartWarmReuse": true,
+    "productionAcceptance": false,
+    "note": "Current local real-provider E2E evidence only. It does not establish provider selection, target-storage/k3s acceptance, resource budgets, natural Harbor benefit, Graphiti/Vertex readiness, or full release approval."
+  }
+}

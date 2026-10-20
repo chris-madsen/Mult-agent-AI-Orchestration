@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { Effect } from 'effect';
 import { exportCodexHistory } from '../adapters/codex-session-history.js';
 import { makeAsyncFileMemoryArchive } from '../adapters/file-memory-archive.js';
+import { makeFileDecisionHistory } from '../adapters/file-decision-history.js';
 import { makeFileProjectionOutbox } from '../adapters/file-projection-outbox.js';
 import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
 import { makeFileProviderTrace } from '../adapters/provider-trace.js';
@@ -20,6 +21,7 @@ import {
   type ProjectionRetryPolicy,
 } from '../domain/memory.js';
 import { importMemoryEpisodes } from '../application/memory-import.js';
+import { reconcileProjectionIntents } from '../application/memory-reconcile.js';
 import { defaultMemoryAdmissionPolicy } from '../domain/memory-admission.js';
 
 const required = (key: string): string => {
@@ -37,6 +39,9 @@ const run = async (): Promise<void> => {
   if (workspace._tag === 'Err') throw new Error(workspace.error.message);
   const archiveRoot = resolve(required('ACE_MEMORY_ARCHIVE_ROOT'));
   const archive = await makeAsyncFileMemoryArchive(archiveRoot);
+  const decisionHistory = makeFileDecisionHistory(
+    resolve(process.env.ACE_MEMORY_DECISIONS_PATH?.trim() || join(archiveRoot, 'decisions.json')),
+  );
   const outbox = await makeFileProjectionOutbox(join(archiveRoot, 'projection-outbox'));
   const providerTrace = makeFileProviderTrace(process.env.ACE_PROVIDER_TRACE_FILE);
   const createGraphiti = async () => makeGraphitiMcpPort({
@@ -45,6 +50,8 @@ const run = async (): Promise<void> => {
     groupId: required('ACE_GRAPHITI_GROUP_ID'),
     workspaceId: workspace.value,
     policy: defaultLocalPolicy(workspace.value),
+    archive,
+    decisionHistory,
     trace: providerTrace,
     providerVersion: process.env.ACE_GRAPHITI_VERSION?.trim() || 'graphiti-mcp/unknown',
   });
@@ -93,6 +100,7 @@ const run = async (): Promise<void> => {
         graphiti.projection,
         graphiti.projectionState,
         episodeId.value,
+        { deletionFence: outbox },
       ));
       if (deleted._tag === 'Err') throw new Error(deleted.error.message);
       process.stdout.write(JSON.stringify({ episode_id: episodeId.value, purged: true }) + '\n');
@@ -108,6 +116,16 @@ const run = async (): Promise<void> => {
     return;
   }
   if (operation === 'reconcile') {
+    const archived = await archive.listEpisodes();
+    if (archived._tag === 'Err') throw new Error(archived.error.message);
+    const extractorVersion = process.env.ACE_MEMORY_EXTRACTOR_VERSION?.trim() || 'ace-history-v1';
+    const intents = await reconcileProjectionIntents({
+      episodes: archived.value,
+      extractorVersion,
+      outbox,
+      admissionPolicy: defaultMemoryAdmissionPolicy,
+    });
+    if (intents._tag === 'Err') throw new Error(intents.error.message);
     const graphiti = await createGraphiti();
     try {
       const receipts = await outbox.list();
@@ -186,6 +204,7 @@ const run = async (): Promise<void> => {
         missing_original: missingOriginal,
         deferred_by_backoff: deferred,
         newly_dead_lettered: deadLettered,
+        rebuilt_projection_intents: intents.value,
       }) + '\n');
     } finally {
       await graphiti.close();

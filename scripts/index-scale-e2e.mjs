@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
@@ -42,6 +43,7 @@ if (!Number.isSafeInteger(phaseTimeoutMs) || phaseTimeoutMs < 60_000 || phaseTim
 const pad = String(options.files - 1).length;
 const fileName = (index) => `item-${String(index).padStart(pad, '0')}.ts`;
 const filePath = (workspace, index) => join(workspace, 'src', fileName(index));
+const sha256File = async (path) => createHash('sha256').update(await readFile(path)).digest('hex');
 
 const writeFixtureFiles = async (workspace) => {
   await mkdir(join(workspace, 'src'), { recursive: true });
@@ -51,9 +53,12 @@ const writeFixtureFiles = async (workspace) => {
     await Promise.all(Array.from({ length: end - start }, (_, offset) => {
       const index = start + offset;
       const marker = index === 0 ? ' needleScaleTarget' : '';
+      const symbol = index === 0
+        ? 'needleScaleTarget'
+        : `scaleItem${String(index).padStart(pad, '0')}`;
       return writeFile(
         filePath(workspace, index),
-        `// scale fixture${marker}\nexport function scaleItem${String(index).padStart(pad, '0')}(): number { return ${index}; }\n`,
+        `// scale fixture${marker}\nexport function ${symbol}(): number { return ${index}; }\n`,
         'utf8',
       );
     }));
@@ -88,6 +93,11 @@ const parseStartupMetrics = (stderr) => {
     if (!Number.isSafeInteger(value) || value < 0) throw new Error(`invalid/missing startup metric ${name}`);
     return value;
   };
+  const digest = (name) => {
+    const value = values[name];
+    if (!/^[a-f0-9]{64}$/u.test(value ?? '')) throw new Error(`invalid/missing startup digest ${name}`);
+    return value;
+  };
   return {
     generation: integer('generation'),
     indexedPaths: integer('indexed_paths'),
@@ -107,7 +117,8 @@ const parseStartupMetrics = (stderr) => {
     collection: values.collection,
     embeddingIdentity: values.embedding_identity,
     structuralIdentity: values.structural_identity,
-    snapshotIdentity: values.snapshot_identity,
+    retrievalFingerprint: digest('retrieval_fingerprint'),
+    indexKey: digest('index_key'),
   };
 };
 
@@ -239,7 +250,7 @@ const runOnce = (workspace, state, workspaceId, phase) => new Promise((resolveRu
           name: 'ace_context',
           arguments: {
             workspace_id: workspaceId,
-            query: 'needle scale target function',
+            query: 'needleScaleTarget',
             include_docs: false,
             include_memory: false,
           },
@@ -262,6 +273,15 @@ const runOnce = (workspace, state, workspaceId, phase) => new Promise((resolveRu
           requestId: context?.requestId,
           complete: context?.complete,
           evidenceCount: Array.isArray(context?.evidence) ? context.evidence.length : 0,
+          codeEvidence: Array.isArray(context?.evidence)
+            ? context.evidence
+              .filter((evidence) => evidence?.source === 'code')
+              .map((evidence) => ({
+                citation: evidence.citation,
+                sourceDigest: evidence.sourceDigest,
+                freshness: evidence.freshness,
+              }))
+            : [],
         },
       });
     } catch (cause) {
@@ -277,7 +297,7 @@ const runOnce = (workspace, state, workspaceId, phase) => new Promise((resolveRu
 const mutateFixture = async (workspace) => {
   await writeFile(
     filePath(workspace, 0),
-    '// scale fixture needleScaleTarget changed\nexport function scaleItemChanged(): number { return 1000001; }\n',
+    '// scale fixture needleScaleTarget changed\nexport function needleScaleTarget(): number { return 1000001; }\n',
     'utf8',
   );
 
@@ -316,8 +336,25 @@ try {
     encoding: 'utf8',
   }).trim().toLowerCase();
 
+  const d1Path = `src/${fileName(0)}`;
+  const d1Digest = await sha256File(filePath(workspace, 0));
   const cold = await runOnce(workspace, state, workspaceId, 'cold');
   const warm = await runOnce(workspace, state, workspaceId, 'warm');
+
+  const citationFor = (phase, path) => phase.response.codeEvidence.find((evidence) =>
+    evidence.citation.startsWith(`${path}:`));
+  const requireCitation = (phase, path) => {
+    const citation = citationFor(phase, path);
+    assert.ok(citation !== undefined,
+      `${phase.phase} must cite ${path}; observed=${JSON.stringify(phase.response.codeEvidence)}`);
+    return citation;
+  };
+  assert.equal(requireCitation(cold, d1Path).sourceDigest, d1Digest,
+    'cold code citation must carry the exact D1 source digest');
+  assert.equal(requireCitation(warm, d1Path).sourceDigest, d1Digest,
+    'warm code citation must carry the exact D1 source digest');
+  assert.equal(cold.metrics.indexKey, warm.metrics.indexKey,
+    'unchanged warm run must retain the exact content-derived index key');
 
   assert.equal(warm.metrics.indexMode, 'warm_reused',
     'unchanged warm run must reuse the published content-derived snapshot');
@@ -330,7 +367,15 @@ try {
   const dirtyStatus = git(workspace, ['status', '--porcelain=v1']);
   assert.ok(dirtyStatus.includes('?? src/untracked-extra.ts'), 'fixture must contain a real untracked file');
 
+  const d2Digest = await sha256File(filePath(workspace, 0));
   const changed = await runOnce(workspace, state, workspaceId, 'change-only');
+  assert.notEqual(changed.metrics.indexKey, cold.metrics.indexKey,
+    'change-only phase must publish a different content-derived index key');
+  const d2Evidence = requireCitation(changed, d1Path);
+  assert.equal(d2Evidence.sourceDigest, d2Digest,
+    'change-only code citation must carry the exact D2 source digest');
+  assert.equal(d2Evidence.freshness, 'current',
+    'change-only code citation must be verified against current D2 bytes');
   assert.equal(changed.metrics.indexMode, 'rebuilt');
   assert.ok(changed.metrics.deltaChanged >= options.changed,
     'change-only phase must observe the requested changed-file count');
@@ -346,6 +391,9 @@ try {
       baselineFiles: options.files,
       requestedChangedFiles: options.changed,
       gitDirty: true,
+      d1Path,
+      d1Digest,
+      d2Digest,
     },
     runtime: {
       node: process.version,
@@ -360,6 +408,8 @@ try {
       coldMeasured: true,
       warmReuseVerified: true,
       changeOnlyMeasured: true,
+      contentIndexKeyTransitionVerified: true,
+      d2CitationDigestVerified: true,
       renameDeleteUntrackedObserved: true,
       note: 'This runner measures real-provider startup/index/query behavior only. Production acceptance still requires the selected provider identities, repeated measurements and retained evidence.',
     },

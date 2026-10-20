@@ -9,6 +9,7 @@ import type { ReleaseOwnerApproval } from './release-preflight.js';
 import { validateReleaseExternalEvidenceDocument } from './release-external-evidence.js';
 import { validateResourceBudgetEvidenceDocument } from './resource-budget-evidence.js';
 import { validateRuntimeConfigEvidenceDocument } from './runtime-config-evidence.js';
+import { validateReleaseAcceptanceArtifacts } from './release-artifact-validation.js';
 
 export type CodeReleaseDeployment = 'host' | 'k3s';
 
@@ -120,6 +121,7 @@ export const evaluateCodeReleasePreflight = (
   }
 
   const failures: string[] = [...codeDbcFailures(input.dbc, input.currentCommit)];
+  failures.push(...validateReleaseAcceptanceArtifacts(input, input.currentCommit));
 
   if (nested(input.embeddingSelection, 'verdict', 'productionApproved') !== true
     || nested(input.embeddingSelection, 'verdict', 'status') !== 'PRODUCTION_APPROVED') {

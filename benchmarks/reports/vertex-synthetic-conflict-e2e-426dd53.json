@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "evidence": "real-vertex-synthetic-code-doc-conflict",
+  "generatedAt": "2026-10-20T14:00:26Z",
+  "sourceCommit": "426dd535c3acf2c9ed6221b5134773184462faa7",
+  "command": "ACE_VERTEX_SYNTHETIC_RETRIEVAL_ACK=true ACE_VERTEX_PROJECT=poetic-emblem-494722-v2 ACE_VERTEX_LOCATION=europe-west4 ACE_VERTEX_CORPUS_ID=2305843009213693952 npm run test:real-vertex-conflict -- benchmarks/fixtures/vertex-docs/adr-vertex-conflict-v1.md benchmarks/fixtures/vertex-code/current-policy.ts artifacts/vertex-synthetic-conflict/current-e2e.json",
+  "resource": {
+    "project": "poetic-emblem-494722-v2",
+    "location": "europe-west4",
+    "corpusId": "2305843009213693952",
+    "displayName": "ace-europe-stage2"
+  },
+  "policy": {
+    "cloudOptIn": true,
+    "provider": "vertex",
+    "dataClass": "project_document",
+    "scope": "committed synthetic fixture only"
+  },
+  "fixture": {
+    "documentationPath": "benchmarks/fixtures/vertex-docs/adr-vertex-conflict-v1.md",
+    "documentationSha256": "3cd053d4637e0ef64da8dd7cf50654a7f7c036bdaffee99bab133074efd8b05b",
+    "versionMarker": "vertex-conflict-v1",
+    "codePath": "benchmarks/fixtures/vertex-code/current-policy.ts",
+    "codeSha256": "cc2636f8427308061c06e93267fec0f6832a6d20c41e343d1638b4cef58091f0"
+  },
+  "observations": {
+    "policyGate": "PASS",
+    "providerInvocation": "PASS",
+    "providerResponseShape": "PASS",
+    "matchingFixtureRetrieved": "FAIL",
+    "citationContract": "NOT_PROVEN",
+    "versionContract": "NOT_PROVEN",
+    "privateDataUploaded": false,
+    "fixtureImportAttempted": false
+  },
+  "status": "BLOCKED",
+  "blocker": "Vertex retrieveContexts returned no cited context matching the committed vertex-conflict-v1 fixture. The existing corpus is not proven to contain the fixture.",
+  "nextStep": "Owner-authorize the synthetic/public fixture import destination and provide the configured gs://ace-vertex-synthetic prefix; then rerun import and this exact retrieval without sending private Codex sessions."
+}

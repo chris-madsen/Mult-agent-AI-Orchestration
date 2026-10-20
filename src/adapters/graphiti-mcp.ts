@@ -7,13 +7,17 @@ import { err, ok, type Result } from '../domain/result.js';
 import { authorizeOutbound, type ProjectDataPolicy } from '../domain/policy.js';
 import {
   projectionKey,
+  decisionConflictsAt,
+  decisionStatesForEpisode,
+  validateDecisionGraph,
+  type DecisionRecord,
   type EpisodeId,
   type MemorySearchHit,
   type MemorySearchResult,
   type ProjectionReceipt,
   type SessionEpisode,
 } from '../domain/memory.js';
-import type { GraphProjectionPort, GraphProjectionStatePort, MemorySearchPort, ProviderTraceSink } from '../application/ports.js';
+import type { DecisionHistoryPort, GraphProjectionPort, GraphProjectionStatePort, MemorySearchPort, ProviderTraceSink } from '../application/ports.js';
 import type { WorkspaceId } from '../domain/workspace.js';
 import type { AsyncMemoryArchivePort } from './file-memory-archive.js';
 import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
@@ -26,6 +30,7 @@ export interface GraphitiMcpOptions {
   readonly policy: ProjectDataPolicy;
   /** Required to expose provenance-safe memory search. */
   readonly archive?: AsyncMemoryArchivePort;
+  readonly decisionHistory?: DecisionHistoryPort;
   readonly trace?: ProviderTraceSink;
   readonly providerVersion?: string;
 }
@@ -43,6 +48,7 @@ const replyJsonObject = (reply: unknown): Result<Record<string, unknown>, Domain
     return err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti', 'Graphiti MCP tool result must be an object'));
   }
   const value = reply as { readonly structuredContent?: unknown; readonly content?: readonly unknown[]; readonly isError?: boolean };
+  if (value.isError === true) return errorResult('Graphiti returned an MCP tool failure');
   if (typeof value.structuredContent === 'object' && value.structuredContent !== null && !Array.isArray(value.structuredContent)) {
     return ok(value.structuredContent as Record<string, unknown>);
   }
@@ -58,9 +64,7 @@ const replyJsonObject = (reply: unknown): Result<Record<string, unknown>, Domain
       // are allowed for mutation tools but not for typed search responses.
     }
   }
-  return value.isError === true
-    ? errorResult('Graphiti returned an MCP tool failure')
-    : err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti', 'Graphiti MCP result did not contain typed JSON'));
+  return err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti', 'Graphiti MCP result did not contain typed JSON'));
 };
 
 const graphitiErrorText = (reply: unknown): string | undefined => {
@@ -246,7 +250,7 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
           if (granted._tag === 'Err') return granted;
           const reply = await client.callTool({
             name: 'search_memory_facts',
-            arguments: { query: input.query, group_ids: [options.groupId], max_facts: 50 },
+            arguments: { query: input.query, group_ids: [options.groupId], max_facts: 1000 },
           });
           const parsed = parseGraphitiFactSearchReply(reply);
           if (parsed._tag === 'Err') return parsed;
@@ -279,17 +283,35 @@ export const makeGraphitiMcpPort = async (options: GraphitiMcpOptions): Promise<
               excerpts.set(episode.episodeId, existing);
             }
           }
+          let decisions: readonly DecisionRecord[] = [];
+          if (options.decisionHistory !== undefined) {
+            const loaded = await Effect.runPromise(options.decisionHistory.list(input.workspaceId));
+            if (loaded._tag === 'Err') return loaded;
+            const valid = validateDecisionGraph(loaded.value);
+            if (valid._tag === 'Err') return valid;
+            decisions = loaded.value;
+          }
           const hits: MemorySearchHit[] = [...excerpts.values()]
             .sort((left, right) => right.episode.occurredAtMs - left.episode.occurredAtMs)
-            .map(({ episode, facts }) => ({
-              episode: stripOriginal(episode, input.includeOriginal),
-              matchingExcerpt: facts.join('\n'),
-              decisionStates: [],
-            }));
+            .map(({ episode, facts }) => {
+              const decisionStates = decisionStatesForEpisode(episode.episodeId, episode.workspaceId, input.asOfMs, decisions);
+              const singleDecisionState = decisionStates.length === 1 ? decisionStates[0]?.state : undefined;
+              return {
+                episode: stripOriginal(episode, input.includeOriginal),
+                matchingExcerpt: facts.join('\n'),
+                decisionStates,
+                ...(singleDecisionState === undefined ? {} : { decisionState: singleDecisionState }),
+                ...(decisionStates.some((decision) => decision.historicalUncertainty) ? { historicalUncertainty: true } : {}),
+              };
+            });
           return ok({
             hits,
-            conflicts: [],
-            ...(input.asOfMs === undefined ? {} : { asOfMs: input.asOfMs }),
+            conflicts: decisionConflictsAt(decisions, input.asOfMs),
+            ...(input.asOfMs === undefined ? {} : {
+              asOfMs: input.asOfMs,
+              temporalSemantics: 'valid_time_occurred_at' as const,
+            }),
+            evidenceCompleteness: 'provider_bounded_top_k' as const,
           });
         },
         catch: () => domainError('EXTERNAL_UNAVAILABLE', 'graphiti', 'Graphiti memory search failed'),

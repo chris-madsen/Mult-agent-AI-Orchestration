@@ -83,6 +83,8 @@ export interface MemorySearchResult {
   readonly asOfMs?: number;
   /** `as_of` is domain valid time, not archive/import transaction time. */
   readonly temporalSemantics?: 'valid_time_occurred_at';
+  /** Provider-backed search may be bounded; callers must not infer full recall. */
+  readonly evidenceCompleteness?: 'provider_bounded_top_k';
 }
 
 const nonEmpty = (value: string): boolean => value.trim().length > 0;
@@ -374,6 +376,40 @@ export const decisionStateAt = (
   return { state, historicalUncertainty: false };
 };
 
+export const decisionStatesForEpisode = (
+  episodeId: EpisodeId,
+  workspaceId: WorkspaceId,
+  asOfMs: number | undefined,
+  decisions: readonly DecisionRecord[],
+): readonly MemoryDecisionState[] => decisions
+  .filter((candidate) => candidate.workspaceId === workspaceId && candidate.sourceEpisodeIds.includes(episodeId))
+  .map((decision) => ({ decision, state: decisionStateAt(decision, asOfMs) }))
+  .filter(({ state }) => state.state !== undefined || state.historicalUncertainty)
+  .sort((left, right) => left.decision.decisionId.localeCompare(right.decision.decisionId))
+  .map(({ decision, state }) => ({
+    decisionId: decision.decisionId,
+    subject: decision.subject,
+    proposal: decision.proposal,
+    ...(state.state === undefined ? {} : { state: state.state }),
+    historicalUncertainty: state.historicalUncertainty,
+  }));
+
+export const decisionConflictsAt = (
+  decisions: readonly DecisionRecord[],
+  asOfMs: number | undefined,
+): readonly string[] => {
+  const effective = decisions
+    .map((decision) => ({ decision, state: decisionStateAt(decision, asOfMs) }))
+    .filter((item) => item.state.state === 'Accepted');
+  return [...new Set(effective
+    .filter(({ decision }) => effective.some(({ decision: other }) =>
+      other.decisionId !== decision.decisionId
+      && other.workspaceId === decision.workspaceId
+      && other.subject === decision.subject
+      && other.proposal !== decision.proposal))
+    .map(({ decision }) => `conflicting accepted decisions for ${decision.subject}: ${decision.decisionId}`))];
+};
+
 export const validateDecisionGraph = (decisions: readonly DecisionRecord[]): Result<void, DomainError> => {
   const byId = new Map(decisions.map((decision) => [decision.decisionId, decision]));
   for (const decision of decisions) {
@@ -436,21 +472,7 @@ export const searchMemory = (
     .filter((item) => item.matches.length > 0)
     .sort((left, right) => right.matches.length - left.matches.length || right.episode.occurredAtMs - left.episode.occurredAtMs)
     .map(({ episode, matches }) => {
-      const decisionStates = decisions
-        .filter((candidate) => candidate.workspaceId === episode.workspaceId
-          && candidate.sourceEpisodeIds.includes(episode.episodeId))
-        .map((decision) => ({ decision, state: decisionStateAt(decision, asOfMs) }))
-        // A decision that is not valid yet must not appear as a current state.
-        // Legacy records remain visible as explicitly uncertain evidence.
-        .filter(({ state }) => state.state !== undefined || state.historicalUncertainty)
-        .sort((left, right) => left.decision.decisionId.localeCompare(right.decision.decisionId))
-        .map(({ decision, state }) => ({
-          decisionId: decision.decisionId,
-          subject: decision.subject,
-          proposal: decision.proposal,
-          ...(state.state === undefined ? {} : { state: state.state }),
-          historicalUncertainty: state.historicalUncertainty,
-        }));
+      const decisionStates = decisionStatesForEpisode(episode.episodeId, episode.workspaceId, asOfMs, decisions);
       const singleDecisionState = decisionStates.length === 1 ? decisionStates[0]?.state : undefined;
       return {
         episode,
@@ -462,19 +484,9 @@ export const searchMemory = (
           : {}),
       };
     });
-  const effective = decisions
-    .map((decision) => ({ decision, state: decisionStateAt(decision, asOfMs) }))
-    .filter((item) => item.state.state === 'Accepted');
-  const conflicts = effective
-    .filter(({ decision }) => effective.some(({ decision: other }) =>
-      other.decisionId !== decision.decisionId
-      && other.workspaceId === decision.workspaceId
-      && other.subject === decision.subject
-      && other.proposal !== decision.proposal))
-    .map(({ decision }) => `conflicting accepted decisions for ${decision.subject}: ${decision.decisionId}`);
   return {
     hits,
-    conflicts: [...new Set(conflicts)],
+    conflicts: decisionConflictsAt(decisions, asOfMs),
     ...(asOfMs === undefined ? {} : { asOfMs, temporalSemantics: 'valid_time_occurred_at' as const }),
   };
 };

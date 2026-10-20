@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import test from 'node:test';
 import {
   codeOnlyRequiredDbcs,
@@ -160,31 +164,86 @@ const baseInput = () => ({
     records: dbcRecords(),
   },
   embeddingSelection: {
-    verdict: { status: 'PRODUCTION_APPROVED', productionApproved: true, selectedProvider: 'fastembed/onnx' },
-  },
-  semanticSelection: {
+    schemaVersion: 1,
+    sourceCommit: commit,
+    reportSha256: digest,
+    policySha256: digest,
+    evidenceStage: 'frozen_holdout',
+    dataset: 'release-fixture',
+    datasetSha256: digest,
     verdict: {
       status: 'PRODUCTION_APPROVED',
       productionApproved: true,
+      measurementAccepted: true,
+      selectedProvider: 'fastembed/onnx',
+      failures: [],
+    },
+  },
+  semanticSelection: {
+    schemaVersion: 1,
+    sourceCommit: commit,
+    policySha256: digest,
+    fixtureSha256: digest,
+    oracleSha256: digest,
+    reports: [{ path: 'semantic-a.json', sha256: digest }, { path: 'semantic-b.json', sha256: digest }],
+    providerIds: ['serena', 'typescript-language-service'],
+    verdict: {
+      status: 'PRODUCTION_APPROVED',
+      productionApproved: true,
+      measurementAccepted: true,
+      matchedComparison: true,
       selectedProvider: 'typescript-language-service',
+      failures: [],
     },
   },
   retrievalQuality: {
+    schemaVersion: 1,
+    sourceCommit: commit,
+    holdoutSha256: digest,
+    runSha256: digest,
+    policySha256: digest,
     verdict: {
       measurementAccepted: true,
-      metrics: { holdoutStatus: 'frozen_holdout' },
+      selectedStrategy: 'hybrid',
+      failures: [],
+      metrics: {
+        holdoutStatus: 'frozen_holdout',
+        strategy: 'hybrid',
+        cases: 3,
+        recallAt1: 1,
+        recallAt3: 1,
+        recallAt5: 1,
+        mrr: 1,
+        ndcgAt5: 1,
+      },
     },
   },
   resourceBudget,
   runtimeConfig: runtimeConfig(),
   harborThreeArm: {
+    schemaVersion: 1,
+    sourceCommit: commit,
     outcome: {
+      forcedArm: 'diagnostic-only',
       productionAcceptance: 'measured-not-necessarily-5x',
       naturalUse: 'observed_complete',
       naturalQualityNonInferior: true,
       naturalProviderCorrelationVerified: true,
       costTelemetryComplete: true,
+      nativeTrials: 9,
+      naturalTrials: 9,
+      forcedTrials: 9,
+      naturalRawTokenRatioAceOverNative: 0.8,
+      forcedRawTokenRatioAceOverNative: 0.9,
     },
+    execution_identity: {
+      native_job_sha256: digest,
+      natural_job_sha256: digest,
+      forced_job_sha256: digest,
+      design_fingerprint: digest,
+      task_paths: ['task-a', 'task-b', 'task-c'],
+    },
+    source_reports: { natural_sha256: digest, forced_sha256: digest },
   },
   externalEvidence: [supplyChain],
   ownerApproval: {
@@ -383,5 +442,59 @@ test('code-only release blocks docs/memory/cloud scope or provider drift in runt
   if (providerMismatch._tag === 'Ok') {
     assert.equal(providerMismatch.value.status, 'BLOCKED');
     assert.ok(providerMismatch.value.failures.includes('runtime_embedding_provider_mismatch'));
+  }
+});
+
+test('code-only release also hashes binary DBC artifacts without JSON parsing', async () => {
+  const root = await mkdtemp(join(process.cwd(), '.tmp-code-release-preflight-'));
+  try {
+    const binaryPath = join(root, 'dbc-evidence.bin');
+    const binary = Buffer.from([9, 8, 7, 0, 255]);
+    await writeFile(binaryPath, binary);
+    const emptyPath = join(root, 'empty.json');
+    await writeFile(emptyPath, '{}\n', 'utf8');
+    const current = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const policyPath = join(root, 'policy.json');
+    const outputPath = join(root, 'output.json');
+    await writeFile(policyPath, JSON.stringify({
+      schemaVersion: 1,
+      scope: 'code-only',
+      deployment: 'host',
+      ownerApproval: { status: 'pending', releaseCommit: current, reference: 'test-only', approvedCapabilities: [] },
+      artifacts: {
+        dbc: join(root, 'dbc.json'),
+        embeddingSelection: emptyPath,
+        semanticSelection: emptyPath,
+        retrievalQuality: emptyPath,
+        harborThreeArm: emptyPath,
+        resourceBudget: emptyPath,
+        runtimeConfig: emptyPath,
+      },
+      externalEvidence: [],
+    }, null, 2), 'utf8');
+    await writeFile(join(root, 'dbc.json'), JSON.stringify({
+      schemaVersion: 1,
+      generatedAt: '2026-10-20T00:00:00.000Z',
+      records: [{
+        dbcId: 'DBC-01',
+        verdict: 'PASS',
+        sourceCommit: current,
+        fixtureSha256: 'a'.repeat(64),
+        command: 'test',
+        toolVersions: { node: '22' },
+        credentialScope: 'test-only',
+        requestIds: [],
+        artifacts: [{ path: binaryPath, sha256: createHash('sha256').update(binary).digest('hex'), kind: 'binary' }],
+        observed: ['binary retained'],
+      }],
+    }, null, 2), 'utf8');
+    execFileSync(process.execPath, ['--import', 'tsx', 'scripts/code-release-preflight.ts', policyPath, outputPath], {
+      cwd: process.cwd(),
+      stdio: 'pipe',
+    });
+    const output = JSON.parse(await (await import('node:fs/promises')).readFile(outputPath, 'utf8')) as { verdict?: { status?: string } };
+    assert.equal(output.verdict?.status, 'BLOCKED');
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });

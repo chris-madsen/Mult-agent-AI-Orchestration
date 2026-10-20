@@ -303,6 +303,18 @@ const report = {
   providerCorrelationVerified,
   providerReceiptsVerified: receiptGate && providerCorrelationVerified,
   costScope: 'codex-reported-usage-only; local infrastructure cost unmeasured',
+  costTelemetry: {
+    status: 'unknown',
+    scope: 'codex-reported-usage-only',
+    components: {
+      modelUsd: ace.costUsd,
+      embeddingUsd: null,
+      retrievalUsd: null,
+      indexingUsd: null,
+      infrastructureUsd: null,
+    },
+    totalUsd: null,
+  },
   rawTotalTokens: { native: native.rawTotalTokens, ace: ace.rawTotalTokens },
   uncachedInputTokens: {
     native: native.inputTokens === null || native.cachedInputTokens === null ? null : native.inputTokens - native.cachedInputTokens,

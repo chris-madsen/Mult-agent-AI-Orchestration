@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "status": "supply-chain-incomplete",
+  "sourceCommit": "6dea417b302d00a41dc1bb137430c97b6d74663f",
+  "generatedAt": "2026-10-20T12:49:58.265Z",
+  "commands": [
+    "npm sbom --package-lock-only --omit=dev --sbom-format cyclonedx",
+    "npm audit --omit=dev --audit-level=high --json"
+  ],
+  "artifacts": {
+    "sbom": {
+      "path": "benchmarks/reports/npm-sbom-production-current-2026-10-20.cdx.json",
+      "sha256": "d2fdbd79309bb4d860c7137ac4d5f7c63a8cd30002361c010e238ea53d198e1e"
+    },
+    "productionAudit": {
+      "path": "benchmarks/reports/npm-audit-production-current-2026-10-20.json",
+      "sha256": "fd2f715fb31baabe2b5b040cc1c0c3fb9d17c4dd497f83deae88df16ec9f8a49"
+    },
+    "packageLock": {
+      "path": "package-lock.json",
+      "sha256": "5cecb852548c5edc662be171bcc50da3e43c6ffde22b3a51eea791a32452a0f7"
+    }
+  },
+  "audit": {
+    "exitCode": 0,
+    "high": 0,
+    "critical": 0,
+    "total": 0
+  },
+  "blockers": [
+    "No real immutable container image build digest and signed provenance attestation retained for this commit.",
+    "No independent license review tied to this exact SBOM and commit is available."
+  ],
+  "note": "This report is not supply-chain-provenance evidence and must not satisfy release preflight."
+}

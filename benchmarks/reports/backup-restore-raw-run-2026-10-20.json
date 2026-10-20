@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "cd245e098a577973c3ab9d167da1252d6e037d01",
+  "generatedAt": "2026-10-20T11:57:13.783Z",
+  "environment": {
+    "aceVersion": "0.1.0",
+    "qdrantVersion": "qdrant-1.19.2-running-but-not-restored",
+    "graphitiVersion": "unavailable-local-mcp-command",
+    "falkorDbVersion": "falkordb-running-no-restore-run",
+    "deployment": "host-local-synthetic-roundtrip"
+  },
+  "checks": [
+    {
+      "id": "OPS-01",
+      "verdict": "PASS",
+      "command": "ACE_MEMORY_BACKUP_ACK_QUIESCED=true npm run memory:backup -- backup <source> <bundle>; npm run memory:backup -- verify <bundle>; ACE_MEMORY_BACKUP_ACK_QUIESCED=true npm run memory:backup -- restore <bundle> <restore>; cmp source restore",
+      "observed": [
+        "backup=BACKUP_CREATED",
+        "verify=VERIFIED",
+        "restore=RESTORED",
+        "two files byte-identical after restore",
+        "manifest contentSha256=00e5100779d8f057704570c5f668cb2ebca3e1bdc6df1eb374c878cf86c84957"
+      ],
+      "artifacts": [
+        {
+          "path": "benchmarks/reports/operations-local-memory-roundtrip-2026-10-20.json",
+          "sha256": "dd2837210f9b39e3a131fbb34a5e7e74f9036501c5434706cb4d26611d7507bc",
+          "kind": "synthetic local archive backup/verify/restore receipt"
+        }
+      ]
+    },
+    {
+      "id": "OPS-02",
+      "verdict": "BLOCKED",
+      "observed": [],
+      "artifacts": [],
+      "limitation": "No supported local Graphiti MCP command and no approved Graphiti/FalkorDB backup/restore capture are available in this environment."
+    },
+    {
+      "id": "OPS-03",
+      "verdict": "BLOCKED",
+      "observed": [],
+      "artifacts": [],
+      "limitation": "Qdrant is running, but no retained Qdrant/PVC restore run was executed; snapshot lifecycle evidence is not a backup/restore proof."
+    },
+    {
+      "id": "OPS-04",
+      "verdict": "BLOCKED",
+      "observed": [],
+      "artifacts": [],
+      "limitation": "Provider restart reconciliation after restore requires the unavailable Graphiti lifecycle and restored provider state."
+    },
+    {
+      "id": "OPS-05",
+      "verdict": "BLOCKED",
+      "observed": [],
+      "artifacts": [],
+      "limitation": "Retention/deletion after a full provider restore was not run; synthetic archive round-trip alone cannot prove derived survivor/tombstone behavior."
+    },
+    {
+      "id": "OPS-06",
+      "verdict": "PASS",
+      "command": "restoreLocalMemoryBackup(<isolated-bundle>, <isolated-restore>) followed by exact file comparison",
+      "observed": [
+        "restore destination was isolated from source and bundle",
+        "user worktree was not used as restore destination",
+        "source and restored fixture files remained byte-identical"
+      ],
+      "artifacts": [
+        {
+          "path": "benchmarks/reports/operations-local-memory-roundtrip-2026-10-20.json",
+          "sha256": "dd2837210f9b39e3a131fbb34a5e7e74f9036501c5434706cb4d26611d7507bc",
+          "kind": "isolated restore safety receipt"
+        }
+      ]
+    }
+  ]
+}

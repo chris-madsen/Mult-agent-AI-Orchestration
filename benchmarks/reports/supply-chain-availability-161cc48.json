@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "status": "supply-chain-incomplete",
+  "sourceCommit": "161cc480bc91757df0f7c31340dbbc3774c61751",
+  "generatedAt": "2026-10-20T14:16:14.872372Z",
+  "commands": [
+    "npm sbom --package-lock-only --omit=dev --sbom-format cyclonedx",
+    "npm audit --omit=dev --audit-level=high --json"
+  ],
+  "artifacts": {
+    "sbom": {
+      "path": "/tmp/ace-sbom-161cc48.cdx.json",
+      "sha256": "86658c48b75f119ee30801eaf50ea25febac7a50e5890f1d6680efa6d04c9657"
+    },
+    "productionAudit": {
+      "path": "/tmp/ace-audit-161cc48.json",
+      "sha256": "fd2f715fb31baabe2b5b040cc1c0c3fb9d17c4dd497f83deae88df16ec9f8a49"
+    },
+    "packageLock": {
+      "path": "package-lock.json",
+      "sha256": "5cecb852548c5edc662be171bcc50da3e43c6ffde22b3a51eea791a32452a0f7"
+    }
+  },
+  "audit": {
+    "exitCode": 0,
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    }
+  },
+  "blockers": [
+    "No immutable ACE container image build digest and signed provenance attestation is retained for this exact commit.",
+    "No independent license review tied to this exact SBOM and commit is available."
+  ],
+  "statusReason": "npm dependency audit is clean, but audit/SBOM availability is not supply-chain provenance evidence.",
+  "note": "No credentials or source/session content are retained. The temporary /tmp files are not release artifacts and are removed after this receipt is written."
+}

@@ -1,0 +1,831 @@
+{
+  "status": "comparison-complete",
+  "evidence_stage": "development_spike",
+  "production_approved": false,
+  "source_commit": "20bab66ff4e3455922a9a5f6b0e7c3eb166c6f61",
+  "command": "npm run compare:embeddings",
+  "selection_policy": [
+    "recall_at_5",
+    "ndcg_at_5",
+    "mrr",
+    "recall_at_3",
+    "recall_at_1",
+    "query_ms_p95",
+    "model_load_ms",
+    "max_rss_bytes",
+    "provider_name"
+  ],
+  "dataset": "benchmarks/retrieval/embedding-provider-comparison-labels.json",
+  "dataset_sha256": "e54d6ee835faaf7d597e0e44f7f4ac00f254f29043a4054c35edd577b95301a5",
+  "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+  "candidates": [
+    {
+      "provider": "fastembed/onnx",
+      "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+      "revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+      "dimensions": 384,
+      "case_count": 9,
+      "dataset_sha256": "e54d6ee835faaf7d597e0e44f7f4ac00f254f29043a4054c35edd577b95301a5",
+      "index_ms": 174.22898599761538,
+      "index_candidates_per_second": 80.35402329777442,
+      "query_ms_median": 6.583283000509255,
+      "query_ms_p95": 7.728279000730254,
+      "query_ms_max": 7.728279000730254,
+      "recall_at_1": 0.6666666666666666,
+      "recall_at_3": 0.8888888888888888,
+      "recall_at_5": 1.0,
+      "mrr": 0.787037037037037,
+      "ndcg_at_5": 0.8401784790716501,
+      "results": [
+        {
+          "query": "persist a user record",
+          "relevant": "save-user",
+          "relevant_rank": 1,
+          "top1": "save-user",
+          "top3": [
+            "save-user",
+            "payments-retry",
+            "connections-retry"
+          ],
+          "top5": [
+            "save-user",
+            "payments-retry",
+            "connections-retry",
+            "payments-retry-limit",
+            "connections-retry-limit"
+          ],
+          "scores": [
+            [
+              "save-user",
+              0.46929552390126356
+            ],
+            [
+              "payments-retry",
+              0.2590179989837681
+            ],
+            [
+              "connections-retry",
+              0.24912348018691122
+            ],
+            [
+              "payments-retry-limit",
+              0.21999586793222184
+            ],
+            [
+              "connections-retry-limit",
+              0.20498108798653436
+            ]
+          ]
+        },
+        {
+          "query": "read current workspace file bytes",
+          "relevant": "read-exact",
+          "relevant_rank": 3,
+          "top1": "definition",
+          "top3": [
+            "definition",
+            "write-exact",
+            "read-exact"
+          ],
+          "top5": [
+            "definition",
+            "write-exact",
+            "read-exact",
+            "save-user",
+            "hash-content"
+          ],
+          "scores": [
+            [
+              "definition",
+              0.4960263154156566
+            ],
+            [
+              "write-exact",
+              0.38334961009071916
+            ],
+            [
+              "read-exact",
+              0.32546904174131563
+            ],
+            [
+              "save-user",
+              0.2873040777261458
+            ],
+            [
+              "hash-content",
+              0.2457911098401874
+            ]
+          ]
+        },
+        {
+          "query": "remove an old graph episode",
+          "relevant": "remove-episode",
+          "relevant_rank": 1,
+          "top1": "remove-episode",
+          "top3": [
+            "remove-episode",
+            "add-episode",
+            "delete-user"
+          ],
+          "top5": [
+            "remove-episode",
+            "add-episode",
+            "delete-user",
+            "search-memory",
+            "save-user"
+          ],
+          "scores": [
+            [
+              "remove-episode",
+              0.2912736439270782
+            ],
+            [
+              "add-episode",
+              0.1525312342813499
+            ],
+            [
+              "delete-user",
+              0.1444974962035495
+            ],
+            [
+              "search-memory",
+              0.136759579622351
+            ],
+            [
+              "save-user",
+              0.007372065965621646
+            ]
+          ]
+        },
+        {
+          "query": "получить текущие байты файла рабочей директории",
+          "relevant": "read-exact",
+          "relevant_rank": 4,
+          "top1": "definition",
+          "top3": [
+            "definition",
+            "save-user",
+            "write-exact"
+          ],
+          "top5": [
+            "definition",
+            "save-user",
+            "write-exact",
+            "read-exact",
+            "hash-content"
+          ],
+          "scores": [
+            [
+              "definition",
+              0.3500608763414792
+            ],
+            [
+              "save-user",
+              0.3079494039513589
+            ],
+            [
+              "write-exact",
+              0.28052138283720657
+            ],
+            [
+              "read-exact",
+              0.21788146470450753
+            ],
+            [
+              "hash-content",
+              0.19336356687639997
+            ]
+          ]
+        },
+        {
+          "query": "удалить старый эпизод графа",
+          "relevant": "remove-episode",
+          "relevant_rank": 1,
+          "top1": "remove-episode",
+          "top3": [
+            "remove-episode",
+            "delete-user",
+            "add-episode"
+          ],
+          "top5": [
+            "remove-episode",
+            "delete-user",
+            "add-episode",
+            "search-memory",
+            "save-user"
+          ],
+          "scores": [
+            [
+              "remove-episode",
+              0.30215801015041005
+            ],
+            [
+              "delete-user",
+              0.18541505121120846
+            ],
+            [
+              "add-episode",
+              0.1303975468580204
+            ],
+            [
+              "search-memory",
+              0.12034036900015584
+            ],
+            [
+              "save-user",
+              0.059071181717408515
+            ]
+          ]
+        },
+        {
+          "query": "find the retry limit that prevents duplicate charges",
+          "relevant": "payments-retry-limit",
+          "relevant_rank": 1,
+          "top1": "payments-retry-limit",
+          "top3": [
+            "payments-retry-limit",
+            "connections-retry-limit",
+            "connections-retry"
+          ],
+          "top5": [
+            "payments-retry-limit",
+            "connections-retry-limit",
+            "connections-retry",
+            "payments-retry",
+            "search-memory"
+          ],
+          "scores": [
+            [
+              "payments-retry-limit",
+              0.5457359028628088
+            ],
+            [
+              "connections-retry-limit",
+              0.2111218137087085
+            ],
+            [
+              "connections-retry",
+              0.18908042834119557
+            ],
+            [
+              "payments-retry",
+              0.18093050577795022
+            ],
+            [
+              "search-memory",
+              0.08791811301190043
+            ]
+          ]
+        },
+        {
+          "query": "retry a failed payment after gateway timeout",
+          "relevant": "payments-retry",
+          "relevant_rank": 1,
+          "top1": "payments-retry",
+          "top3": [
+            "payments-retry",
+            "payments-retry-limit",
+            "connections-retry-limit"
+          ],
+          "top5": [
+            "payments-retry",
+            "payments-retry-limit",
+            "connections-retry-limit",
+            "connections-retry",
+            "read-exact"
+          ],
+          "scores": [
+            [
+              "payments-retry",
+              0.596842365909007
+            ],
+            [
+              "payments-retry-limit",
+              0.5590617456631214
+            ],
+            [
+              "connections-retry-limit",
+              0.4909192856501622
+            ],
+            [
+              "connections-retry",
+              0.4556731156607515
+            ],
+            [
+              "read-exact",
+              0.20815751965494012
+            ]
+          ]
+        },
+        {
+          "query": "where is the workspace file written",
+          "relevant": "write-exact",
+          "relevant_rank": 2,
+          "top1": "definition",
+          "top3": [
+            "definition",
+            "write-exact",
+            "read-exact"
+          ],
+          "top5": [
+            "definition",
+            "write-exact",
+            "read-exact",
+            "save-user",
+            "connections-retry-limit"
+          ],
+          "scores": [
+            [
+              "definition",
+              0.4865066112644767
+            ],
+            [
+              "write-exact",
+              0.26380767501293423
+            ],
+            [
+              "read-exact",
+              0.18489750088859266
+            ],
+            [
+              "save-user",
+              0.14104111100798242
+            ],
+            [
+              "connections-retry-limit",
+              0.1069923378194154
+            ]
+          ]
+        },
+        {
+          "query": "locate the function that parses a user payload",
+          "relevant": "parse-user",
+          "relevant_rank": 1,
+          "top1": "parse-user",
+          "top3": [
+            "parse-user",
+            "search-memory",
+            "payments-retry"
+          ],
+          "top5": [
+            "parse-user",
+            "search-memory",
+            "payments-retry",
+            "delete-user",
+            "read-exact"
+          ],
+          "scores": [
+            [
+              "parse-user",
+              0.4406124758484022
+            ],
+            [
+              "search-memory",
+              0.39941200228864404
+            ],
+            [
+              "payments-retry",
+              0.3485178204960104
+            ],
+            [
+              "delete-user",
+              0.3319625898021042
+            ],
+            [
+              "read-exact",
+              0.3218531245999758
+            ]
+          ]
+        }
+      ],
+      "artifact": {
+        "model_id": "qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q",
+        "revision": "faf4aa4225822f3bc6376869cb1164e8e3feedd0",
+        "snapshot": ".cache/ace-fastembed/models--qdrant--paraphrase-multilingual-MiniLM-L12-v2-onnx-Q/snapshots/faf4aa4225822f3bc6376869cb1164e8e3feedd0",
+        "tree_sha256": "4bb74885d054d77b15c33520114d7edc19c31699bdab813d893e4f58c3afb4a1",
+        "file_count": 5,
+        "total_bytes": 252138706
+      },
+      "source_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+      "similarity": "cosine-normalized-at-scoring",
+      "preprocessing": "raw_text_v1; no provider-side normalization",
+      "runtime": {
+        "python": "3.13.11",
+        "fastembed": "0.7.4",
+        "onnxruntime": "1.31.0",
+        "numpy": "2.5.4",
+        "preprocessing": "raw_text_v1; fastembed model defaults"
+      },
+      "model_load_ms": 1507.3915300017688,
+      "max_rss_bytes": 696176640,
+      "status": "success",
+      "wall_ms": 3840.147473005345
+    },
+    {
+      "provider": "sentence-transformers/pytorch",
+      "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+      "revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+      "dimensions": 384,
+      "case_count": 9,
+      "dataset_sha256": "e54d6ee835faaf7d597e0e44f7f4ac00f254f29043a4054c35edd577b95301a5",
+      "index_ms": 180.90488700545393,
+      "index_candidates_per_second": 77.38873300630031,
+      "query_ms_median": 19.595648991526105,
+      "query_ms_p95": 21.423372003482655,
+      "query_ms_max": 21.423372003482655,
+      "recall_at_1": 0.6666666666666666,
+      "recall_at_3": 0.8888888888888888,
+      "recall_at_5": 1.0,
+      "mrr": 0.787037037037037,
+      "ndcg_at_5": 0.8401784790716501,
+      "results": [
+        {
+          "query": "persist a user record",
+          "relevant": "save-user",
+          "relevant_rank": 1,
+          "top1": "save-user",
+          "top3": [
+            "save-user",
+            "payments-retry",
+            "connections-retry"
+          ],
+          "top5": [
+            "save-user",
+            "payments-retry",
+            "connections-retry",
+            "payments-retry-limit",
+            "connections-retry-limit"
+          ],
+          "scores": [
+            [
+              "save-user",
+              0.46983854258559027
+            ],
+            [
+              "payments-retry",
+              0.25941227121189175
+            ],
+            [
+              "connections-retry",
+              0.24935095985851652
+            ],
+            [
+              "payments-retry-limit",
+              0.2204816793586241
+            ],
+            [
+              "connections-retry-limit",
+              0.20529852926685382
+            ]
+          ]
+        },
+        {
+          "query": "read current workspace file bytes",
+          "relevant": "read-exact",
+          "relevant_rank": 3,
+          "top1": "definition",
+          "top3": [
+            "definition",
+            "write-exact",
+            "read-exact"
+          ],
+          "top5": [
+            "definition",
+            "write-exact",
+            "read-exact",
+            "save-user",
+            "hash-content"
+          ],
+          "scores": [
+            [
+              "definition",
+              0.49591495966760857
+            ],
+            [
+              "write-exact",
+              0.3834897181394605
+            ],
+            [
+              "read-exact",
+              0.3253618832443691
+            ],
+            [
+              "save-user",
+              0.28732410921371654
+            ],
+            [
+              "hash-content",
+              0.2458762636201605
+            ]
+          ]
+        },
+        {
+          "query": "remove an old graph episode",
+          "relevant": "remove-episode",
+          "relevant_rank": 1,
+          "top1": "remove-episode",
+          "top3": [
+            "remove-episode",
+            "add-episode",
+            "delete-user"
+          ],
+          "top5": [
+            "remove-episode",
+            "add-episode",
+            "delete-user",
+            "search-memory",
+            "save-user"
+          ],
+          "scores": [
+            [
+              "remove-episode",
+              0.29181826805474365
+            ],
+            [
+              "add-episode",
+              0.1530357384151022
+            ],
+            [
+              "delete-user",
+              0.14493170374200365
+            ],
+            [
+              "search-memory",
+              0.13727789723741818
+            ],
+            [
+              "save-user",
+              0.007820216227138757
+            ]
+          ]
+        },
+        {
+          "query": "получить текущие байты файла рабочей директории",
+          "relevant": "read-exact",
+          "relevant_rank": 4,
+          "top1": "definition",
+          "top3": [
+            "definition",
+            "save-user",
+            "write-exact"
+          ],
+          "top5": [
+            "definition",
+            "save-user",
+            "write-exact",
+            "read-exact",
+            "hash-content"
+          ],
+          "scores": [
+            [
+              "definition",
+              0.3499846527556951
+            ],
+            [
+              "save-user",
+              0.3082021486614751
+            ],
+            [
+              "write-exact",
+              0.2807646584826217
+            ],
+            [
+              "read-exact",
+              0.21828613669630034
+            ],
+            [
+              "hash-content",
+              0.1934814048254129
+            ]
+          ]
+        },
+        {
+          "query": "удалить старый эпизод графа",
+          "relevant": "remove-episode",
+          "relevant_rank": 1,
+          "top1": "remove-episode",
+          "top3": [
+            "remove-episode",
+            "delete-user",
+            "add-episode"
+          ],
+          "top5": [
+            "remove-episode",
+            "delete-user",
+            "add-episode",
+            "search-memory",
+            "save-user"
+          ],
+          "scores": [
+            [
+              "remove-episode",
+              0.30252343327680264
+            ],
+            [
+              "delete-user",
+              0.18566579793695118
+            ],
+            [
+              "add-episode",
+              0.130805185841548
+            ],
+            [
+              "search-memory",
+              0.12073636133456894
+            ],
+            [
+              "save-user",
+              0.05931545426847299
+            ]
+          ]
+        },
+        {
+          "query": "find the retry limit that prevents duplicate charges",
+          "relevant": "payments-retry-limit",
+          "relevant_rank": 1,
+          "top1": "payments-retry-limit",
+          "top3": [
+            "payments-retry-limit",
+            "connections-retry-limit",
+            "connections-retry"
+          ],
+          "top5": [
+            "payments-retry-limit",
+            "connections-retry-limit",
+            "connections-retry",
+            "payments-retry",
+            "search-memory"
+          ],
+          "scores": [
+            [
+              "payments-retry-limit",
+              0.5457864926840372
+            ],
+            [
+              "connections-retry-limit",
+              0.2108377043684288
+            ],
+            [
+              "connections-retry",
+              0.18899434182927152
+            ],
+            [
+              "payments-retry",
+              0.18066074750069788
+            ],
+            [
+              "search-memory",
+              0.08811073240890961
+            ]
+          ]
+        },
+        {
+          "query": "retry a failed payment after gateway timeout",
+          "relevant": "payments-retry",
+          "relevant_rank": 1,
+          "top1": "payments-retry",
+          "top3": [
+            "payments-retry",
+            "payments-retry-limit",
+            "connections-retry-limit"
+          ],
+          "top5": [
+            "payments-retry",
+            "payments-retry-limit",
+            "connections-retry-limit",
+            "connections-retry",
+            "read-exact"
+          ],
+          "scores": [
+            [
+              "payments-retry",
+              0.5975191344229426
+            ],
+            [
+              "payments-retry-limit",
+              0.5594346958595269
+            ],
+            [
+              "connections-retry-limit",
+              0.490963618303659
+            ],
+            [
+              "connections-retry",
+              0.4558883863360161
+            ],
+            [
+              "read-exact",
+              0.20817232151903536
+            ]
+          ]
+        },
+        {
+          "query": "where is the workspace file written",
+          "relevant": "write-exact",
+          "relevant_rank": 2,
+          "top1": "definition",
+          "top3": [
+            "definition",
+            "write-exact",
+            "read-exact"
+          ],
+          "top5": [
+            "definition",
+            "write-exact",
+            "read-exact",
+            "save-user",
+            "connections-retry-limit"
+          ],
+          "scores": [
+            [
+              "definition",
+              0.486338541314805
+            ],
+            [
+              "write-exact",
+              0.2639129006687031
+            ],
+            [
+              "read-exact",
+              0.18502148524045492
+            ],
+            [
+              "save-user",
+              0.14116763418909822
+            ],
+            [
+              "connections-retry-limit",
+              0.10687207323377192
+            ]
+          ]
+        },
+        {
+          "query": "locate the function that parses a user payload",
+          "relevant": "parse-user",
+          "relevant_rank": 1,
+          "top1": "parse-user",
+          "top3": [
+            "parse-user",
+            "search-memory",
+            "payments-retry"
+          ],
+          "top5": [
+            "parse-user",
+            "search-memory",
+            "payments-retry",
+            "delete-user",
+            "read-exact"
+          ],
+          "scores": [
+            [
+              "parse-user",
+              0.440189243885796
+            ],
+            [
+              "search-memory",
+              0.39919347941242167
+            ],
+            [
+              "payments-retry",
+              0.34840639095340775
+            ],
+            [
+              "delete-user",
+              0.3314405887067996
+            ],
+            [
+              "read-exact",
+              0.3217254152315615
+            ]
+          ]
+        }
+      ],
+      "artifact": {
+        "model_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+        "snapshot": ".cache/ace-embedding-eval/hub/models--sentence-transformers--paraphrase-multilingual-MiniLM-L12-v2/snapshots/e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+        "tree_sha256": "158d654c92d05bc1cd9996d46197de45bee615f20a06c4a99cb12efb21690088",
+        "file_count": 12,
+        "total_bytes": 499561295
+      },
+      "source_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+      "similarity": "cosine-normalized-at-scoring",
+      "preprocessing": "raw_text_v1; no provider-side normalization",
+      "runtime": {
+        "python": "3.13.11",
+        "sentence-transformers": "5.1.1",
+        "torch": "2.6.0+cpu",
+        "transformers": "4.57.6",
+        "numpy": "2.5.4",
+        "preprocessing": "raw_text_v1; normalize_embeddings=false"
+      },
+      "model_load_ms": 1200.9559859870933,
+      "max_rss_bytes": 834732032,
+      "status": "success",
+      "wall_ms": 11297.477743995842
+    }
+  ],
+  "winner": "fastembed/onnx",
+  "winner_meaning": "best measured candidate on this development fixture only; not production approval"
+}

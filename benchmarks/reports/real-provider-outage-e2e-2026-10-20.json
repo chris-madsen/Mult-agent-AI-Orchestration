@@ -1,0 +1,14 @@
+{
+  "status": "provider-partial-is-honest",
+  "outage": true,
+  "complete": false,
+  "warnings": [
+    "Qdrant unavailable: EXTERNAL_UNAVAILABLE",
+    "Local lexical fallback is not a production Qdrant + semantic retrieval implementation"
+  ],
+  "partial_sources": [
+    "code"
+  ],
+  "sourceCommit": "bc54f9a3488f12e7907d902441f172372f642946",
+  "command": "npm run test:real-provider-outage"
+}

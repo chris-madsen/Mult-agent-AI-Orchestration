@@ -152,7 +152,7 @@ export const runGraphitiLifecycleGate = async (
     input.projection,
     input.projectionState,
     input.episode.episodeId,
-    { verificationAttempts: attempts, verificationDelayMs: delayMs },
+    { verificationAttempts: attempts, verificationDelayMs: delayMs, deletionFence: input.outbox },
   ));
   if (deleted._tag === 'Err') return deleted;
 

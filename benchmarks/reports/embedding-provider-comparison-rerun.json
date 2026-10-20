@@ -1,6 +1,13 @@
 {
   "status": "comparison-complete",
+  "evidence_stage": "development_spike",
+  "production_approved": false,
+  "source_commit": "33e31b8c53c582beba0f3b8f268cb5fc8a35f841",
+  "command": "npm run compare:embeddings",
   "selection_policy": [
+    "recall_at_5",
+    "ndcg_at_5",
+    "mrr",
     "recall_at_3",
     "recall_at_1",
     "query_ms_p95",
@@ -9,6 +16,7 @@
     "provider_name"
   ],
   "dataset": "benchmarks/retrieval/embedding-provider-comparison-labels.json",
+  "dataset_sha256": "e54d6ee835faaf7d597e0e44f7f4ac00f254f29043a4054c35edd577b95301a5",
   "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
   "revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
   "candidates": [
@@ -18,21 +26,34 @@
       "revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
       "dimensions": 384,
       "case_count": 9,
-      "index_ms": 168.09746700164396,
-      "query_ms_median": 6.697361000988167,
-      "query_ms_p95": 9.941364005499054,
-      "query_ms_max": 9.941364005499054,
+      "dataset_sha256": "e54d6ee835faaf7d597e0e44f7f4ac00f254f29043a4054c35edd577b95301a5",
+      "index_ms": 178.901749997749,
+      "index_candidates_per_second": 78.25524345164959,
+      "query_ms_median": 6.7118090082658455,
+      "query_ms_p95": 7.959370006574318,
+      "query_ms_max": 7.959370006574318,
       "recall_at_1": 0.6666666666666666,
       "recall_at_3": 0.8888888888888888,
+      "recall_at_5": 1.0,
+      "mrr": 0.787037037037037,
+      "ndcg_at_5": 0.8401784790716501,
       "results": [
         {
           "query": "persist a user record",
           "relevant": "save-user",
+          "relevant_rank": 1,
           "top1": "save-user",
           "top3": [
             "save-user",
             "payments-retry",
             "connections-retry"
+          ],
+          "top5": [
+            "save-user",
+            "payments-retry",
+            "connections-retry",
+            "payments-retry-limit",
+            "connections-retry-limit"
           ],
           "scores": [
             [
@@ -60,11 +81,19 @@
         {
           "query": "read current workspace file bytes",
           "relevant": "read-exact",
+          "relevant_rank": 3,
           "top1": "definition",
           "top3": [
             "definition",
             "write-exact",
             "read-exact"
+          ],
+          "top5": [
+            "definition",
+            "write-exact",
+            "read-exact",
+            "save-user",
+            "hash-content"
           ],
           "scores": [
             [
@@ -92,11 +121,19 @@
         {
           "query": "remove an old graph episode",
           "relevant": "remove-episode",
+          "relevant_rank": 1,
           "top1": "remove-episode",
           "top3": [
             "remove-episode",
             "add-episode",
             "delete-user"
+          ],
+          "top5": [
+            "remove-episode",
+            "add-episode",
+            "delete-user",
+            "search-memory",
+            "save-user"
           ],
           "scores": [
             [
@@ -124,11 +161,19 @@
         {
           "query": "получить текущие байты файла рабочей директории",
           "relevant": "read-exact",
+          "relevant_rank": 4,
           "top1": "definition",
           "top3": [
             "definition",
             "save-user",
             "write-exact"
+          ],
+          "top5": [
+            "definition",
+            "save-user",
+            "write-exact",
+            "read-exact",
+            "hash-content"
           ],
           "scores": [
             [
@@ -156,11 +201,19 @@
         {
           "query": "удалить старый эпизод графа",
           "relevant": "remove-episode",
+          "relevant_rank": 1,
           "top1": "remove-episode",
           "top3": [
             "remove-episode",
             "delete-user",
             "add-episode"
+          ],
+          "top5": [
+            "remove-episode",
+            "delete-user",
+            "add-episode",
+            "search-memory",
+            "save-user"
           ],
           "scores": [
             [
@@ -188,11 +241,19 @@
         {
           "query": "find the retry limit that prevents duplicate charges",
           "relevant": "payments-retry-limit",
+          "relevant_rank": 1,
           "top1": "payments-retry-limit",
           "top3": [
             "payments-retry-limit",
             "connections-retry-limit",
             "connections-retry"
+          ],
+          "top5": [
+            "payments-retry-limit",
+            "connections-retry-limit",
+            "connections-retry",
+            "payments-retry",
+            "search-memory"
           ],
           "scores": [
             [
@@ -220,11 +281,19 @@
         {
           "query": "retry a failed payment after gateway timeout",
           "relevant": "payments-retry",
+          "relevant_rank": 1,
           "top1": "payments-retry",
           "top3": [
             "payments-retry",
             "payments-retry-limit",
             "connections-retry-limit"
+          ],
+          "top5": [
+            "payments-retry",
+            "payments-retry-limit",
+            "connections-retry-limit",
+            "connections-retry",
+            "read-exact"
           ],
           "scores": [
             [
@@ -252,11 +321,19 @@
         {
           "query": "where is the workspace file written",
           "relevant": "write-exact",
+          "relevant_rank": 2,
           "top1": "definition",
           "top3": [
             "definition",
             "write-exact",
             "read-exact"
+          ],
+          "top5": [
+            "definition",
+            "write-exact",
+            "read-exact",
+            "save-user",
+            "connections-retry-limit"
           ],
           "scores": [
             [
@@ -284,11 +361,19 @@
         {
           "query": "locate the function that parses a user payload",
           "relevant": "parse-user",
+          "relevant_rank": 1,
           "top1": "parse-user",
           "top3": [
             "parse-user",
             "search-memory",
             "payments-retry"
+          ],
+          "top5": [
+            "parse-user",
+            "search-memory",
+            "payments-retry",
+            "delete-user",
+            "read-exact"
           ],
           "scores": [
             [
@@ -332,10 +417,10 @@
         "numpy": "2.5.4",
         "preprocessing": "raw_text_v1; fastembed model defaults"
       },
-      "model_load_ms": 1380.3019789993414,
-      "max_rss_bytes": 696250368,
+      "model_load_ms": 1390.5988179903943,
+      "max_rss_bytes": 696774656,
       "status": "success",
-      "wall_ms": 3589.1103120011394
+      "wall_ms": 3591.336573997978
     },
     {
       "provider": "sentence-transformers/pytorch",
@@ -343,21 +428,34 @@
       "revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
       "dimensions": 384,
       "case_count": 9,
-      "index_ms": 184.59070099925157,
-      "query_ms_median": 17.643196006247308,
-      "query_ms_p95": 22.574426999199204,
-      "query_ms_max": 22.574426999199204,
+      "dataset_sha256": "e54d6ee835faaf7d597e0e44f7f4ac00f254f29043a4054c35edd577b95301a5",
+      "index_ms": 164.56495400052518,
+      "index_candidates_per_second": 85.07279137911297,
+      "query_ms_median": 17.67044299049303,
+      "query_ms_p95": 22.39090199873317,
+      "query_ms_max": 22.39090199873317,
       "recall_at_1": 0.6666666666666666,
       "recall_at_3": 0.8888888888888888,
+      "recall_at_5": 1.0,
+      "mrr": 0.787037037037037,
+      "ndcg_at_5": 0.8401784790716501,
       "results": [
         {
           "query": "persist a user record",
           "relevant": "save-user",
+          "relevant_rank": 1,
           "top1": "save-user",
           "top3": [
             "save-user",
             "payments-retry",
             "connections-retry"
+          ],
+          "top5": [
+            "save-user",
+            "payments-retry",
+            "connections-retry",
+            "payments-retry-limit",
+            "connections-retry-limit"
           ],
           "scores": [
             [
@@ -385,11 +483,19 @@
         {
           "query": "read current workspace file bytes",
           "relevant": "read-exact",
+          "relevant_rank": 3,
           "top1": "definition",
           "top3": [
             "definition",
             "write-exact",
             "read-exact"
+          ],
+          "top5": [
+            "definition",
+            "write-exact",
+            "read-exact",
+            "save-user",
+            "hash-content"
           ],
           "scores": [
             [
@@ -417,11 +523,19 @@
         {
           "query": "remove an old graph episode",
           "relevant": "remove-episode",
+          "relevant_rank": 1,
           "top1": "remove-episode",
           "top3": [
             "remove-episode",
             "add-episode",
             "delete-user"
+          ],
+          "top5": [
+            "remove-episode",
+            "add-episode",
+            "delete-user",
+            "search-memory",
+            "save-user"
           ],
           "scores": [
             [
@@ -449,11 +563,19 @@
         {
           "query": "получить текущие байты файла рабочей директории",
           "relevant": "read-exact",
+          "relevant_rank": 4,
           "top1": "definition",
           "top3": [
             "definition",
             "save-user",
             "write-exact"
+          ],
+          "top5": [
+            "definition",
+            "save-user",
+            "write-exact",
+            "read-exact",
+            "hash-content"
           ],
           "scores": [
             [
@@ -481,11 +603,19 @@
         {
           "query": "удалить старый эпизод графа",
           "relevant": "remove-episode",
+          "relevant_rank": 1,
           "top1": "remove-episode",
           "top3": [
             "remove-episode",
             "delete-user",
             "add-episode"
+          ],
+          "top5": [
+            "remove-episode",
+            "delete-user",
+            "add-episode",
+            "search-memory",
+            "save-user"
           ],
           "scores": [
             [
@@ -513,11 +643,19 @@
         {
           "query": "find the retry limit that prevents duplicate charges",
           "relevant": "payments-retry-limit",
+          "relevant_rank": 1,
           "top1": "payments-retry-limit",
           "top3": [
             "payments-retry-limit",
             "connections-retry-limit",
             "connections-retry"
+          ],
+          "top5": [
+            "payments-retry-limit",
+            "connections-retry-limit",
+            "connections-retry",
+            "payments-retry",
+            "search-memory"
           ],
           "scores": [
             [
@@ -545,11 +683,19 @@
         {
           "query": "retry a failed payment after gateway timeout",
           "relevant": "payments-retry",
+          "relevant_rank": 1,
           "top1": "payments-retry",
           "top3": [
             "payments-retry",
             "payments-retry-limit",
             "connections-retry-limit"
+          ],
+          "top5": [
+            "payments-retry",
+            "payments-retry-limit",
+            "connections-retry-limit",
+            "connections-retry",
+            "read-exact"
           ],
           "scores": [
             [
@@ -577,11 +723,19 @@
         {
           "query": "where is the workspace file written",
           "relevant": "write-exact",
+          "relevant_rank": 2,
           "top1": "definition",
           "top3": [
             "definition",
             "write-exact",
             "read-exact"
+          ],
+          "top5": [
+            "definition",
+            "write-exact",
+            "read-exact",
+            "save-user",
+            "connections-retry-limit"
           ],
           "scores": [
             [
@@ -609,11 +763,19 @@
         {
           "query": "locate the function that parses a user payload",
           "relevant": "parse-user",
+          "relevant_rank": 1,
           "top1": "parse-user",
           "top3": [
             "parse-user",
             "search-memory",
             "payments-retry"
+          ],
+          "top5": [
+            "parse-user",
+            "search-memory",
+            "payments-retry",
+            "delete-user",
+            "read-exact"
           ],
           "scores": [
             [
@@ -658,11 +820,12 @@
         "numpy": "2.5.4",
         "preprocessing": "raw_text_v1; normalize_embeddings=false"
       },
-      "model_load_ms": 1147.5614699957077,
-      "max_rss_bytes": 838688768,
+      "model_load_ms": 1169.0792749868706,
+      "max_rss_bytes": 834801664,
       "status": "success",
-      "wall_ms": 10342.811217997223
+      "wall_ms": 10159.960843011504
     }
   ],
-  "winner": "fastembed/onnx"
+  "winner": "fastembed/onnx",
+  "winner_meaning": "best measured candidate on this development fixture only; not production approval"
 }

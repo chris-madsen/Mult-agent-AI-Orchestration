@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { resolve, relative, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -81,6 +82,8 @@ const report: SemanticProviderReport = {
     typescript: ts.version,
     adapter: 'ace-direct-typescript-ls/v1',
   },
+  sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+  command: 'npm run compare:semantic-tsls',
 };
 
 await writeFile(output, JSON.stringify({

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "evidence": "vertex-rag-readonly-capability-probe",
+  "generatedAt": "2026-10-20T11:50:24.821Z",
+  "sourceCommit": "e219f8b3accaf8d44a5d070c0a3cf69fe7868936",
+  "command": "npm run probe:vertex",
+  "dataClass": "read-only-metadata; no corpus import or source/session upload",
+  "project": "poetic-emblem-494722-v2",
+  "locations": [
+    {
+      "project": "poetic-emblem-494722-v2",
+      "location": "us-central1",
+      "http": 200,
+      "corpora_count": 0,
+      "citation_contract": "unverified_empty_corpus",
+      "version_contract": "unverified_empty_corpus"
+    },
+    {
+      "project": "poetic-emblem-494722-v2",
+      "location": "europe-west4",
+      "http": 200,
+      "corpora_count": 1,
+      "citation_contract": "unverified_empty_corpus",
+      "version_contract": "unverified_empty_corpus"
+    }
+  ],
+  "status": "capability-only; citation/version contract unverified",
+  "note": "Authenticated read-only API access does not authorize upload, corpus creation, billing, or production promotion."
+}

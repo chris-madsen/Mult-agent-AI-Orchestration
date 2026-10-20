@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "0550256bfa7c24b692ce138796769aa345cd42ae",
+  "generatedAt": "2026-10-20T14:20:18Z",
+  "environment": {
+    "aceVersion": "0.1.0",
+    "qdrantVersion": "qdrant-1.19.2-restore-not-run",
+    "graphitiVersion": "unavailable-local-mcp-command",
+    "falkorDbVersion": "falkordb-restore-not-run",
+    "deployment": "host-local-synthetic-roundtrip"
+  },
+  "checks": [
+    {
+      "id": "OPS-01",
+      "verdict": "PASS",
+      "command": "ACE_MEMORY_BACKUP_ACK_QUIESCED=true npm run memory:backup -- backup <synthetic-source> <isolated-bundle>; npm run memory:backup -- verify <isolated-bundle>; ACE_MEMORY_BACKUP_ACK_QUIESCED=true npm run memory:backup -- restore <isolated-bundle> <isolated-restore>; cmp source restore",
+      "observed": [
+        "backup=BACKUP_CREATED",
+        "verify=VERIFIED",
+        "restore=RESTORED",
+        "two files byte-identical after restore",
+        "isolated restore destination"
+      ],
+      "artifacts": [
+        {
+          "path": "benchmarks/reports/operations-local-memory-roundtrip-0550256.json",
+          "sha256": "88abfda4269fa392429cd4b41ca2e63a4f6e519730d0942d16bc7b01ab2b2832",
+          "kind": "real synthetic local archive backup/verify/restore receipt"
+        }
+      ]
+    },
+    {
+      "id": "OPS-02",
+      "verdict": "BLOCKED",
+      "observed": [],
+      "artifacts": [],
+      "limitation": "No supported local Graphiti MCP command and no approved Graphiti/FalkorDB backup/restore capture are available in this environment."
+    },
+    {
+      "id": "OPS-03",
+      "verdict": "BLOCKED",
+      "observed": [],
+      "artifacts": [],
+      "limitation": "Qdrant is available for retrieval checks, but no retained Qdrant/PVC backup and restore run was executed."
+    },
+    {
+      "id": "OPS-04",
+      "verdict": "BLOCKED",
+      "observed": [],
+      "artifacts": [],
+      "limitation": "Provider restart reconciliation after restore requires the unavailable Graphiti lifecycle and restored provider state."
+    },
+    {
+      "id": "OPS-05",
+      "verdict": "BLOCKED",
+      "observed": [],
+      "artifacts": [],
+      "limitation": "Retention and deletion after a full provider restore were not run; synthetic archive round-trip alone cannot prove derived survivor/tombstone behavior."
+    },
+    {
+      "id": "OPS-06",
+      "verdict": "PASS",
+      "command": "restoreLocalMemoryBackup(<isolated-bundle>, <isolated-restore>) followed by exact file comparison",
+      "observed": [
+        "restore destination was isolated from source and bundle",
+        "user worktree was not used as restore destination",
+        "source and restored fixture files remained byte-identical"
+      ],
+      "artifacts": [
+        {
+          "path": "benchmarks/reports/operations-local-memory-roundtrip-0550256.json",
+          "sha256": "88abfda4269fa392429cd4b41ca2e63a4f6e519730d0942d16bc7b01ab2b2832",
+          "kind": "isolated restore safety receipt"
+        }
+      ]
+    }
+  ]
+}

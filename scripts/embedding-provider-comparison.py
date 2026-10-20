@@ -307,6 +307,10 @@ def main() -> None:
         "status": "comparison-complete" if len(successful) == 2 else "comparison-incomplete",
         "evidence_stage": args.evidence_stage,
         "production_approved": False,
+        "source_commit": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True,
+        ).strip(),
+        "command": "npm run compare:embeddings",
         "selection_policy": [
             "recall_at_5",
             "ndcg_at_5",

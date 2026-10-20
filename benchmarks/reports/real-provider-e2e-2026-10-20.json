@@ -1,0 +1,12 @@
+{
+  "status": "provider-pass",
+  "fixture": "2000-line TypeScript source / 25-line target function",
+  "qdrant": "http://127.0.0.1:6333",
+  "citation": "service.ts:1-25",
+  "freshness": "current",
+  "source_digest": "49ee6a02de93468eb1d88a8de10f0fa2eb21a186db33362c01f8c30f7e41b152",
+  "expansion_bytes": 63482,
+  "complete": true,
+  "sourceCommit": "0a8f8ddc10c818461927407d4bb456c9bee805ad",
+  "command": "npm run test:real-provider"
+}

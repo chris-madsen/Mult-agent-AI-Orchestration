@@ -11,7 +11,7 @@ import type {
 } from '../domain/workspace.js';
 import type { Result } from '../domain/result.js';
 import type { ContextBundle, CodeCandidate, RankedCandidate } from '../domain/retrieval.js';
-import type { EpisodeId, MemorySearchResult, ProjectionKey, ProjectionReceipt, SessionEpisode } from '../domain/memory.js';
+import type { DecisionRecord, EpisodeId, MemorySearchResult, ProjectionKey, ProjectionReceipt, SessionEpisode } from '../domain/memory.js';
 import type {
   SemanticDefinition,
   SemanticDiagnostic,
@@ -152,11 +152,18 @@ export interface MemorySearchPort {
   }) => Effect.Effect<Result<MemorySearchResult, DomainError>>;
 }
 
+export interface DecisionHistoryPort {
+  readonly list: (workspaceId: WorkspaceId) => Effect.Effect<Result<readonly DecisionRecord[], DomainError>>;
+}
+
 export interface ProjectionOutboxPort {
   readonly begin: (episodeId: EpisodeId, extractorVersion: string) => Promise<Result<ProjectionReceipt, DomainError>>;
   readonly put: (receipt: ProjectionReceipt) => Promise<Result<void, DomainError>>;
   readonly get: (key: ProjectionKey) => Promise<Result<ProjectionReceipt | undefined, DomainError>>;
   readonly list: () => Promise<Result<readonly ProjectionReceipt[], DomainError>>;
+  readonly beginDeletion: (episodeId: EpisodeId) => Promise<Result<void, DomainError>>;
+  readonly finalizeDeletion: (episodeId: EpisodeId) => Promise<Result<void, DomainError>>;
+  readonly isDeletionBlocked: (episodeId: EpisodeId) => Promise<Result<boolean, DomainError>>;
 }
 
 export interface GraphProjectionStatePort {

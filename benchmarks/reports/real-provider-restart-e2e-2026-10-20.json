@@ -1,0 +1,13 @@
+{
+  "status": "provider-pass",
+  "first_generation": 1,
+  "warm_generation": 2,
+  "warm_index_reused": true,
+  "second_generation": 3,
+  "collection": "ace_code_3722c635e41f_f3a71c45059c_6b8415e1559a",
+  "obsolete_generation_pruned": true,
+  "first_digest": "af54532725fa378c039f9d1d819a03096a82a85aaa4bc3b1642d51fb5aa99528",
+  "second_digest": "054d87d0189a6e9df618eb362b41a6e2fa99af87708f22b7db9020efed2a0494",
+  "sourceCommit": "0a8f8ddc10c818461927407d4bb456c9bee805ad",
+  "command": "npm run test:real-provider-restart"
+}

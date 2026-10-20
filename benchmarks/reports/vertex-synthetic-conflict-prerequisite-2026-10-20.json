@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "evidence": "vertex-synthetic-conflict-readonly-prerequisite",
+  "generatedAt": "2026-10-20T12:28:11.242Z",
+  "sourceCommit": "6aadfb7bca40a75d0c3b84beb69b59856eeb6364",
+  "command": "read-only Vertex RAG metadata: list ragCorpora + list ragFiles; no upload/import/create operation",
+  "project": "poetic-emblem-494722-v2",
+  "location": "europe-west4",
+  "corpus": {
+    "corpusId": "2305843009213693952",
+    "displayName": "ace-europe-stage2",
+    "resourceName": "projects/poetic-emblem-494722-v2/locations/europe-west4/ragCorpora/2305843009213693952",
+    "fileCount": 0,
+    "files": []
+  },
+  "fixtures": [
+    {
+      "path": "benchmarks/fixtures/vertex-docs/adr-vertex-conflict-v1.md",
+      "sha256": "3cd053d4637e0ef64da8dd7cf50654a7f7c036bdaffee99bab133074efd8b05b"
+    },
+    {
+      "path": "benchmarks/fixtures/vertex-code/current-policy.ts",
+      "sha256": "cc2636f8427308061c06e93267fec0f6832a6d20c41e343d1638b4cef58091f0"
+    }
+  ],
+  "status": "BLOCKED",
+  "blocker": "The discovered corpus has no RAG files, so the committed vertex-conflict-v1 synthetic fixture is not available for retrieval. Upload/import is intentionally not attempted: it requires explicit synthetic-cloud-import authorization and a configured gs://ace-vertex-synthetic prefix.",
+  "cloudDataScope": "read-only metadata only; no fixture or source/session bytes transmitted",
+  "nextAuthorizedCommand": "ACE_VERTEX_SYNTHETIC_IMPORT_ACK=true npm run vertex:synthetic:import (only after owner-authorized synthetic/public fixture scope and GCS prefix are provided)"
+}

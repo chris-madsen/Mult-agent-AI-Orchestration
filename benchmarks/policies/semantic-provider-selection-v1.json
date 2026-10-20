@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "selectedProvider": "typescript-language-service",
+  "requiredFixtureSha256": "a797557e7a7dc451d395f786a7d675a517a573ee2aa1d6bf4486ae55f4f64459",
+  "requiredOracleSha256": "2937a609f896df4470c86f1010b6602a9c8ed056e1f726f6dbd6837f89fd73f7",
+  "requiredCaseIds": [
+    "same-name-user-definition",
+    "same-name-audit-definition",
+    "derived-override-definition",
+    "base-definition",
+    "unicode-definition",
+    "alias-source-references",
+    "write-references",
+    "broken-diagnostics",
+    "large-tail-definition"
+  ],
+  "licenses": {
+    "typescript-language-service": {
+      "spdxId": "Apache-2.0",
+      "evidence": "node_modules/typescript/LICENSE.txt; TypeScript package metadata",
+      "verified": true
+    },
+    "serena": {
+      "spdxId": "GPL-3.0-or-later",
+      "evidence": "installed Serena distribution license metadata",
+      "verified": true
+    }
+  },
+  "ownerApproval": {
+    "status": "pending",
+    "note": "Matched frozen comparison is required before owner selects a production semantic provider."
+  }
+}

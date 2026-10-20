@@ -1,12 +1,16 @@
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import {
   assessThreeArmReports,
+  validateHarborPairReport,
+  validateHarborReportExecutionIdentity,
   validateThreeArmDesign,
   type HarborPairReportSummary,
 } from '../src/domain/harbor-three-arm.js';
 
 const readJson = async (path: string): Promise<unknown> => JSON.parse(await readFile(path, 'utf8')) as unknown;
+const sha256File = async (path: string): Promise<string> => createHash('sha256').update(await readFile(path)).digest('hex');
 
 const [
   naturalReportPath,
@@ -29,12 +33,29 @@ const [nativeJob, naturalJob, forcedJob, naturalReport, forcedReport] = await Pr
   readJson(forcedReportPath),
 ]);
 
+const [nativeJobSha256, naturalJobSha256, forcedJobSha256, naturalReportSha256, forcedReportSha256] = await Promise.all([
+  sha256File(nativeJobPath),
+  sha256File(naturalJobPath),
+  sha256File(forcedJobPath),
+  sha256File(naturalReportPath),
+  sha256File(forcedReportPath),
+]);
+
 const design = validateThreeArmDesign(nativeJob, naturalJob, forcedJob);
 if (design._tag === 'Err') throw new Error(`${design.error.code}: ${design.error.message}`);
-const outcome = assessThreeArmReports(
-  naturalReport as HarborPairReportSummary,
-  forcedReport as HarborPairReportSummary,
-);
+const naturalSummary = validateHarborPairReport(naturalReport);
+if (naturalSummary._tag === 'Err') throw new Error(`${naturalSummary.error.code}: ${naturalSummary.error.message}`);
+const forcedSummary = validateHarborPairReport(forcedReport);
+if (forcedSummary._tag === 'Err') throw new Error(`${forcedSummary.error.code}: ${forcedSummary.error.message}`);
+const identityChecks: readonly [string, HarborPairReportSummary, string, readonly string[]][] = [
+  ['natural', naturalSummary.value, naturalJobSha256, design.value.natural.tasks],
+  ['forced', forcedSummary.value, forcedJobSha256, design.value.forced.tasks],
+];
+for (const [label, summary, expectedDigest, expectedTasks] of identityChecks) {
+  const identity = validateHarborReportExecutionIdentity(summary, expectedDigest, expectedTasks);
+  if (identity._tag === 'Err') throw new Error(`${identity.error.code}: ${label} ${identity.error.message}`);
+}
+const outcome = assessThreeArmReports(naturalSummary.value, forcedSummary.value);
 if (outcome._tag === 'Err') throw new Error(`${outcome.error.code}: ${outcome.error.message}`);
 
 const designFingerprint = createHash('sha256')
@@ -42,6 +63,9 @@ const designFingerprint = createHash('sha256')
   .digest('hex');
 
 const report = {
+  schemaVersion: 1,
+  sourceCommit: process.env.ACE_EVIDENCE_SOURCE_COMMIT?.trim()
+    || execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   evidence: 'three-arm-harbor-comparison',
   design_fingerprint: designFingerprint,
   arms: {
@@ -61,6 +85,15 @@ const report = {
   source_reports: {
     natural: naturalReportPath,
     forced: forcedReportPath,
+    natural_sha256: naturalReportSha256,
+    forced_sha256: forcedReportSha256,
+  },
+  execution_identity: {
+    native_job_sha256: nativeJobSha256,
+    natural_job_sha256: naturalJobSha256,
+    forced_job_sha256: forcedJobSha256,
+    design_fingerprint: designFingerprint,
+    task_paths: design.value.native.tasks,
   },
   limitations: [
     outcome.value.naturalUse === 'not_observed'

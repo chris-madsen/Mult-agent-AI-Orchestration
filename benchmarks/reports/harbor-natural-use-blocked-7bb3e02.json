@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "evidence": "harbor-natural-use-blocked",
+  "generatedAt": "2026-10-20T14:14:48Z",
+  "sourceCommit": "7bb3e024fa3e8151e1414a3aa39f9efbb3c8751e",
+  "status": "BLOCKED",
+  "observations": {
+    "naturalUseReportPresent": false,
+    "naturalProviderCorrelationVerified": false,
+    "completeCostTelemetry": false,
+    "realOauthCodexRoute": false,
+    "legacyForcedDiagnosticAvailable": true
+  },
+  "legacyDiagnostic": {
+    "path": "benchmarks/reports/ace-retrieval-paired-3x3-final-indexkey.json",
+    "acceptance": "measured-not-necessarily-5x",
+    "productionUse": "forbidden",
+    "note": "This report does not contain an observed natural-use three-arm verdict and cannot satisfy W13."
+  },
+  "blocker": "No valid natural-use three-arm Harbor report with real OAuth Codex route, correlated ACE calls, non-inferior quality and complete cost telemetry is retained for this exact commit.",
+  "nextStep": "Run the pinned natural/optional/forced Harbor jobs with valid real OAuth Codex credentials and retain raw JSONL, provider traces, quality verdict and complete cost telemetry. Invalid or fake credentials must remain rejected.",
+  "productionClaims": {
+    "tokenSavings5x": false,
+    "harborProductionAcceptance": false
+  },
+  "note": "No credential, token, dialogue, source payload or fabricated benchmark result is retained."
+}

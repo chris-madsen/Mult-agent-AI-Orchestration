@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -48,6 +49,8 @@ const sourcePath = join(root, 'repositories.ts');
 await writeFile(sourcePath, source);
 const sourceBytes = await readFile(sourcePath);
 const sourceDigest = createHash('sha256').update(sourceBytes).digest('hex');
+const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim().toLowerCase();
+if (!/^[a-f0-9]{40,64}$/u.test(sourceCommit)) throw new Error('could not resolve exact same-name evidence source commit');
 
 try {
   const files = makeNodeWorkspacePort({ allowedRoots: [parent] });
@@ -87,6 +90,10 @@ try {
   assert.ok(writeReferences.some((reference) => reference.location.startLine === 11 && !reference.isDefinition));
 
   const report = {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    sourceCommit,
+    command: 'npm run test:real-same-name',
     status: 'provider-pass',
     contract: 'DBC-04',
     provider: 'Tree-sitter 0.26.0 + tree-sitter-typescript 0.23.2 + TypeScript Language Service 5.9.3',
