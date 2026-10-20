@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "fixture": "benchmarks/semantic/provider-comparison-v1",
-  "firstPassQueryP95Ms": 65.77362399999993,
+  "firstPassQueryP95Ms": 54.63341900000023,
   "provider": "typescript-language-service",
   "providerVersion": "typescript/5.9.3",
   "fixtureSha256": "a797557e7a7dc451d395f786a7d675a517a573ee2aa1d6bf4486ae55f4f64459",
@@ -53,12 +53,14 @@
       "observation": "src/large.ts:2102:17"
     }
   ],
-  "coldStartMs": 777.350571,
-  "warmQueryP95Ms": 64.5524620000001,
-  "maxRssBytes": 418775040,
+  "coldStartMs": 679.4052960000001,
+  "warmQueryP95Ms": 54.49014799999986,
+  "maxRssBytes": 415969280,
   "runtime": {
     "node": "v24.15.0",
     "typescript": "5.9.3",
     "adapter": "ace-direct-typescript-ls/v1"
-  }
+  },
+  "sourceCommit": "e37fb83c33a9c21e1bc5811de32d03619b2670ef",
+  "command": "npm run compare:semantic-tsls"
 }
