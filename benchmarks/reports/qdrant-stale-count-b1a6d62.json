@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "evidence": "real-qdrant-stale-count-rebuild",
+  "generatedAt": "2026-10-20T13:55:56.834Z",
+  "sourceCommit": "b1a6d62bec1162002067c9235303a8286d87885d",
+  "fixture": {
+    "workspaceId": "qdrant-stale-count-e31f5321-da33-45c3-ae65-047936ce2078",
+    "sourcePath": "src/stale-count.ts",
+    "sourceDigest": "b84e8bf3df0a618fcd09f2ad687fd019f170ad2536427350a04c4da1e6eede0d"
+  },
+  "runtime": {
+    "node": "v24.15.0",
+    "qdrant": "qdrant/1.19.2",
+    "qdrantUrlKind": "local-loopback",
+    "embeddingWorker": "fastembed-worker.sh"
+  },
+  "mutation": {
+    "collection": "ace_ca_stale_count_df0a8aa991dd4176a97eb6955306cc6d",
+    "indexKey": "39c06b19c381b94c8444cff35416647ccf7ee4c1f9d827f0d5c6773c20af467c",
+    "deletedPointId": "278c079d-a051-4a99-8d17-a855c33b312f",
+    "firstGeneration": 1,
+    "secondGeneration": 2
+  },
+  "checks": {
+    "initialSnapshotRebuilt": "PASS",
+    "realPointDeletedBetweenRuns": "PASS",
+    "staleCountWasNotWarmReused": "PASS",
+    "sameSnapshotKeyRebuilt": "PASS",
+    "secondCitationCurrent": "PASS"
+  },
+  "claims": {
+    "staleCountRecoveryMeasured": true,
+    "equalCountWrongMembershipMeasured": false,
+    "productionApproved": false,
+    "tokenSavings5x": false,
+    "graphitiLocalOnly": false,
+    "note": "Real local Qdrant stale-count evidence only; equal-count membership and production C-A/PVC/k3s gates remain separate."
+  }
+}
