@@ -14,7 +14,7 @@ const FULL_SUITE_TRIGGERS = new Set([
   'scripts/run-affected-tests.mjs',
 ]);
 
-const normalize = (value) => value.replaceAll('\\\\', '/').replace(/^\.\//u, '');
+const normalize = (value) => value.replaceAll('\\', '/').replace(/^\.\//u, '');
 
 const git = (args, { allowFailure = false } = {}) => {
   const result = spawnSync('git', args, { encoding: 'utf8' });
