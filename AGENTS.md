@@ -9,7 +9,9 @@ These instructions apply to **all work in this repository** (`src/`, `test/`, `s
 - ACE is an **agent-neutral Adaptive Context Engine**, exposed through one logical MCP facade. Codex is the first client, not the only supported client.
 - Optimize accurate **end-to-end context delivery and task success**. The target of **at least 5× fewer agent tokens per accepted task** is a hypothesis to measure against a strong unmodified baseline, **never an assumed achievement**. Protect correctness, confidentiality, total cost and latency.
 - Respect the accepted PRD and ADRs as architecture decisions. The relevant OpenSpec capability specs and Meyer contracts define observable acceptance. Implementation notes, spikes, review reports and execution plans contain evidence or work instructions; they do **not** override accepted ADRs.
-- If decisions conflict, the current explicit owner decision and accepted ADR take precedence; record a proposed ADR for any material unresolved or changed choice. **Never silently settle an open production provider choice.** Experimental implementation is allowed when scoped, labeled and safe; production promotion needs evidence and owner approval.
+- Resolve conflicting guidance in this order: **current explicit owner decision → Accepted ADR → applicable OpenSpec capability/acceptance contract → repository/nested AGENTS.md → current implementation and tests as evidence of what exists → execution plans/reviews/spikes as historical or temporary guidance**. If an unresolved material architecture choice remains, propose an ADR rather than deciding silently.
+- **Never infer current implementation status solely from an old plan, unchecked task, review, handoff or progress note.** Inspect the current code, runtime composition and retained evidence before deciding that something is missing or complete.
+- **Never silently settle an open production provider choice.** Experimental implementation is allowed when scoped, labeled and safe; production promotion needs evidence and owner approval.
 
 ## 2. Technology baseline
 
@@ -46,7 +48,8 @@ These instructions apply to **all work in this repository** (`src/`, `test/`, `s
 - Return **relevant, concise initial context**, not a whole file per match. At the same time preserve lossless authorized expansion of complete originals, including very large source and generated artifacts. Never silently truncate or impose a fixed mandatory output-token ceiling.
 - Revalidate selected source against the working tree; if it changes during the request, re-read and verify, or label the result stale/changed. Never mark obsolete evidence current.
 - Determine `complete` from **coverage of all required sources in the authorized retrieval plan**, source verification and honest dependency statuses. Missing or failed required providers mean a partial/not-ready result, even if the surviving snippets are fresh.
-- Failure paths must distinguish `unavailable`, `stale`, `not_ready`, `policy_denied` and `not_required`. Optional providers are queried only when relevant and permitted. Test doubles and degraded fallback must be explicitly identified and cannot satisfy real-provider acceptance gates.
+- Failure paths must distinguish `unavailable`, `stale`, `not_ready`, `policy_denied`, `not_required` and a **successful empty result**. Optional providers are queried only when relevant and permitted. Test doubles and degraded fallback must be explicitly identified and cannot satisfy real-provider acceptance gates.
+- **An error, timeout, malformed provider response, parse failure or unverified acknowledgement is never evidence of absence or successful deletion.** Fail closed or return an explicit partial/unavailable result; do not convert failure into an empty successful result.
 - Keep filesystem hot paths efficient: prioritize indexed candidates and targeted verification; benchmark any unavoidable workspace-wide scan or reindexing.
 
 ## 5. Security, privacy and lifecycle
@@ -56,6 +59,7 @@ These instructions apply to **all work in this repository** (`src/`, `test/`, `s
 - Graphiti + FalkorDB are **local-first**. Confirm not only database locality but also LLM extraction, embeddings and reranking egress. Unapproved cloud inference on private session data is forbidden.
 - Original Codex sessions remain authoritative, byte-exact and source-citable; Graphiti extracts **derived claims**, not automatically owner-approved engineering decisions. Preserve history, status, contradictions and source pointers.
 - Import/replay, background projections, queue acknowledgements, tombstones, cleanup and deletion must be idempotent and recovery-safe. No deletion may destroy shared original blobs still referenced by another episode. Cross-process and crash consistency must be tested under the actual storage semantics.
+- Publication, leases, cache reuse, reconciliation and deletion must be correct under **concurrent processes and crash/restart**, not only under single-process happy paths. Prefer explicit epochs/fencing/CAS or equivalent invariants over timing assumptions.
 - ACE is read-only with respect to the user's worktree. Policy denial and secret leakage fail closed, with safe diagnostics. Technical outages may degrade **truthfully**, never by silently switching to a forbidden destination.
 
 ## 6. Bertrand Meyer design-by-contract and quality gates
@@ -69,18 +73,56 @@ For changes affecting a user-visible capability, define **observable**:
 
 Use `docs/docs/architecture/07-architecture-fitness-contracts.md` and applicable OpenSpec capability specs for contract IDs and scenarios. **A domain port, adapter file, pure mock test, green compiler or passing protocol smoke is not proof of agent-facing production behavior.** Verify the runtime entrypoint calls real configured providers through the actual MCP client.
 
-Keep evidence stages separate: `contract-designed` → `adapter-implemented` → `real-provider-tested` → `agent-E2E-tested` → `benchmark-evaluated` → `owner-approved`. Unpassed mandatory checks remain unchecked; a controlled exception explains a blocker but never closes a production gate.
+Keep evidence stages separate: `contract-designed` → `adapter-implemented` → `real-provider-tested` → `agent-E2E-tested` → `benchmark-evaluated` → `owner-approved`. **Never collapse these states into one `done` flag.** Unpassed mandatory checks remain unchecked; a controlled exception explains a blocker but never closes a production gate.
+
+Evidence used to close a gate must identify, as applicable, the **source commit, fixture/input digest, provider/runtime identity, exact command/procedure, request/correlation IDs, retained artifacts, observed result and limitations**. Evidence from one commit/configuration must not silently be relabeled as evidence for another.
 
 ## 7. Benchmarks and reporting
 
 - Use Harbor for **paired, pinned, retrieval-demanding real agent tasks** against a strong native Codex baseline. Verify actual ACE MCP call counts and attributed provider usage; zero ACE calls cannot establish ACE-caused benefit.
-- Compare accepted task quality first, then total input/output/cached tokens without double counting, external embedding/LLM/indexing costs, latency, source integrity and failures. Preserve raw trials and independent holdouts; do not tune on frozen holdouts.
+- Compare accepted task quality first, then total input/output/cached tokens without double counting, external embedding/LLM/indexing costs, latency, source integrity and failures. Cost components must be reported as **measured, estimated or unknown**; unknown is never zero and must not be called complete telemetry. Preserve raw trials and independent holdouts; do not tune on frozen holdouts.
 - A measured result below 5× (or a regression) must be reported honestly; **the performance target is not a prerequisite to running experiments or benchmarks**. Do not assert savings from a forced trivial task.
 - Do not fabricate test runs, relax assertions to hide defects, suppress failed provider attempts, or mark a production criterion passed from mock-only evidence.
 
-## 8. Repository change discipline
+## 8. Engineering workflow and change discipline
+
+Before changing code:
+
+1. inspect the **current implementation and runtime composition**;
+2. inspect the applicable Accepted ADRs and OpenSpec contracts;
+3. verify whether the requested behavior already exists;
+4. identify the observable invariant / acceptance criterion;
+5. for a defect, obtain a deterministic RED fixture or clearly mark the finding `static-unconfirmed` before changing production code when reproduction is practical.
+
+Do not implement a requirement merely because an old execution plan says it is missing. Prefer the **smallest coherent change that restores the invariant** over speculative refactoring.
+
+For concurrency, crash, recovery and provider-boundary defects, prefer deterministic barriers/failpoints and explicit state assertions over sleep-based timing tests. Test both the pure parser/contract behavior and the actual provider/runtime path when the provider is available.
 
 - Work in reviewable branches and PRs; do not push directly to `main` unless the owner explicitly authorizes that operation. Preserve unrelated edits.
 - For affected capabilities run typecheck, lint, unit/contract tests, OpenSpec validation, real-provider integration, SDK conformance and agent E2E **as applicable**. Report precisely what was run, skipped, unavailable and why.
-- Keep normative requirements and acceptance tasks in **OpenSpec**, durable architecture choices in **ADRs**, past observations in `docs/reviews/`, benchmark evidence in `benchmarks/`, and temporary stage-by-stage instructions in a separate **execution plan**. Do **not** paste an execution plan into AGENTS.md or make one sprint's plan a permanent agent instruction.
 - Promote production capability only after applicable real evidence, security/permission checks, reproducible evaluation and explicit owner review. If a provider needs credentials or external services unavailable to the current runner, record a specific blocker rather than inventing success.
+
+## 9. Documentation placement and status discipline
+
+- Put **durable architecture decisions** in ADRs.
+- Put **normative capability requirements and acceptance tasks** in OpenSpec.
+- Put **temporary sequencing/current implementation work** in execution plans.
+- Put **completed observations, audits and review findings** in `docs/reviews/`.
+- Put **benchmark fixtures/results/evidence** in `benchmarks/`.
+- Put **operational procedures and readiness/configuration guidance** in `docs/operations/`.
+- Do not turn a dated bug finding, provider status, current PR number, completion percentage or sprint checklist into a permanent AGENTS rule.
+- Historical documents must remain honest historical records. Prefer a new current status/evidence document over rewriting a negative or superseded result into success.
+
+## 10. Completion reporting
+
+When finishing a change, report separately:
+
+- **what changed**;
+- **which invariant/contract it fixes or implements**;
+- **what was tested**;
+- **what real-provider / agent-E2E / benchmark evidence was obtained**;
+- **what was not run and why**;
+- **what remains blocked or uncertain**;
+- **whether any production, benchmark or owner-approval claim actually changed**.
+
+Never describe a capability as production-ready merely because its implementation exists. A missing external environment may justify `NOT_RUN` / `BLOCKED`; it never justifies a fabricated PASS.
