@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "status": "local-archive-roundtrip-pass",
+  "sourceCommit": "0550256bfa7c24b692ce138796769aa345cd42ae",
+  "generatedAt": "2026-10-20T14:20:10Z",
+  "fixture": "synthetic-only-local-memory-archive-with-nested-projection-outbox",
+  "commands": [
+    "ACE_MEMORY_BACKUP_ACK_QUIESCED=true npm run memory:backup -- backup <synthetic-source> <isolated-bundle>",
+    "npm run memory:backup -- verify <isolated-bundle>",
+    "ACE_MEMORY_BACKUP_ACK_QUIESCED=true npm run memory:backup -- restore <isolated-bundle> <isolated-restore>",
+    "cmp <source>/episode.json <restored>/episode.json && cmp <source>/projection-outbox/episode-synthetic-0550256.json <restored>/projection-outbox/episode-synthetic-0550256.json"
+  ],
+  "observations": {
+    "backup": "BACKUP_CREATED",
+    "verify": "VERIFIED",
+    "restore": "RESTORED",
+    "fileCount": 2,
+    "contentSha256": "c0011bd911470f9256e061e5964ab9261d4f146d74f4b77918a1d8bf5bc9eb34",
+    "byteComparison": "PASS",
+    "isolatedDestination": "PASS"
+  },
+  "retainedArtifactDigests": {
+    "manifestSha256": "e001918ae584db71446933e77f678e9ac56fab6a9431314fec8177c5591414d9",
+    "episodeSha256": "d747148e9e9433fbd7eef40e2fe4a2212bddf0780afff432cc5fe1e7bc11e9fd",
+    "projectionOutboxSha256": "3559f88c2d5db5e559c187608295efa9e964c51166d6b7d46bd7aaca4b340d51"
+  },
+  "limitation": "Synthetic local archive only. This does not prove Graphiti/FalkorDB, Qdrant/PVC, restart reconciliation, retention/deletion, or Kubernetes restore behavior."
+}
