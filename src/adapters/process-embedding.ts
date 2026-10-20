@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
@@ -40,6 +41,24 @@ export interface EmbeddingWorkerIdentity extends ResolvedEmbeddingConfig {
   /** Runtime/library versions actually reported by the worker. */
   readonly runtimeVersion: string;
 }
+
+export const verifiedEmbeddingIdentityFingerprint = (
+  identity: EmbeddingWorkerIdentity,
+): string => createHash('sha256').update([
+  'embedding-identity-v1',
+  identity.provider,
+  identity.model,
+  identity.modelRevision,
+  identity.artifactModel,
+  identity.artifactRevision,
+  identity.artifactDigest,
+  String(identity.dimension),
+  identity.preprocessing,
+  identity.executionMode,
+  String(identity.pinned),
+  identity.runtimeBuild,
+  identity.runtimeVersion,
+].join('|'), 'utf8').digest('hex');
 
 export interface ProcessEmbeddingOptions {
   readonly command: string;
