@@ -7,7 +7,6 @@ import {
   ensureQdrantCollection,
   exactUtf8ByteRange,
   hasExactQdrantSnapshot,
-  listQdrantSnapshotKeys,
   readQdrantSnapshotVectors,
   reuseOrPopulateQdrantSnapshot,
   verifyQdrantSnapshotMembership,
@@ -239,17 +238,11 @@ test('snapshot maintenance scrolls request only the payload fields they consume'
     http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'a'.repeat(64),
   ));
   assert.deepEqual([...mustOk(vectors).entries()], [[candidate.candidateId, [0.1, 0.9]]]);
-  const keys = await Effect.runPromise(listQdrantSnapshotKeys(
-    http, 'http://127.0.0.1:6333', 'ace-test', workspaceId,
-  ));
-  assert.deepEqual([...mustOk(keys)], ['a'.repeat(64)]);
-
   assert.deepEqual(requests.map((body) => body.with_payload), [
     ['candidate_id'],
     ['candidate_id'],
-    ['index_key'],
   ]);
-  assert.deepEqual(requests.map((body) => body.with_vector), [false, true, false]);
+  assert.deepEqual(requests.map((body) => body.with_vector), [false, true]);
 });
 
 test('Qdrant→current filesystem→LSP→ContextBundle includes verified snippet and exact expansion handle', async () => {

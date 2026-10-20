@@ -8,9 +8,9 @@ ACE has no `PRODUCTION=true` switch. Provider flags enable code paths; they do n
 
 | Mode | Key configuration | Expected capability state | Allowed claim |
 | --- | --- | --- | --- |
-| Offline / provider-disabled | `ACE_ENABLE_EXPERIMENTAL_QDRANT=false` and `ACE_ALLOW_LOCAL_FALLBACK=false` | code/unified context `not_ready` | MCP process/tool surface exists; no code retrieval readiness |
-| Explicit degraded local fallback | `ACE_ALLOW_LOCAL_FALLBACK=true` | code/unified context `degraded` | local lexical/structural fallback for development; **not** production semantic retrieval |
-| Real local retrieval composition | `ACE_ENABLE_EXPERIMENTAL_QDRANT=true` plus Qdrant, embedding worker, Tree-sitter and TS-LS runtime | `ready` only after real startup preflights and complete index coverage; otherwise `degraded/not_ready` | measured real-provider path; still not production-approved merely because it starts |
+| Offline / provider-disabled | `ACE_ENABLE_EXPERIMENTAL_QDRANT=false` | code/unified context `not_ready` | MCP process/tool surface exists; no code retrieval readiness |
+| Provider unavailable | Qdrant/embedding/structural provider is unavailable | code/unified context `not_ready` | No lexical substitute is composed into the production MCP runtime |
+| Real local retrieval composition | `ACE_ENABLE_EXPERIMENTAL_QDRANT=true` plus Qdrant, embedding worker, ast-grep and LSP runtime | `ready` only after real startup preflights and complete index coverage; otherwise `degraded/not_ready` | measured real-provider path; still not production-approved merely because it starts |
 | Temporal memory enabled | `ACE_ENABLE_GRAPHITI=true` plus archive, local Graphiti command/args/group | memory starts `degraded` until the real provider lifecycle is proven | local temporal-memory integration is available; production memory requires real lifecycle/deletion/recovery evidence |
 | Vertex documentation enabled | `ACE_ENABLE_VERTEX=true`, `ACE_CLOUD_DOCS_OPT_IN=true`, project/corpus config | documentation configured as `degraded` until real retrieval evidence exists | explicitly authorized documentation retrieval only; source code remains current-behavior truth |
 | Host worktree helper | `ACE_WORKTREE_HELPER_URL` plus workspace ID and mTLS CA/cert/key | worktree `ready` after authenticated helper creation | exact read-only host worktree boundary; production deployment still requires real k3s containment/race evidence |
@@ -27,11 +27,11 @@ ACE intentionally distinguishes failures that make the process configuration its
 | Invalid/missing mandatory base config, workspace registration/observation failure, invalid host-helper mTLS configuration | **fatal** — startup exits non-zero | no runtime readiness claim | configuration/trust boundary is unusable; fix before restart |
 | Pinned embedding identity/configuration mismatch, corrupt snapshot state, or trust-boundary failure | **fatal** — startup exits non-zero | no semantic retrieval claim | requested identity cannot be proven; do not fall back silently |
 | Transient embedding/provider timeout or unavailable startup probe | process stays alive | code/unified context = `not_ready` | retry/reconcile is required; provider failure is never promoted to `ready` |
-| Snapshot manifest/lease persistence invariant failure or semantic snapshot identity race | **fatal** — startup exits non-zero | no current-source claim | continuing could break source/snapshot truth |
+| Corrupt workspace/provider identity state or semantic snapshot identity race | **fatal** — startup exits non-zero | no current-source claim | continuing could break source/provider truth |
 | TypeScript Language Service construction/preflight failure after the selected real composition is being built | **fatal** for an invalid/corrupt semantic snapshot; otherwise `not_ready` for a transient provider outage | no selected semantic-provider claim | selected semantic contract is unavailable; exact bytes may remain citable without current semantic confirmation |
 | Qdrant collection unavailable with fallback disabled | process stays alive | code/unified context = `not_ready` | MCP/tool surface may still report status; code retrieval is unavailable |
 | Qdrant collection unavailable with explicit local fallback enabled | process stays alive | code/unified context = `degraded` if fallback index builds, otherwise `not_ready` | development fallback only; never production semantic readiness |
-| Required embedding/Tree-sitter executable missing before provider startup | process stays alive | code/unified context = `not_ready` | installation/runtime dependency missing |
+| Required embedding/ast-grep executable missing before provider startup | process stays alive | code/unified context = `not_ready` | installation/runtime dependency missing |
 | Structural index build or Qdrant population failure | process stays alive | code/unified context = `not_ready` | provider path exists but current index could not be made trustworthy |
 | Partial index coverage from explicit file failures | process stays alive | code/unified context = `degraded` | evidence may be returned, but required code coverage is incomplete |
 | Graphiti startup failure | process stays alive | memory = `not_ready` | code/docs can remain available; memory must not be represented as healthy |
@@ -75,7 +75,7 @@ MCP -> ace_context
     -> embedding worker
     -> Qdrant
     -> exact workspace reread
-    -> Tree-sitter structural anchor
+    -> ast-grep structural anchor
     -> TypeScript Language Service confirmation
     -> final exact workspace reread
 ```
@@ -91,8 +91,7 @@ ACE_WORKSPACE_ID=<stable-workspace-id>
 ACE_ENABLE_EXPERIMENTAL_QDRANT=true
 ACE_QDRANT_URL=http://127.0.0.1:6333
 ACE_EMBEDDING_WORKER=$PWD/scripts/fastembed-worker.sh
-ACE_TREE_SITTER_HELPER=$PWD/scripts/tree-sitter-structural.py
-ACE_TREE_SITTER_PYTHON=$PWD/.venv-system/bin/python
+ACE_AST_GREP_COMMAND=$PWD/node_modules/.bin/ast-grep
 ```
 
 The name `ACE_ENABLE_EXPERIMENTAL_QDRANT` is intentional. It enables the real Qdrant-based runtime path; it does **not** mean the embedding or semantic provider has passed the production-selection gates.
@@ -105,31 +104,15 @@ ACE_REQUIRE_PINNED_EMBEDDING=true
 
 and the configured model/artifact revision and digest values required by `ace-mcp.ts`. Production approval is still a separate evidence/owner decision.
 
-For the default Qdrant collection, ACE waits for the embedding worker's verified startup receipt before choosing the namespace. The namespace fingerprint includes the effective provider/model/artifact digest, preprocessing, execution mode and reported runtime build/version. A requested environment label therefore cannot place a different loaded artifact/runtime into the same default collection namespace. Explicit `ACE_QDRANT_COLLECTION` remains an operator-managed namespace and is subject to the exclusive-owner GC rule below.
+For each workspace and embedding identity, ACE publishes a verified immutable Qdrant collection and exposes it through the native `..._current` alias. The collection name includes the effective provider/model/artifact digest, preprocessing, execution mode, runtime build/version and source `index_key`. A requested environment label therefore cannot place a different loaded artifact/runtime into the same collection namespace. The alias is the only read surface used by the production runtime; an unverified collection is never made current.
 
-If `ACE_ALLOW_LOCAL_FALLBACK=true`, Qdrant/provider failure may fall back to the explicitly degraded local path. This flag must never be used to turn a failed production dependency into a silent `ready` state.
+The production MCP runtime has no lexical fallback switch. Qdrant, embedding or structural-provider failure remains `not_ready`; local lexical providers are test/spike-only and cannot satisfy a production retrieval gate.
 
-### Qdrant snapshot ownership and garbage collection
+### Qdrant publication and cleanup
 
-The default Qdrant collection name includes a persistent random **state-owner ID** stored under the configured `ACE_STATE_DIR`. Two ACE processes using different state directories therefore do not share the same automatic-GC namespace even when they point at the same Qdrant service.
+ACE does not use a filesystem snapshot-state database, reader/writer leases or an explicit collection override. A rebuild creates a separate content-addressed collection, verifies its count and membership, then switches the workspace/embedding `current` alias atomically. A crash before the switch leaves the previous alias target unchanged; a restart can publish the verified new collection. Unchanged vectors are reused from the previous alias by embedding content identity.
 
-Snapshot lease cleanup is conservative by default:
-
-```bash
-ACE_QDRANT_LEASE_REAP_MODE=conservative
-```
-
-In this mode a valid lease file is never deleted merely because its PID appears dead. This is intentional: PID liveness is not portable across hosts, containers, or PID namespaces. A crashed reader can leave an old snapshot retained, but a live remote reader is not destroyed by a false `ESRCH`.
-
-`ACE_QDRANT_LEASE_REAP_MODE=local-process` may be used only when the operator guarantees that all processes sharing that state directory are in the same PID namespace and local process-liveness checks are authoritative.
-
-If `ACE_QDRANT_COLLECTION` is set explicitly, ACE treats it as potentially shared and skips automatic snapshot GC unless:
-
-```bash
-ACE_QDRANT_COLLECTION_EXCLUSIVE_OWNER=true
-```
-
-That flag is an operator assertion, not auto-detection. Do not set it for a collection shared by independent state roots.
+Obsolete collections may be removed asynchronously only after the deployment's bounded grace/retention policy proves that no current reader requires them. Cleanup must never delete the collection currently targeted by the alias. Qdrant snapshots, PVC backup and restore are separate operational evidence and are not replaced by ACE's publication protocol.
 
 ## Documentation / Vertex
 

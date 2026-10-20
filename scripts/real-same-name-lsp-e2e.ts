@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { Effect } from 'effect';
 import { buildLocalCodeIndex } from '../src/adapters/local-code-index.js';
 import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
-import { makeTreeSitterStructuralPort } from '../src/adapters/tree-sitter-structural.js';
+import { makeAstGrepStructuralPort } from '../src/adapters/ast-grep-structural.js';
 import { makeTypeScriptLanguageServicePort } from '../src/adapters/typescript-language-service.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
 import type { Result } from '../src/domain/result.js';
@@ -54,10 +54,7 @@ if (!/^[a-f0-9]{40,64}$/u.test(sourceCommit)) throw new Error('could not resolve
 
 try {
   const files = makeNodeWorkspacePort({ allowedRoots: [parent] });
-  const structural = makeTreeSitterStructuralPort({
-    helperPath: resolve('scripts/tree-sitter-structural.py'),
-    pythonCommand: resolve('.venv-system/bin/python'),
-  });
+  const structural = makeAstGrepStructuralPort({ command: resolve('node_modules/.bin/ast-grep') });
   const indexed = mustOk(await Effect.runPromise(buildLocalCodeIndex(files, workspaceId, root, { generation: 1, structural })));
   const saves = indexed.index.candidates.filter((candidate) => candidate.symbolName === 'save');
   assert.equal(saves.length, 2);
@@ -96,7 +93,7 @@ try {
     command: 'npm run test:real-same-name',
     status: 'provider-pass',
     contract: 'DBC-04',
-    provider: 'Tree-sitter 0.26.0 + tree-sitter-typescript 0.23.2 + TypeScript Language Service 5.9.3',
+    provider: 'ast-grep 0.51.0 + typescript-language-server 6.0.2',
     source: 'repositories.ts',
     sourceDigest,
     structuralSaveSpans: saves.map((candidate) => candidate.range),

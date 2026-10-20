@@ -60,11 +60,14 @@ const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
     ACE_WORKSPACE_ID: 'real-provider-2000-line',
     ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
     ACE_QDRANT_URL: outage || hardOutage ? 'http://127.0.0.1:6339' : qdrantUrl,
-    ACE_ALLOW_LOCAL_FALLBACK: outage ? 'true' : 'false',
     ACE_EMBEDDING_WORKER: resolve(import.meta.dirname, 'fastembed-worker.sh'),
-    ACE_TREE_SITTER_HELPER: resolve(import.meta.dirname, 'tree-sitter-structural.py'),
-    ACE_TREE_SITTER_PYTHON: process.env.ACE_TREE_SITTER_PYTHON ?? resolve('.venv-system/bin/python'),
-    ...(race ? { ACE_EMBEDDING_DELAY_MS: '1000' } : {}),
+    ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
+    ...(race ? {
+      // The runtime forwards the artificial delay only under its explicit
+      // test-only double opt-in; production runs never receive this knob.
+      ACE_ENABLE_TEST_FAILPOINTS: 'true',
+      ACE_EMBEDDING_DELAY_MS: '1000',
+    } : {}),
   },
   stdio: ['pipe', 'pipe', 'pipe'],
 });

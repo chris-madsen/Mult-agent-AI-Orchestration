@@ -19,9 +19,6 @@ COPY src ./src
 COPY scripts ./scripts
 RUN npm run build \
   && npm prune --omit=dev --ignore-scripts \
-  && python3 -m venv /opt/ace/.venv-system \
-  && /opt/ace/.venv-system/bin/pip install --no-cache-dir \
-       tree-sitter==0.26.0 tree-sitter-typescript==0.23.2 \
   && python3 -m venv /opt/ace/.venv-embedding-fast \
   && /opt/ace/.venv-embedding-fast/bin/pip install --no-cache-dir \
        fastembed==0.7.4 onnxruntime==1.31.0 \
@@ -31,8 +28,7 @@ RUN npm run build \
 ENV ACE_STATE_DIR=/var/lib/ace/state \
     ACE_ARTIFACT_DIR=/var/lib/ace/artifacts \
     FASTEMBED_CACHE_PATH=/var/lib/ace/model-cache \
-    ACE_TREE_SITTER_HELPER=/opt/ace/scripts/tree-sitter-structural.py \
-    ACE_TREE_SITTER_PYTHON=/opt/ace/.venv-system/bin/python \
+    ACE_AST_GREP_COMMAND=/opt/ace/node_modules/.bin/ast-grep \
     ACE_EMBEDDING_WORKER=/opt/ace/scripts/fastembed-worker.sh \
     ACE_EMBEDDING_PYTHON=/opt/ace/.venv-embedding-fast/bin/python \
     TMPDIR=/tmp

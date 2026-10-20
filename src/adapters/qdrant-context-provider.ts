@@ -26,6 +26,7 @@ import type {
   VectorEmbeddingPort,
   WorkspaceFilePort,
 } from '../application/ports.js';
+import type { CodeCandidate } from '../domain/retrieval.js';
 import type { RepoPath, WorkspaceId } from '../domain/workspace.js';
 import {
   initialSourceCoverage,
@@ -38,7 +39,13 @@ import {
 } from '../domain/source-coverage.js';
 import { validateLocalQdrantBaseUrl } from './http-provider-boundaries.js';
 import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
-import { diffWorkspaceManifests, workspaceManifestFromSnapshot, workspaceManifestEqual, type WorkspaceManifest } from '../domain/workspace-manifest.js';
+import {
+  diffWorkspaceManifests,
+  workspaceManifestFromSnapshot,
+  workspaceManifestEqual,
+  type WorkspaceManifest,
+  type WorkspaceManifestDelta,
+} from '../domain/workspace-manifest.js';
 
 export interface QdrantContextConfig {
   readonly workspaceId: WorkspaceId;
@@ -57,10 +64,58 @@ export interface QdrantContextConfig {
   readonly coverage?: IndexCoverageSummary;
   /** If set, every request must reconcile the authoritative working tree. */
   readonly workspaceManifest?: WorkspaceManifest;
+  /**
+   * Optional runtime-owned catch-up. The callback must publish and return a
+   * complete provider configuration for exactly `currentManifest`; returning
+   * another manifest is treated as a race and remains NOT_READY.
+   */
+  readonly reconcile?: (
+    currentManifest: WorkspaceManifest,
+    delta: WorkspaceManifestDelta,
+  ) => Effect.Effect<Result<QdrantContextConfig, DomainError>>;
   readonly scopeFingerprint?: string;
   readonly semanticSnapshotIdentity?: string;
   readonly trace?: ProviderTraceSink;
 }
+
+export const embeddingContentKey = (providerIdentity: string, chunk: string): string =>
+  createHash('sha256').update(providerIdentity, 'utf8').update('\0', 'utf8').update(Buffer.from(chunk, 'utf8')).digest('hex');
+
+export const qdrantCollectionName = (workspaceKey: string, embeddingKey: string, indexPrefix: string): string =>
+  `ace_${workspaceKey}_${embeddingKey.slice(0, 16)}_${indexPrefix.slice(0, 16)}`;
+
+export const qdrantCurrentAlias = (workspaceKey: string, embeddingKey: string): string =>
+  `ace_${workspaceKey}_${embeddingKey.slice(0, 16)}_current`;
+
+export const resolveQdrantAlias = (
+  http: HttpPort,
+  baseUrl: string,
+  alias: string,
+  allowedHosts: readonly string[] = [],
+): Effect.Effect<Result<string | undefined, DomainError>> => Effect.gen(function* () {
+  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
+  if (endpoint._tag === 'Err') return endpoint;
+  if (!/^[a-zA-Z0-9_.-]{1,255}$/u.test(alias)) {
+    return err(domainError('INVALID_INPUT', 'qdrant_alias', 'Qdrant alias name is invalid'));
+  }
+  const listed = yield* http.request({ method: 'GET', url: `${endpoint.value}/aliases` });
+  if (listed._tag === 'Err') return listed;
+  if (listed.value.status < 200 || listed.value.status >= 300) {
+    return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant_alias', 'could not inspect Qdrant aliases'));
+  }
+  const body = listed.value.body as { result?: { aliases?: unknown } };
+  if (!Array.isArray(body.result?.aliases)) {
+    return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_alias', 'Qdrant alias response is malformed'));
+  }
+  const target = body.result.aliases.find((item) =>
+    typeof item === 'object' && item !== null && !Array.isArray(item)
+    && (item as { alias_name?: unknown }).alias_name === alias);
+  if (target === undefined) return ok(undefined);
+  const collection = (target as { collection_name?: unknown }).collection_name;
+  return typeof collection === 'string' && /^[a-zA-Z0-9_.-]{1,255}$/u.test(collection)
+    ? ok(collection)
+    : err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_alias', 'Qdrant alias target is malformed'));
+});
 
 export const populateQdrantFromStructuralIndex = (
   index: CodeIndex,
@@ -68,6 +123,7 @@ export const populateQdrantFromStructuralIndex = (
   embeddings: VectorEmbeddingPort,
   indexKey?: string,
   seedVectors: ReadonlyMap<string, readonly number[]> = new Map(),
+  embeddingProviderIdentity?: string,
 ): Effect.Effect<Result<number, DomainError>> => Effect.gen(function* () {
   if (index.candidates.length === 0) {
     return err(domainError('UNSUPPORTED_PROVIDER', 'index', 'no verified structural candidates available for Qdrant'));
@@ -75,7 +131,10 @@ export const populateQdrantFromStructuralIndex = (
   let count = 0;
   for (let offset = 0; offset < index.candidates.length; offset += 16) {
     const candidates = index.candidates.slice(offset, offset + 16);
-    const missing = candidates.filter((candidate) => !seedVectors.has(candidate.candidateId));
+    const keyFor = (candidate: CodeCandidate): string => embeddingProviderIdentity === undefined
+      ? candidate.candidateId
+      : embeddingContentKey(embeddingProviderIdentity, candidate.text);
+    const missing = candidates.filter((candidate) => !seedVectors.has(keyFor(candidate)));
     const embedded: Result<readonly (readonly number[])[], DomainError> = missing.length === 0
       ? ok([])
       : yield* embeddings.embedMany(missing.map((candidate) => candidate.text));
@@ -86,11 +145,12 @@ export const populateQdrantFromStructuralIndex = (
     const generated = new Map(missing.map((candidate, vectorIndex) => [candidate.candidateId, embedded.value[vectorIndex] ?? []] as const));
     const points: CodePoint[] = [];
     for (const candidate of candidates) {
-      const vector = seedVectors.get(candidate.candidateId) ?? generated.get(candidate.candidateId);
+      const embeddingKey = keyFor(candidate);
+      const vector = seedVectors.get(embeddingKey) ?? generated.get(candidate.candidateId);
       if (vector === undefined || vector.length === 0 || !vector.every((value) => Number.isFinite(value))) {
         return err(domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'candidate is missing a valid vector'));
       }
-      points.push({ candidate, vector, ...(indexKey === undefined ? {} : { indexKey }) });
+      points.push({ candidate, vector, ...(indexKey === undefined ? {} : { indexKey }), embeddingKey });
     }
     const result = yield* qdrant.upsert(points);
     if (result._tag === 'Err') return result;
@@ -177,6 +237,49 @@ export const ensureQdrantCollection = (
     }
   }
   return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not create dedicated collection'));
+});
+
+/**
+ * Publish a verified immutable collection through one Qdrant alias update.
+ * The alias is the only read surface used by the runtime; collection creation
+ * and point verification happen before this function is called.
+ */
+export const switchQdrantAlias = (
+  http: HttpPort,
+  baseUrl: string,
+  alias: string,
+  collection: string,
+  allowedHosts: readonly string[] = [],
+): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
+  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
+  if (endpoint._tag === 'Err') return endpoint;
+  if (!/^[a-zA-Z0-9_.-]{1,255}$/u.test(alias) || !/^[a-zA-Z0-9_.-]{1,255}$/u.test(collection)) {
+    return err(domainError('INVALID_INPUT', 'qdrant_alias', 'Qdrant alias and collection names are invalid'));
+  }
+  const listed = yield* http.request({ method: 'GET', url: `${endpoint.value}/aliases` });
+  if (listed._tag === 'Err') return listed;
+  if (listed.value.status < 200 || listed.value.status >= 300) {
+    return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant_alias', 'could not inspect Qdrant aliases'));
+  }
+  const body = listed.value.body as { result?: { aliases?: unknown } };
+  if (!Array.isArray(body.result?.aliases)) {
+    return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_alias', 'Qdrant alias response is malformed'));
+  }
+  const existing = body.result.aliases.find((item) =>
+    typeof item === 'object' && item !== null && !Array.isArray(item)
+    && (item as { alias_name?: unknown }).alias_name === alias);
+  const actions: Array<Readonly<Record<string, unknown>>> = [];
+  if (existing !== undefined) actions.push({ delete_alias: { alias_name: alias } });
+  actions.push({ create_alias: { collection_name: collection, alias_name: alias } });
+  const switched = yield* http.request({
+    method: 'POST',
+    url: `${endpoint.value}/collections/aliases`,
+    body: { actions },
+  });
+  if (switched._tag === 'Err') return switched;
+  return switched.value.status >= 200 && switched.value.status < 300
+    ? ok(undefined)
+    : err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant_alias', 'atomic Qdrant alias switch failed'));
 });
 
 /**
@@ -346,7 +449,7 @@ export const readQdrantSnapshotVectors = (
   baseUrl: string,
   collection: string,
   workspaceId: WorkspaceId,
-  indexKey: string,
+  indexKey?: string,
   allowedHosts: readonly string[] = [],
 ): Effect.Effect<Result<ReadonlyMap<string, readonly number[]>, DomainError>> => Effect.gen(function* () {
   const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
@@ -363,7 +466,7 @@ export const readQdrantSnapshotVectors = (
         with_vector: true,
         filter: { must: [
           { key: 'workspace_id', match: { value: workspaceId } },
-          { key: 'index_key', match: { value: indexKey } },
+          ...(indexKey === undefined ? [] : [{ key: 'index_key', match: { value: indexKey } }]),
         ] },
         ...(offset === undefined ? {} : { offset }),
       },
@@ -381,12 +484,13 @@ export const readQdrantSnapshotVectors = (
       const record = point as { payload?: unknown; vector?: unknown };
       if (typeof record.payload !== 'object' || record.payload === null || Array.isArray(record.payload)) continue;
       const candidateId = (record.payload as { candidate_id?: unknown }).candidate_id;
+      const embeddingKey = (record.payload as { embedding_key?: unknown }).embedding_key;
       if (typeof candidateId !== 'string') continue;
       if (!Array.isArray(record.vector) || record.vector.length === 0
         || !record.vector.every((value) => typeof value === 'number' && Number.isFinite(value))) {
         return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_vector', 'prior snapshot contains an invalid vector'));
       }
-      vectors.set(candidateId, record.vector as number[]);
+      vectors.set(typeof embeddingKey === 'string' ? embeddingKey : candidateId, record.vector as number[]);
     }
     const next = body.result.next_page_offset;
     if (next === undefined || next === null) break;
@@ -410,6 +514,8 @@ export const reuseOrPopulateQdrantSnapshot = (
   allowedHosts: readonly string[] = [],
   reuseAllowed = true,
   priorIndexKey?: string,
+  embeddingProviderIdentity?: string,
+  priorCollection?: string,
 ): Effect.Effect<Result<{ readonly count: number; readonly reused: boolean; readonly reusedVectorCount: number }, DomainError>> => Effect.gen(function* () {
   const expectedCandidateIds = index.candidates.map((candidate) => candidate.candidateId);
   if (reuseAllowed) {
@@ -429,13 +535,22 @@ export const reuseOrPopulateQdrantSnapshot = (
   // Snapshot-scoped deterministic point IDs make same-snapshot writes idempotent
   // and different snapshots independent.
   let seedVectors: ReadonlyMap<string, readonly number[]> = new Map();
-  if (priorIndexKey !== undefined && priorIndexKey !== indexKey) {
-    const prior = yield* readQdrantSnapshotVectors(http, baseUrl, collection, workspaceId, priorIndexKey, allowedHosts);
+  if (priorCollection !== undefined || priorIndexKey !== undefined) {
+    const prior = yield* readQdrantSnapshotVectors(
+      http,
+      baseUrl,
+      priorCollection ?? collection,
+      workspaceId,
+      priorIndexKey === indexKey ? undefined : priorIndexKey,
+      allowedHosts,
+    );
     if (prior._tag === 'Err') return prior;
-    const currentIds = new Set<string>(index.candidates.map((candidate) => candidate.candidateId));
-    seedVectors = new Map([...prior.value].filter(([candidateId]) => currentIds.has(candidateId)));
+    const currentKeys = new Set<string>(index.candidates.map((candidate) => embeddingProviderIdentity === undefined
+      ? candidate.candidateId
+      : embeddingContentKey(embeddingProviderIdentity, candidate.text)));
+    seedVectors = new Map([...prior.value].filter(([key]) => currentKeys.has(key)));
   }
-  const indexed = yield* populateQdrantFromStructuralIndex(index, qdrant, embeddings, indexKey, seedVectors);
+  const indexed = yield* populateQdrantFromStructuralIndex(index, qdrant, embeddings, indexKey, seedVectors, embeddingProviderIdentity);
   if (indexed._tag === 'Err') return indexed;
   const verified = yield* verifyQdrantSnapshotMembership(
     http, baseUrl, collection, workspaceId, indexKey, expectedCandidateIds, allowedHosts,
@@ -447,119 +562,7 @@ export const reuseOrPopulateQdrantSnapshot = (
   return ok({ count: indexed.value, reused: false, reusedVectorCount: seedVectors.size });
 });
 
-export const pruneQdrantOtherGenerations = (
-  http: HttpPort,
-  baseUrl: string,
-  collection: string,
-  workspaceId: WorkspaceId,
-  generation: number,
-  allowedHosts: readonly string[] = [],
-  indexKey?: string,
-): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
-  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
-  if (endpoint._tag === 'Err') return endpoint;
-  if (!Number.isSafeInteger(generation) || generation < 1) {
-    return err(domainError('INVALID_INPUT', 'generation', 'Qdrant generation must be a positive integer'));
-  }
-  const deleted = yield* http.request({
-    method: 'POST',
-    url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/delete?wait=true',
-    body: {
-      filter: {
-        must: [{ key: 'workspace_id', match: { value: workspaceId } }],
-        must_not: [indexKey === undefined
-          ? { key: 'generation', match: { value: generation } }
-          : { key: 'index_key', match: { value: indexKey } }],
-      },
-    },
-  });
-  if (deleted._tag === 'Err') return deleted;
-  return deleted.value.status >= 200 && deleted.value.status < 300
-    ? ok(undefined)
-    : err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not prune obsolete index generations'));
-});
-
-export const listQdrantSnapshotKeys = (
-  http: HttpPort,
-  baseUrl: string,
-  collection: string,
-  workspaceId: WorkspaceId,
-  allowedHosts: readonly string[] = [],
-): Effect.Effect<Result<ReadonlySet<string>, DomainError>> => Effect.gen(function* () {
-  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
-  if (endpoint._tag === 'Err') return endpoint;
-  const keys = new Set<string>();
-  let offset: unknown;
-  for (let page = 0; page < 10_000; page += 1) {
-    const response = yield* http.request({
-      method: 'POST',
-      url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/scroll',
-      body: {
-        limit: 256,
-        with_payload: ['index_key'],
-        with_vector: false,
-        filter: { must: [{ key: 'workspace_id', match: { value: workspaceId } }] },
-        ...(offset === undefined ? {} : { offset }),
-      },
-    });
-    if (response._tag === 'Err') return response;
-    if (response.value.status < 200 || response.value.status >= 300) {
-      return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not enumerate snapshot keys'));
-    }
-    const body = response.value.body as { result?: { points?: unknown; next_page_offset?: unknown } };
-    if (!Array.isArray(body?.result?.points)) {
-      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'snapshot enumeration requires points'));
-    }
-    for (const point of body.result.points) {
-      if (typeof point !== 'object' || point === null || Array.isArray(point)) continue;
-      const payload = (point as { payload?: unknown }).payload;
-      if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) continue;
-      const indexKey = (payload as { index_key?: unknown }).index_key;
-      if (typeof indexKey === 'string' && /^[a-f0-9]{64}$/u.test(indexKey)) keys.add(indexKey);
-    }
-    const next = body.result.next_page_offset;
-    if (next === undefined || next === null) break;
-    offset = next;
-    if (page === 9_999) {
-      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'snapshot enumeration pagination did not terminate'));
-    }
-  }
-  return ok(keys);
-});
-
-export const pruneQdrantUnleasedSnapshots = (
-  http: HttpPort,
-  baseUrl: string,
-  collection: string,
-  workspaceId: WorkspaceId,
-  retainedIndexKeys: ReadonlySet<string>,
-  allowedHosts: readonly string[] = [],
-): Effect.Effect<Result<readonly string[], DomainError>> => Effect.gen(function* () {
-  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
-  if (endpoint._tag === 'Err') return endpoint;
-  const listed = yield* listQdrantSnapshotKeys(http, baseUrl, collection, workspaceId, allowedHosts);
-  if (listed._tag === 'Err') return listed;
-  const deleted: string[] = [];
-  for (const indexKey of listed.value) {
-    if (retainedIndexKeys.has(indexKey)) continue;
-    const response = yield* http.request({
-      method: 'POST',
-      url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/delete?wait=true',
-      body: { filter: { must: [
-        { key: 'workspace_id', match: { value: workspaceId } },
-        { key: 'index_key', match: { value: indexKey } },
-      ] } },
-    });
-    if (response._tag === 'Err') return response;
-    if (response.value.status < 200 || response.value.status >= 300) {
-      return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not delete an unleased snapshot'));
-    }
-    deleted.push(indexKey);
-  }
-  return ok(deleted);
-});
-
-/** Tree-sitter uses one-based line/column coordinates here, but columns count UTF-8 bytes.
+/** ast-grep uses one-based line/column coordinates here, but columns count UTF-8 bytes.
  * Re-slice authoritative workspace bytes and compare them with the Qdrant payload.
  * Qdrant ranking never confers source-of-truth status. */
 export const exactUtf8ByteRange = (
@@ -624,329 +627,371 @@ export const exactUtf8Span = (
     : Buffer.from(bytes).subarray(span.offset, span.offset + span.length).toString('utf8');
 };
 
-export const makeQdrantContextProvider = (config: QdrantContextConfig) => ({
-  search: (input: {
-    readonly workspaceId: WorkspaceId;
-    readonly query: string;
-    readonly includeCode?: boolean;
-    readonly includeDocs: boolean;
-    readonly includeMemory: boolean;
-    readonly sourceRequirements?: SourceRequirements;
-  }): Effect.Effect<Result<ContextBundle, DomainError>> => Effect.gen(function* () {
-    if (input.workspaceId !== config.workspaceId) {
-      return err(domainError('POLICY_DENIED', 'workspace_id', 'Qdrant provider belongs to another workspace'));
-    }
-    if (config.workspaceManifest !== undefined) {
-      const currentSnapshot = yield* config.files.snapshot(config.rootPath, Date.now());
-      if (currentSnapshot._tag === 'Err') return currentSnapshot;
-      const currentManifest = workspaceManifestFromSnapshot(
-        currentSnapshot.value,
-        config.scopeFingerprint ?? config.workspaceManifest.scopeFingerprint,
-      );
-      if (!workspaceManifestEqual(config.workspaceManifest, currentManifest)) {
-        const delta = diffWorkspaceManifests(config.workspaceManifest, currentManifest);
-        return err(domainError(
-          'NOT_READY',
-          'workspace_manifest',
-          'authoritative workspace manifest changed; indexed context requires reconciliation before complete delivery',
-          {
-            changed: delta.changed.length,
-            added: delta.added.length,
-            deleted: delta.deleted.length,
-            renamed: delta.renamed.length,
-            scopeChanged: delta.scopeChanged,
-          },
-        ));
+export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
+  let activeConfig = config;
+  return {
+    search: (input: {
+      readonly workspaceId: WorkspaceId;
+      readonly query: string;
+      readonly includeCode?: boolean;
+      readonly includeDocs: boolean;
+      readonly includeMemory: boolean;
+      readonly sourceRequirements?: SourceRequirements;
+    }): Effect.Effect<Result<ContextBundle, DomainError>> => Effect.gen(function* () {
+      if (input.workspaceId !== activeConfig.workspaceId) {
+        return err(domainError('POLICY_DENIED', 'workspace_id', 'Qdrant provider belongs to another workspace'));
       }
-    }
-    const requestId = makeRequestId(config.newRequestId());
-    if (requestId._tag === 'Err') return requestId;
-    const includeCode = input.includeCode ?? true;
-    const requirements = input.sourceRequirements ?? legacySourceRequirements({
-      includeCode,
-      includeDocs: input.includeDocs,
-      includeMemory: input.includeMemory,
-    });
-    const managedCoverage = input.sourceRequirements !== undefined;
-    let sourceCoverage = initialSourceCoverage(requirements);
-    const evidence: RetrievalEvidence[] = [];
-    const warnings: string[] = [];
-    const failed: string[] = [];
-    let codeProviderError: DomainError | undefined;
-    let rankedResults: readonly RankedCandidate[] = [];
-    if (includeCode) {
-      const vectors = yield* config.embeddings.embedMany([input.query], requestId.value);
-      if (vectors._tag === 'Err') {
-        codeProviderError = vectors.error;
-      } else {
-        const vector = vectors.value[0];
-        if (vector === undefined) {
-          codeProviderError = domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'empty query vector');
+      if (activeConfig.workspaceManifest !== undefined) {
+        const currentSnapshot = yield* activeConfig.files.snapshot(activeConfig.rootPath, Date.now());
+        if (currentSnapshot._tag === 'Err') return currentSnapshot;
+        const currentManifest = workspaceManifestFromSnapshot(
+          currentSnapshot.value,
+          activeConfig.scopeFingerprint ?? activeConfig.workspaceManifest.scopeFingerprint,
+        );
+        if (!workspaceManifestEqual(activeConfig.workspaceManifest, currentManifest)) {
+          const delta = diffWorkspaceManifests(activeConfig.workspaceManifest, currentManifest);
+          if (activeConfig.reconcile === undefined) {
+            return err(domainError(
+              'NOT_READY',
+              'workspace_manifest',
+              'authoritative workspace manifest changed; indexed context requires reconciliation before complete delivery',
+              {
+                changed: delta.changed.length,
+                added: delta.added.length,
+                deleted: delta.deleted.length,
+                renamed: delta.renamed.length,
+                scopeChanged: delta.scopeChanged,
+              },
+            ));
+          }
+          const reconciled = yield* activeConfig.reconcile(currentManifest, delta);
+          if (reconciled._tag === 'Err') return reconciled;
+          if (reconciled.value.workspaceManifest === undefined
+          || !workspaceManifestEqual(reconciled.value.workspaceManifest, currentManifest)) {
+            return err(domainError(
+              'NOT_READY',
+              'workspace_manifest',
+              'workspace changed again while reconciliation was publishing; refusing stale semantic context',
+            ));
+          }
+          activeConfig = reconciled.value;
+        }
+      }
+      const requestId = makeRequestId(activeConfig.newRequestId());
+      if (requestId._tag === 'Err') return requestId;
+      const includeCode = input.includeCode ?? true;
+      const requirements = input.sourceRequirements ?? legacySourceRequirements({
+        includeCode,
+        includeDocs: input.includeDocs,
+        includeMemory: input.includeMemory,
+      });
+      let sourceCoverage = initialSourceCoverage(requirements);
+      const evidence: RetrievalEvidence[] = [];
+      const warnings: string[] = [];
+      const failed: string[] = [];
+      let codeProviderError: DomainError | undefined;
+      let rankedResults: readonly RankedCandidate[] = [];
+      let lspConfirmedCount = 0;
+      if (includeCode) {
+        const vectors = yield* activeConfig.embeddings.embedMany([input.query], requestId.value);
+        if (vectors._tag === 'Err') {
+          codeProviderError = vectors.error;
         } else {
-          const result = yield* config.qdrant.search({
-            workspaceId: input.workspaceId,
-            vector,
-            limit: config.candidateLimit ?? 6,
-            ...(config.generation === undefined ? {} : { generation: config.generation }),
-            ...(config.indexKey === undefined ? {} : { indexKey: config.indexKey }),
-            requestId: requestId.value,
-          });
-          if (result._tag === 'Err') codeProviderError = result.error;
-          else rankedResults = result.value;
+          const vector = vectors.value[0];
+          if (vector === undefined) {
+            codeProviderError = domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'empty query vector');
+          } else {
+            const result = yield* activeConfig.qdrant.search({
+              workspaceId: input.workspaceId,
+              vector,
+              limit: activeConfig.candidateLimit ?? 6,
+              ...(activeConfig.generation === undefined ? {} : { generation: activeConfig.generation }),
+              ...(activeConfig.indexKey === undefined ? {} : { indexKey: activeConfig.indexKey }),
+              requestId: requestId.value,
+            });
+            if (result._tag === 'Err') codeProviderError = result.error;
+            else rankedResults = result.value;
+          }
+        }
+        if (codeProviderError !== undefined) {
+          if (input.sourceRequirements === undefined) return err(codeProviderError);
+          warnings.push('code retrieval unavailable: ' + codeProviderError.code);
+          failed.push('code', 'lsp');
         }
       }
-      if (codeProviderError !== undefined) {
-        if (!managedCoverage) return err(codeProviderError);
-        warnings.push('code retrieval unavailable: ' + codeProviderError.code);
-        failed.push('code', 'lsp');
-      }
-    }
 
-    const fullSources = new Map<RepoPath, { readonly bytes: Uint8Array; readonly digest: string; readonly handle: string }>();
+      const fullSources = new Map<RepoPath, {
+        readonly bytes: Uint8Array;
+        readonly digest: string;
+        readonly handle: string;
+        readonly sizeBytes: number;
+      }>();
 
-    const initialFailures = new Map<RepoPath, string>();
-    for (const [i, ranked] of rankedResults.entries()) {
-      const candidate = ranked.candidate;
-      // One authoritative exact read and one immutable artifact per source,
-      // not one read per Qdrant symbol. All selected sources are revalidated
-      // a second time at the request boundary below.
-      let full = fullSources.get(candidate.repoPath);
-      if (full === undefined) {
-        const priorError = initialFailures.get(candidate.repoPath);
-        if (priorError !== undefined) {
-          failed.push('code');
-          continue;
+      const initialFailures = new Map<RepoPath, string>();
+      for (const [i, ranked] of rankedResults.entries()) {
+        const candidate = ranked.candidate;
+        // One authoritative exact read and one immutable artifact per source,
+        // not one read per Qdrant symbol. All selected sources are revalidated
+        // a second time at the request boundary below.
+        let full = fullSources.get(candidate.repoPath);
+        if (full === undefined) {
+          const priorError = initialFailures.get(candidate.repoPath);
+          if (priorError !== undefined) {
+            failed.push('code');
+            continue;
+          }
+          const read = yield* activeConfig.files.readExact(activeConfig.rootPath, candidate.repoPath);
+          if (read._tag === 'Err') {
+            initialFailures.set(candidate.repoPath, read.error.code);
+            warnings.push(candidate.repoPath + ': ' + read.error.code);
+            failed.push('code');
+            continue;
+          }
+          const stored = yield* activeConfig.artifacts.storeExact(read.value.bytes);
+          if (stored._tag === 'Err') return stored;
+          full = {
+            bytes: read.value.bytes,
+            digest: read.value.digest,
+            handle: stored.value.handle,
+            sizeBytes: stored.value.sizeBytes,
+          };
+          fullSources.set(candidate.repoPath, full);
         }
-        const read = yield* config.files.readExact(config.rootPath, candidate.repoPath);
-        if (read._tag === 'Err') {
-          initialFailures.set(candidate.repoPath, read.error.code);
-          warnings.push(candidate.repoPath + ': ' + read.error.code);
+        // Both the digest AND the byte-exact AST slice must match. Never deliver
+        // unverified Qdrant payload as if it were the workspace's current source.
+        const current = full.digest === candidate.sourceDigest;
+        const exactSpan = exactUtf8ByteRange(full.bytes, candidate.range);
+        const verifiedText = exactSpan === undefined ? undefined
+          : Buffer.from(full.bytes).subarray(exactSpan.offset, exactSpan.offset + exactSpan.length).toString('utf8');
+        const verified = current && verifiedText !== undefined && verifiedText === candidate.text;
+        const freshness = current ? (verified ? 'current' : 'unknown') : 'stale';
+        if (!verified) {
+          warnings.push(candidate.repoPath + ': stale index or AST slice disagrees with current original bytes');
           failed.push('code');
-          continue;
         }
-        const stored = yield* config.artifacts.storeExact(read.value.bytes);
-        if (stored._tag === 'Err') return stored;
-        full = { bytes: read.value.bytes, digest: read.value.digest, handle: stored.value.handle };
-        fullSources.set(candidate.repoPath, full);
-      }
-      // Both the digest AND the byte-exact AST slice must match. Never deliver
-      // unverified Qdrant payload as if it were the workspace's current source.
-      const current = full.digest === candidate.sourceDigest;
-      const exactSpan = exactUtf8ByteRange(full.bytes, candidate.range);
-      const verifiedText = exactSpan === undefined ? undefined
-        : Buffer.from(full.bytes).subarray(exactSpan.offset, exactSpan.offset + exactSpan.length).toString('utf8');
-      const verified = current && verifiedText !== undefined && verifiedText === candidate.text;
-      const freshness = current ? (verified ? 'current' : 'unknown') : 'stale';
-      if (!verified) {
-        warnings.push(candidate.repoPath + ': stale index or AST slice disagrees with current original bytes');
-        failed.push('code');
-      }
-      const evidenceId = makeEvidenceId('qdrant-code-' + (i + 1));
-      if (evidenceId._tag === 'Err') return evidenceId;
-      // Even a partial response must never present an unverified indexed snippet as direct evidence.
-      if (!verified || verifiedText === undefined) continue;
-      const semanticColumn = candidate.semanticAnchor === undefined
-        ? undefined
-        : utf16ColumnAtUtf8Byte(full.bytes, candidate.semanticAnchor.line, candidate.semanticAnchor.byteColumn);
-      const semanticEndColumn = candidate.semanticAnchor === undefined
-        ? undefined
-        : utf16ColumnAtUtf8Byte(full.bytes, candidate.semanticAnchor.endLine, candidate.semanticAnchor.endByteColumn);
-      let lspConfirmed = false;
-      if (candidate.semanticAnchor === undefined || semanticColumn === undefined || semanticEndColumn === undefined) {
-        warnings.push(candidate.repoPath + ': exact structural identifier anchor is unavailable');
-        failed.push('lsp');
-      } else {
-        const definitions = yield* config.semantics.definition({
-          repoPath: candidate.repoPath,
-          line: candidate.semanticAnchor.line,
-          column: semanticColumn,
-          requestId: requestId.value,
-          ...(config.semanticSnapshotIdentity === undefined ? {} : { snapshotIdentity: config.semanticSnapshotIdentity }),
-        });
-        if (definitions._tag === 'Err') {
-          warnings.push(candidate.repoPath + ': language service unavailable (' + definitions.error.code + ')');
+        const evidenceId = makeEvidenceId('qdrant-code-' + (i + 1));
+        if (evidenceId._tag === 'Err') return evidenceId;
+        // Even a partial response must never present an unverified indexed snippet as direct evidence.
+        if (!verified || verifiedText === undefined) continue;
+        const semanticColumn = candidate.semanticAnchor === undefined
+          ? undefined
+          : utf16ColumnAtUtf8Byte(full.bytes, candidate.semanticAnchor.line, candidate.semanticAnchor.byteColumn);
+        const semanticEndColumn = candidate.semanticAnchor === undefined
+          ? undefined
+          : utf16ColumnAtUtf8Byte(full.bytes, candidate.semanticAnchor.endLine, candidate.semanticAnchor.endByteColumn);
+        let lspConfirmed = false;
+        if (candidate.semanticAnchor === undefined || semanticColumn === undefined || semanticEndColumn === undefined) {
+          warnings.push(candidate.repoPath + ': exact structural identifier anchor is unavailable');
           failed.push('lsp');
         } else {
-          lspConfirmed = definitions.value.some((entry) =>
-            entry.location.repoPath === candidate.repoPath
+          const definitions = yield* activeConfig.semantics.definition({
+            repoPath: candidate.repoPath,
+            line: candidate.semanticAnchor.line,
+            column: semanticColumn,
+            requestId: requestId.value,
+            ...(activeConfig.semanticSnapshotIdentity === undefined ? {} : { snapshotIdentity: activeConfig.semanticSnapshotIdentity }),
+          });
+          if (definitions._tag === 'Err') {
+            warnings.push(candidate.repoPath + ': language service unavailable (' + definitions.error.code + ')');
+            failed.push('lsp');
+          } else {
+            lspConfirmed = definitions.value.some((entry) =>
+              entry.location.repoPath === candidate.repoPath
             && entry.location.startLine === candidate.semanticAnchor?.line
             && entry.location.startColumn === semanticColumn
             && entry.location.endLine === candidate.semanticAnchor?.endLine
             && entry.location.endColumn === semanticEndColumn
             && (candidate.symbolName === undefined || entry.name === undefined || entry.name === candidate.symbolName));
-          if (!lspConfirmed) {
-            warnings.push(candidate.repoPath + ': LSP definition does not agree with the selected structural node');
-            failed.push('lsp');
+            if (!lspConfirmed) {
+              warnings.push(candidate.repoPath + ': LSP definition does not agree with the selected structural node');
+              failed.push('lsp');
+            } else {
+              lspConfirmedCount += 1;
+            }
           }
         }
-      }
-      const baseEvidence = evidenceFromCandidate({ ...ranked, freshness }, evidenceId.value);
-      evidence.push({
-        ...baseEvidence,
-        proofClass: lspConfirmed ? baseEvidence.proofClass : 'uncertain',
-        content: verifiedText,
-        expansionHandle: full.handle,
-        ...(exactSpan === undefined ? {} : {
-          expansionCursor: String(exactSpan.offset),
-          expansionMaxBytes: exactSpan.length,
-        }),
-      });
-    }
-
-    if (input.includeDocs) {
-      if (config.documentation === undefined) {
-        warnings.push('documentation provider not configured');
-        failed.push('documentation');
-        if (managedCoverage && sourceIsRequested(requirements.documentation)) {
-          sourceCoverage = setSourceCoverage(sourceCoverage, 'documentation', 'unavailable', 'provider_not_configured');
-        }
-      } else {
-        const documents = yield* config.documentation.search({
-          workspaceId: input.workspaceId,
-          query: input.query,
-          topK: 5,
-          requestId: requestId.value,
+        const baseEvidence = evidenceFromCandidate({ ...ranked, freshness }, evidenceId.value);
+        evidence.push({
+          ...baseEvidence,
+          proofClass: lspConfirmed ? baseEvidence.proofClass : 'uncertain',
+          content: verifiedText,
+          expansionHandle: full.handle,
+          expansionTotalBytes: full.sizeBytes,
+          ...(exactSpan === undefined ? {} : {
+            expansionCursor: String(exactSpan.offset),
+            expansionMaxBytes: exactSpan.length,
+          }),
         });
-        if (documents._tag === 'Err') {
-          warnings.push('Vertex documentation unavailable: ' + documents.error.code);
+      }
+
+      if (input.includeDocs) {
+        if (activeConfig.documentation === undefined) {
+          warnings.push('documentation provider not configured');
           failed.push('documentation');
-          if (managedCoverage && sourceIsRequested(requirements.documentation)) {
-            sourceCoverage = setSourceCoverage(
-              sourceCoverage,
-              'documentation',
-              documents.error.code === 'POLICY_DENIED' ? 'denied' : 'unavailable',
-              documents.error.code,
-            );
+          if (sourceIsRequested(requirements.documentation)) {
+            sourceCoverage = setSourceCoverage(sourceCoverage, 'documentation', 'unavailable', 'provider_not_configured');
           }
         } else {
-          evidence.push(...documents.value);
-          if (documents.value.length === 0) {
-            warnings.push('Vertex documentation corpus returned no contexts');
+          const documents = yield* activeConfig.documentation.search({
+            workspaceId: input.workspaceId,
+            query: input.query,
+            topK: 5,
+            requestId: requestId.value,
+          });
+          if (documents._tag === 'Err') {
+            warnings.push('Vertex documentation unavailable: ' + documents.error.code);
             failed.push('documentation');
-            if (managedCoverage && sourceIsRequested(requirements.documentation)) {
-              sourceCoverage = setSourceCoverage(sourceCoverage, 'documentation', 'empty', 'no_contexts');
+            if (sourceIsRequested(requirements.documentation)) {
+              sourceCoverage = setSourceCoverage(
+                sourceCoverage,
+                'documentation',
+                documents.error.code === 'POLICY_DENIED' ? 'denied' : 'unavailable',
+                documents.error.code,
+              );
             }
-          } else if (documents.value.some((item) => item.freshness !== 'current')) {
-            failed.push('documentation');
-            if (managedCoverage && sourceIsRequested(requirements.documentation)) {
-              sourceCoverage = setSourceCoverage(sourceCoverage, 'documentation', 'partial', 'freshness_not_current');
+          } else {
+            evidence.push(...documents.value);
+            if (documents.value.length === 0) {
+              warnings.push('Vertex documentation corpus returned no contexts');
+              failed.push('documentation');
+              if (sourceIsRequested(requirements.documentation)) {
+                sourceCoverage = setSourceCoverage(sourceCoverage, 'documentation', 'empty', 'no_contexts');
+              }
+            } else if (documents.value.some((item) => item.freshness !== 'current')) {
+              failed.push('documentation');
+              if (sourceIsRequested(requirements.documentation)) {
+                sourceCoverage = setSourceCoverage(sourceCoverage, 'documentation', 'partial', 'freshness_not_current');
+              }
+            } else if (sourceIsRequested(requirements.documentation)) {
+              sourceCoverage = setSourceCoverage(sourceCoverage, 'documentation', 'satisfied');
             }
-          } else if (managedCoverage && sourceIsRequested(requirements.documentation)) {
-            sourceCoverage = setSourceCoverage(sourceCoverage, 'documentation', 'satisfied');
           }
         }
       }
-    }
-    if (input.includeMemory) {
-      if (config.memory === undefined) {
-        warnings.push('memory provider not configured');
-        failed.push('memory');
-        if (managedCoverage && sourceIsRequested(requirements.memory)) {
-          sourceCoverage = setSourceCoverage(sourceCoverage, 'memory', 'unavailable', 'provider_not_configured');
-        }
-      } else {
-        const memories = yield* config.memory.search({
-          workspaceId: input.workspaceId,
-          query: input.query,
-          includeOriginal: false,
-          requestId: requestId.value,
-        });
-        if (memories._tag === 'Err') {
-          warnings.push('temporal memory unavailable: ' + memories.error.code);
+      if (input.includeMemory) {
+        if (activeConfig.memory === undefined) {
+          warnings.push('memory provider not configured');
           failed.push('memory');
-          if (managedCoverage && sourceIsRequested(requirements.memory)) {
-            sourceCoverage = setSourceCoverage(
-              sourceCoverage,
-              'memory',
-              memories.error.code === 'POLICY_DENIED' ? 'denied' : 'unavailable',
-              memories.error.code,
-            );
+          if (sourceIsRequested(requirements.memory)) {
+            sourceCoverage = setSourceCoverage(sourceCoverage, 'memory', 'unavailable', 'provider_not_configured');
           }
         } else {
-          if (managedCoverage && sourceIsRequested(requirements.memory)) {
-            sourceCoverage = setSourceCoverage(sourceCoverage, 'memory', 'satisfied');
-          }
-          for (const [index, hit] of memories.value.hits.entries()) {
-            const evidenceId = makeEvidenceId('memory-' + (index + 1));
-            if (evidenceId._tag === 'Err') return evidenceId;
-            evidence.push({
-              evidenceId: evidenceId.value,
-              source: 'memory',
-              citation: hit.episode.sourcePointer,
-              content: hit.matchingExcerpt,
-              sourceDigest: hit.episode.contentDigest,
-              proofClass: 'derived',
-              // "current" here means the Graphiti edge was linked back to
-              // byte-verified immutable archive provenance, not current source code.
-              freshness: 'current',
-              sourceRevision: hit.episode.contentDigest,
-              sourceTimestampMs: hit.episode.occurredAtMs,
-            });
+          const memories = yield* activeConfig.memory.search({
+            workspaceId: input.workspaceId,
+            query: input.query,
+            includeOriginal: false,
+            requestId: requestId.value,
+          });
+          if (memories._tag === 'Err') {
+            warnings.push('temporal memory unavailable: ' + memories.error.code);
+            failed.push('memory');
+            if (sourceIsRequested(requirements.memory)) {
+              sourceCoverage = setSourceCoverage(
+                sourceCoverage,
+                'memory',
+                memories.error.code === 'POLICY_DENIED' ? 'denied' : 'unavailable',
+                memories.error.code,
+              );
+            }
+          } else {
+            if (sourceIsRequested(requirements.memory)) {
+              sourceCoverage = setSourceCoverage(sourceCoverage, 'memory', 'satisfied');
+            }
+            for (const [index, hit] of memories.value.hits.entries()) {
+              const evidenceId = makeEvidenceId('memory-' + (index + 1));
+              if (evidenceId._tag === 'Err') return evidenceId;
+              evidence.push({
+                evidenceId: evidenceId.value,
+                source: 'memory',
+                citation: hit.episode.sourcePointer,
+                content: hit.matchingExcerpt,
+                sourceDigest: hit.episode.contentDigest,
+                proofClass: 'derived',
+                // "current" here means the Graphiti edge was linked back to
+                // byte-verified immutable archive provenance, not current source code.
+                freshness: 'current',
+                sourceRevision: hit.episode.contentDigest,
+                sourceTimestampMs: hit.episode.occurredAtMs,
+              });
+            }
           }
         }
       }
-    }
-    if (includeCode && (config.coverage?.failedPaths ?? 0) > 0) {
-      warnings.push(`index coverage degraded: ${config.coverage?.failedPaths ?? 0} in-scope path(s) were not fully indexed`);
-      failed.push('code');
-    }
-    // Revalidate as the LAST I/O step, after even slow Vertex/document calls.
-    for (const [path, original] of fullSources) {
-      const verificationStartedAtMs = Date.now();
-      const current = yield* config.files.readExact(config.rootPath, path);
-      const verifiedCurrent = current._tag === 'Ok' && current.value.digest === original.digest;
-      providerTraceEvent(config.trace ?? noopProviderTrace, {
-        provider: 'source_verification',
-        providerVersion: 'workspace-file/v1',
-        operation: 'read_exact_final',
-        status: verifiedCurrent ? 'success' : 'failure',
-        durationMs: Math.max(0, Date.now() - verificationStartedAtMs),
-        requestId: requestId.value,
-        ...(!verifiedCurrent ? {
-          errorCode: current._tag === 'Err' ? current.error.code : 'DIGEST_MISMATCH',
-        } : {}),
-      });
-      if (!verifiedCurrent) {
-        warnings.push(path + ': source changed during retrieval');
+      if (includeCode && (activeConfig.coverage?.failedPaths ?? 0) > 0) {
+        warnings.push(`index coverage degraded: ${activeConfig.coverage?.failedPaths ?? 0} in-scope path(s) were not fully indexed`);
         failed.push('code');
-        for (let i = 0; i < evidence.length; i += 1) {
-          if (evidence[i]?.citation.startsWith(path + ':')) {
-            const existing = evidence[i];
-            if (existing !== undefined) evidence[i] = { ...existing, freshness: 'changed_during_request', proofClass: 'uncertain' };
+      }
+      // Revalidate as the LAST I/O step, after even slow Vertex/document calls.
+      for (const [path, original] of fullSources) {
+        const verificationStartedAtMs = Date.now();
+        const current = yield* activeConfig.files.readExact(activeConfig.rootPath, path);
+        const verifiedCurrent = current._tag === 'Ok' && current.value.digest === original.digest;
+        providerTraceEvent(activeConfig.trace ?? noopProviderTrace, {
+          provider: 'source_verification',
+          providerVersion: 'workspace-file/v1',
+          operation: 'read_exact_final',
+          status: verifiedCurrent ? 'success' : 'failure',
+          durationMs: Math.max(0, Date.now() - verificationStartedAtMs),
+          requestId: requestId.value,
+          ...(!verifiedCurrent ? {
+            errorCode: current._tag === 'Err' ? current.error.code : 'DIGEST_MISMATCH',
+          } : {}),
+        });
+        if (!verifiedCurrent) {
+          warnings.push(path + ': source changed during retrieval');
+          failed.push('code');
+          for (let i = 0; i < evidence.length; i += 1) {
+            if (evidence[i]?.citation.startsWith(path + ':')) {
+              const existing = evidence[i];
+              if (existing !== undefined) evidence[i] = { ...existing, freshness: 'changed_during_request', proofClass: 'uncertain' };
+            }
           }
         }
       }
-    }
-    const merged = mergeEvidence(requestId.value, input.query, evidence, warnings, failed);
-    if (!managedCoverage) {
-      return ok(config.coverage === undefined ? merged : { ...merged, indexCoverage: config.coverage });
-    }
-
-    if (requirements.code.requirement !== 'not_requested' && requirements.code.allowed) {
-      sourceCoverage = setSourceCoverage(
+      const merged = mergeEvidence(requestId.value, input.query, evidence, warnings, failed);
+      if (requirements.code.requirement !== 'not_requested' && requirements.code.allowed) {
+        sourceCoverage = setSourceCoverage(
+          sourceCoverage,
+          'code',
+          !includeCode || codeProviderError !== undefined ? 'unavailable' : failed.includes('code') ? 'partial' : 'satisfied',
+          !includeCode ? 'not_executed' : codeProviderError?.code,
+        );
+      }
+      if (requirements.structural.requirement !== 'not_requested' && requirements.structural.allowed) {
+        sourceCoverage = setSourceCoverage(
+          sourceCoverage,
+          'structural',
+          !includeCode || codeProviderError !== undefined
+            ? 'unavailable'
+            : rankedResults.length === 0
+              ? 'empty'
+              : (activeConfig.coverage?.failedPaths ?? 0) > 0 ? 'partial' : 'satisfied',
+          !includeCode ? 'not_executed' : codeProviderError?.code,
+        );
+      }
+      const lspRequirement = requirements.lsp ?? { requirement: 'not_requested' as const, allowed: true };
+      if (lspRequirement.requirement !== 'not_requested' && lspRequirement.allowed) {
+        sourceCoverage = setSourceCoverage(
+          sourceCoverage,
+          'lsp',
+          !includeCode || codeProviderError !== undefined
+            ? 'unavailable'
+            : rankedResults.length === 0
+              ? 'empty'
+              : failed.includes('lsp') || lspConfirmedCount < rankedResults.length ? 'partial' : 'satisfied',
+          !includeCode ? 'not_executed' : codeProviderError?.code,
+        );
+      }
+      const incomplete = requiredIncompleteSources(sourceCoverage);
+      const covered = {
+        ...merged,
         sourceCoverage,
-        'code',
-        !includeCode || codeProviderError !== undefined ? 'unavailable' : failed.includes('code') ? 'partial' : 'satisfied',
-        !includeCode ? 'not_executed' : codeProviderError?.code,
-      );
-    }
-    if (requirements.structural.requirement !== 'not_requested' && requirements.structural.allowed) {
-      sourceCoverage = setSourceCoverage(
-        sourceCoverage,
-        'structural',
-        !includeCode || codeProviderError !== undefined ? 'unavailable' : failed.includes('lsp') ? 'partial' : 'satisfied',
-        !includeCode ? 'not_executed' : codeProviderError?.code,
-      );
-    }
-    const incomplete = requiredIncompleteSources(sourceCoverage);
-    const covered = {
-      ...merged,
-      sourceCoverage,
-      sourcePlan: requirements,
-      partialSources: incomplete,
-      complete: sourceCoverageComplete(sourceCoverage),
-      ...(config.coverage === undefined ? {} : { indexCoverage: config.coverage }),
-    };
-    return ok(covered);
-  }),
-});
+        sourcePlan: requirements,
+        partialSources: incomplete,
+        complete: sourceCoverageComplete(sourceCoverage),
+        ...(activeConfig.coverage === undefined ? {} : { indexCoverage: activeConfig.coverage }),
+      };
+      return ok(covered);
+    }),
+  };
+};

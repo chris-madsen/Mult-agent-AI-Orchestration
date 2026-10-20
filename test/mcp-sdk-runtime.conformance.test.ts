@@ -24,7 +24,6 @@ test('DBC-09 official MCP client interoperates with the production executable', 
       ACE_STATE_DIR: join(parent, 'state'),
       ACE_WORKSPACE_ID: 'dbc09-sdk-workspace',
       ACE_ENABLE_EXPERIMENTAL_QDRANT: 'false',
-      ACE_ALLOW_LOCAL_FALLBACK: 'false',
     },
   });
   const client = new Client({ name: 'ace-sdk-conformance-client', version: '1.0.0' });
@@ -48,6 +47,11 @@ test('DBC-09 official MCP client interoperates with the production executable', 
       assert.equal(status.isError, undefined);
       assert.equal((status.structuredContent as { index_status: string }).index_status, 'not_ready');
     }
+
+    const context = listed.tools.find((tool) => tool.name === 'ace_context');
+    assert.ok(context);
+    assert.match(JSON.stringify(context.inputSchema), /source_obligations/u);
+    assert.match(JSON.stringify(context.inputSchema), /lsp/u);
 
     await assert.rejects(
       client.callTool({ name: 'ace_missing_tool', arguments: {} }),

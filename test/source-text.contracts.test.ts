@@ -135,3 +135,88 @@ test('source changed after the workspace snapshot is excluded as digest-raced ev
   assert.deepEqual(built.value.coverage.failures.map((failure) => failure.kind), ['digest_raced']);
   assert.equal(built.value.coverage.failureCounts.digest_raced, 1);
 });
+
+test('incremental index catch-up reuses unchanged structural files and invalidates on scope changes', async () => {
+  const sourceByPath = new Map<string, string>([
+    ['a.ts', 'export function alpha(): string { return "a1"; }\n'],
+    ['b.ts', 'export function beta(): string { return "b1"; }\n'],
+  ]);
+  let structuralCalls = 0;
+  const digestFor = (value: string): string => createHash('sha256').update(value, 'utf8').digest('hex');
+  const files: WorkspaceFilePort = {
+    canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+    snapshot: () => Effect.succeed(ok({
+      headRevision: 'a'.repeat(40),
+      files: [...sourceByPath.entries()].map(([repoPath, value]) => ({
+        repoPath: repoPath as never,
+        digest: digestFor(value) as never,
+        sizeBytes: Buffer.byteLength(value, 'utf8'),
+        state: 'tracked' as const,
+        observedAtMs: Date.now(),
+      })),
+      removedPaths: [],
+      gitStatus: 'available' as const,
+    })),
+    readExact: (_rootPath, repoPath) => {
+      const value = sourceByPath.get(repoPath);
+      if (value === undefined) return Effect.succeed({ _tag: 'Err', error: { code: 'FILE_NOT_FOUND' } } as never);
+      return Effect.succeed(ok({ bytes: Buffer.from(value, 'utf8'), digest: digestFor(value) as never }));
+    },
+  };
+  const structural: StructuralAnalysisPort = {
+    extract: (input) => {
+      structuralCalls += 1;
+      const text = Buffer.from(input.source).toString('utf8');
+      const name = text.includes('alpha') ? 'alpha' : 'beta';
+      return Effect.succeed(ok({
+        repoPath: input.repoPath,
+        sourceDigest: digestFor(text) as never,
+        symbols: [{
+          name,
+          kind: 'function' as const,
+          startLine: 1,
+          startColumn: 1,
+          endLine: 1,
+          endColumn: Buffer.byteLength(text, 'utf8') + 1,
+          nameStartLine: 1,
+          nameStartColumn: text.indexOf(name) + 1,
+          nameEndLine: 1,
+          nameEndColumn: text.indexOf(name) + name.length + 1,
+        }],
+        hasSyntaxErrors: false,
+      }));
+    },
+  };
+
+  const first = await Effect.runPromise(buildLocalCodeIndex(files, workspace.value, '/repo', {
+    generation: 1,
+    structural,
+    scopeFingerprint: 'scope-a',
+  }));
+  assert.equal(first._tag, 'Ok');
+  if (first._tag === 'Err') throw new Error(first.error.message);
+  assert.equal(structuralCalls, 2);
+
+  sourceByPath.set('b.ts', 'export function beta(): string { return "b2"; }\n');
+  const changed = await Effect.runPromise(buildLocalCodeIndex(files, workspace.value, '/repo', {
+    generation: 2,
+    structural,
+    scopeFingerprint: 'scope-a',
+    previous: first.value,
+  }));
+  assert.equal(changed._tag, 'Ok');
+  if (changed._tag === 'Err') throw new Error(changed.error.message);
+  assert.equal(structuralCalls, 3, 'only the changed file should invoke ast-grep during catch-up');
+  assert.ok(changed.value.index.candidates.some((candidate) => candidate.text.includes('a1')));
+  assert.ok(changed.value.index.candidates.some((candidate) => candidate.text.includes('b2')));
+  assert.equal(changed.value.workspaceManifest.scopeFingerprint, 'scope-a');
+
+  const scopeChanged = await Effect.runPromise(buildLocalCodeIndex(files, workspace.value, '/repo', {
+    generation: 3,
+    structural,
+    scopeFingerprint: 'scope-b',
+    previous: changed.value,
+  }));
+  assert.equal(scopeChanged._tag, 'Ok');
+  assert.equal(structuralCalls, 5, 'scope changes must invalidate all structural reuse');
+});

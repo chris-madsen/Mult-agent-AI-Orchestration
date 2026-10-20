@@ -9,11 +9,11 @@ type Configuration = 'native-codex' | 'codex-plus-ace';
 const requiredCorrelatedProviderOperations = [
   'embedding:embed_many',
   'qdrant:query_points',
-  'typescript_language_service:definition',
+  'lsp:definition',
 ] as const;
 const requiredProviderOperations = [
   ...requiredCorrelatedProviderOperations,
-  'tree_sitter:extract',
+  'ast_grep:extract',
 ] as const;
 
 interface ProviderReceiptSummary {
@@ -335,7 +335,7 @@ const report = {
       : 'The ACE job config has no mandatory tool-call instruction, but actual tool-choice and cost attribution still require raw trace review.',
     'Only three small tasks repeated three times; this is not a large-repository long-horizon workload.',
     ...(providerCorrelationVerified ? [] : ['One or more successful ACE requests lack request-ID-correlated embedding/Qdrant/LSP operations.']),
-    'Local embedding, Qdrant, Tree-sitter and TypeScript LS CPU/RAM cost and index setup are not metered.',
+    'Local embedding, Qdrant, ast-grep and LSP CPU/RAM cost and index setup are not metered.',
     'Raw totals include cached input tokens; Codex cost represents its reported usage only.',
   ],
 };

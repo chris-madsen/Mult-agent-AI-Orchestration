@@ -103,10 +103,6 @@ const parseStartupMetrics = (stderr) => {
     indexedPaths: integer('indexed_paths'),
     candidates: integer('candidates'),
     coverageFailed: integer('coverage_failed'),
-    structuralCacheHits: integer('structural_cache_hits'),
-    structuralCacheMisses: integer('structural_cache_misses'),
-    candidateCacheHits: integer('candidate_cache_hits'),
-    candidateCacheMisses: integer('candidate_cache_misses'),
     deltaAdded: integer('delta_added'),
     deltaChanged: integer('delta_changed'),
     deltaDeleted: integer('delta_deleted'),
@@ -134,14 +130,11 @@ const runOnce = (workspace, state, workspaceId, phase) => new Promise((resolveRu
       ACE_STATE_DIR: state,
       ACE_WORKSPACE_ID: workspaceId,
       ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
-      ACE_ALLOW_LOCAL_FALLBACK: 'false',
       ACE_QDRANT_URL: qdrantUrl,
       ACE_EMBEDDING_WORKER: process.env.ACE_EMBEDDING_WORKER
         ?? resolve(import.meta.dirname, 'fastembed-worker.sh'),
-      ACE_TREE_SITTER_HELPER: process.env.ACE_TREE_SITTER_HELPER
-        ?? resolve(import.meta.dirname, 'tree-sitter-structural.py'),
-      ACE_TREE_SITTER_PYTHON: process.env.ACE_TREE_SITTER_PYTHON
-        ?? resolve('.venv-system/bin/python'),
+      ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND
+        ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -400,8 +393,8 @@ try {
       qdrant: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
       embeddingWorker: basename(process.env.ACE_EMBEDDING_WORKER?.trim()
         || resolve(import.meta.dirname, 'fastembed-worker.sh')),
-      treeSitterHelper: basename(process.env.ACE_TREE_SITTER_HELPER?.trim()
-        || resolve(import.meta.dirname, 'tree-sitter-structural.py')),
+      astGrepCommand: basename(process.env.ACE_AST_GREP_COMMAND?.trim()
+        || resolve(import.meta.dirname, '../node_modules/.bin/ast-grep')),
     },
     phases: [cold, warm, changed],
     claims: {

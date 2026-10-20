@@ -1,6 +1,6 @@
-# C-A / W04 real Qdrant interrupted-writer lifecycle runbook
+# C-A / W04 real Qdrant interrupted-writer publication runbook
 
-This runner prepares **real-provider snapshot lifecycle evidence**. It does not mark DBC-13 PASS and does not approve the embedding/LSP stack.
+This runner prepares **real-provider alias-publication evidence**. It does not mark DBC-13 PASS and does not approve the embedding/LSP stack.
 
 ## Scenario
 
@@ -8,31 +8,31 @@ The runner uses the production `dist/bin/ace-mcp.js` path with:
 
 - real local Qdrant;
 - the configured embedding worker;
-- Tree-sitter structural extraction;
-- direct TypeScript Language Service;
+- ast-grep structural extraction;
+- generic LSP client with the configured TypeScript language server;
 - exact source verification;
-- one explicit shared Qdrant collection;
+- one workspace-scoped content-addressed collection per source generation;
 - **two different `ACE_STATE_DIR` roots**.
 
 The sequence is:
 
 1. reader A publishes S1 and stays alive;
 2. the worktree changes only one source file while a stable symbol remains unchanged;
-3. writer B, using a different state directory, builds S2 in the same explicit collection;
-4. after Qdrant upsert + membership verification but **before manifest publish**, a guarded test-only failpoint sends writer B `SIGKILL`;
-5. B's manifest must remain `building`;
-6. reader A must still return the unchanged S1 symbol as current;
-7. writer B restarts without the failpoint, completes S2 and publishes it;
+3. writer B, using a different state directory, builds S2 in a new immutable collection;
+4. after Qdrant upsert + membership verification but **before current-alias publish**, a guarded test-only failpoint sends writer B `SIGKILL`;
+5. the current alias must remain pointed at S1;
+6. reader A must either reconcile the authoritative dirty tree and return a current complete result, or fail closed as `NOT_READY`; it must never return an old complete S1 result;
+7. writer B restarts without the failpoint, completes S2 and atomically switches the current alias;
 8. the restarted writer must return the changed S2 symbol;
-9. reader A must still return its unchanged S1 symbol after S2 publication;
-10. the two state roots must have different persistent state-owner IDs;
-11. automatic snapshot GC must remain skipped because an explicit shared collection is not declared exclusive-owner.
+9. reader A must either remain fail-closed or reconcile to the current source generation after S2 publication;
+10. S1 and S2 must be distinct collection identities;
+11. no filesystem Qdrant snapshot manifest or lease is used by the run.
 
-This exercises the fail-safe design selected for cross-state sharing: **never delete a potentially active remote reader snapshot just because local lease state cannot prove it is inactive**.
+This exercises the native Qdrant publication invariant: **never expose an unverified collection through the current alias**.
 
 ## Run
 
-Build dependencies and ensure Qdrant/embedding/Tree-sitter are available, then:
+Build dependencies and ensure Qdrant/embedding/ast-grep are available, then:
 
 ```bash
 npm run test:real-qdrant-crash -- \
@@ -46,18 +46,7 @@ ACE_QDRANT_URL=http://127.0.0.1:6333
 ACE_QDRANT_CRASH_E2E_TIMEOUT_MS=1200000
 ```
 
-By default the runner creates a unique temporary collection and deletes it best-effort afterward.
-
-To use a pre-created disposable collection:
-
-```bash
-ACE_QDRANT_CRASH_COLLECTION=ace_ca_disposable \
-npm run test:real-qdrant-crash -- artifacts/qdrant-snapshot-crash/evidence.json
-```
-
-When `ACE_QDRANT_CRASH_COLLECTION` is supplied, the runner does **not** delete it automatically.
-
-Do not set `ACE_QDRANT_COLLECTION_EXCLUSIVE_OWNER=true` for this test. The test intentionally verifies shared explicit-collection behavior across independent state roots.
+The runner derives unique workspace-scoped collection and alias names from the generated fixture workspace. Cleanup is best-effort; no operator-supplied collection override is accepted.
 
 ## Test-only failpoint
 
@@ -93,10 +82,11 @@ The evidence records exact source commit, fixture commit, request IDs, Qdrant ve
 
 A successful run is bounded C-A/W04 evidence for:
 
-- interrupted build remains unpublished;
-- active S1 survives a failed S2 writer;
-- restart can finish and publish S2;
-- S1 survives S2 publication in the shared explicit-collection/no-GC mode.
+- interrupted build leaves the current alias unchanged;
+- the active S1 alias survives a failed S2 writer;
+- restart can finish and atomically publish S2;
+- dirty-tree delivery is either reconciled to current source bytes or remains explicitly `NOT_READY`;
+- S2 publication remains isolated from the interrupted writer and is exposed only through the verified current alias.
 
 It is **not sufficient by itself** for:
 

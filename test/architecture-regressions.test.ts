@@ -10,6 +10,7 @@ import { makeAsyncFileMemoryArchive } from '../src/adapters/file-memory-archive.
 import { buildLocalCodeIndex } from '../src/adapters/local-code-index.js';
 import { makeLocalContextProvider } from '../src/adapters/local-context-provider.js';
 import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
+import { makeAstGrepStructuralPort } from '../src/adapters/ast-grep-structural.js';
 import { makeTypeScriptLanguageServicePort } from '../src/adapters/typescript-language-service.js';
 import { makeRequestId, mergeEvidence } from '../src/domain/retrieval.js';
 import { makeEpisodeId, type SessionEpisode } from '../src/domain/memory.js';
@@ -38,7 +39,10 @@ test('DBC-02 parsed TS function has an exact span, not a whole-file-per-symbol p
   const full = functionText + '\n' + filler + '\n';
   await writeFile(join(root, 'src', 'connections.ts'), full);
   const files = makeNodeWorkspacePort({ allowedRoots: [parent] });
-  const indexed = mustOk(await Effect.runPromise(buildLocalCodeIndex(files, workspaceId, root, { generation: 1 })));
+  const indexed = mustOk(await Effect.runPromise(buildLocalCodeIndex(files, workspaceId, root, {
+    generation: 1,
+    structural: makeAstGrepStructuralPort({ command: join(process.cwd(), 'node_modules/.bin/ast-grep') }),
+  })));
   const match = indexed.index.candidates.find((item) => item.symbolName === 'reconnect');
   assert.ok(match);
   assert.equal(match.range.startLine, 1);

@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+
+// Test/spike-only deterministic fixture provider. Production uses the
+// configured process embedding boundary and never composes this adapter.
 import { domainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 

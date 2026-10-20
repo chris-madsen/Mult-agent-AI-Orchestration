@@ -11,13 +11,11 @@ test('real Qdrant concurrency runner is syntactically valid and uses two product
   const script = await readFile('scripts/qdrant-snapshot-concurrency-e2e.mjs', 'utf8');
   for (const token of [
     "ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true'",
-    "ACE_ALLOW_LOCAL_FALLBACK: 'false'",
     'dist/bin/ace-mcp.js',
     'ACE_STATE_DIR: state',
-    'ACE_QDRANT_COLLECTION: collection',
     'Promise.all([first.query(), second.query()])',
     'writersConvergedOnIndexKey',
-    'sharedManifestPublished',
+    'currentAliasPublished',
   ]) assert.ok(script.includes(token), token);
 });
 
@@ -26,7 +24,7 @@ test('concurrency runner checks current D1 citations and keeps production claims
   for (const token of [
     "assert.equal(evidence.freshness, 'current')",
     'assert.equal(evidence.sourceDigest, fixtureDigest)',
-    "assert.equal(manifests[0]?.status, 'published',",
+    'qdrantAliasTarget',
     'productionApproved: false',
     'tokenSavings5x: false',
     'graphitiLocalOnly: false',

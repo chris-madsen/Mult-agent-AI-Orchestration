@@ -117,6 +117,8 @@ export interface RetrievalEvidence {
   readonly expansionCursor?: string;
   /** Exact span byte count. Use with expansionCursor to avoid expanding entire files. */
   readonly expansionMaxBytes?: number;
+  /** Total exact original size available behind the expansion handle. */
+  readonly expansionTotalBytes?: number;
 }
 
 export interface RetrievalConflict {
@@ -137,6 +139,16 @@ export interface ContextBundle {
   readonly sourcePlan?: SourceRequirements;
   readonly conflicts?: readonly RetrievalConflict[];
   readonly indexCoverage?: IndexCoverageSummary;
+  readonly deliveryMetrics?: ContextDeliveryMetrics;
+}
+
+export interface ContextDeliveryMetrics {
+  readonly initialEvidenceBytes: number;
+  readonly structuredContentBytes: number;
+  readonly uniqueContentBytes: number;
+  readonly duplicateContentBytes: number;
+  readonly expansionBytesAvailable: number;
+  readonly expansionHandleCount: number;
 }
 
 export interface RetrievalProvider {

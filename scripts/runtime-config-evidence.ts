@@ -55,7 +55,9 @@ const input = {
     enabled: enabled('ACE_ENABLE_EXPERIMENTAL_QDRANT'),
     qdrantEnabled: enabled('ACE_ENABLE_EXPERIMENTAL_QDRANT'),
     pinnedEmbeddingRequired: enabled('ACE_REQUIRE_PINNED_EMBEDDING'),
-    localFallbackAllowed: enabled('ACE_ALLOW_LOCAL_FALLBACK'),
+    // The production composition has no lexical fallback branch. Keep the
+    // field for evidence schema compatibility and make the invariant explicit.
+    localFallbackAllowed: false,
     embeddingProvider: process.env.ACE_EMBEDDING_PROVIDER?.trim() || 'fastembed/onnx',
     // The current production runtime constructs the direct TS Language Service.
     // If owner selection chooses Serena, release preflight must block until the

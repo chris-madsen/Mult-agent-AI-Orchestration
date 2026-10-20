@@ -23,8 +23,8 @@ const ContextInput = Schema.Struct({
   include_docs: Schema.optional(Schema.Boolean),
   include_memory: Schema.optional(Schema.Boolean),
   source_obligations: Schema.optional(Schema.Struct({
-    required: Schema.optional(Schema.Array(Schema.Literal('code', 'structural', 'documentation', 'memory'))),
-    optional: Schema.optional(Schema.Array(Schema.Literal('code', 'structural', 'documentation', 'memory'))),
+    required: Schema.optional(Schema.Array(Schema.Literal('code', 'structural', 'lsp', 'documentation', 'memory'))),
+    optional: Schema.optional(Schema.Array(Schema.Literal('code', 'structural', 'lsp', 'documentation', 'memory'))),
   })),
 });
 
@@ -154,7 +154,9 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
               // outcomes. Required branches determine completeness; optional
               // branches may enrich a bundle without turning an outage into a
               // false required failure.
-              includeCode: sourceIsRequested(sourceRequirements.code),
+              includeCode: sourceIsRequested(sourceRequirements.code)
+                || sourceIsRequested(sourceRequirements.structural)
+                || sourceIsRequested(sourceRequirements.lsp ?? { requirement: 'not_requested', allowed: true }),
               includeDocs: sourceIsRequested(sourceRequirements.documentation),
               includeMemory: sourceIsRequested(sourceRequirements.memory),
               sourceRequirements,
@@ -207,6 +209,10 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
               digest: range.value.digest,
               offset: range.value.offset,
               total_bytes: range.value.totalBytes,
+              delivery_metrics: {
+                expanded_bytes: range.value.bytes.byteLength,
+                total_bytes: range.value.totalBytes,
+              },
               ...(nextCursor === undefined ? {} : { next_cursor: nextCursor }),
             },
           };

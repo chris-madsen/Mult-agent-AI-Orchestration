@@ -1,6 +1,6 @@
 # W04 real-provider index scale runbook
 
-This runner prepares the W04 **measurement**, not the acceptance verdict. It uses the real configured ACE Qdrant + embedding + Tree-sitter + TypeScript-LS path with lexical fallback disabled.
+This runner prepares the W04 **measurement**, not the acceptance verdict. It uses the real configured ACE Qdrant + embedding + ast-grep + generic TypeScript-LS path with lexical fallback disabled.
 
 ## Prerequisites
 
@@ -9,7 +9,7 @@ Before running:
 - build/runtime dependencies are installed;
 - Qdrant is reachable through `ACE_QDRANT_URL`;
 - the selected embedding worker/model is available locally;
-- Tree-sitter Python runtime is available;
+- the pinned ast-grep runtime is available;
 - if production-pinned embedding is being evaluated, export the same exact pinned model/artifact variables that will be used by the release candidate.
 
 The runner creates a temporary Git repository and a persistent ACE state directory inside the temporary root for the duration of one invocation.

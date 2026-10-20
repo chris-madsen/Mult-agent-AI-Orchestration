@@ -181,7 +181,10 @@ const main = () => {
     return;
   }
   const base = detectBase(explicitBase);
-  const trackedFiles = lines(git(['ls-files', 'src', 'test', 'scripts']));
+  // `git ls-files` also reports paths deleted in the working tree. Never pass
+  // those stale paths to the test runner after a test file is intentionally
+  // removed as part of a provider migration.
+  const trackedFiles = lines(git(['ls-files', 'src', 'test', 'scripts'])).filter((file) => existsSync(file));
   const changedFiles = changedFilesFromGit(base);
   const contents = new Map();
   for (const file of trackedFiles) {

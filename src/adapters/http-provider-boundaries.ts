@@ -181,6 +181,7 @@ const qdrantPoint = (point: CodePoint): Readonly<Record<string, unknown>> => ({
     source_digest: point.candidate.sourceDigest,
     generation: point.candidate.generation,
     ...(point.indexKey === undefined ? {} : { index_key: point.indexKey }),
+    ...(point.embeddingKey === undefined ? {} : { embedding_key: point.embeddingKey }),
     indexed_at_ms: point.candidate.indexedAtMs,
   },
 });

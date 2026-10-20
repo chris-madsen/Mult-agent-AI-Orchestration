@@ -14,6 +14,8 @@ await mkdir(workspace);
 const sourcePath = join(workspace, 'versioned.ts');
 const workspaceId = 'real-provider-restart';
 const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
+const publishedCollections = new Set();
+let currentAlias;
 
 const digest = async () => createHash('sha256').update(await readFile(sourcePath)).digest('hex');
 
@@ -29,8 +31,7 @@ const runOnce = () => new Promise((resolveRun, rejectRun) => {
       ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
       ACE_QDRANT_URL: qdrantUrl,
       ACE_EMBEDDING_WORKER: resolve(import.meta.dirname, 'fastembed-worker.sh'),
-      ACE_TREE_SITTER_HELPER: resolve(import.meta.dirname, 'tree-sitter-structural.py'),
-      ACE_TREE_SITTER_PYTHON: process.env.ACE_TREE_SITTER_PYTHON ?? resolve('.venv-system/bin/python'),
+      ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -92,8 +93,26 @@ try {
   assert.equal(first.response.result?.isError, undefined, JSON.stringify(first.response));
   assert.equal(firstContext.complete, true, JSON.stringify(firstContext));
   assert.equal(firstContext.evidence[0]?.sourceDigest, firstDigest);
-  const firstCollection = /generation=1 .*collection=([^\s]+)/u.exec(first.stderr)?.[1];
-  assert.ok(firstCollection, first.stderr);
+  const metricsFrom = (stderr, generation) => {
+    const line = stderr.split('\n').find((item) => item.includes(`generation=${generation} `));
+    assert.ok(line, stderr);
+    const value = (name) => {
+      const match = new RegExp(`${name}=([^\\s]+)`, 'u').exec(line)?.[1];
+      assert.ok(match, line);
+      return match;
+    };
+    const metrics = {
+      collection: value('collection'),
+      alias: value('alias'),
+      indexKey: value('index_key'),
+      sourceSnapshotDigest: value('source_snapshot_digest'),
+      indexMode: value('index_mode'),
+    };
+    publishedCollections.add(metrics.collection);
+    currentAlias = metrics.alias;
+    return metrics;
+  };
+  const firstMetrics = metricsFrom(first.stderr, 1);
 
   // Unchanged checkout: observationEpoch still advances, but the exact
   // content-derived snapshot must reuse already persisted Qdrant vectors.
@@ -104,6 +123,10 @@ try {
   assert.equal(warmContext.evidence[0]?.sourceDigest, firstDigest);
   assert.match(warm.stderr, /generation=2 .*index_mode=warm_reused/u,
     'unchanged checkout must not re-embed on the next MCP process');
+  const warmMetrics = metricsFrom(warm.stderr, 2);
+  assert.equal(warmMetrics.collection, firstMetrics.collection,
+    'unchanged checkout must reuse the content-addressed collection');
+  assert.equal(warmMetrics.indexKey, firstMetrics.indexKey);
 
   await writeFile(sourcePath, 'export function currentValue() { return "D2"; }\n');
   const secondDigest = await digest();
@@ -111,36 +134,23 @@ try {
   const secondContext = second.response.result?.structuredContent;
   assert.equal(second.response.result?.isError, undefined, JSON.stringify(second.response));
   assert.equal(secondContext.complete, true, JSON.stringify(secondContext));
+  const secondMetrics = metricsFrom(second.stderr, 3);
+  assert.notEqual(secondMetrics.sourceSnapshotDigest, firstMetrics.sourceSnapshotDigest,
+    `changed source must change the authoritative snapshot digest\nfirst=${first.stderr}\nsecond=${second.stderr}`);
+  assert.notEqual(secondMetrics.indexKey, firstMetrics.indexKey,
+    `changed source must change the index key\nfirst=${first.stderr}\nsecond=${second.stderr}`);
   assert.match(second.stderr, /index_mode=rebuilt/u, 'changed source must rebuild semantic vectors');
   assert.equal(secondContext.evidence[0]?.sourceDigest, secondDigest);
   assert.notEqual(secondDigest, firstDigest);
-  const secondCollection = /generation=3 .*collection=([^\s]+)/u.exec(second.stderr)?.[1];
-  assert.equal(secondCollection, firstCollection, 'collection is stable across observation generations');
-
-  const scrollGeneration = async (generation) => {
-    const response = await fetch(`${qdrantUrl}/collections/${encodeURIComponent(firstCollection)}/points/scroll`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        limit: 1,
-        with_payload: false,
-        with_vector: false,
-        filter: {
-          must: [
-            { key: 'workspace_id', match: { value: workspaceId } },
-            { key: 'generation', match: { value: generation } },
-          ],
-        },
-      }),
-    });
-    const bodyText = await response.text();
-    assert.equal(response.ok, true, bodyText);
-    const body = JSON.parse(bodyText);
-    return body.result?.points ?? [];
-  };
-  assert.equal((await scrollGeneration(1)).length, 0, 'obsolete generation is pruned after successful rebuild');
-  assert.equal((await scrollGeneration(2)).length, 0, 'unchanged observation epoch did not create extra Qdrant points');
-  assert.ok((await scrollGeneration(3)).length > 0, 'current changed snapshot remains indexed');
+  assert.notEqual(secondMetrics.collection, firstMetrics.collection,
+    'changed source must publish a distinct immutable collection');
+  assert.equal(secondMetrics.alias, firstMetrics.alias);
+  const aliases = await fetch(`${qdrantUrl.replace(/\/$/u, '')}/aliases`);
+  const aliasesBodyText = await aliases.text();
+  assert.equal(aliases.ok, true, aliasesBodyText);
+  const aliasBody = JSON.parse(aliasesBodyText);
+  const aliasTarget = aliasBody?.result?.aliases?.find((item) => item?.alias_name === secondMetrics.alias)?.collection_name;
+  assert.equal(aliasTarget, secondMetrics.collection, 'current alias must point to the changed collection');
 
   console.log(JSON.stringify({
     status: 'provider-pass',
@@ -148,11 +158,28 @@ try {
     warm_generation: 2,
     warm_index_reused: true,
     second_generation: 3,
-    collection: firstCollection,
-    obsolete_generation_pruned: true,
+    initial_collection: firstMetrics.collection,
+    warm_collection_reused: warmMetrics.collection === firstMetrics.collection,
+    changed_collection: secondMetrics.collection,
+    current_alias: secondMetrics.alias,
+    current_alias_target: aliasTarget,
     first_digest: firstDigest,
     second_digest: secondDigest,
   }, null, 2));
 } finally {
+  try {
+    if (currentAlias !== undefined) {
+      await fetch(`${qdrantUrl.replace(/\/$/u, '')}/collections/aliases`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ actions: [{ delete_alias: { alias_name: currentAlias } }] }),
+      });
+    }
+    for (const collection of publishedCollections) {
+      await fetch(`${qdrantUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(collection)}`, { method: 'DELETE' });
+    }
+  } catch {
+    // Best-effort cleanup; the run's evidence is retained independently.
+  }
   await rm(root, { recursive: true, force: true });
 }

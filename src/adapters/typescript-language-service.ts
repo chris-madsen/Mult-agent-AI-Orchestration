@@ -1,173 +1,40 @@
-import path from 'node:path';
-import ts from 'typescript';
-import { Effect } from 'effect';
-import { domainError, type DomainError } from '../domain/errors.js';
-import { err, ok, type Result } from '../domain/result.js';
-import type { ProviderTraceSink, SemanticAnalysisPort, SemanticQuery } from '../application/ports.js';
-import type {
-  SemanticDefinition,
-  SemanticDiagnostic,
-  SemanticLocation,
-  SemanticReference,
-} from '../domain/semantic.js';
-import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
+import { resolve } from 'node:path';
+import type ts from 'typescript';
+import type { ProviderTraceSink, SemanticAnalysisPort } from '../application/ports.js';
+import { makeLspSemanticAnalysisPort } from './lsp-semantic.js';
 
+/** Backward-compatible factory backed by the maintained LSP client. */
 export interface TypeScriptLanguageServiceOptions {
   readonly rootPath: string;
   readonly files: Readonly<Record<string, string>>;
   readonly compilerOptions?: ts.CompilerOptions;
   readonly providerVersion?: string;
-  /** Complete semantic dependency identity for this immutable LS snapshot. */
   readonly snapshotIdentity?: string;
   readonly trace?: ProviderTraceSink;
 }
 
-const failure = (pathName: string, message: string): Result<never, DomainError> =>
-  err(domainError('INVALID_INPUT', pathName, message));
-
-const category = (value: ts.DiagnosticCategory): SemanticDiagnostic['category'] => {
-  if (value === ts.DiagnosticCategory.Error) return 'error';
-  if (value === ts.DiagnosticCategory.Warning) return 'warning';
-  if (value === ts.DiagnosticCategory.Suggestion) return 'suggestion';
-  return 'message';
-};
-
-const flattenMessage = (message: string | ts.DiagnosticMessageChain): string =>
-  typeof message === 'string' ? message : ts.flattenDiagnosticMessageText(message, '\n');
-
-const makeService = (options: TypeScriptLanguageServiceOptions): {
-  readonly service: ts.LanguageService;
-  readonly files: ReadonlyMap<string, string>;
-} => {
-  const files = new Map(Object.entries(options.files).map(([repoPath, source]) => [path.resolve(options.rootPath, repoPath), source]));
-  const versions = new Map([...files.keys()].map((fileName) => [fileName, '1']));
-  const host: ts.LanguageServiceHost = {
-    getCompilationSettings: () => options.compilerOptions ?? {
-      strict: true,
-      allowJs: true,
-      checkJs: false,
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.NodeNext,
-      moduleResolution: ts.ModuleResolutionKind.NodeNext,
-    },
-    getScriptFileNames: () => [...files.keys()],
-    getScriptVersion: (fileName) => versions.get(path.resolve(fileName)) ?? '0',
-    getScriptSnapshot: (fileName) => {
-      const absolute = path.resolve(fileName);
-      const source = files.get(absolute) ?? ts.sys.readFile(absolute);
-      return source === undefined ? undefined : ts.ScriptSnapshot.fromString(source);
-    },
-    getCurrentDirectory: () => options.rootPath,
-    getDefaultLibFileName: (config) => ts.getDefaultLibFilePath(config),
-    fileExists: ts.sys.fileExists,
-    readFile: ts.sys.readFile,
-    readDirectory: ts.sys.readDirectory,
-  };
-  return { service: ts.createLanguageService(host), files };
-};
-
-const validateQuery = (query: SemanticQuery, files: ReadonlyMap<string, string>, rootPath: string): Result<{ readonly fileName: string; readonly position: number }, DomainError> => {
-  if (query.line < 1 || query.column < 1 || !Number.isSafeInteger(query.line) || !Number.isSafeInteger(query.column)) return failure('position', 'line and column must be positive integers');
-  const fileName = path.resolve(rootPath, query.repoPath);
-  const source = files.get(fileName);
-  if (source === undefined) return failure('repo_path', 'source file is not included in the language-service project');
-  const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
-  const position = ts.getPositionOfLineAndCharacter(sourceFile, query.line - 1, query.column - 1);
-  return ok({ fileName, position });
-};
-
-const locationFromSpan = (rootPath: string, files: ReadonlyMap<string, string>, fileName: string, span: ts.TextSpan): SemanticLocation | undefined => {
-  const source = files.get(path.resolve(fileName));
-  if (source === undefined) return undefined;
-  const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
-  const start = sourceFile.getLineAndCharacterOfPosition(span.start);
-  const end = sourceFile.getLineAndCharacterOfPosition(span.start + span.length);
-  return { repoPath: path.relative(rootPath, fileName).split(path.sep).join('/'), startLine: start.line + 1, startColumn: start.character + 1, endLine: end.line + 1, endColumn: end.character + 1 };
-};
-
-const withQuery = <Value>(
+export const makeTypeScriptLanguageServicePort = (
   options: TypeScriptLanguageServiceOptions,
-  runtime: ReturnType<typeof makeService>,
-  query: SemanticQuery,
-  operationName: string,
-  operation: (service: ts.LanguageService, fileName: string, position: number, files: ReadonlyMap<string, string>) => Result<Value, DomainError>,
-): Effect.Effect<Result<Value, DomainError>> => Effect.sync(() => {
-    const startedAtMs = Date.now();
-    const { service, files } = runtime;
-    const valid = options.snapshotIdentity !== undefined
-      && query.snapshotIdentity !== options.snapshotIdentity
-      ? failure('snapshot_identity', 'semantic query is bound to a different source/configuration generation')
-      : validateQuery(query, files, options.rootPath);
-    const result = valid._tag === 'Err'
-      ? valid
-      : operation(service, valid.value.fileName, valid.value.position, files);
-    providerTraceEvent(options.trace ?? noopProviderTrace, {
-      provider: 'typescript_language_service',
-      providerVersion: options.providerVersion ?? `typescript/${ts.version}`,
-      operation: operationName,
-      status: result._tag === 'Ok' ? 'success' : 'failure',
-      durationMs: Math.max(0, Date.now() - startedAtMs),
-      ...(query.requestId === undefined ? {} : { requestId: query.requestId }),
-      ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
-    });
-    return result;
+): SemanticAnalysisPort & { readonly close: () => void } => {
+  const port = makeLspSemanticAnalysisPort({
+    command: process.env.ACE_LSP_COMMAND?.trim() || resolve('node_modules/.bin/typescript-language-server'),
+    rootPath: options.rootPath,
+    files: options.files,
+    keepProcessAlive: false,
+    ...(options.providerVersion === undefined ? {} : { providerVersion: options.providerVersion }),
+    ...(options.snapshotIdentity === undefined ? {} : { snapshotIdentity: options.snapshotIdentity }),
+    ...(options.trace === undefined ? {} : { trace: options.trace }),
   });
-
-export const makeTypeScriptLanguageServicePort = (options: TypeScriptLanguageServiceOptions): SemanticAnalysisPort => {
-  // TypeScript LS creation is nontrivial; reuse the same immutable snapshot
-  // for all semantic calls in one verified index generation.
-  const runtime = makeService(options);
+  // Keep one LSP session for the lifetime of the compatibility port so a
+  // caller can issue definition, references and hover queries consistently.
+  // The child is explicitly unref'ed by the generic client, so short-lived
+  // legacy callers do not keep the host process alive; callers that retain the
+  // port can still close it explicitly.
   return {
-    definition: (query) => withQuery(options, runtime, query, 'definition', (service, fileName, position, files) => {
-      const definitions = service.getDefinitionAtPosition(fileName, position) ?? [];
-      return ok(definitions.flatMap((item): SemanticDefinition[] => {
-        const location = locationFromSpan(options.rootPath, files, item.fileName, item.textSpan);
-        return location === undefined ? [] : [{ location, name: item.name, kind: item.kind }];
-      }));
-    }),
-    references: (query) => withQuery(options, runtime, query, 'references', (service, fileName, position, files) => {
-      const references = service.getReferencesAtPosition(fileName, position) ?? [];
-      const definitions = service.getDefinitionAtPosition(fileName, position) ?? [];
-      const declarationSpans = new Set(definitions.map((item) =>
-        [path.resolve(item.fileName), item.textSpan.start, item.textSpan.length].join(':')));
-      return ok(references.flatMap((item): SemanticReference[] => {
-        const location = locationFromSpan(options.rootPath, files, item.fileName, item.textSpan);
-        return location === undefined ? [] : [{ location, isDefinition: declarationSpans.has([path.resolve(item.fileName), item.textSpan.start, item.textSpan.length].join(':')) }];
-      }));
-    }),
-    typeInfo: (query) => withQuery(options, runtime, query, 'type_info', (service, fileName, position) => {
-      const info = service.getQuickInfoAtPosition(fileName, position);
-      if (info === undefined) return ok(undefined);
-      const display = ts.displayPartsToString(info.displayParts);
-      const documentation = ts.displayPartsToString(info.documentation);
-      return ok(documentation.length === 0 ? { display } : { display, documentation });
-    }),
-    diagnostics: ({ repoPath }) => Effect.sync(() => {
-      const startedAtMs = Date.now();
-      const { service, files } = runtime;
-      const fileName = path.resolve(options.rootPath, repoPath);
-      const result = !files.has(fileName)
-        ? failure('repo_path', 'source file is not included in the language-service project')
-        : ok([...service.getSyntacticDiagnostics(fileName), ...service.getSemanticDiagnostics(fileName)].map((diagnostic): SemanticDiagnostic => {
-          const location = diagnostic.start === undefined || diagnostic.length === undefined
-            ? undefined
-            : locationFromSpan(options.rootPath, files, fileName, { start: diagnostic.start, length: diagnostic.length });
-          return {
-            ...(location === undefined ? {} : { location }),
-            message: flattenMessage(diagnostic.messageText),
-            category: category(diagnostic.category),
-            code: diagnostic.code,
-          };
-        }));
-      providerTraceEvent(options.trace ?? noopProviderTrace, {
-        provider: 'typescript_language_service',
-        providerVersion: options.providerVersion ?? `typescript/${ts.version}`,
-        operation: 'diagnostics',
-        status: result._tag === 'Ok' ? 'success' : 'failure',
-        durationMs: Math.max(0, Date.now() - startedAtMs),
-        ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
-      });
-      return result;
-    }),
+    definition: port.definition,
+    references: port.references,
+    typeInfo: port.typeInfo,
+    diagnostics: port.diagnostics,
+    close: port.close,
   };
 };

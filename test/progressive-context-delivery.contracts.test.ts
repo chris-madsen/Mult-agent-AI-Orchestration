@@ -57,11 +57,15 @@ test('locate mode progressively delivers source map instead of six complete bodi
   const originalBytes = Buffer.byteLength(JSON.stringify(bundle));
   const projectedBytes = Buffer.byteLength(JSON.stringify(projected));
   assert.ok(projectedBytes < originalBytes / 3, `expected substantial reduction; got ${projectedBytes} / ${originalBytes}`);
+  assert.ok((projected.deliveryMetrics?.structuredContentBytes ?? Number.MAX_SAFE_INTEGER) < originalBytes / 3);
+  assert.ok((projected.deliveryMetrics?.duplicateContentBytes ?? -1) >= 0);
+  assert.equal(projected.deliveryMetrics?.expansionHandleCount, 6);
 });
 
 test('inspect mode preserves the exact verified snippet bodies and original file handles', () => {
   const inspected = projectContextForDelivery(bundle, resolveDeliveryIntent('inspect'));
-  assert.deepEqual(inspected, bundle);
+  assert.deepEqual(inspected.evidence, bundle.evidence);
+  assert.equal(inspected.deliveryMetrics?.initialEvidenceBytes, bodies.reduce((total, body) => total + Buffer.byteLength(body), 0));
   assert.equal(inspected.evidence[3]?.content, bodies[3]);
 });
 

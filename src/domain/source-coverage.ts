@@ -2,7 +2,7 @@ import type { RouteSource } from './routing.js';
 import { domainError, type DomainError } from './errors.js';
 import { err, ok, type Result } from './result.js';
 
-export type ContextSource = 'code' | 'structural' | 'documentation' | 'memory';
+export type ContextSource = 'code' | 'structural' | 'lsp' | 'documentation' | 'memory';
 export type SourceRequirement = 'required' | 'optional' | 'not_requested';
 export type SourceCoverageStatus = 'satisfied' | 'partial' | 'empty' | 'unavailable' | 'denied' | 'not_requested';
 
@@ -18,7 +18,14 @@ export interface SourceCoverage {
   readonly reason?: string;
 }
 
-export type SourceRequirements = Readonly<Record<ContextSource, SourceRequest>>;
+export interface SourceRequirements {
+  readonly code: SourceRequest;
+  readonly structural: SourceRequest;
+  /** Optional for backward compatibility with pre-LSP callers. */
+  readonly lsp?: SourceRequest;
+  readonly documentation: SourceRequest;
+  readonly memory: SourceRequest;
+}
 
 /**
  * An explicit source plan supplied by the caller.  This is deliberately a
@@ -36,10 +43,10 @@ export interface SourceRequestOverrides {
   readonly includeMemory?: boolean;
 }
 
-const sourceNames: readonly ContextSource[] = ['code', 'structural', 'documentation', 'memory'];
+const sourceNames: readonly ContextSource[] = ['code', 'structural', 'lsp', 'documentation', 'memory'];
 
 const sourceOverride = (source: ContextSource, overrides: SourceRequestOverrides): boolean => {
-  if (source === 'code' || source === 'structural') return overrides.includeCode !== false;
+  if (source === 'code' || source === 'structural' || source === 'lsp') return overrides.includeCode !== false;
   if (source === 'documentation') return overrides.includeDocs !== false;
   return overrides.includeMemory !== false;
 };
@@ -78,7 +85,7 @@ export const resolveExplicitSourceRequirements = (
       ? 'required'
       : optionalSet.has(source) ? 'optional' : 'not_requested',
     allowed: sourceOverride(source, overrides),
-  }])) as SourceRequirements);
+  }])) as unknown as SourceRequirements);
 };
 
 const requestFor = (selected: boolean, explicit: boolean | undefined): SourceRequest => ({
@@ -101,9 +108,14 @@ export const resolveSourceRequirements = (
     requirement: structuralSelected ? 'required' : structuralRelevant ? 'optional' : 'not_requested',
     allowed: overrides.includeCode !== false,
   };
+  const lsp: SourceRequest = {
+    requirement: structuralRelevant ? 'optional' : 'not_requested',
+    allowed: overrides.includeCode !== false,
+  };
   return {
     code,
     structural,
+    lsp,
     documentation: requestFor(routeSources.includes('documentation'), overrides.includeDocs),
     memory: requestFor(routeSources.includes('memory'), overrides.includeMemory),
   };
@@ -153,6 +165,10 @@ export const legacySourceRequirements = (input: {
 }): SourceRequirements => ({
   code: { requirement: input.includeCode ? 'required' : 'not_requested', allowed: true },
   structural: { requirement: input.includeCode ? 'optional' : 'not_requested', allowed: true },
+  // Preserve the historical boolean contract: an include_code request was
+  // complete only after semantic confirmation. Callers that want structural
+  // without semantic confirmation must use explicit source obligations.
+  lsp: { requirement: input.includeCode ? 'required' : 'not_requested', allowed: true },
   documentation: { requirement: input.includeDocs ? 'required' : 'not_requested', allowed: true },
   memory: { requirement: input.includeMemory ? 'required' : 'not_requested', allowed: true },
 });

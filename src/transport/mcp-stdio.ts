@@ -39,8 +39,8 @@ const tools = [
         source_obligations: {
           type: 'object',
           properties: {
-            required: { type: 'array', items: { enum: ['code', 'structural', 'documentation', 'memory'] } },
-            optional: { type: 'array', items: { enum: ['code', 'structural', 'documentation', 'memory'] } },
+            required: { type: 'array', items: { enum: ['code', 'structural', 'lsp', 'documentation', 'memory'] } },
+            optional: { type: 'array', items: { enum: ['code', 'structural', 'lsp', 'documentation', 'memory'] } },
           },
           additionalProperties: false,
         },

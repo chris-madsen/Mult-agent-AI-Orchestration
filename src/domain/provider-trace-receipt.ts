@@ -26,8 +26,8 @@ export interface ProviderTraceReceipt {
 const providerNames: readonly ProviderTraceName[] = [
   'embedding',
   'qdrant',
-  'tree_sitter',
-  'typescript_language_service',
+  'ast_grep',
+  'lsp',
   'vertex_rag',
   'graphiti',
   'source_verification',
@@ -90,7 +90,9 @@ const queryProvidersFor = (source: ContextSource): readonly ProviderTraceName[] 
     case 'code':
       return ['embedding', 'qdrant', 'source_verification'];
     case 'structural':
-      return ['typescript_language_service'];
+      return ['ast_grep'];
+    case 'lsp':
+      return ['lsp'];
     case 'documentation':
       return ['vertex_rag'];
     case 'memory':
@@ -159,6 +161,6 @@ export const evaluateProviderTraceReceipt = (
     requiredSources: required.map((entry) => entry.source),
     branches,
     failures: [...new Set(failures)],
-    note: 'Tree-sitter is startup/index evidence, not query-time request-correlated evidence; DBC-01 must retain its startup provider proof separately.',
+    note: 'ast-grep is startup/index evidence, not query-time request-correlated evidence; DBC-01 must retain its startup provider proof separately.',
   });
 };

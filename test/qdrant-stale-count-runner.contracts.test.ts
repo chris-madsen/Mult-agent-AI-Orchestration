@@ -12,7 +12,6 @@ test('real Qdrant stale-count runner is syntactically valid and uses two real MC
   for (const token of [
     'dist/bin/ace-mcp.js',
     "ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true'",
-    "ACE_ALLOW_LOCAL_FALLBACK: 'false'",
     'await runOnce(\'first\')',
     'await deleteOnePoint(first.metrics)',
     'await runOnce(\'second\')',

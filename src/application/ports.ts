@@ -55,6 +55,8 @@ export interface CodePoint {
   readonly vector: readonly number[];
   /** Opaque source-snapshot key used to isolate equal observation epochs. */
   readonly indexKey?: string;
+  /** Content-addressed embedding identity, independent from source citation identity. */
+  readonly embeddingKey?: string;
 }
 
 export interface CodeCandidatePort {
@@ -86,45 +88,6 @@ export interface StructuralAnalysisPort {
     readonly repoPath: string;
     readonly source: Uint8Array;
   }) => Effect.Effect<Result<StructuralAnalysis, DomainError>>;
-}
-
-export interface StructuralAnalysisCachePort {
-  readonly get: (input: {
-    readonly repoPath: RepoPath;
-    readonly sourceDigest: ContentDigest;
-    /** Explicit parser/runtime identity. Cache reuse is unsafe without it. */
-    readonly providerFingerprint: string;
-  }) => Effect.Effect<Result<StructuralAnalysis | undefined, DomainError>>;
-  readonly put: (input: {
-    readonly analysis: StructuralAnalysis;
-    readonly providerFingerprint: string;
-  }) => Effect.Effect<Result<void, DomainError>>;
-}
-
-export interface CodeCandidateCacheEntry {
-  readonly candidates: readonly CodeCandidate[];
-  readonly parserPartial: boolean;
-}
-
-/**
- * Immutable per-file candidate cache. A cache hit is valid only for the exact
- * source digest and verified parser/candidate-builder fingerprint supplied by
- * the caller; generation is deliberately not part of the identity.
- */
-export interface CodeCandidateCachePort {
-  readonly get: (input: {
-    readonly workspaceId: WorkspaceId;
-    readonly repoPath: RepoPath;
-    readonly sourceDigest: ContentDigest;
-    readonly providerFingerprint: string;
-  }) => Effect.Effect<Result<CodeCandidateCacheEntry | undefined, DomainError>>;
-  readonly put: (input: {
-    readonly workspaceId: WorkspaceId;
-    readonly repoPath: RepoPath;
-    readonly sourceDigest: ContentDigest;
-    readonly providerFingerprint: string;
-    readonly entry: CodeCandidateCacheEntry;
-  }) => Effect.Effect<Result<void, DomainError>>;
 }
 
 export interface SemanticAnalysisPort {

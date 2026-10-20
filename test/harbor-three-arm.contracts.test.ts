@@ -58,6 +58,16 @@ test('committed Harbor jobs implement one native, one optional-natural and one f
   assert.equal(result.value.natural.codexConfig, result.value.forced.codexConfig);
 });
 
+test('Harbor ACE config uses maintained structural/LSP providers and no removed Tree-sitter route', async () => {
+  const config = await readFile('benchmarks/harbor/ace-retrieval-codex-config.toml', 'utf8');
+  assert.match(config, /ACE_AST_GREP_COMMAND\s*=\s*"\/ace\/node_modules\/\.bin\/ast-grep"/u);
+  assert.match(config, /ACE_AST_GREP_VERSION\s*=\s*"ast-grep\/0\.51\.0"/u);
+  assert.match(config, /ACE_LSP_COMMAND\s*=\s*"\/ace\/node_modules\/\.bin\/typescript-language-server"/u);
+  assert.match(config, /ACE_LSP_VERSION\s*=\s*"typescript-language-server\/6\.0\.2"/u);
+  assert.doesNotMatch(config, /ACE_TREE_SITTER/u);
+  assert.doesNotMatch(config, /ACE_ALLOW_LOCAL_FALLBACK/u);
+});
+
 test('zero-call natural ACE arm cannot claim retrieval benefit even when forced arm calls ACE', () => {
   const result = assessThreeArmReports(
     pair('optional-natural-tool-use', 0, 0),
