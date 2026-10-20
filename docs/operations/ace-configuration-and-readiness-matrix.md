@@ -57,6 +57,8 @@ ACE_REQUIRE_PINNED_EMBEDDING=true
 
 and the configured model/artifact revision and digest values required by `ace-mcp.ts`. Production approval is still a separate evidence/owner decision.
 
+For the default Qdrant collection, ACE waits for the embedding worker's verified startup receipt before choosing the namespace. The namespace fingerprint includes the effective provider/model/artifact digest, preprocessing, execution mode and reported runtime build/version. A requested environment label therefore cannot place a different loaded artifact/runtime into the same default collection namespace. Explicit `ACE_QDRANT_COLLECTION` remains an operator-managed namespace and is subject to the exclusive-owner GC rule below.
+
 If `ACE_ALLOW_LOCAL_FALLBACK=true`, Qdrant/provider failure may fall back to the explicitly degraded local path. This flag must never be used to turn a failed production dependency into a silent `ready` state.
 
 ### Qdrant snapshot ownership and garbage collection
