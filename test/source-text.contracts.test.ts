@@ -10,7 +10,7 @@ import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
 import { decodeStrictSourceText } from '../src/domain/source-text.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
 import { ok } from '../src/domain/result.js';
-import type { StructuralAnalysisPort } from '../src/application/ports.js';
+import type { StructuralAnalysisPort, WorkspaceFilePort } from '../src/application/ports.js';
 
 const workspace = makeWorkspaceId('strict-source-text-workspace');
 if (workspace._tag === 'Err') throw new Error(workspace.error.message);
@@ -78,10 +78,60 @@ test('binary and malformed UTF-8 source never reaches structural provider', asyn
     [['binary.ts', 'binary_source'], ['malformed.ts', 'invalid_utf8']],
   );
   assert.equal(built.value.coverage.failedPaths, 2);
+  assert.equal(built.value.coverage.schemaVersion, 1);
+  assert.match(built.value.coverage.sourceSnapshotDigest, /^[a-f0-9]{64}$/u);
+  assert.equal(built.value.coverage.failureCounts.binary_source, 1);
+  assert.equal(built.value.coverage.failureCounts.invalid_utf8, 1);
   assert.ok(built.value.warnings.some((warning) => warning.includes('binary.ts: binary_source')));
   assert.ok(built.value.warnings.some((warning) => warning.includes('malformed.ts: invalid_utf8')));
 
   const manifestByPath = new Map(built.value.fileManifest.map((item) => [item.repoPath, item]));
   assert.equal(manifestByPath.get('binary.ts' as never)?.candidateIds.length, 0);
   assert.equal(manifestByPath.get('malformed.ts' as never)?.candidateIds.length, 0);
+});
+
+test('source changed after the workspace snapshot is excluded as digest-raced evidence', async () => {
+  const observedDigest = '1'.repeat(64);
+  const currentDigest = '2'.repeat(64);
+  let structuralCalls = 0;
+  const files: WorkspaceFilePort = {
+    canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+    snapshot: () => Effect.succeed(ok({
+      headRevision: 'a'.repeat(40),
+      files: [{
+        repoPath: 'raced.ts' as never,
+        digest: observedDigest as never,
+        sizeBytes: 10,
+        state: 'tracked' as const,
+        observedAtMs: 1,
+      }],
+      removedPaths: [],
+      gitStatus: 'available' as const,
+    })),
+    readExact: () => Effect.succeed(ok({
+      bytes: Buffer.from('export function raced() {}\n', 'utf8'),
+      digest: currentDigest as never,
+    })),
+  };
+  const structural: StructuralAnalysisPort = {
+    extract: () => {
+      structuralCalls += 1;
+      return Effect.succeed(ok({
+        repoPath: 'raced.ts',
+        sourceDigest: currentDigest as never,
+        symbols: [],
+        hasSyntaxErrors: false,
+      }));
+    },
+  };
+  const built = await Effect.runPromise(buildLocalCodeIndex(files, workspace.value, '/repo', {
+    generation: 1,
+    structural,
+  }));
+  assert.equal(built._tag, 'Ok');
+  if (built._tag === 'Err') throw new Error(built.error.message);
+  assert.equal(structuralCalls, 0);
+  assert.equal(built.value.index.candidates.length, 0);
+  assert.deepEqual(built.value.coverage.failures.map((failure) => failure.kind), ['digest_raced']);
+  assert.equal(built.value.coverage.failureCounts.digest_raced, 1);
 });

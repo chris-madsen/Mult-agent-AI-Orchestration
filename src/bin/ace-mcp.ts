@@ -379,6 +379,7 @@ const main = async (): Promise<void> => {
       const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
         generation,
         structural,
+        parserVersion: structuralOptions.providerVersion,
         ...(structuralCache === undefined || structuralIdentity._tag === 'Err' ? {} : {
           structuralCache,
           structuralProviderFingerprint: structuralIdentity.value.fingerprint,
@@ -539,6 +540,9 @@ const main = async (): Promise<void> => {
   } else if (allowLocalFallback) {
     const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
       generation: observationEpoch,
+      parserVersion: structuralHelper === undefined || structuralHelper === ''
+        ? 'local-fallback/typescript-compiler'
+        : process.env.ACE_TREE_SITTER_VERSION?.trim() || 'tree-sitter/unknown',
       ...(structuralHelper === undefined || structuralHelper === ''
         ? {}
         : { structural: makeTreeSitterStructuralPort({ helperPath: resolve(structuralHelper) }) }),
