@@ -3,7 +3,9 @@
 **Дата:** 2026-10-20  
 **План:** [2026-10-19-unified-ace-correctness-and-production-plan.md](../plans/2026-10-19-unified-ace-correctness-and-production-plan.md)  
 **Проверенный commit:** `main` @ `b7963aff915bd7458ead566c2ff6012b8bbb6a5f` (merge PR #63).  
-**Статус документа:** статическое ревью. Это не отчёт о прогоне тестов или реальных провайдеров и не заявление о production-готовности.
+**Статус документа:** историческое статическое ревью состояния на PR #63. Это не текущий status ledger и не заявление о production-готовности.
+
+> **Follow-up после этого ревью:** находки F1–F6 получили отдельные исправления/доказательства: F1 — #66 плюс retained real Qdrant crash lifecycle #78; F2 — #67; F3 — #71; F4 — #72; F5 — #69/#70; F6 — ledger refresh #74 и последующее обновление through #80. Текущий implementation/evidence status находится в [implementation/evidence ledger](./2026-10-20-implementation-evidence-ledger.md). Не использовать раздел 6 ниже как актуальную очередь работ без сверки с ledger.
 
 ## 0. Границы проверки
 
