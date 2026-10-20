@@ -15,24 +15,22 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Node 22
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
-      - name: Install locked dependencies
+      - name: Install locked dependencies once
         run: npm ci --ignore-scripts
-      - name: TypeScript strict check
-        run: npm run check
       - name: Embedding artifact and evaluator regressions
         run: python3 -m unittest discover -s scripts -p 'test_embedding_*.py'
       - name: Install pinned structural provider
         run: |
           python3 -m venv .venv-system
           .venv-system/bin/python -m pip install --disable-pip-version-check tree-sitter==0.26.0 tree-sitter-typescript==0.23.2
-      - name: Contract and regression tests
-        run: npm test
-      - name: Lint
-        run: npm run lint
-      - name: Build
-        run: npm run build
+      - name: Test-impact selector self-check
+        run: npm run test:impact:self
+      - name: Deterministic PR verification
+        run: npm run verify:pr
