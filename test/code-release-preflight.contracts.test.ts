@@ -115,6 +115,42 @@ const resourceBudget = {
   },
 };
 
+const runtimeConfig = (deployment: 'host' | 'k3s' = 'host') => ({
+  schemaVersion: 1,
+  generatedAt: '2026-10-20T00:00:00.000Z',
+  evidence: 'runtime-config-accepted',
+  scope: 'code-only',
+  deployment,
+  sourceCommit: commit,
+  currentCommit: commit,
+  captureReference: 'release-runtime-capture',
+  workspaceIdHash: digest,
+  codeRetrieval: {
+    enabled: true,
+    qdrantEnabled: true,
+    pinnedEmbeddingRequired: true,
+    localFallbackAllowed: false,
+    embeddingProvider: 'fastembed/onnx',
+    semanticProvider: 'typescript-language-service',
+  },
+  documentation: { enabled: false, cloudDocsOptIn: false },
+  memory: { enabled: false, localOnly: true },
+  worktree: {
+    hostHelperEnabled: deployment === 'k3s',
+    mtlsRequired: deployment === 'k3s',
+  },
+  cloudPermissions: [],
+  verdict: {
+    evidence: 'runtime-config-accepted',
+    scope: 'code-only',
+    deployment,
+    sourceCommit: commit,
+    embeddingProvider: 'fastembed/onnx',
+    semanticProvider: 'typescript-language-service',
+    failures: [],
+  },
+});
+
 const baseInput = () => ({
   currentCommit: commit,
   deployment: 'host' as const,
@@ -124,10 +160,14 @@ const baseInput = () => ({
     records: dbcRecords(),
   },
   embeddingSelection: {
-    verdict: { status: 'PRODUCTION_APPROVED', productionApproved: true },
+    verdict: { status: 'PRODUCTION_APPROVED', productionApproved: true, selectedProvider: 'fastembed/onnx' },
   },
   semanticSelection: {
-    verdict: { status: 'PRODUCTION_APPROVED', productionApproved: true },
+    verdict: {
+      status: 'PRODUCTION_APPROVED',
+      productionApproved: true,
+      selectedProvider: 'typescript-language-service',
+    },
   },
   retrievalQuality: {
     verdict: {
@@ -136,6 +176,7 @@ const baseInput = () => ({
     },
   },
   resourceBudget,
+  runtimeConfig: runtimeConfig(),
   harborThreeArm: {
     outcome: {
       productionAcceptance: 'measured-not-necessarily-5x',
@@ -230,6 +271,7 @@ test('k3s code-only deployment requires real k3s worktree evidence while host de
   const missingK3s = evaluateCodeReleasePreflight({
     ...input,
     deployment: 'k3s',
+    runtimeConfig: runtimeConfig('k3s'),
   });
   assert.equal(missingK3s._tag, 'Ok');
   if (missingK3s._tag === 'Ok') {
@@ -240,6 +282,7 @@ test('k3s code-only deployment requires real k3s worktree evidence while host de
   const withK3s = evaluateCodeReleasePreflight({
     ...input,
     deployment: 'k3s',
+    runtimeConfig: runtimeConfig('k3s'),
     externalEvidence: [
       supplyChain,
       { name: 'k3s-worktree', evidence: 'real-k3s-live-worktree', sha256: digest, document: k3sDocument },
@@ -308,5 +351,37 @@ test('code-only release blocks full-scope or over-budget resource evidence', () 
   if (exceeded._tag === 'Ok') {
     assert.equal(exceeded.value.status, 'BLOCKED');
     assert.ok(exceeded.value.failures.includes('resource_budget_not_accepted'));
+  }
+});
+
+
+test('code-only release blocks docs/memory/cloud scope or provider drift in runtime config', () => {
+  const input = baseInput();
+  const leakedScope = evaluateCodeReleasePreflight({
+    ...input,
+    runtimeConfig: {
+      ...runtimeConfig(),
+      documentation: { enabled: true, cloudDocsOptIn: true },
+      cloudPermissions: [{ provider: 'vertex', dataClasses: ['project_document'] }],
+    },
+  });
+  assert.equal(leakedScope._tag, 'Ok');
+  if (leakedScope._tag === 'Ok') {
+    assert.equal(leakedScope.value.status, 'BLOCKED');
+    assert.ok(leakedScope.value.failures.includes('runtime_config_not_accepted'));
+  }
+
+  const providerMismatch = evaluateCodeReleasePreflight({
+    ...input,
+    runtimeConfig: {
+      ...runtimeConfig(),
+      codeRetrieval: { ...runtimeConfig().codeRetrieval, embeddingProvider: 'sentence-transformers/pytorch' },
+      verdict: { ...runtimeConfig().verdict, embeddingProvider: 'sentence-transformers/pytorch' },
+    },
+  });
+  assert.equal(providerMismatch._tag, 'Ok');
+  if (providerMismatch._tag === 'Ok') {
+    assert.equal(providerMismatch.value.status, 'BLOCKED');
+    assert.ok(providerMismatch.value.failures.includes('runtime_embedding_provider_mismatch'));
   }
 });
