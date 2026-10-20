@@ -227,6 +227,7 @@ test('MVC-03 memory search is as-of and reports conflicting accepted claims', ()
   assert.equal(result.hits[0]?.episode.episodeId, first.episodeId);
   assert.equal(result.hits[0]?.decisionState, 'Accepted');
   assert.deepEqual(result.hits[0]?.decisionStates.map((decision) => decision.decisionId), ['a']);
+  assert.equal(result.temporalSemantics, 'valid_time_occurred_at');
   assert.equal(result.conflicts.length, 2);
   const beforeAcceptance = searchMemory([first], 'decision', 11, [acceptedA]);
   assert.equal(beforeAcceptance.hits[0]?.decisionState, 'Proposed');
@@ -256,8 +257,12 @@ test('memory search returns every applicable decision for one episode without an
 
   const result = searchMemory([episode], 'shared', 12, [acceptedSecond, acceptedFirst]);
   assert.deepEqual(result.hits[0]?.decisionStates, [
-    { decisionId: 'decision-a', state: 'Accepted', historicalUncertainty: false },
-    { decisionId: 'decision-b', state: 'Accepted', historicalUncertainty: false },
+    {
+      decisionId: 'decision-a', subject: 'shared', proposal: 'first', state: 'Accepted', historicalUncertainty: false,
+    },
+    {
+      decisionId: 'decision-b', subject: 'shared', proposal: 'second', state: 'Accepted', historicalUncertainty: false,
+    },
   ]);
   assert.equal(result.hits[0]?.decisionState, undefined);
 });
@@ -270,6 +275,8 @@ test('as-of uses inclusive valid time, keeps late imports, and excludes tombston
   };
   const visible = searchMemory([lateImport], 'late', 10);
   assert.equal(visible.hits.length, 1, 'import time is not a hidden knowledge-time cutoff');
+  assert.equal(visible.temporalSemantics, 'valid_time_occurred_at');
+  assert.equal(searchMemory([lateImport], 'late', 9).hits.length, 0);
   const tombstoned = searchMemory([{ ...lateImport, tombstoned: true }], 'late', 10);
   assert.equal(tombstoned.hits.length, 0, 'tombstoned episodes are never returned');
 });
