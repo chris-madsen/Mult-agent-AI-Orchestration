@@ -43,8 +43,8 @@ export interface K3sWorktreeEvidenceVerdict {
 }
 
 export const requiredK3sWorktreeChecks: readonly K3sWorktreeCheckId[] = [
-  'K3S-01','K3S-02','K3S-03','K3S-04','K3S-05',
-  'K3S-06','K3S-07','K3S-08','K3S-09','K3S-10',
+  'K3S-01', 'K3S-02', 'K3S-03', 'K3S-04', 'K3S-05',
+  'K3S-06', 'K3S-07', 'K3S-08', 'K3S-09', 'K3S-10',
 ];
 
 const sha256 = (value: string): boolean => /^[a-f0-9]{64}$/u.test(value);
