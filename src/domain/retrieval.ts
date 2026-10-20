@@ -58,7 +58,14 @@ export interface CodeIndex {
   readonly candidates: readonly CodeCandidate[];
 }
 
-export type IndexCoverageFailureKind = 'read_failed' | 'structural_failed' | 'digest_mismatch' | 'parser_partial' | 'unsupported_parser';
+export type IndexCoverageFailureKind =
+  | 'read_failed'
+  | 'binary_source'
+  | 'invalid_utf8'
+  | 'structural_failed'
+  | 'digest_mismatch'
+  | 'parser_partial'
+  | 'unsupported_parser';
 
 export interface IndexCoverageFailure {
   readonly repoPath: RepoPath;
