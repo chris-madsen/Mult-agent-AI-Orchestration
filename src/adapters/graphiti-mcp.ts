@@ -43,6 +43,7 @@ const replyJsonObject = (reply: unknown): Result<Record<string, unknown>, Domain
     return err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti', 'Graphiti MCP tool result must be an object'));
   }
   const value = reply as { readonly structuredContent?: unknown; readonly content?: readonly unknown[]; readonly isError?: boolean };
+  if (value.isError === true) return errorResult('Graphiti returned an MCP tool failure');
   if (typeof value.structuredContent === 'object' && value.structuredContent !== null && !Array.isArray(value.structuredContent)) {
     return ok(value.structuredContent as Record<string, unknown>);
   }
@@ -58,9 +59,7 @@ const replyJsonObject = (reply: unknown): Result<Record<string, unknown>, Domain
       // are allowed for mutation tools but not for typed search responses.
     }
   }
-  return value.isError === true
-    ? errorResult('Graphiti returned an MCP tool failure')
-    : err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti', 'Graphiti MCP result did not contain typed JSON'));
+  return err(domainError('INVALID_EXTERNAL_RESPONSE', 'graphiti', 'Graphiti MCP result did not contain typed JSON'));
 };
 
 const graphitiErrorText = (reply: unknown): string | undefined => {

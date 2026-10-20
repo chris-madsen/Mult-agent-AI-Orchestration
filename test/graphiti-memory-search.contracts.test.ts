@@ -38,6 +38,15 @@ test('Graphiti fact parser rejects derived facts without original episode proven
   assert.equal(result._tag, 'Err');
 });
 
+test('Graphiti fact parser rejects an MCP error even when structured content looks like an empty success', () => {
+  const result = parseGraphitiFactSearchReply({
+    isError: true,
+    structuredContent: { facts: [] },
+  });
+  assert.equal(result._tag, 'Err');
+  if (result._tag === 'Err') assert.equal(result.error.code, 'EXTERNAL_UNAVAILABLE');
+});
+
 test('ACE episode IDs map deterministically into Graphiti UUIDs without exposing source content', () => {
   const first = graphitiEpisodeUuid('episode-1');
   const second = graphitiEpisodeUuid('episode-1');
