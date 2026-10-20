@@ -15,6 +15,7 @@ This document describes the operational test loop. Normative capability acceptan
 | --- | --- | --- |
 | `npm run test:affected` | Select deterministic TypeScript tests affected by the current diff | Inner development loop |
 | `npm run test:affected -- --dry-run` | Show selection without executing it | Inspect/debug impact selection |
+| `npm run test:affected -- --base origin/main` | Select tests affected by the entire branch | Optional branch-wide check before full verification |
 | `npm run test:fast` | Run the full deterministic TypeScript suite | Final local check / CI |
 | `npm run check` | TypeScript strict typecheck only | Explicit type gate |
 | `npm run build` | Emit `dist/`; incremental state is reused locally | Runtime/E2E preparation |
@@ -32,7 +33,7 @@ Do not run `npm ci` repeatedly inside an already-installed development workspace
 
 `scripts/run-affected-tests.mjs`:
 
-1. compares the branch/worktree against `origin/main` when available (or `HEAD` locally);
+1. compares staged, unstaged and untracked work against `HEAD` by default, keeping the edit loop narrow; use `--base origin/main` when you explicitly want branch-wide impact;
 2. includes staged, unstaged and untracked files;
 3. builds a reverse graph of relative imports across `src/` and `test/`;
 4. walks that graph from changed source files to dependent tests;
