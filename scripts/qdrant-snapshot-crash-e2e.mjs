@@ -183,7 +183,7 @@ const makeProtocolProcess = (label, stateDir, traceFile) => {
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
   };
 
-  const query = async (queryText) => {
+  const query = async (queryText, allowPartial = false) => {
     const response = await request('tools/call', {
       name: 'ace_context',
       arguments: {
@@ -196,7 +196,7 @@ const makeProtocolProcess = (label, stateDir, traceFile) => {
     assert.equal(response.error, undefined, JSON.stringify(response));
     assert.equal(response.result?.isError, undefined, JSON.stringify(response));
     const context = response.result?.structuredContent;
-    assert.equal(context?.complete, true, JSON.stringify(context));
+    if (!allowPartial) assert.equal(context?.complete, true, JSON.stringify(context));
     return context;
   };
 
@@ -298,7 +298,9 @@ try {
   assert.equal(building.status, 'building',
     'writer killed before publication must leave an unpublished building manifest');
 
-  const afterCrash = await reader.query('stableSnapshotSentinel stable-sentinel-v1');
+  const afterCrash = await reader.query('stableSnapshotSentinel stable-sentinel-v1', true);
+  assert.equal(afterCrash.complete, false,
+    'reader must expose partial coverage after the unrelated mutable source changes');
   const afterCrashHit = assertEvidence(afterCrash, 'src/stable.ts', 'stable-sentinel-v1');
   assert.equal(afterCrashHit.sourceDigest, initialHit.sourceDigest,
     'unchanged S1 symbol must remain bound to the same exact source bytes');
@@ -312,7 +314,9 @@ try {
   assert.equal(published.status, 'published',
     'restart must finish and atomically publish the previously interrupted snapshot');
 
-  const afterPublish = await reader.query('stableSnapshotSentinel stable-sentinel-v1');
+  const afterPublish = await reader.query('stableSnapshotSentinel stable-sentinel-v1', true);
+  assert.equal(afterPublish.complete, false,
+    'reader must retain truthful partial coverage after the unrelated mutable source changes');
   const afterPublishHit = assertEvidence(afterPublish, 'src/stable.ts', 'stable-sentinel-v1');
   assert.equal(afterPublishHit.sourceDigest, initialHit.sourceDigest,
     'publishing S2 must not destroy the active reader S1 snapshot');

@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "evidence": "real-qdrant-snapshot-crash-lifecycle",
+  "generatedAt": "2026-10-20T08:16:30.360Z",
+  "sourceCommit": "07b143b1cef5fddb79d1c59be52f904c0c097762",
+  "fixtureCommit": "7cf7de9be119ef2cc783761efd35a14014348fb9",
+  "qdrant": {
+    "urlKind": "local-loopback",
+    "collection": "ace_ca_crash_befe3d00ad55456e90644b475b4b2a5e",
+    "version": "qdrant/1.19.2"
+  },
+  "runtime": {
+    "node": "v24.15.0",
+    "embeddingWorker": "fastembed-worker.sh",
+    "treeSitterHelper": "tree-sitter-structural.py"
+  },
+  "checks": {
+    "readerS1BeforeWriter": "PASS",
+    "writerKilledAfterQdrantVerifyBeforePublish": "PASS",
+    "interruptedManifestStayedBuilding": "PASS",
+    "readerS1AfterWriterCrash": "PASS",
+    "restartPublishedS2": "PASS",
+    "readerS1AfterS2Publish": "PASS",
+    "stateOwnersDistinct": "PASS",
+    "sharedExplicitCollectionGcSkipped": "PASS"
+  },
+  "requestIds": {
+    "readerInitial": "c84f2108-6037-4324-8716-4de4d824271d",
+    "readerAfterCrash": "2db314cc-dfbf-46fd-9bda-7475ba6c192a",
+    "writerV2": "dcb5ebba-08d2-4125-b469-3f20cb0e208d",
+    "readerAfterPublish": "0c07e952-d6fa-493f-8913-1b43a164b75b"
+  },
+  "providerTraceDigests": {
+    "reader": "2b2eb8d58ba79562229f2a14c4897a990287ae63f2f7dd714db76dbd4bb31b27",
+    "crashedWriter": "11b56417ca9b1c48cf744a38947f8907ffb00ef149d92179d5ec94e5294c23f4",
+    "restartedWriter": "398f74c8d22c8b42f2f5b9758cf57257203614f77d356393ccc7ddb1b54d8520"
+  },
+  "note": "This is bounded real-provider C-A/W04 evidence only. It does not approve provider identities, performance budgets, DBC-13 or production release."
+}

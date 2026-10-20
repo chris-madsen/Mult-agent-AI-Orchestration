@@ -27,6 +27,8 @@ test('interrupted-writer runner proves building-not-published recovery and activ
   assert.match(script, /assert\.equal\(building\.status, 'building'/u);
   assert.match(script, /assert\.equal\(published\.status, 'published'/u);
   assert.match(script, /reader\.query\('stableSnapshotSentinel stable-sentinel-v1'\)/u);
+  assert.match(script, /reader\.query\('stableSnapshotSentinel stable-sentinel-v1', true\)/u);
+  assert.match(script, /reader must expose partial coverage/u);
   assert.match(script, /restartedWriter\.query\('mutableSnapshotSentinel mutable-sentinel-v2'\)/u);
   assert.match(script, /cleanup skipped: explicit ACE_QDRANT_COLLECTION/u);
   assert.match(script, /assert\.notEqual\(readerOwner\.trim\(\), writerOwner\.trim\(\)/u);
