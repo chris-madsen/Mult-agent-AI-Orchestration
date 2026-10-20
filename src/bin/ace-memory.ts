@@ -5,6 +5,7 @@ import { exportCodexHistory } from '../adapters/codex-session-history.js';
 import { makeAsyncFileMemoryArchive } from '../adapters/file-memory-archive.js';
 import { makeFileProjectionOutbox } from '../adapters/file-projection-outbox.js';
 import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
+import { makeFileProviderTrace } from '../adapters/provider-trace.js';
 import { defaultLocalPolicy } from '../domain/policy.js';
 import { makeWorkspaceId } from '../domain/workspace.js';
 import { deleteEpisodeWithProjection } from '../application/retained-memory.js';
@@ -37,12 +38,15 @@ const run = async (): Promise<void> => {
   const archiveRoot = resolve(required('ACE_MEMORY_ARCHIVE_ROOT'));
   const archive = await makeAsyncFileMemoryArchive(archiveRoot);
   const outbox = await makeFileProjectionOutbox(join(archiveRoot, 'projection-outbox'));
+  const providerTrace = makeFileProviderTrace(process.env.ACE_PROVIDER_TRACE_FILE);
   const createGraphiti = async () => makeGraphitiMcpPort({
     command: required('ACE_GRAPHITI_COMMAND'),
     args: JSON.parse(required('ACE_GRAPHITI_ARGS_JSON')) as string[],
     groupId: required('ACE_GRAPHITI_GROUP_ID'),
     workspaceId: workspace.value,
     policy: defaultLocalPolicy(workspace.value),
+    trace: providerTrace,
+    providerVersion: process.env.ACE_GRAPHITI_VERSION?.trim() || 'graphiti-mcp/unknown',
   });
 
   const integerEnv = (name: string, fallback: number): number => {
