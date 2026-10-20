@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Effect } from 'effect';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { deleteEpisodeWithProjection } from '../src/application/retained-memory.js';
+import { makeFileProjectionOutbox } from '../src/adapters/file-projection-outbox.js';
 import { domainError } from '../src/domain/errors.js';
 import { err, ok } from '../src/domain/result.js';
 import type { AsyncMemoryArchivePort } from '../src/adapters/file-memory-archive.js';
@@ -93,4 +97,36 @@ test('purge or verification outage never tombstones the archive', async () => {
     assert.equal(result._tag, 'Err');
     assert.equal(deleted.value, 0);
   }
+});
+
+test('deletion fence is durable before purge and blocks in-flight projection persistence', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-retained-delete-fence-'));
+  const outbox = await makeFileProjectionOutbox(root);
+  const deleted = { value: 0 };
+  let present = true;
+  const result = await Effect.runPromise(deleteEpisodeWithProjection(
+    archiveFixture(deleted),
+    graphFixture(() => {
+      return Effect.promise(async () => {
+        const blocked = await outbox.isDeletionBlocked(episodeId);
+        assert.deepEqual(blocked, { _tag: 'Ok', value: true });
+        present = false;
+        return ok(undefined);
+      });
+    }),
+    { isPresent: () => Effect.succeed(ok(present)) },
+    episodeId,
+    { verificationAttempts: 2, verificationDelayMs: 0, deletionFence: outbox },
+  ));
+  assert.equal(result._tag, 'Ok');
+  assert.equal(deleted.value, 1);
+  const stale = await outbox.put({
+    key: 'episode-delete-verify:extractor-v1' as never,
+    episodeId,
+    extractorVersion: 'extractor-v1',
+    status: 'projected',
+    attempts: 1,
+  });
+  assert.equal(stale._tag, 'Err');
+  if (stale._tag === 'Err') assert.equal(stale.error.code, 'ARCHIVE_TOMBSTONED');
 });

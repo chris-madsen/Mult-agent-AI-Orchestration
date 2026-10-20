@@ -58,3 +58,26 @@ test('projection outbox persists backoff, dead-letter and manual-repair metadata
   assert.equal(loaded._tag, 'Ok');
   if (loaded._tag === 'Ok') assert.deepEqual(loaded.value, dead);
 });
+
+test('projection outbox deletion fence rejects stale receipts and survives restart', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-projection-deletion-fence-'));
+  const outbox = await makeFileProjectionOutbox(root);
+  const episodeId = 'episode-delete-fence' as never;
+  const begun = await outbox.begin(episodeId, 'extractor-v1');
+  assert.equal(begun._tag, 'Ok');
+  if (begun._tag === 'Err') throw new Error(begun.error.message);
+
+  assert.equal((await outbox.beginDeletion(episodeId))._tag, 'Ok');
+  const stale = await outbox.put({ ...begun.value, status: 'projected' });
+  assert.equal(stale._tag, 'Err');
+  if (stale._tag === 'Err') assert.equal(stale.error.code, 'ARCHIVE_TOMBSTONED');
+  const blocked = await outbox.isDeletionBlocked(episodeId);
+  assert.deepEqual(blocked, { _tag: 'Ok', value: true });
+
+  assert.equal((await outbox.finalizeDeletion(episodeId))._tag, 'Ok');
+  assert.equal((await outbox.put({ ...begun.value, status: 'tombstoned' }))._tag, 'Ok');
+  const restarted = await makeFileProjectionOutbox(root);
+  const repeatedBegin = await restarted.begin(episodeId, 'extractor-v1');
+  assert.equal(repeatedBegin._tag, 'Err');
+  if (repeatedBegin._tag === 'Err') assert.equal(repeatedBegin.error.code, 'ARCHIVE_TOMBSTONED');
+});

@@ -157,6 +157,9 @@ export interface ProjectionOutboxPort {
   readonly put: (receipt: ProjectionReceipt) => Promise<Result<void, DomainError>>;
   readonly get: (key: ProjectionKey) => Promise<Result<ProjectionReceipt | undefined, DomainError>>;
   readonly list: () => Promise<Result<readonly ProjectionReceipt[], DomainError>>;
+  readonly beginDeletion: (episodeId: EpisodeId) => Promise<Result<void, DomainError>>;
+  readonly finalizeDeletion: (episodeId: EpisodeId) => Promise<Result<void, DomainError>>;
+  readonly isDeletionBlocked: (episodeId: EpisodeId) => Promise<Result<boolean, DomainError>>;
 }
 
 export interface GraphProjectionStatePort {

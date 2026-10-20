@@ -20,6 +20,7 @@ import {
   type ProjectionRetryPolicy,
 } from '../domain/memory.js';
 import { importMemoryEpisodes } from '../application/memory-import.js';
+import { reconcileProjectionIntents } from '../application/memory-reconcile.js';
 import { defaultMemoryAdmissionPolicy } from '../domain/memory-admission.js';
 
 const required = (key: string): string => {
@@ -93,6 +94,7 @@ const run = async (): Promise<void> => {
         graphiti.projection,
         graphiti.projectionState,
         episodeId.value,
+        { deletionFence: outbox },
       ));
       if (deleted._tag === 'Err') throw new Error(deleted.error.message);
       process.stdout.write(JSON.stringify({ episode_id: episodeId.value, purged: true }) + '\n');
@@ -108,6 +110,16 @@ const run = async (): Promise<void> => {
     return;
   }
   if (operation === 'reconcile') {
+    const archived = await archive.listEpisodes();
+    if (archived._tag === 'Err') throw new Error(archived.error.message);
+    const extractorVersion = process.env.ACE_MEMORY_EXTRACTOR_VERSION?.trim() || 'ace-history-v1';
+    const intents = await reconcileProjectionIntents({
+      episodes: archived.value,
+      extractorVersion,
+      outbox,
+      admissionPolicy: defaultMemoryAdmissionPolicy,
+    });
+    if (intents._tag === 'Err') throw new Error(intents.error.message);
     const graphiti = await createGraphiti();
     try {
       const receipts = await outbox.list();
@@ -186,6 +198,7 @@ const run = async (): Promise<void> => {
         missing_original: missingOriginal,
         deferred_by_backoff: deferred,
         newly_dead_lettered: deadLettered,
+        rebuilt_projection_intents: intents.value,
       }) + '\n');
     } finally {
       await graphiti.close();
