@@ -19,7 +19,7 @@ export interface ReleaseOwnerApproval {
 }
 
 export interface ReleaseExternalEvidence {
-  readonly name: 'graphiti' | 'vertex' | 'k3s-worktree' | 'backup-restore' | 'supply-chain';
+  readonly name: 'graphiti' | 'graphiti-crash-recovery' | 'vertex' | 'k3s-worktree' | 'backup-restore' | 'supply-chain';
   readonly evidence: string;
   readonly sha256: string;
   /** Parsed retained evidence; revalidated here so direct domain callers cannot bypass semantics. */
@@ -90,6 +90,7 @@ const dbcFailures = (dbc: unknown, currentCommit: string): readonly string[] => 
 
 const requiredExternal: Readonly<Record<ReleaseExternalEvidence['name'], string>> = {
   graphiti: 'real-graphiti-lifecycle',
+  'graphiti-crash-recovery': 'real-graphiti-crash-recovery',
   vertex: 'real-vertex-synthetic-code-doc-conflict',
   'k3s-worktree': 'real-k3s-live-worktree',
   'backup-restore': 'operations-backup-restore',
