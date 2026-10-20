@@ -7,3 +7,4 @@ rust/target/
 coverage/
 artifacts/
 docs/docs/conversations/
+.cache/
