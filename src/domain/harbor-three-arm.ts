@@ -8,6 +8,7 @@ export interface NormalizedHarborJob {
   readonly tasks: readonly string[];
   readonly modelName: string;
   readonly reasoningEffort: string;
+  readonly authMode: 'auth-json';
   readonly codexConfig?: string;
   readonly extraInstructions: readonly string[];
 }
@@ -29,6 +30,7 @@ export const normalizeHarborJob = (
   const agents = Array.isArray(root?.agents) ? root.agents : undefined;
   const agent = agents?.length === 1 ? object(agents[0]) : undefined;
   const kwargs = object(agent?.kwargs);
+  const agentEnv = object(agent?.env);
   const tasksRaw = Array.isArray(root?.tasks) ? root.tasks : undefined;
   if (agent === undefined || kwargs === undefined || tasksRaw === undefined || tasksRaw.length === 0) {
     return err(domainError('INVALID_BENCHMARK', 'harbor_job', 'job must contain one Codex agent and at least one task'));
@@ -36,6 +38,17 @@ export const normalizeHarborJob = (
   if (agent.name !== 'codex' || typeof agent.model_name !== 'string' || agent.model_name.trim().length === 0
     || typeof kwargs.reasoning_effort !== 'string' || kwargs.reasoning_effort.trim().length === 0) {
     return err(domainError('INVALID_BENCHMARK', 'harbor_job.agent', 'Codex model and reasoning effort must be explicit'));
+  }
+  const forceAuthJson = agentEnv?.CODEX_FORCE_AUTH_JSON === '1'
+    || agentEnv?.CODEX_FORCE_AUTH_JSON === 'true';
+  const explicitAuthPath = typeof agentEnv?.CODEX_AUTH_JSON_PATH === 'string'
+    && agentEnv.CODEX_AUTH_JSON_PATH.trim().length > 0;
+  if (!forceAuthJson && !explicitAuthPath) {
+    return err(domainError(
+      'INVALID_BENCHMARK',
+      'harbor_job.agent.env',
+      'Codex Harbor jobs must explicitly select the OAuth auth.json route; API-key fallback is not a valid B0 smoke configuration',
+    ));
   }
   const tasks: string[] = [];
   for (const [index, raw] of tasksRaw.entries()) {
@@ -57,6 +70,7 @@ export const normalizeHarborJob = (
     tasks,
     modelName: agent.model_name.trim(),
     reasoningEffort: kwargs.reasoning_effort.trim(),
+    authMode: 'auth-json',
     ...(codexConfig === undefined ? {} : { codexConfig }),
     extraInstructions: extraRaw.map((entry) => entry.trim()).filter((entry) => entry.length > 0),
   });

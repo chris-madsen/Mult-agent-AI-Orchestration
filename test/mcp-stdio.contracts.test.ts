@@ -46,4 +46,5 @@ test('ace_context tool schema exposes explicit include_code override', () => {
     readonly properties?: Readonly<Record<string, unknown>>;
   };
   assert.ok(schema.properties?.include_code);
+  assert.ok(schema.properties?.source_obligations);
 });

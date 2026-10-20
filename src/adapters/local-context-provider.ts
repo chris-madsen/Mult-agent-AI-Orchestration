@@ -21,6 +21,7 @@ import {
   sourceIsRequested,
   type SourceRequirements,
 } from '../domain/source-coverage.js';
+import { diffWorkspaceManifests, workspaceManifestFromSnapshot, workspaceManifestEqual, type WorkspaceManifest } from '../domain/workspace-manifest.js';
 
 export interface LocalContextProviderOptions {
   readonly workspaceId: WorkspaceId;
@@ -30,6 +31,7 @@ export interface LocalContextProviderOptions {
   readonly newRequestId: () => string;
   readonly failedSources?: readonly string[];
   readonly additionalWarnings?: readonly string[];
+  readonly workspaceManifest?: WorkspaceManifest;
 }
 
 export const makeLocalContextProvider = (options: LocalContextProviderOptions) => ({
@@ -43,6 +45,20 @@ export const makeLocalContextProvider = (options: LocalContextProviderOptions) =
   }): Effect.Effect<Result<ContextBundle, DomainError>> => Effect.gen(function* () {
     if (input.workspaceId !== options.workspaceId) {
       return err(domainError('POLICY_DENIED', 'workspace_id', 'local context provider belongs to another workspace'));
+    }
+    if (options.workspaceManifest !== undefined) {
+      const snapshot = yield* options.files.snapshot(options.rootPath, Date.now());
+      if (snapshot._tag === 'Err') return snapshot;
+      const current = workspaceManifestFromSnapshot(snapshot.value, options.workspaceManifest.scopeFingerprint);
+      if (!workspaceManifestEqual(options.workspaceManifest, current)) {
+        const delta = diffWorkspaceManifests(options.workspaceManifest, current);
+        return err(domainError(
+          'NOT_READY',
+          'workspace_manifest',
+          'authoritative workspace manifest changed; lexical fallback is not allowed to return an old complete result',
+          { changed: delta.changed.length, added: delta.added.length, deleted: delta.deleted.length, renamed: delta.renamed.length, scopeChanged: delta.scopeChanged },
+        ));
+      }
     }
     const requestId = makeRequestId(options.newRequestId());
     if (requestId._tag === 'Err') return requestId;
@@ -140,6 +156,7 @@ export const makeLocalContextProvider = (options: LocalContextProviderOptions) =
     return ok({
       ...merged,
       sourceCoverage,
+      sourcePlan: requirements,
       partialSources: incomplete,
       complete: sourceCoverageComplete(sourceCoverage),
     });

@@ -1,14 +1,62 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
-import { evaluateReleasePreflight, type ReleaseExternalEvidence } from '../src/domain/release-preflight.js';
+import {
+  evaluateReleasePreflight,
+  ownerApprovalPayload,
+  type ReleaseExternalEvidence,
+  type ReleaseOwnerApproval,
+  type ReleaseOwnerApprovalTrustRoot,
+} from '../src/domain/release-preflight.js';
 import type { DbcEvidenceRecord, DbcId } from '../src/domain/dbc-evidence.js';
 
 const commit = 'a'.repeat(40);
 const digest = 'b'.repeat(64);
+const ownerKeys = generateKeyPairSync('ed25519');
+const ownerPublicKeyPem = ownerKeys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+const ownerTrustRoot: ReleaseOwnerApprovalTrustRoot = {
+  signingKeyId: 'test-owner-key',
+  publicKeyPem: ownerPublicKeyPem,
+  publicKeySha256: createHash('sha256').update(ownerPublicKeyPem, 'utf8').digest('hex'),
+  publicKeyIdentityVerified: true,
+  signatureVerified: true,
+};
+const signedApproval = (
+  approvedCapabilities: readonly ('code' | 'documentation' | 'memory')[],
+  reference: string,
+): ReleaseOwnerApproval => {
+  const unsigned: ReleaseOwnerApproval = {
+    schemaVersion: 1,
+    status: 'approved',
+    releaseCommit: commit,
+    reference,
+    approvedCapabilities,
+    signingKeyId: ownerTrustRoot.signingKeyId,
+  };
+  const payload = ownerApprovalPayload(unsigned);
+  return {
+    ...unsigned,
+    publicKeyPem: ownerPublicKeyPem,
+    signedPayloadSha256: createHash('sha256').update(payload, 'utf8').digest('hex'),
+    signatureBase64: sign(null, Buffer.from(payload, 'utf8'), ownerKeys.privateKey).toString('base64'),
+  };
+};
+const boundMeasurementArtifacts = [
+  'dbc', 'embeddingSelection', 'semanticSelection', 'retrievalQuality',
+  'harborThreeArm', 'resourceBudget', 'runtimeConfig',
+].map((name) => ({ name, path: `artifacts/${name}.json`, sha256: digest }))
+  .sort((left, right) => left.name.localeCompare(right.name));
+const evidenceBinding = {
+  schemaVersion: 1 as const,
+  sourceCommit: commit,
+  measurementArtifacts: boundMeasurementArtifacts,
+  providerIdentities: ['fastembed/onnx', 'typescript-language-service'],
+  reportIdentitySha256: createHash('sha256').update(JSON.stringify(boundMeasurementArtifacts), 'utf8').digest('hex'),
+  reportIdentityVerified: true,
+};
 
 const dbcIds = Array.from({ length: 14 }, (_, index) =>
   `DBC-${String(index + 1).padStart(2, '0')}` as DbcId);
@@ -328,12 +376,11 @@ const baseInput = () => ({
     source_reports: { natural_sha256: digest, forced_sha256: digest },
   },
   externalEvidence,
+  evidenceBinding,
   ownerApproval: {
-    status: 'approved' as const,
-    releaseCommit: commit,
-    reference: 'owner-signoff-2026-10-20',
-    approvedCapabilities: ['code', 'documentation', 'memory'] as const,
+    ...signedApproval(['code', 'documentation', 'memory'], 'owner-signoff-2026-10-20'),
   },
+  ownerApprovalTrustRoot: ownerTrustRoot,
 });
 
 test('full unified release is READY only when every mandatory evidence family is accepted', () => {
@@ -342,6 +389,20 @@ test('full unified release is READY only when every mandatory evidence family is
   if (result._tag === 'Err') throw new Error(result.error.message);
   assert.equal(result.value.status, 'READY');
   assert.deepEqual(result.value.failures, []);
+});
+
+test('release preflight rejects an unbound verdict or a tampered owner approval', () => {
+  const noBinding = evaluateReleasePreflight({ ...baseInput(), evidenceBinding: undefined });
+  assert.equal(noBinding._tag, 'Ok');
+  if (noBinding._tag === 'Ok') assert.ok(noBinding.value.failures.includes('evidence_binding_missing'));
+
+  const tampered = evaluateReleasePreflight({
+    ...baseInput(),
+    ownerApproval: { ...baseInput().ownerApproval, reference: 'changed-after-signing' },
+    ownerApprovalTrustRoot: { ...ownerTrustRoot, signatureVerified: false },
+  });
+  assert.equal(tampered._tag, 'Ok');
+  if (tampered._tag === 'Ok') assert.ok(tampered.value.failures.includes('owner_approval_signature_invalid'));
 });
 
 test('provider approval, current-commit DBC, external evidence and owner scope fail independently', () => {
@@ -525,6 +586,7 @@ test('full release hashes binary DBC artifacts without parsing them as JSON', as
         reference: 'test-only',
         approvedCapabilities: [],
       },
+      ownerApprovalTrustRoot: { signingKeyId: 'test', publicKeySha256: digest, publicKeyPem: 'test-key' },
       artifacts: {
         dbc: join(root, 'dbc.json'),
         embeddingSelection: emptyPath,

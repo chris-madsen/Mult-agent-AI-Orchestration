@@ -27,6 +27,7 @@ import type { StructuralAnalysis } from '../domain/semantic.js';
 import { decodeStrictSourceText } from '../domain/source-text.js';
 import type { ContentDigest, RepoPath, WorkspaceId } from '../domain/workspace.js';
 import { isSensitiveSourcePath } from '../domain/sensitive-path.js';
+import { workspaceManifestFromSnapshot, type WorkspaceManifest } from '../domain/workspace-manifest.js';
 
 export interface LocalCodeIndexBuild {
   readonly index: CodeIndex;
@@ -39,6 +40,8 @@ export interface LocalCodeIndexBuild {
   readonly candidateCacheMisses: number;
   /** Exact digest membership for every in-scope source successfully read. */
   readonly fileManifest: readonly IndexFileIdentity[];
+  /** Authoritative manifest captured by the same workspace snapshot as the index. */
+  readonly workspaceManifest: WorkspaceManifest;
 }
 
 export interface LocalCodeIndexerOptions {
@@ -55,6 +58,8 @@ export interface LocalCodeIndexerOptions {
   readonly candidateProviderFingerprint?: string;
   /** Human-readable parser/grammar identity retained in the coverage manifest. */
   readonly parserVersion?: string;
+  /** Include/exclude configuration identity; changes invalidate warm reuse. */
+  readonly scopeFingerprint?: string;
 }
 
 interface Span {
@@ -462,5 +467,12 @@ export const buildLocalCodeIndex = (
           candidateIds: [...value.candidateIds].sort(),
         }))
         .sort((left, right) => left.repoPath.localeCompare(right.repoPath)),
+      workspaceManifest: workspaceManifestFromSnapshot(
+        snapshot.value,
+        options.scopeFingerprint ?? createHash('sha256').update(JSON.stringify({
+          extensions: [...extensions].sort(),
+          sensitivePathPolicy: 'default-v1',
+        }), 'utf8').digest('hex'),
+      ),
     });
   });

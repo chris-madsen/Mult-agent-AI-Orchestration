@@ -1,4 +1,6 @@
 import type { RouteSource } from './routing.js';
+import { domainError, type DomainError } from './errors.js';
+import { err, ok, type Result } from './result.js';
 
 export type ContextSource = 'code' | 'structural' | 'documentation' | 'memory';
 export type SourceRequirement = 'required' | 'optional' | 'not_requested';
@@ -18,11 +20,66 @@ export interface SourceCoverage {
 
 export type SourceRequirements = Readonly<Record<ContextSource, SourceRequest>>;
 
+/**
+ * An explicit source plan supplied by the caller.  This is deliberately a
+ * small ADT rather than a second routing language: routing may recommend a
+ * plan, but a caller supplied plan is authoritative.
+ */
+export interface SourceObligations {
+  readonly required?: readonly ContextSource[];
+  readonly optional?: readonly ContextSource[];
+}
+
 export interface SourceRequestOverrides {
   readonly includeCode?: boolean;
   readonly includeDocs?: boolean;
   readonly includeMemory?: boolean;
 }
+
+const sourceNames: readonly ContextSource[] = ['code', 'structural', 'documentation', 'memory'];
+
+const sourceOverride = (source: ContextSource, overrides: SourceRequestOverrides): boolean => {
+  if (source === 'code' || source === 'structural') return overrides.includeCode !== false;
+  if (source === 'documentation') return overrides.includeDocs !== false;
+  return overrides.includeMemory !== false;
+};
+
+const invalidObligations = (message: string): Result<never, DomainError> =>
+  err(domainError('INVALID_INPUT', 'source_obligations', message));
+
+/**
+ * Resolve a caller-owned plan without consulting deterministic routing.
+ * Unknown/duplicate/overlapping entries are rejected instead of silently
+ * changing the requested completeness contract.
+ */
+export const resolveExplicitSourceRequirements = (
+  obligations: SourceObligations,
+  overrides: SourceRequestOverrides = {},
+): Result<SourceRequirements, DomainError> => {
+  const required = obligations.required ?? [];
+  const optional = obligations.optional ?? [];
+  const valid = new Set(sourceNames);
+  const validateList = (values: readonly ContextSource[], label: string): Result<void, DomainError> => {
+    if (new Set(values).size !== values.length) return invalidObligations(`${label} contains duplicate sources`);
+    if (values.some((value) => !valid.has(value))) return invalidObligations(`${label} contains an unknown source`);
+    return ok(undefined);
+  };
+  const requiredValid = validateList(required, 'required');
+  if (requiredValid._tag === 'Err') return requiredValid;
+  const optionalValid = validateList(optional, 'optional');
+  if (optionalValid._tag === 'Err') return optionalValid;
+  if (required.some((source) => optional.includes(source))) {
+    return invalidObligations('required and optional source lists must not overlap');
+  }
+  const requiredSet = new Set(required);
+  const optionalSet = new Set(optional);
+  return ok(Object.fromEntries(sourceNames.map((source) => [source, {
+    requirement: requiredSet.has(source)
+      ? 'required'
+      : optionalSet.has(source) ? 'optional' : 'not_requested',
+    allowed: sourceOverride(source, overrides),
+  }])) as SourceRequirements);
+};
 
 const requestFor = (selected: boolean, explicit: boolean | undefined): SourceRequest => ({
   requirement: selected ? 'required' : explicit === true ? 'optional' : 'not_requested',

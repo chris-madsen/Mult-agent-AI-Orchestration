@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -9,10 +9,41 @@ import {
   evaluateCodeReleasePreflight,
   type CodeReleaseExternalEvidence,
 } from '../src/domain/code-release-preflight.js';
+import {
+  ownerApprovalPayload,
+  type ReleaseOwnerApproval,
+  type ReleaseOwnerApprovalTrustRoot,
+} from '../src/domain/release-preflight.js';
 import type { DbcEvidenceRecord, DbcId } from '../src/domain/dbc-evidence.js';
 
 const commit = 'a'.repeat(40);
 const digest = 'b'.repeat(64);
+const ownerKeys = generateKeyPairSync('ed25519');
+const ownerPublicKeyPem = ownerKeys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+const ownerTrustRoot: ReleaseOwnerApprovalTrustRoot = {
+  signingKeyId: 'test-owner-key',
+  publicKeyPem: ownerPublicKeyPem,
+  publicKeySha256: createHash('sha256').update(ownerPublicKeyPem, 'utf8').digest('hex'),
+  publicKeyIdentityVerified: true,
+  signatureVerified: true,
+};
+const signedApproval = (approvedCapabilities: readonly ('code' | 'documentation' | 'memory')[]): ReleaseOwnerApproval => {
+  const unsigned: ReleaseOwnerApproval = {
+    schemaVersion: 1,
+    status: 'approved',
+    releaseCommit: commit,
+    reference: 'owner-code-only-signoff',
+    approvedCapabilities,
+    signingKeyId: ownerTrustRoot.signingKeyId,
+  };
+  const payload = ownerApprovalPayload(unsigned);
+  return {
+    ...unsigned,
+    publicKeyPem: ownerPublicKeyPem,
+    signedPayloadSha256: createHash('sha256').update(payload, 'utf8').digest('hex'),
+    signatureBase64: sign(null, Buffer.from(payload, 'utf8'), ownerKeys.privateKey).toString('base64'),
+  };
+};
 
 const dbcRecords = (): DbcEvidenceRecord[] => codeOnlyRequiredDbcs.map((dbcId) => ({
   dbcId,
@@ -246,12 +277,8 @@ const baseInput = () => ({
     source_reports: { natural_sha256: digest, forced_sha256: digest },
   },
   externalEvidence: [supplyChain],
-  ownerApproval: {
-    status: 'approved' as const,
-    releaseCommit: commit,
-    reference: 'owner-code-only-signoff',
-    approvedCapabilities: ['code'] as const,
-  },
+  ownerApproval: signedApproval(['code']),
+  ownerApprovalTrustRoot: ownerTrustRoot,
 });
 
 test('host code-only release is ready without pretending docs or memory are approved', () => {
@@ -461,6 +488,7 @@ test('code-only release also hashes binary DBC artifacts without JSON parsing', 
       scope: 'code-only',
       deployment: 'host',
       ownerApproval: { status: 'pending', releaseCommit: current, reference: 'test-only', approvedCapabilities: [] },
+      ownerApprovalTrustRoot: { signingKeyId: 'test', publicKeySha256: digest, publicKeyPem: 'test-key' },
       artifacts: {
         dbc: join(root, 'dbc.json'),
         embeddingSelection: emptyPath,

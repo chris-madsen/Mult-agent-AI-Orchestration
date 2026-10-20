@@ -1,7 +1,7 @@
 import { domainError, type DomainError } from './errors.js';
 import { err, ok, type Result } from './result.js';
 import type { ContentDigest, RepoPath, WorkspaceId } from './workspace.js';
-import type { SourceCoverage } from './source-coverage.js';
+import type { SourceCoverage, SourceRequirements } from './source-coverage.js';
 
 export type CandidateId = string & { readonly __brand: 'CandidateId' };
 export type RequestId = string & { readonly __brand: 'RetrievalRequestId' };
@@ -133,6 +133,8 @@ export interface ContextBundle {
   readonly partialSources: readonly string[];
   readonly complete: boolean;
   readonly sourceCoverage?: readonly SourceCoverage[];
+  /** The authoritative source plan used to calculate `complete`. */
+  readonly sourcePlan?: SourceRequirements;
   readonly conflicts?: readonly RetrievalConflict[];
   readonly indexCoverage?: IndexCoverageSummary;
 }

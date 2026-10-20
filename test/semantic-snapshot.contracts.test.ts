@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { Effect } from 'effect';
-import { readVerifiedSemanticSnapshot } from '../src/application/semantic-snapshot.js';
+import { readVerifiedSemanticSnapshot, semanticSnapshotIdentity } from '../src/application/semantic-snapshot.js';
 import { domainError } from '../src/domain/errors.js';
 import { err, ok } from '../src/domain/result.js';
 import type { WorkspaceFilePort } from '../src/application/ports.js';
@@ -84,4 +84,23 @@ test('semantic snapshot rejects a path absent from the manifest and malformed te
   ));
   assert.equal(invalid._tag, 'Err');
   if (invalid._tag === 'Err') assert.equal(invalid.error.code, 'INVALID_RETRIEVAL');
+});
+
+test('semantic snapshot identity changes when configuration, declarations, lock inputs or provider changes', () => {
+  const base = {
+    indexKey: 'a'.repeat(64),
+    tsconfigIdentity: 'tsconfig:a',
+    projectReferencesIdentity: 'refs:a',
+    moduleResolutionIdentity: 'node-next',
+    declarationsIdentity: 'decl:a',
+    packageLockIdentity: 'lock:a',
+    providerIdentity: 'typescript/5.9.3',
+  };
+  const original = semanticSnapshotIdentity(base);
+  assert.notEqual(original, semanticSnapshotIdentity({ ...base, tsconfigIdentity: 'tsconfig:b' }));
+  assert.notEqual(original, semanticSnapshotIdentity({ ...base, projectReferencesIdentity: 'refs:b' }));
+  assert.notEqual(original, semanticSnapshotIdentity({ ...base, moduleResolutionIdentity: 'bundler' }));
+  assert.notEqual(original, semanticSnapshotIdentity({ ...base, declarationsIdentity: 'decl:b' }));
+  assert.notEqual(original, semanticSnapshotIdentity({ ...base, packageLockIdentity: 'lock:b' }));
+  assert.notEqual(original, semanticSnapshotIdentity({ ...base, providerIdentity: 'typescript/next' }));
 });

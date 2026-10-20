@@ -391,6 +391,21 @@ test('RTE-03 MCP gateway returns injected local context and memory providers', a
     name: 'ace_context',
     arguments: {
       workspace_id: workspaceId,
+      query: 'this English query must not decide the source plan',
+      source_obligations: { required: ['documentation'], optional: ['code'] },
+    },
+  }));
+  assert.deepEqual(lastContextInput?.sourceRequirements, {
+    code: { requirement: 'optional', allowed: true },
+    structural: { requirement: 'not_requested', allowed: true },
+    documentation: { requirement: 'required', allowed: true },
+    memory: { requirement: 'not_requested', allowed: true },
+  });
+
+  await Effect.runPromise(gateway.handle({
+    name: 'ace_context',
+    arguments: {
+      workspace_id: workspaceId,
       query: 'why did we choose this architecture decision?',
       include_docs: false,
       include_memory: false,

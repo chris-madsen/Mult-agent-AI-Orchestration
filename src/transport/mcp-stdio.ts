@@ -36,6 +36,14 @@ const tools = [
         include_code: { type: 'boolean' },
         include_docs: { type: 'boolean' },
         include_memory: { type: 'boolean' },
+        source_obligations: {
+          type: 'object',
+          properties: {
+            required: { type: 'array', items: { enum: ['code', 'structural', 'documentation', 'memory'] } },
+            optional: { type: 'array', items: { enum: ['code', 'structural', 'documentation', 'memory'] } },
+          },
+          additionalProperties: false,
+        },
       },
       additionalProperties: false,
     },

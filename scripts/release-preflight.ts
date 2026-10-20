@@ -1,17 +1,21 @@
-import { createHash } from 'node:crypto';
+import { createHash, verify } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import {
   evaluateReleasePreflight,
+  ownerApprovalPayload,
   type ReleaseExternalEvidence,
+  type ReleaseEvidenceBinding,
   type ReleaseOwnerApproval,
+  type ReleaseOwnerApprovalTrustRoot,
 } from '../src/domain/release-preflight.js';
 import { validateReleaseExternalEvidenceDocument } from '../src/domain/release-external-evidence.js';
 
 interface ReleasePolicy {
   readonly schemaVersion: 1;
   readonly ownerApproval: ReleaseOwnerApproval;
+  readonly ownerApprovalTrustRoot: ReleaseOwnerApprovalTrustRoot;
   readonly artifacts: {
     readonly dbc: string;
     readonly embeddingSelection: string;
@@ -68,6 +72,7 @@ const policyEvidence = await readEvidenceJson(policyArg);
 const policy = policyEvidence.value as Partial<ReleasePolicy>;
 if (policy.schemaVersion !== 1
   || typeof policy.ownerApproval !== 'object' || policy.ownerApproval === null
+  || typeof policy.ownerApprovalTrustRoot !== 'object' || policy.ownerApprovalTrustRoot === null
   || typeof policy.artifacts !== 'object' || policy.artifacts === null
   || !Array.isArray(policy.externalEvidence)) {
   throw new Error('release policy schema is invalid');
@@ -156,7 +161,53 @@ const verdict = evaluateReleasePreflight({
   resourceBudget: resourceBudget.value,
   runtimeConfig: runtimeConfig.value,
   externalEvidence,
+  evidenceBinding: (() => {
+    const measurementArtifacts = [
+      { name: 'dbc', path: dbc.path, sha256: dbc.sha256 },
+      { name: 'embeddingSelection', path: embedding.path, sha256: embedding.sha256 },
+      { name: 'semanticSelection', path: semantic.path, sha256: semantic.sha256 },
+      { name: 'retrievalQuality', path: retrieval.path, sha256: retrieval.sha256 },
+      { name: 'harborThreeArm', path: harbor.path, sha256: harbor.sha256 },
+      { name: 'resourceBudget', path: resourceBudget.path, sha256: resourceBudget.sha256 },
+      { name: 'runtimeConfig', path: runtimeConfig.path, sha256: runtimeConfig.sha256 },
+    ].sort((left, right) => left.name.localeCompare(right.name));
+    const providerIdentities = [
+      typeof (embedding.value as { verdict?: { selectedProvider?: unknown } }).verdict?.selectedProvider === 'string'
+        ? (embedding.value as { verdict: { selectedProvider: string } }).verdict.selectedProvider : '',
+      typeof (semantic.value as { verdict?: { selectedProvider?: unknown } }).verdict?.selectedProvider === 'string'
+        ? (semantic.value as { verdict: { selectedProvider: string } }).verdict.selectedProvider : '',
+    ].filter((identity) => identity.length > 0);
+    return {
+      schemaVersion: 1,
+      sourceCommit: currentCommit,
+      measurementArtifacts,
+      providerIdentities,
+      reportIdentitySha256: createHash('sha256').update(JSON.stringify(measurementArtifacts), 'utf8').digest('hex'),
+      reportIdentityVerified: true,
+    } satisfies ReleaseEvidenceBinding;
+  })(),
   ownerApproval: policy.ownerApproval as ReleaseOwnerApproval,
+  ownerApprovalTrustRoot: (() => {
+    const approval = policy.ownerApproval as ReleaseOwnerApproval;
+    const trustRoot = policy.ownerApprovalTrustRoot as ReleaseOwnerApprovalTrustRoot;
+    const publicKeyIdentityVerified = typeof trustRoot.publicKeyPem === 'string'
+      && typeof trustRoot.publicKeySha256 === 'string'
+      && createHash('sha256').update(trustRoot.publicKeyPem, 'utf8').digest('hex') === trustRoot.publicKeySha256;
+    let signatureVerified = false;
+    try {
+      const payload = ownerApprovalPayload(approval);
+      signatureVerified = publicKeyIdentityVerified
+        && approval.schemaVersion === 1
+        && approval.publicKeyPem === trustRoot.publicKeyPem
+        && approval.releaseCommit === currentCommit
+        && approval.signedPayloadSha256 === createHash('sha256').update(payload, 'utf8').digest('hex')
+        && typeof approval.signatureBase64 === 'string'
+        && verify(null, Buffer.from(payload, 'utf8'), trustRoot.publicKeyPem, Buffer.from(approval.signatureBase64, 'base64'));
+    } catch {
+      signatureVerified = false;
+    }
+    return { ...trustRoot, publicKeyIdentityVerified, signatureVerified };
+  })(),
 });
 if (verdict._tag === 'Err') {
   throw new Error(`${verdict.error.code}: ${verdict.error.path}: ${verdict.error.message}`);

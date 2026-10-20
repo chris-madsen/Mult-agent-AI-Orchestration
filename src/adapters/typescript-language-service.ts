@@ -17,6 +17,8 @@ export interface TypeScriptLanguageServiceOptions {
   readonly files: Readonly<Record<string, string>>;
   readonly compilerOptions?: ts.CompilerOptions;
   readonly providerVersion?: string;
+  /** Complete semantic dependency identity for this immutable LS snapshot. */
+  readonly snapshotIdentity?: string;
   readonly trace?: ProviderTraceSink;
 }
 
@@ -92,7 +94,10 @@ const withQuery = <Value>(
 ): Effect.Effect<Result<Value, DomainError>> => Effect.sync(() => {
     const startedAtMs = Date.now();
     const { service, files } = runtime;
-    const valid = validateQuery(query, files, options.rootPath);
+    const valid = options.snapshotIdentity !== undefined
+      && query.snapshotIdentity !== options.snapshotIdentity
+      ? failure('snapshot_identity', 'semantic query is bound to a different source/configuration generation')
+      : validateQuery(query, files, options.rootPath);
     const result = valid._tag === 'Err'
       ? valid
       : operation(service, valid.value.fileName, valid.value.position, files);
