@@ -1,9 +1,19 @@
-# ACE implementation / evidence ledger — 2026-10-20
+# ACE implementation / evidence ledger — 2026-10-20 (updated)
 
 **Purpose:** W00 truth baseline. This file separates code that exists from real-provider, agent-E2E, benchmark and owner-approval evidence. It does not replace the normative unified plan or DBC manifests.
 
-**Baseline commit:** `33766c721e9628fecc7d4ad4b9ac503432d69e2d`  
-**Scope rule:** only merged `main` at that commit is counted below. Open PRs are not promoted by this ledger.
+**Baseline commit:** `6a410f2434c4175d57f932efb8d291372b931636`
+**Supersedes:** the stale baseline at `33766c721e9628fecc7d4ad4b9ac503432d69e2d`.
+**Scope rule:** only merged `main` at the baseline commit is counted below. Open PRs are not promoted by this ledger.
+
+Since the previous ledger, the relevant merged changes are PRs **#65, #66, #67,
+#69, #70, #71, #72 and #73**. The exact-main W00 receipt was run from a clean
+checkout of this baseline: `artifacts/baseline/baseline.json`, SHA-256
+`322c7a53144677c217f50770f73af62d8837bc93265c3e3381f56d99539205fd`; it reports
+`status=PASS`, mandatory checks `PASS`, and OpenSpec 001–006 strict validation
+`PASS`. The generated artifact directory remains Git-ignored; the digest and
+source commit above are retained here so the receipt is not confused with a
+provider or production approval.
 
 ## Evidence vocabulary
 
@@ -38,21 +48,21 @@ The normal contract workflow runs locked install, typecheck, embedding evaluator
 
 | Prerequisite | Implementation state | Remaining normative evidence |
 |---|---|---|
-| **C-A snapshot isolation / publish / GC** | **implemented+contracted**: content-derived snapshot identity, atomic manifest states, leases, orphan-lease recovery, membership checks, lease-aware GC | real concurrent readers/writer, interrupted writer and restart run on selected storage |
+| **C-A snapshot isolation / publish / GC** | **implemented+contracted**: content-derived snapshot identity, atomic manifest states, state-owner isolation, conservative lease reaping, orphan-lease recovery, narrow maintenance payloads, membership checks and lease-aware GC | real concurrent readers/writer with different state roots, interrupted writer and restart run on selected storage |
 | **C-B exact semantic identity** | **implemented+contracted**: AST identifier anchors, UTF-8 handling, TS-LS exact-symbol oracle, shared Serena-vs-TS-LS fixture | matched Serena run, dirty-worktree/provider snapshot proof, owner semantic-provider approval |
 | **C-C coverage truth** | **implemented+contracted**: failed paths propagate into index/context completeness; binary/invalid text and sensitive paths are explicit | real mixed-provider/dirty-tree acceptance receipts |
-| **C-D effective embedding identity** | **implemented+contracted**: worker reports effective model/artifact/runtime/mode; parent verifies identity; production selection gate is non-self-approving | frozen unseen multi-repo comparison, license review, target-host measurements, owner approval |
-| **C-E temporal decision history** | **implemented+contracted**: immutable transitions, as-of state reconstruction, successor/cycle/workspace validation | real Graphiti temporal extraction/search evidence |
+| **C-D effective embedding identity** | **implemented+contracted**: worker reports effective model/artifact/runtime/mode; parent verifies identity; default Qdrant namespace uses the verified receipt fingerprint; production selection gate is non-self-approving | frozen unseen multi-repo comparison, license review, target-host measurements, owner approval |
+| **C-E temporal decision history** | **implemented+contracted**: immutable transitions, explicit valid-time `as_of`, all linked decision states, successor/cycle/workspace validation and uncertainty for legacy history | real Graphiti temporal extraction/search evidence |
 
 ## Work-package ledger
 
 | Work package | Current implementation state | What remains before normative closure |
 |---|---|---|
-| **W00 truth baseline** | **partial**: this ledger + DBC evidence manifest tooling + truthful readiness states | exact-main command receipt, OpenSpec strict run, reconcile current OpenSpec task checkboxes only from retained evidence |
+| **W00 truth baseline** | **real sub-gate**: exact-main receipt at `6a410f2` has clean workspace, mandatory checks PASS and OpenSpec 001–006 strict PASS; this ledger and DBC evidence tooling remain current | reconcile current OpenSpec task checkboxes only from retained provider/agent evidence; W00 receipt is not production acceptance |
 | **W01 embedding** | comparison runner, full ranking metrics, pinned identity and explicit selection/owner-approval gate **implemented+contracted** | frozen unseen multi-repo run, authoritative licenses, host perf, owner approval |
 | **W02 Serena vs TS LS** | shared 2000+ line oracle and direct TS-LS runner/gate **implemented+contracted**; direct TS-LS local evidence exists | run Serena on identical fixture/oracle, fair cold/warm/RSS/license comparison, owner approval |
 | **W03 retrieval quality** | ranked-ID quality/compactness evaluator, neutral ablation report and predeclared gate **implemented+contracted** | real frozen multi-repo lexical/vector/hybrid runs; implement hybrid only if measurement justifies it |
-| **W04 incremental index** | per-file identities, vector reuse, structural cache, candidate cache, atomic snapshot state, lease recovery **implemented+contracted** | 1k/10k cold/warm/change-only measurements, real rename/delete/untracked/concurrent/restart/interrupted-writer suite |
+| **W04 incremental index** | per-file identities, vector reuse, structural cache, candidate cache, atomic snapshot state, lease recovery, and a real-provider 1k/10k cold/warm/change-only runner with dirty-tree assertions **implemented+contracted** | execute and retain 1k/10k measurements on the selected provider/host; real concurrent/restart/interrupted-writer suite |
 | **W05 Vertex docs** | policy-before-network, secret egress guard, one-shot auth refresh, synthetic conflict E2E runner **implemented+contracted** | authorized synthetic corpus import/retrieval run, citations/version evidence, quota/cost record |
 | **W06 Graphiti extraction** | archive-backed Graphiti adapter, provenance-safe fact search and real lifecycle runner **implemented+contracted** | actual supported local LLM/embedder/reranker run against FalkorDB; latency/cost/outbound proof |
 | **W07 memory reliability** | durable outbox, reconciliation, verified purge-before-tombstone, bounded retries/dead-letter/manual repair, temporal decisions, local backup/restore **implemented+contracted** | SIGKILL/concurrent real Graphiti/FalkorDB storage tests and provider backup/restore proof |
@@ -98,12 +108,13 @@ The provider-trace receipt is run directly with `npx tsx scripts/provider-trace-
 
 ## Next owner/Codex execution order
 
-1. Finish the exact-main W00 command/OpenSpec receipt.
-2. Run W01/W02 frozen provider selections and obtain owner decisions.
-3. Run W05/W06 real Vertex/Graphiti gates with the already-defined safe fixtures.
-4. Run W11 real k3s checks and W07/W15 recovery evidence.
-5. Run W13 natural-use Harbor only after the relevant provider identities are frozen.
-6. Generate DBC-01…14 evidence for the exact release commit.
-7. Run the appropriate scoped preflight and obtain exact-commit owner sign-off.
+1. Reconcile current OpenSpec task checkboxes only from retained provider/agent evidence; do not promote the W00 receipt into production approval.
+2. Execute the W04 1k/10k runner on the selected real provider and retain every run.
+3. Run W01/W02 frozen provider selections and obtain owner decisions.
+4. Run W05/W06 real Vertex/Graphiti gates with the already-defined safe fixtures.
+5. Run W11 real k3s checks and W07/W15 recovery evidence.
+6. Run W13 natural-use Harbor only after the relevant provider identities are frozen.
+7. Generate DBC-01…14 evidence for the exact release commit.
+8. Run the appropriate scoped preflight and obtain exact-commit owner sign-off.
 
 Do not convert an `external run pending` row to production-ready merely because its runner exists.
