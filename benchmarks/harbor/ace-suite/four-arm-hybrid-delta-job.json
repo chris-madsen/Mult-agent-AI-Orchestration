@@ -1,0 +1,17 @@
+{
+  "job_name": "ace-hybrid-four-arm-hybrid-delta-30-serial",
+  "tasks": [
+    {"path":"benchmarks/harbor/ace-retrieval-impact"},{"path":"benchmarks/harbor/ace-retrieval-impact"},{"path":"benchmarks/harbor/ace-retrieval-impact"},{"path":"benchmarks/harbor/ace-retrieval-impact"},{"path":"benchmarks/harbor/ace-retrieval-impact"},
+    {"path":"benchmarks/harbor/ace-cloud-policy-impact"},{"path":"benchmarks/harbor/ace-cloud-policy-impact"},{"path":"benchmarks/harbor/ace-cloud-policy-impact"},{"path":"benchmarks/harbor/ace-cloud-policy-impact"},{"path":"benchmarks/harbor/ace-cloud-policy-impact"},
+    {"path":"benchmarks/harbor/ace-shared-archive-impact"},{"path":"benchmarks/harbor/ace-shared-archive-impact"},{"path":"benchmarks/harbor/ace-shared-archive-impact"},{"path":"benchmarks/harbor/ace-shared-archive-impact"},{"path":"benchmarks/harbor/ace-shared-archive-impact"},
+    {"path":"benchmarks/harbor/chess-cache-history"},{"path":"benchmarks/harbor/chess-cache-history"},{"path":"benchmarks/harbor/chess-cache-history"},{"path":"benchmarks/harbor/chess-cache-history"},{"path":"benchmarks/harbor/chess-cache-history"},
+    {"path":"benchmarks/harbor/chess-provenance"},{"path":"benchmarks/harbor/chess-provenance"},{"path":"benchmarks/harbor/chess-provenance"},{"path":"benchmarks/harbor/chess-provenance"},{"path":"benchmarks/harbor/chess-provenance"},
+    {"path":"benchmarks/harbor/chess-pattern-repetition"},{"path":"benchmarks/harbor/chess-pattern-repetition"},{"path":"benchmarks/harbor/chess-pattern-repetition"},{"path":"benchmarks/harbor/chess-pattern-repetition"},{"path":"benchmarks/harbor/chess-pattern-repetition"}
+  ],
+  "agents": [{"name":"codex","model_name":"gpt-5.6-luna","override_setup_timeout_sec":900,"env":{"CODEX_FORCE_AUTH_JSON":"1"},"kwargs":{"reasoning_effort":"high","config":"benchmarks/harbor/ace-suite/four-arm-hybrid-delta-codex-config.toml"}}],
+  "environment":{"type":"docker","delete":true,"mounts":[{"type":"bind","source":"${ACE_HARNESS_ROOT}","target":"/ace","read_only":true}]},
+  "n_concurrent_trials":1,
+  "n_attempts":1,
+  "jobs_dir":"artifacts/harbor-ace-hybrid-four-arm-delta",
+  "quiet":false
+}

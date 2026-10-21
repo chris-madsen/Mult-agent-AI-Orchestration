@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 1,
+  "status": "frozen_reranker_holdout",
+  "description": "Frozen reranker holdout bound to the same ACE and Chess Trainer revisions as retrieval v1; cases are disjoint from the retrieval labels.",
+  "repositories": [
+    {
+      "id": "ace",
+      "revision": "4c1d6aa218bccf5dcd7ed33e32599aa79030c880",
+      "sourceManifestSha256": "1d4a664936e577b268318d9b99e08a9e9db83d60c3379c4f386b3a495771524c"
+    },
+    {
+      "id": "chess",
+      "revision": "23a7bb6b27023e8520941841d69745dd623d0933",
+      "sourceManifestSha256": "1916646de6dfb53449560a554c2cf0a6cfd22b4fa63c4af1bfb265f00eaf461e"
+    }
+  ],
+  "cases": [
+    {
+      "id": "ace-rerank-receipt-bytes",
+      "repositoryId": "ace",
+      "query": "which candidate explains exact source bytes after a receipt is reused",
+      "documents": [
+        "The client receives a summary and can later request an exact expansion range.",
+        "Receipt reuse suppresses unchanged evidence bodies while preserving the expansion handle.",
+        "The query embedding is stored in a local worker cache.",
+        "The source manifest lists files in lexical order."
+      ],
+      "relevantDocumentIndexes": [1],
+      "critical": true
+    },
+    {
+      "id": "ace-rerank-conflicting-claims",
+      "repositoryId": "ace",
+      "query": "keep code and memory claims separate when their values conflict",
+      "documents": [
+        "Deduplication merges every source class into one canonical claim.",
+        "Source-aware delivery preserves code, documentation, and memory conflict evidence.",
+        "Only the dense vector score is returned to the caller.",
+        "A stale index is always considered current after a restart."
+      ],
+      "relevantDocumentIndexes": [1],
+      "critical": true
+    },
+    {
+      "id": "ace-rerank-sparse-branch",
+      "repositoryId": "ace",
+      "query": "find the sparse BM25 branch in the hybrid retrieval strategy",
+      "documents": [
+        "The reranker receives only documentation snippets.",
+        "Sparse retrieval uses a client-side lexical vector and Qdrant sparse points.",
+        "Working context changes the workspace registration record.",
+        "The memory provider returns historical episodes."
+      ],
+      "relevantDocumentIndexes": [1]
+    },
+    {
+      "id": "ace-rerank-source-digest",
+      "repositoryId": "ace",
+      "query": "which evidence identity is bound to the verified source digest",
+      "documents": [
+        "The evidence identity includes the source path and the candidate range.",
+        "The source digest verifies that indexed bytes match the current file.",
+        "The Qdrant alias is changed after the collection is published.",
+        "The semantic provider opens a language server process."
+      ],
+      "relevantDocumentIndexes": [1]
+    },
+    {
+      "id": "ace-rerank-working-file",
+      "repositoryId": "ace",
+      "query": "prioritize a focused dirty file during retrieval",
+      "documents": [
+        "The focused path gets a small ranking boost and a matching focused range gets an additional boost.",
+        "The archive writer stores a session episode.",
+        "The Vertex client sends a documentation query.",
+        "The native file reader rejects paths outside the workspace root."
+      ],
+      "relevantDocumentIndexes": [0]
+    },
+    {
+      "id": "ace-rerank-partial-coverage",
+      "repositoryId": "ace",
+      "query": "report incomplete coverage when an indexed path failed",
+      "documents": [
+        "A failed source path changes the code coverage status to partial.",
+        "Every source is assumed to be indexed when the collection exists.",
+        "A provider trace records only successful requests.",
+        "A receipt always makes completeness true."
+      ],
+      "relevantDocumentIndexes": [0]
+    },
+    {
+      "id": "chess-rerank-provenance",
+      "repositoryId": "chess",
+      "query": "which document records the provider identity for a generated move",
+      "documents": [
+        "A position snapshot contains the board FEN and move history.",
+        "Move provenance records the provider, model, and source of the generated decision.",
+        "The cache key ignores all provider configuration.",
+        "A legal move is parsed from a UCI string."
+      ],
+      "critical": true,
+      "relevantDocumentIndexes": [1]
+    },
+    {
+      "id": "chess-rerank-cache-history",
+      "repositoryId": "chess",
+      "query": "preserve move history when a cache key is generated",
+      "documents": [
+        "The cache uses the same key for every position in a line.",
+        "The analysis cache key can include a history signature according to the namespace policy.",
+        "A pattern target is calibrated from a threshold table.",
+        "The style server accepts a line request."
+      ],
+      "critical": true,
+      "relevantDocumentIndexes": [1]
+    },
+    {
+      "id": "chess-rerank-legal-capture",
+      "repositoryId": "chess",
+      "query": "find the adapter code that separates legal captures and checking moves",
+      "documents": [
+        "The adapter maps all verbose chess.js moves into legal moves.",
+        "The pattern engine computes attractor scores.",
+        "The analysis cache evicts old entries.",
+        "The provenance record stores a display name."
+      ],
+      "relevantDocumentIndexes": [0]
+    },
+    {
+      "id": "chess-rerank-pattern-trigger",
+      "repositoryId": "chess",
+      "query": "RU/EN: map a pattern family to its target trigger threshold",
+      "documents": [
+        "The target trigger is read from the family calibration record.",
+        "The Maia provider returns a candidate move.",
+        "The rules adapter validates a FEN string.",
+        "The line generator stops after the horizon."
+      ],
+      "relevantDocumentIndexes": [0]
+    },
+    {
+      "id": "chess-rerank-platform-command",
+      "repositoryId": "chess",
+      "query": "reject a platform command when the use case expects a chess decision",
+      "documents": [
+        "A platform command is accepted as a legal move.",
+        "The human path rejects a decision tagged as a platform command.",
+        "The state cache stores a Zobrist position key.",
+        "The style server serializes a job result."
+      ],
+      "relevantDocumentIndexes": [1]
+    },
+    {
+      "id": "chess-rerank-repetition-state",
+      "repositoryId": "chess",
+      "query": "detect repeated positions while generating a pattern-steered line",
+      "documents": [
+        "The pattern line tracks position visits and stops on a repetition threshold.",
+        "The provenance identity is immutable after a move is generated.",
+        "The in-memory cache is bounded to a fixed entry count.",
+        "The rules adapter parses SAN tokens."
+      ],
+      "relevantDocumentIndexes": [0]
+    }
+  ]
+}

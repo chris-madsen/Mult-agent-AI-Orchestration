@@ -3,10 +3,12 @@ import test from 'node:test';
 import {
   evaluateRetrievalQualityPolicy,
   evaluateRetrievalStrategy,
+  selectRetrievalStrategy,
   type RetrievalHoldout,
   type RetrievalQualityPolicy,
   type RetrievalStrategyRun,
 } from '../src/domain/retrieval-quality-evaluation.js';
+import { canonicalBenchmarkCandidateId, createRetrievalBenchmarkTraceCollector } from '../src/domain/retrieval-benchmark.js';
 
 const holdout: RetrievalHoldout = {
   schemaVersion: 1,
@@ -19,6 +21,15 @@ const holdout: RetrievalHoldout = {
 };
 
 const holdoutSha = 'a'.repeat(64);
+
+const frozenStageRanks = (candidateId: string) => ({
+  dense: [candidateId],
+  sparse: [candidateId],
+  fused: [candidateId],
+  workingContext: [candidateId],
+  reranked: [candidateId],
+  delivered: [candidateId],
+});
 
 const run: RetrievalStrategyRun = {
   strategy: 'hybrid-v1',
@@ -223,6 +234,32 @@ test('quality, critical recall, compactness and latency regressions are separate
   ]) assert.ok(verdict.value.failures.includes(failure), failure);
 });
 
+test('retrieval selection uses dense non-inferiority before compactness tie-breakers', () => {
+  const dense = evaluateRetrievalStrategy(holdout, { ...run, strategy: 'dense' });
+  assert.equal(dense._tag, 'Ok');
+  if (dense._tag === 'Err') return;
+  const selected = selectRetrievalStrategy([
+    dense.value,
+    {
+      ...dense.value,
+      strategy: 'hybrid_rrf',
+      payloadCharactersMean: dense.value.payloadCharactersMean - 1,
+      latencyP95Ms: dense.value.latencyP95Ms - 1,
+    },
+    {
+      ...dense.value,
+      strategy: 'hybrid_reranker',
+      mrr: dense.value.mrr - 0.01,
+    },
+  ]);
+  assert.equal(selected._tag, 'Ok');
+  if (selected._tag === 'Ok') {
+    assert.equal(selected.value.selectedStrategy, 'hybrid_rrf');
+    assert.equal(selected.value.qualityGatePassed, true);
+    assert.ok(selected.value.rejectedStrategies.includes('hybrid_reranker'));
+  }
+});
+
 
 test('release-grade multi-repository holdout binds exact repositories and case ownership', () => {
   const multi: RetrievalHoldout = {
@@ -252,6 +289,9 @@ test('release-grade multi-repository holdout binds exact repositories and case o
   const multiRun: RetrievalStrategyRun = {
     strategy: 'hybrid_rrf',
     holdoutSha256: 'c'.repeat(64),
+    sourceCommit: '3'.repeat(40),
+    runnerVersion: 'contract-test/v1',
+    providerIdentities: { dense: 'test/dense', sparse: 'test/sparse' },
     observations: [
       {
         caseId: 'repo-a-case',
@@ -261,6 +301,7 @@ test('release-grade multi-repository holdout binds exact repositories and case o
         expansionCalls: 0,
         nativeReadDuplicates: 0,
         latencyMs: 10,
+        stageRanks: frozenStageRanks('a'),
       },
       {
         caseId: 'repo-b-case',
@@ -270,6 +311,7 @@ test('release-grade multi-repository holdout binds exact repositories and case o
         expansionCalls: 0,
         nativeReadDuplicates: 0,
         latencyMs: 12,
+        stageRanks: frozenStageRanks('b'),
       },
     ],
   };
@@ -303,6 +345,29 @@ test('release-grade multi-repository holdout binds exact repositories and case o
     assert.equal(tooManyRequired.value.measurementAccepted, false);
     assert.ok(tooManyRequired.value.failures.includes('repository_count_below_threshold'));
   }
+});
+
+test('frozen benchmark candidate ids are workspace-independent and traces retain raw ids', () => {
+  const range = { startLine: 4, startColumn: 2, endLine: 7, endColumn: 9 };
+  const first = canonicalBenchmarkCandidateId('ace', 'src/example.ts', 'd'.repeat(64), range);
+  const second = canonicalBenchmarkCandidateId('ace', 'src/example.ts', 'd'.repeat(64), range);
+  assert.equal(first, second);
+  assert.notEqual(first, canonicalBenchmarkCandidateId('chess', 'src/example.ts', 'd'.repeat(64), range));
+
+  const collector = createRetrievalBenchmarkTraceCollector('ace');
+  collector.record({
+    requestId: 'request-1',
+    stage: 'delivered',
+    durationMs: 3,
+    candidates: [{
+      runtimeCandidateId: 'workspace-specific-id',
+      repoPath: 'src/example.ts',
+      sourceDigest: 'd'.repeat(64),
+      range,
+    }],
+  });
+  assert.equal(collector.events[0]?.candidates[0]?.runtimeCandidateId, 'workspace-specific-id');
+  assert.deepEqual(collector.stageRanksFor('request-1').delivered, [first]);
 });
 
 test('multi-repository holdout rejects fake coverage and unbound cases', () => {

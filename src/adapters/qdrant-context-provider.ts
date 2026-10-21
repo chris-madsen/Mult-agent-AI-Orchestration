@@ -31,6 +31,7 @@ import type {
   VectorEmbeddingPort,
   WorkspaceFilePort,
 } from '../application/ports.js';
+import { canonicalBenchmarkCandidateId, type RetrievalBenchmarkTraceSink } from '../domain/retrieval-benchmark.js';
 import type { CodeCandidate } from '../domain/retrieval.js';
 import {
   workingContextFromSnapshot,
@@ -101,6 +102,10 @@ export interface QdrantContextConfig {
   readonly scopeFingerprint?: string;
   readonly semanticSnapshotIdentity?: string;
   readonly trace?: ProviderTraceSink;
+  /** Internal benchmark boundary; never exposed as an MCP tool or payload field. */
+  readonly benchmarkTrace?: RetrievalBenchmarkTraceSink;
+  readonly benchmarkRepositoryId?: string;
+  readonly benchmarkProviderIdentities?: Readonly<Record<string, string>>;
 }
 
 export const embeddingContentKey = (providerIdentity: string, chunk: string): string =>
@@ -148,6 +153,37 @@ export const applyWorkingContextPriors = (
   })
   .sort((left, right) => right.score - left.score || left.candidate.repoPath.localeCompare(right.candidate.repoPath))
   .slice(0, limit);
+
+const recordBenchmarkStage = (
+  trace: RetrievalBenchmarkTraceSink | undefined,
+  providerIdentities: Readonly<Record<string, string>> | undefined,
+  requestId: string,
+  stage: 'dense' | 'sparse' | 'fused' | 'working_context' | 'reranked' | 'delivered',
+  candidates: readonly RankedCandidate[],
+  startedAtMs: number,
+  repositoryId?: string,
+): void => {
+  trace?.record({
+    requestId,
+    stage,
+    candidates: candidates.map(({ candidate }) => ({
+      runtimeCandidateId: candidate.candidateId,
+      ...(repositoryId === undefined ? {} : {
+        canonicalCandidateId: canonicalBenchmarkCandidateId(
+          repositoryId,
+          candidate.repoPath,
+          candidate.sourceDigest,
+          candidate.range,
+        ),
+      }),
+      repoPath: candidate.repoPath,
+      sourceDigest: candidate.sourceDigest,
+      range: candidate.range,
+    })),
+    durationMs: Math.max(0, Date.now() - startedAtMs),
+    ...(providerIdentities === undefined ? {} : { providerIdentities }),
+  });
+};
 
 export const resolveQdrantAlias = (
   http: HttpPort,
@@ -876,6 +912,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
           const retrievalLimit = rerankerEnabled
             ? rerankerCandidateLimit
             : hasWorkingPrior ? Math.min(20, deliveryLimit * 2) : deliveryLimit;
+          const retrievalStartedAtMs = Date.now();
           const result = yield* activeConfig.qdrant.search({
             workspaceId: input.workspaceId,
             ...(vector === undefined ? {} : { vector }),
@@ -890,11 +927,30 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
           if (result._tag === 'Err') {
             codeProviderError = result.error;
           } else {
+            recordBenchmarkStage(
+              activeConfig.benchmarkTrace,
+              activeConfig.benchmarkProviderIdentities,
+              requestId.value,
+              retrievalStrategy === 'dense' ? 'dense' : retrievalStrategy === 'sparse' ? 'sparse' : 'fused',
+              result.value,
+              retrievalStartedAtMs,
+              activeConfig.benchmarkRepositoryId,
+            );
+            const workingContextStartedAtMs = Date.now();
             const prioritized = applyWorkingContextPriors(
               result.value,
               requestWorkingContext,
               input.workingContextHints,
               retrievalLimit,
+            );
+            recordBenchmarkStage(
+              activeConfig.benchmarkTrace,
+              activeConfig.benchmarkProviderIdentities,
+              requestId.value,
+              'working_context',
+              prioritized,
+              workingContextStartedAtMs,
+              activeConfig.benchmarkRepositoryId,
             );
             if (activeConfig.reranker === undefined) {
               if (activeConfig.rerankerMode === 'required') {
@@ -912,6 +968,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
             } else if (prioritized.length === 0) {
               rankedResults = [];
             } else {
+              const rerankStartedAtMs = Date.now();
               const reranked = yield* activeConfig.reranker.rerank({
                 query: input.query,
                 documents: prioritized.map((item) => [
@@ -942,8 +999,26 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
                   });
                 }
                 rankedResults = reordered.slice(0, deliveryLimit);
+                recordBenchmarkStage(
+                  activeConfig.benchmarkTrace,
+                  activeConfig.benchmarkProviderIdentities,
+                  requestId.value,
+                  'reranked',
+                  reordered,
+                  rerankStartedAtMs,
+                  activeConfig.benchmarkRepositoryId,
+                );
               }
             }
+            recordBenchmarkStage(
+              activeConfig.benchmarkTrace,
+              activeConfig.benchmarkProviderIdentities,
+              requestId.value,
+              'delivered',
+              rankedResults,
+              retrievalStartedAtMs,
+              activeConfig.benchmarkRepositoryId,
+            );
           }
         }
         if (codeProviderError !== undefined) {

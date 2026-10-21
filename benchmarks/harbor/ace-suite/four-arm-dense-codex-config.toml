@@ -1,0 +1,38 @@
+[mcp_servers.ace]
+command = "node"
+args = ["/ace/dist/bin/ace-mcp.js"]
+cwd = "/workspace"
+required = true
+startup_timeout_sec = 180
+tool_timeout_sec = 180
+default_tools_approval_mode = "auto"
+enabled_tools = ["ace_context", "ace_expand"]
+
+[mcp_servers.ace.env]
+ACE_WORKSPACE_ROOT = "/workspace"
+ACE_ALLOWED_ROOTS = "/workspace"
+ACE_WORKSPACE_ID = "00000000-0000-4000-8000-000000000001"
+ACE_STATE_DIR = "/tmp/ace-state"
+ACE_ARTIFACT_DIR = "/tmp/ace-artifacts"
+ACE_ENABLE_EXPERIMENTAL_QDRANT = "true"
+ACE_QDRANT_URL = "http://172.17.0.1:6333"
+ACE_QDRANT_LOCAL_HOSTS = "172.17.0.1"
+ACE_RETRIEVAL_STRATEGY = "dense"
+ACE_BENCHMARK_TRACE_FILE = "/tmp/ace-artifacts/retrieval-trace.jsonl"
+ACE_EMBEDDING_WORKER = "/ace/scripts/fastembed-worker.sh"
+ACE_EMBEDDING_PYTHON = "python3"
+ACE_AST_GREP_COMMAND = "/ace/node_modules/.bin/ast-grep"
+ACE_AST_GREP_VERSION = "ast-grep/0.51.0"
+ACE_LSP_COMMAND = "/ace/node_modules/.bin/typescript-language-server"
+ACE_LSP_VERSION = "typescript-language-server/6.0.2"
+ACE_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+ACE_EMBEDDING_DIMENSION = "384"
+ACE_PROVIDER_TRACE_FILE = "/tmp/ace-artifacts/provider-trace.jsonl"
+ACE_REQUIRE_PINNED_EMBEDDING = "true"
+FASTEMBED_CACHE_PATH = "/tmp/ace-state/fastembed-cache"
+ACE_EMBEDDING_PROVIDER = "fastembed/onnx"
+ACE_EMBEDDING_MODEL_REVISION = "e8f8c211226b894fcb81acc59f3b34ba3efd5f42"
+ACE_EMBEDDING_ARTIFACT_MODEL = "qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q"
+ACE_EMBEDDING_ARTIFACT_REVISION = "faf4aa4225822f3bc6376869cb1164e8e3feedd0"
+ACE_EMBEDDING_ARTIFACT_DIGEST = "4bb74885d054d77b15c33520114d7edc19c31699bdab813d893e4f58c3afb4a1"
+ACE_EMBEDDING_PREPROCESSING = "raw_text_v1"

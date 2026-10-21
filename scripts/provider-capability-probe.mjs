@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
 const run = (command, args = []) => {
-  const result = spawnSync(command, args, { encoding: 'utf8' });
+  const result = spawnSync(command, args, { encoding: 'utf8', timeout: 10_000 });
   if (result.error !== undefined) return { available: false, reason: result.error.message };
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
   return result.status === 0

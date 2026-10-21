@@ -1,7 +1,7 @@
 import { domainError, type DomainError } from './errors.js';
 import { err, ok, type Result } from './result.js';
 
-export type HarborArm = 'native' | 'ace-natural' | 'ace-forced';
+export type HarborArm = 'native' | 'ace-natural' | 'ace-forced' | 'dense' | 'hybrid' | 'hybrid-delta';
 
 export interface NormalizedHarborJob {
   readonly arm: HarborArm;
@@ -276,8 +276,12 @@ export const validateHarborPairReport = (value: unknown): Result<HarborPairRepor
     && ((checkedAce.aceObservedCalls as number) === 0 || (checkedAce.aceCalls as number) === 0)) {
     return err(domainError('INVALID_BENCHMARK', 'harbor_report.providerCorrelationVerified', 'provider correlation cannot be true without observed ACE calls'));
   }
-  const jobConfigSha256 = root.aceJobConfigSha256;
-  if (jobConfigSha256 !== undefined && !sha256Hex(jobConfigSha256)) {
+  const rawJobConfigSha256 = root.aceJobConfigSha256;
+  const jobConfigSha256 = typeof rawJobConfigSha256 === 'string'
+    ? rawJobConfigSha256
+    : undefined;
+  if (rawJobConfigSha256 !== undefined
+    && (typeof rawJobConfigSha256 !== 'string' || !sha256Hex(rawJobConfigSha256))) {
     return err(domainError('INVALID_BENCHMARK', 'harbor_report.aceJobConfigSha256', 'ACE job config identity must be a SHA-256 digest'));
   }
   const costTelemetry = normalizeCostTelemetry(root);

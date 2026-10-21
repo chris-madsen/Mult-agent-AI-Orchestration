@@ -1,0 +1,19 @@
+schema_version = "1.4"
+artifacts = ["/tmp/ace-artifacts"]
+[task]
+name = "chess/cache-history-retrieval"
+version = "1.0.0"
+description = "Cross-file cache-key investigation in the frozen Chess Trainer revision"
+authors = []
+keywords = ["typescript", "chess", "cache", "retrieval"]
+[metadata]
+[verifier]
+timeout_sec = 240.0
+collect = []
+[agent]
+timeout_sec = 900.0
+[environment]
+network_mode = "public"
+build_timeout_sec = 900.0
+os = "linux"
+mcp_servers = []

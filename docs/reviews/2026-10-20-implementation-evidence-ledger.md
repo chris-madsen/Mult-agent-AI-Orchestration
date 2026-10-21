@@ -125,3 +125,19 @@ The provider-trace receipt is run directly with `npx tsx scripts/provider-trace-
 8. Reconcile only evidence-backed OpenSpec/release notes and obtain exact-commit owner sign-off.
 
 Do not convert an `external run pending` row to production-ready merely because its runner exists.
+
+## Hybrid milestone follow-up — 2026-10-21
+
+The H4/H5 evidence commit is `4c1d6aa218bccf5dcd7ed33e32599aa79030c880`.
+It is the source revision bound to the new frozen retrieval artifacts; it does
+not inherit approval from the older W00 receipt.
+
+| Evidence item | State | Exact identity / limitation |
+|---|---|---|
+| H4 receipt portability | `implemented` + `contract-tested` | Cross-client/process, restart, changed/unknown/stale receipt and exact expansion contracts pass; real agent usage is not implied. |
+| H5 source-aware dedupe | `implemented` + `contract-tested` | One delivery-boundary path; only identical digest-verified code spans merge; source classes/conflicts/completeness remain separate. |
+| Multi-repository holdout | `frozen`, `benchmark-evaluated` pending | Holdout SHA `e147d03f626acedcb311b55ecf7604db13d9e5ebd3ff3bedbcd492823fe00a23`; 24 cases; ACE/Chess manifests are retained under `benchmarks/retrieval/manifests/`. |
+| Retrieval ablation | `implemented`, `real-provider-tested` pending | Five-strategy evaluator/gate/selector and stage telemetry exist; no scored winner is claimed. |
+| Reranker decision | `implemented`, `benchmark-evaluated` pending | Frozen fixture and model/artifact/license/startup/RSS identity contract exist; no model is approved. |
+| Harbor four-arm | `implemented`, `agent-E2E-tested` pending | Job configs and gate require Native/Dense/Hybrid/Hybrid+receipt-delta, six tasks, five repeats, real ACE calls and observed reused bytes. |
+| Production track | `external run pending` | Graphiti, Vertex, k3s, backup/restore, SBOM/provenance/signature and owner approval remain separate gates. |

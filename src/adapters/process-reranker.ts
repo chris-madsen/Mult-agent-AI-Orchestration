@@ -32,6 +32,7 @@ export interface ProcessRerankerOptions {
 
 export interface ManagedRerankerPort extends RerankerPort {
   readonly close: () => void;
+  readonly pid?: number;
   readonly probe: () => Effect.Effect<Result<void, DomainError>>;
   readonly identity: () => RerankerWorkerIdentity | undefined;
 }
@@ -274,6 +275,7 @@ export const makeProcessRerankerPort = (options: ProcessRerankerOptions): Manage
       return result._tag === 'Err' ? result : ok(undefined);
     }),
     identity: () => effectiveIdentity?._tag === 'Ok' ? effectiveIdentity.value : undefined,
+    ...(child.pid === undefined ? {} : { pid: child.pid }),
     close: () => {
       if (!child.killed) {
         failPending(domainError('EXTERNAL_UNAVAILABLE', 'reranker', 'reranker worker closed'));

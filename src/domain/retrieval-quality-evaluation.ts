@@ -16,6 +16,15 @@ export interface RetrievalHoldoutCase {
   /** Required for release-grade multi-repository holdouts. */
   readonly repositoryId?: string;
   readonly critical?: boolean;
+  readonly kind?: 'behavior_without_name'
+  | 'exact_symbol_or_config'
+  | 'rare_literal'
+  | 'same_name_distractor'
+  | 'multilingual'
+  | 'working_context'
+  | 'compactness'
+  | 'partial_coverage';
+  readonly focusedPath?: string;
 }
 
 export interface RetrievalHoldout {
@@ -29,17 +38,35 @@ export interface RetrievalObservation {
   readonly caseId: string;
   /** Ranked, best first. IDs are scored against the frozen holdout labels. */
   readonly retrievedCandidateIds: readonly string[];
+  /** Optional raw runtime IDs retained for trace correlation; never used for scoring. */
+  readonly rawRetrievedCandidateIds?: readonly string[];
   readonly payloadCharacters: number;
   readonly duplicateSourceHits: number;
   readonly expansionCalls: number;
   readonly nativeReadDuplicates: number;
   readonly latencyMs: number;
+  /** Internal benchmark-only ranked snapshots; omitted by development runs. */
+  readonly stageRanks?: RetrievalStageRanks;
+  readonly stageLatencyMs?: Readonly<Record<string, number>>;
+}
+
+export interface RetrievalStageRanks {
+  readonly dense: readonly string[];
+  readonly sparse: readonly string[];
+  readonly fused: readonly string[];
+  readonly workingContext: readonly string[];
+  readonly reranked: readonly string[];
+  readonly delivered: readonly string[];
 }
 
 export interface RetrievalStrategyRun {
   readonly strategy: string;
   readonly holdoutSha256: string;
   readonly observations: readonly RetrievalObservation[];
+  /** Evidence identity required for frozen multi-repository runs. */
+  readonly sourceCommit?: string;
+  readonly runnerVersion?: string;
+  readonly providerIdentities?: Readonly<Record<string, string>>;
 }
 
 export interface RetrievalQualityMetrics {
@@ -94,9 +121,20 @@ export interface RetrievalQualityVerdict {
   readonly metrics: RetrievalQualityMetrics;
 }
 
+export interface RetrievalStrategySelection {
+  readonly selectedStrategy: string;
+  readonly qualityGatePassed: boolean;
+  readonly fallbackToDense: boolean;
+  readonly rejectedStrategies: readonly string[];
+}
+
 const sha256 = (value: string): boolean => /^[a-f0-9]{64}$/u.test(value);
 const unit = (value: number): boolean => Number.isFinite(value) && value >= 0 && value <= 1;
 const nonNegative = (value: number): boolean => Number.isFinite(value) && value >= 0;
+const commitIdentity = (value: string | undefined): boolean => value === undefined || /^[a-f0-9]{40,64}$/iu.test(value);
+const providerIdentityMap = (value: Readonly<Record<string, string>> | undefined): boolean => value !== undefined
+  && Object.keys(value).length > 0
+  && Object.entries(value).every(([key, identity]) => key.trim().length > 0 && identity.trim().length > 0);
 const mean = (values: readonly number[]): number =>
   values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
 const p95 = (values: readonly number[]): number => {
@@ -199,6 +237,17 @@ export const evaluateRetrievalStrategy = (
   if (!sha256(run.holdoutSha256) || run.strategy.trim().length === 0) {
     return err(domainError('INVALID_BENCHMARK', 'retrieval_run', 'strategy and holdout SHA-256 are required'));
   }
+  if (holdout.status === 'frozen_multi_repository_holdout'
+    && (!commitIdentity(run.sourceCommit)
+      || run.sourceCommit === undefined
+      || run.runnerVersion?.trim().length === 0
+      || !providerIdentityMap(run.providerIdentities))) {
+    return err(domainError(
+      'INVALID_BENCHMARK',
+      'retrieval_run.identity',
+      'frozen multi-repository runs require source commit, runner version and provider identities',
+    ));
+  }
   const observationIds = run.observations.map((item) => item.caseId);
   if (new Set(observationIds).size !== observationIds.length) {
     return err(domainError('INVALID_BENCHMARK', 'retrieval_run', 'run observations must have unique case IDs'));
@@ -217,12 +266,33 @@ export const evaluateRetrievalStrategy = (
     ];
     if (new Set(observation.retrievedCandidateIds).size !== observation.retrievedCandidateIds.length
       || !integerCounters.every((value) => Number.isSafeInteger(value) && value >= 0)
-      || !nonNegative(observation.latencyMs)) {
+      || !nonNegative(observation.latencyMs)
+      || (observation.stageLatencyMs !== undefined
+        && !Object.values(observation.stageLatencyMs).every(nonNegative))) {
       return err(domainError(
         'INVALID_BENCHMARK',
         'retrieval_run',
         'ranked IDs must be unique, count fields must be non-negative safe integers, and latency must be non-negative',
       ));
+    }
+    if (holdout.status === 'frozen_multi_repository_holdout') {
+      const stageRanks = observation.stageRanks;
+      if (stageRanks === undefined
+        || ![
+          stageRanks.dense,
+          stageRanks.sparse,
+          stageRanks.fused,
+          stageRanks.workingContext,
+          stageRanks.reranked,
+          stageRanks.delivered,
+        ].every((ids) => new Set(ids).size === ids.length
+          && ids.every((id) => id.trim().length > 0))) {
+        return err(domainError(
+          'INVALID_BENCHMARK',
+          'retrieval_run.stage_ranks',
+          'frozen multi-repository runs require unique ranked IDs for every retrieval stage',
+        ));
+      }
     }
   }
 
@@ -346,5 +416,42 @@ export const evaluateRetrievalQualityPolicy = (
     measurementAccepted: failures.length === 0,
     failures,
     metrics,
+  });
+};
+
+/**
+ * Selects only among candidates that are non-inferior to the same-holdout
+ * dense reference. Compactness and latency are tie-breakers, never a way to
+ * compensate for a quality regression.
+ */
+export const selectRetrievalStrategy = (
+  metrics: readonly RetrievalQualityMetrics[],
+  baselineStrategy = 'dense',
+): Result<RetrievalStrategySelection, DomainError> => {
+  const baseline = metrics.find((item) => item.strategy === baselineStrategy);
+  if (baseline === undefined) {
+    return err(domainError('INVALID_BENCHMARK', 'retrieval_selection', 'dense-only reference metrics are required'));
+  }
+  const compatible = metrics.filter((item) => item.holdoutStatus === baseline.holdoutStatus
+    && item.cases === baseline.cases
+    && item.repositoryCount === baseline.repositoryCount);
+  const eligible = compatible.filter((item) => item.criticalRecallAt5 >= baseline.criticalRecallAt5
+    && item.mrr >= baseline.mrr
+    && item.ndcgAt5 >= baseline.ndcgAt5);
+  const ranked = [...eligible].sort((left, right) =>
+    right.criticalRecallAt5 - left.criticalRecallAt5
+      || right.mrr - left.mrr
+      || right.ndcgAt5 - left.ndcgAt5
+      || left.payloadCharactersMean - right.payloadCharactersMean
+      || left.latencyP95Ms - right.latencyP95Ms
+      || left.strategy.localeCompare(right.strategy));
+  const selected = ranked[0] ?? baseline;
+  return ok({
+    selectedStrategy: selected.strategy,
+    qualityGatePassed: ranked.length > 0,
+    fallbackToDense: ranked.length === 0 || selected.strategy === baselineStrategy,
+    rejectedStrategies: metrics
+      .filter((item) => item.strategy !== selected.strategy && !eligible.includes(item))
+      .map((item) => item.strategy),
   });
 };

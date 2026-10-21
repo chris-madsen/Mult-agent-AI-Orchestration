@@ -1,8 +1,8 @@
 # Tasks — Hybrid Context Engine completion
 
-**Current implementation baseline:** `main@935185a7c1f45be9b81fc379c19af8800fda2d79` after merged PRs #103, #106, #108, #109, #110, #111, #112, #116 and #118–#121.
+**Current implementation baseline:** `main@4c1d6aa218bccf5dcd7ed33e32599aa79030c880` after merged PRs #103, #106, #108, #109, #110, #111, #112, #116 and #118–#121 plus the H4/H5 evidence commit.
 
-**Evidence update 2026-10-21:** H3 history, H4 portability and H5 source-aware delivery are backed by the current contract suite. The local follow-up changes are still uncommitted; the exact evidence commit must be refreshed after they are committed. H6 retrieval/agent measurements and production-provider evidence remain open.
+**Evidence update 2026-10-21:** H3 history, H4 portability and H5 source-aware delivery are backed by the current contract suite and evidence commit `4c1d6aa218bccf5dcd7ed33e32599aa79030c880`. H6 retrieval/agent measurements and production-provider evidence remain open.
 
 ## Already present on main
 
@@ -58,9 +58,12 @@
 
 ## H6 Evaluation
 
-- [ ] Freeze multi-repository retrieval holdout before final tuning.
+- [x] Freeze the multi-repository retrieval holdout artifact and exact source manifests before scored tuning (`frozen_multi_repository_holdout`, ACE + Chess Trainer, 24 cases).
+- [x] Add benchmark-only stage-rank/provider trace boundary, canonical candidate IDs and frozen-run identity validation without adding MCP tools.
 - [ ] Run lexical-only vs dense-only vs hybrid vs hybrid+rerank ablation on the frozen holdout.
-- [ ] Run native vs current ACE vs hybrid ACE vs hybrid+delta Harbor arms.
+- [ ] Run sparse/BM25-only vs dense-only vs hybrid RRF vs hybrid+reranker vs hybrid+reranker+Working Context on the frozen holdout.
+- [ ] Run Native Codex vs dense ACE vs hybrid ACE vs hybrid+receipt/delta Harbor arms.
+- [ ] Run the separate frozen CPU reranker holdout and approve or reject a concrete model identity.
 - [ ] Require task-quality non-inferiority before token-savings acceptance.
 - [ ] Publish duplicate context avoided separately from embedding/index reuse in benchmark reports.
 
@@ -70,6 +73,7 @@
 - [ ] Vertex synthetic citation DBC-14.
 - [ ] k3s/PVC/backup evidence.
 - [ ] exact embedding/semantic/reranker/model approvals.
+- [ ] resource-budget, package/model license, SBOM/provenance/signature and exact-release owner evidence.
 - [ ] resource/supply-chain/exact-release evidence.
 
 ## Do not redo

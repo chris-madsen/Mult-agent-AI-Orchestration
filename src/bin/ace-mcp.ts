@@ -2,8 +2,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { appendFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
@@ -50,6 +51,7 @@ import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
 import type { MemorySearchPort, WorkspaceFilePort } from '../application/ports.js';
 import { defaultLocalPolicy } from '../domain/policy.js';
 import { makeWorkspaceId, type WorkspaceId } from '../domain/workspace.js';
+import type { RetrievalBenchmarkTraceSink } from '../domain/retrieval-benchmark.js';
 import { workspaceManifestFromSnapshot, workspaceManifestEqual } from '../domain/workspace-manifest.js';
 import { observeWorkspace, registerWorkspace } from '../application/workspace-service.js';
 import { readVerifiedSemanticSnapshot, semanticSnapshotIdentity } from '../application/semantic-snapshot.js';
@@ -248,6 +250,21 @@ const main = async (): Promise<void> => {
   const lspLanguageIds = configuredLanguageIds('ACE_LSP_LANGUAGE_IDS');
   const artifacts = makeFileArtifactStore(artifactDirectory);
   const providerTrace = makeFileProviderTrace(process.env.ACE_PROVIDER_TRACE_FILE);
+  const benchmarkTracePath = process.env.ACE_BENCHMARK_TRACE_FILE?.trim();
+  const benchmarkRepositoryId = process.env.ACE_BENCHMARK_REPOSITORY_ID?.trim();
+  let benchmarkTrace: RetrievalBenchmarkTraceSink | undefined;
+  if (benchmarkTracePath !== undefined && benchmarkTracePath.length > 0) {
+    const resolvedBenchmarkTracePath = resolve(benchmarkTracePath);
+    await mkdir(dirname(resolvedBenchmarkTracePath), { recursive: true });
+    let benchmarkTraceTail: Promise<void> = Promise.resolve();
+    benchmarkTrace = {
+      record: (event) => {
+        benchmarkTraceTail = benchmarkTraceTail
+          .then(() => appendFile(resolvedBenchmarkTracePath, JSON.stringify(event) + '\n', 'utf8'))
+          .catch(() => undefined);
+      },
+    };
+  }
   const history = makeGitHistoryPort({ trace: providerTrace, providerVersion: 'git/cli' });
   let memory: MemorySearchPort | undefined;
   let closeMemory: (() => Promise<void>) | undefined;
@@ -714,6 +731,16 @@ const main = async (): Promise<void> => {
               scopeFingerprint,
               semanticSnapshotIdentity: semanticIdentity,
               trace: providerTrace,
+              ...(benchmarkTrace === undefined ? {} : { benchmarkTrace }),
+              ...(benchmarkRepositoryId === undefined ? {} : { benchmarkRepositoryId }),
+              benchmarkProviderIdentities: {
+                dense: `${effectiveEmbedding.provider}|model=${effectiveEmbedding.model}|revision=${effectiveEmbedding.modelRevision}|artifact=${effectiveEmbedding.artifactRevision}`,
+                sparse: `${effectiveSparseEmbedding.provider}|model=${effectiveSparseEmbedding.model}|runtime=${effectiveSparseEmbedding.runtimeVersion}|artifact=${effectiveSparseEmbedding.artifactDigest}`,
+                qdrant: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
+                structural: structuralOptions.providerVersion,
+                semantic: `${lspServerName}|${semanticProviderVersion}`,
+                reranker: rerankerModel === undefined ? 'disabled' : `fastembed/cross-encoder|model=${rerankerModel}`,
+              },
               history,
               ...(documentation === undefined ? {} : { documentation }),
               ...(memory === undefined ? {} : { memory }),

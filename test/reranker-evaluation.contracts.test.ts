@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   evaluateRerankerRun,
+  selectRerankerCandidate,
   type RerankerFixture,
   type RerankerEvaluationRun,
 } from '../src/domain/reranker-evaluation.js';
@@ -78,4 +79,52 @@ test('reranker evaluator rejects partial rankings and invalid relevance labels',
     fixtureSha256: 'a'.repeat(64),
     observations: [{ caseId: 'bad', rankedDocumentIndexes: [0, 1], latencyMs: 1 }],
   })._tag, 'Err');
+});
+
+test('frozen reranker runs require repository and runtime evidence identities', () => {
+  const frozenFixture: RerankerFixture = {
+    ...fixture,
+    status: 'frozen_reranker_holdout',
+    repositories: [
+      { id: 'ace', revision: '1'.repeat(40), sourceManifestSha256: 'b'.repeat(64) },
+      { id: 'chess', revision: '2'.repeat(40), sourceManifestSha256: 'c'.repeat(64) },
+    ],
+    cases: fixture.cases.map((item, index) => ({ ...item, repositoryId: index === 0 ? 'ace' : 'chess' })),
+  };
+  const incomplete = evaluateRerankerRun(frozenFixture, {
+    ...run,
+  });
+  assert.equal(incomplete._tag, 'Err');
+
+  const complete = evaluateRerankerRun(frozenFixture, {
+    ...run,
+    sourceCommit: '3'.repeat(40),
+    runnerVersion: 'contract-test/v1',
+    providerIdentity: 'fastembed/cross-encoder|model=test',
+    modelRevision: 'model-revision',
+    artifactIdentity: 'artifact-sha256',
+    licenseEvidence: 'license-review/test',
+    startupMs: 12,
+    rssBytes: 1024,
+  });
+  assert.equal(complete._tag, 'Ok');
+});
+
+test('reranker selection requires non-inferiority plus measurable quality or payload improvement', () => {
+  const baseline = evaluateRerankerRun(fixture, run);
+  assert.equal(baseline._tag, 'Ok');
+  if (baseline._tag === 'Err') return;
+  const rejected = selectRerankerCandidate(baseline.value, [{
+    identity: 'model-regression',
+    licenseEvidence: 'license/test',
+    metrics: { ...baseline.value, mrr: baseline.value.mrr - 0.01 },
+  }]);
+  assert.equal(rejected.accepted, false);
+  const accepted = selectRerankerCandidate(baseline.value, [{
+    identity: 'model-better',
+    licenseEvidence: 'license/test',
+    metrics: { ...baseline.value, deliveredPayloadCharactersMean: baseline.value.deliveredPayloadCharactersMean - 1 },
+  }]);
+  assert.equal(accepted.accepted, true);
+  assert.equal(accepted.selectedIdentity, 'model-better');
 });

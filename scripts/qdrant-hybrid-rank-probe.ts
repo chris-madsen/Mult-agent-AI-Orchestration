@@ -8,7 +8,8 @@ import { makeFetchHttpPort, makeQdrantCodeCandidatePort } from '../src/adapters/
 import { makeProcessEmbeddingPort } from '../src/adapters/process-embedding.js';
 import { makeProcessSparseEmbeddingPort } from '../src/adapters/process-sparse-embedding.js';
 import type { CodeRetrievalStrategy } from '../src/domain/retrieval.js';
-import type { RetrievalHoldout } from '../src/domain/retrieval-quality-evaluation.js';
+import { canonicalBenchmarkCandidateId } from '../src/domain/retrieval-benchmark.js';
+import type { RetrievalHoldout, RetrievalObservation, RetrievalStrategyRun } from '../src/domain/retrieval-quality-evaluation.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
 
 const [holdoutArg, outputArg] = process.argv.slice(2);
@@ -41,6 +42,11 @@ const holdoutBytes = await readFile(resolve(holdoutArg));
 const holdoutSha256 = createHash('sha256').update(holdoutBytes).digest('hex');
 const holdout = JSON.parse(holdoutBytes.toString('utf8')) as RetrievalHoldout;
 if (holdout.schemaVersion !== 1 || holdout.cases.length === 0) throw new Error('retrieval holdout is invalid');
+const repositoryId = process.env.ACE_BENCHMARK_REPOSITORY_ID?.trim();
+const cases = repositoryId === undefined
+  ? holdout.cases
+  : holdout.cases.filter((item) => item.repositoryId === repositoryId);
+if (cases.length === 0) throw new Error('ACE_BENCHMARK_REPOSITORY_ID does not match any holdout case');
 
 const embeddingWorker = process.env.ACE_EMBEDDING_WORKER?.trim()
   || resolve('scripts/fastembed-worker.sh');
@@ -113,8 +119,10 @@ try {
     throw new Error(`${sparseProbe.error.code}: ${sparseProbe.error.path}: ${sparseProbe.error.message}`);
   }
 
-  const observations = [];
-  for (const item of holdout.cases) {
+  const observationsByStrategy = new Map<CodeRetrievalStrategy, RetrievalObservation[]>();
+  for (const strategy of strategies) observationsByStrategy.set(strategy, []);
+  const rawObservations = [];
+  for (const item of cases) {
     const embeddingStarted = performance.now();
     const vectorResult = await Effect.runPromise(embeddings.embedMany(
       [item.query],
@@ -156,8 +164,42 @@ try {
       }
       const denseEmbeddingLatencyMs = strategy === 'sparse' ? 0 : embeddingLatencyMs;
       const appliedSparseEmbeddingLatencyMs = strategy === 'dense' ? 0 : sparseEmbeddingLatencyMs;
+      const rawCandidateIds = result.value.map((ranked) => ranked.candidate.candidateId);
+      const canonicalCandidateIds = result.value.map((ranked) => canonicalBenchmarkCandidateId(
+        item.repositoryId ?? repositoryId ?? 'unbound',
+        ranked.candidate.repoPath,
+        ranked.candidate.sourceDigest,
+        ranked.candidate.range,
+      ));
+      const payloadCharacters = result.value.reduce((sum, ranked) => sum + ranked.candidate.text.length, 0);
+      const duplicateSourceHits = Math.max(0, result.value.length - new Set(result.value.map((ranked) => ranked.candidate.repoPath)).size);
+      const stageRanks = {
+        dense: strategy === 'dense' ? canonicalCandidateIds : [],
+        sparse: strategy === 'sparse' ? canonicalCandidateIds : [],
+        fused: strategy === 'hybrid_rrf' ? canonicalCandidateIds : [],
+        workingContext: canonicalCandidateIds,
+        reranked: [],
+        delivered: canonicalCandidateIds,
+      } as const;
+      observationsByStrategy.get(strategy)?.push({
+        caseId: item.id,
+        retrievedCandidateIds: canonicalCandidateIds,
+        rawRetrievedCandidateIds: rawCandidateIds,
+        payloadCharacters,
+        duplicateSourceHits,
+        expansionCalls: 0,
+        nativeReadDuplicates: 0,
+        latencyMs: denseEmbeddingLatencyMs + appliedSparseEmbeddingLatencyMs + queryLatencyMs,
+        stageRanks,
+        stageLatencyMs: {
+          denseEmbedding: denseEmbeddingLatencyMs,
+          sparseEmbedding: appliedSparseEmbeddingLatencyMs,
+          qdrant: queryLatencyMs,
+        },
+      });
       branches[strategy] = {
-        candidateIds: result.value.map((ranked) => ranked.candidate.candidateId),
+        candidateIds: canonicalCandidateIds,
+        rawCandidateIds,
         scores: result.value.map((ranked) => ranked.score),
         denseEmbeddingLatencyMs,
         sparseEmbeddingLatencyMs: appliedSparseEmbeddingLatencyMs,
@@ -165,13 +207,29 @@ try {
         totalMeasuredLatencyMs: denseEmbeddingLatencyMs + appliedSparseEmbeddingLatencyMs + queryLatencyMs,
       };
     }
-    observations.push({ caseId: item.id, branches });
+    rawObservations.push({ caseId: item.id, branches });
   }
 
   const sourceCommit = process.env.ACE_EVIDENCE_SOURCE_COMMIT?.trim()
     || execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const providerIdentities = {
+    dense: JSON.stringify(embeddings.identity() ?? null),
+    sparse: JSON.stringify(sparseEmbeddings.identity() ?? null),
+    qdrant: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/unknown',
+  };
+  const runs: Partial<Record<CodeRetrievalStrategy, RetrievalStrategyRun>> = {};
+  for (const strategy of strategies) {
+    runs[strategy] = {
+      strategy,
+      holdoutSha256,
+      sourceCommit,
+      runnerVersion: 'ace-qdrant-hybrid-rank-probe/v2',
+      providerIdentities,
+      observations: observationsByStrategy.get(strategy) ?? [],
+    };
+  }
   await writeFile(resolve(outputArg), JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     sourceCommit,
     holdout: holdoutArg,
     holdoutSha256,
@@ -182,13 +240,15 @@ try {
     embeddingIdentity: embeddings.identity() ?? null,
     sparseEmbeddingIdentity: sparseEmbeddings.identity() ?? null,
     strategies,
-    observations,
+    repositoryId: repositoryId ?? null,
+    runs,
+    rawObservations,
     note: 'Evaluation-only rank telemetry. Dense and sparse inference costs are attributed only to the arms that use them; production ace_context issues one configured strategy.',
   }, null, 2) + '\n', 'utf8');
   process.stdout.write(JSON.stringify({
     output: outputArg,
     holdoutSha256,
-    cases: observations.length,
+    cases: cases.length,
     strategies,
   }) + '\n');
 } finally {

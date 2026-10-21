@@ -49,12 +49,25 @@ const reranker = makeProcessRerankerPort({
   env,
 });
 try {
+  const startupStarted = performance.now();
   const probe = await Effect.runPromise(reranker.probe());
   if (probe._tag === 'Err') {
     throw new Error(`${probe.error.code}: ${probe.error.path}: ${probe.error.message}`);
   }
   const identity = reranker.identity();
   if (identity === undefined) throw new Error('reranker identity receipt is unavailable after successful probe');
+  const startupMs = Math.max(0, performance.now() - startupStarted);
+  const rssBytes = reranker.pid === undefined
+    ? undefined
+    : await (async (): Promise<number | undefined> => {
+      try {
+        const status = await readFile(`/proc/${reranker.pid}/status`, 'utf8');
+        const match = /^VmRSS:\s+(\d+)\s+kB$/mu.exec(status);
+        return match?.[1] === undefined ? undefined : Number(match[1]) * 1024;
+      } catch {
+        return undefined;
+      }
+    })();
 
   const observations: RerankerEvaluationRun['observations'][number][] = [];
   for (const item of fixture.cases) {
@@ -74,13 +87,24 @@ try {
       latencyMs,
     });
   }
-  const run: RerankerEvaluationRun = { fixtureSha256, observations };
+  const run: RerankerEvaluationRun = {
+    fixtureSha256,
+    observations,
+    sourceCommit: process.env.ACE_EVIDENCE_SOURCE_COMMIT?.trim()
+      || execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+    runnerVersion: 'ace-reranker-evaluation/v2',
+    providerIdentity: `${identity.provider}|model=${identity.model}|runtime=${identity.runtimeBuild}@${identity.runtimeVersion}`,
+    ...(process.env.ACE_RERANKER_MODEL_REVISION?.trim() === undefined ? {} : { modelRevision: process.env.ACE_RERANKER_MODEL_REVISION.trim() }),
+    ...(process.env.ACE_RERANKER_ARTIFACT_IDENTITY?.trim() === undefined ? {} : { artifactIdentity: process.env.ACE_RERANKER_ARTIFACT_IDENTITY.trim() }),
+    licenseEvidence: process.env.ACE_RERANKER_LICENSE_STATUS?.trim() || licenseReference,
+    startupMs,
+    ...(rssBytes === undefined ? {} : { rssBytes }),
+  };
   const metrics = evaluateRerankerRun(fixture, run);
   if (metrics._tag === 'Err') {
     throw new Error(`${metrics.error.code}: ${metrics.error.path}: ${metrics.error.message}`);
   }
-  const sourceCommit = process.env.ACE_EVIDENCE_SOURCE_COMMIT?.trim()
-    || execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const sourceCommit = run.sourceCommit as string;
   await writeFile(resolve(outputArg), JSON.stringify({
     schemaVersion: 1,
     sourceCommit,
@@ -89,6 +113,14 @@ try {
     fixtureStatus: fixture.status,
     providerIdentity: identity,
     licenseReference,
+    runIdentity: {
+      runnerVersion: run.runnerVersion,
+      modelRevision: run.modelRevision ?? null,
+      artifactIdentity: run.artifactIdentity ?? null,
+      licenseEvidence: run.licenseEvidence ?? null,
+      startupMs: run.startupMs ?? null,
+      rssBytes: run.rssBytes ?? null,
+    },
     metrics: metrics.value,
     observations,
     note: 'Evaluation evidence only. This report does not select or approve a production reranker.',

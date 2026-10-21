@@ -1,6 +1,11 @@
 # Retrieval quality / compactness ablation runbook
 
-This is the reproducible W03 evidence format. It does **not** choose hybrid/vector/lexical automatically.
+This is the reproducible W03 evidence format. It does **not** choose hybrid/vector/lexical automatically until the dense-only non-inferiority gate has passed.
+
+The current frozen artifact is `benchmarks/retrieval/frozen-multi-repository-v1.json` with SHA-256
+`e147d03f626acedcb311b55ecf7604db13d9e5ebd3ff3bedbcd492823fe00a23`. It binds ACE at
+`4c1d6aa218bccf5dcd7ed33e32599aa79030c880` and Chess Trainer at
+`23a7bb6b27023e8520941841d69745dd623d0933`, with 12 cases per repository.
 
 ## One holdout, every strategy
 
@@ -18,7 +23,12 @@ Every ablation must run against the same frozen holdout file and preserve its SH
       "duplicateSourceHits": 0,
       "expansionCalls": 1,
       "nativeReadDuplicates": 0,
-      "latencyMs": 42.5
+      "latencyMs": 42.5,
+      "stageRanks": {
+        "dense": [], "sparse": [], "fused": [], "workingContext": [],
+        "reranked": [], "delivered": []
+      },
+      "stageLatencyMs": {"retrieval": 40.0, "delivery": 2.5}
     }
   ]
 }
@@ -34,6 +44,13 @@ The evaluator computes from the ranked IDs itself:
 - `ace_expand` calls;
 - repeated native reads after ACE;
 - latency p95.
+
+Frozen runs additionally require `sourceCommit`, `runnerVersion`, non-empty
+`providerIdentities`, and all six stage-rank arrays. The runtime benchmark
+boundary writes raw runtime candidate IDs plus source digest/range metadata;
+the evaluator labels candidates with the canonical
+`sha256(repositoryId + repoPath + sourceDigest + exact range)` identity so
+workspace IDs cannot leak into holdout scoring.
 
 Provider-authored precision/recall labels are not accepted as evidence.
 
@@ -85,18 +102,38 @@ This prevents a nominal "multi-repository" claim from silently measuring one rep
 
 ## Neutral ablation report
 
-After collecting runs for lexical/vector/hybrid (and any controlled reranker ablation), render one neutral report:
+After collecting runs for sparse/dense/hybrid RRF/hybrid+rereanker/hybrid+rereanker+Working Context, render one neutral report:
 
 ```bash
 npm run report:retrieval-quality -- \
   benchmarks/retrieval/<frozen-holdout>.json \
   benchmarks/reports/retrieval-ablation.json \
-  /path/to/lexical-run.json \
-  /path/to/vector-run.json \
-  /path/to/hybrid-run.json
+  /path/to/sparse-run.json \
+  /path/to/dense-run.json \
+  /path/to/hybrid-rrf-run.json \
+  /path/to/hybrid-reranker-run.json \
+  /path/to/hybrid-reranker-working-context-run.json
 ```
 
 The report deliberately selects no winner.
+
+The five-strategy gate requires all runs and rejects a missing reranker or
+Working Context arm before scoring:
+
+```bash
+npm run gate:retrieval-ablation -- \
+  benchmarks/retrieval/frozen-multi-repository-v1.json \
+  benchmarks/reports/retrieval-ablation-verdict.json \
+  /path/to/sparse-run.json \
+  /path/to/dense-run.json \
+  /path/to/hybrid-rrf-run.json \
+  /path/to/hybrid-reranker-run.json \
+  /path/to/hybrid-reranker-working-context-run.json
+```
+
+This gate may select dense-only as the fallback when no candidate is
+non-inferior. It does not fabricate missing provider, reranker or agent
+evidence.
 
 ## Predeclare the gate
 

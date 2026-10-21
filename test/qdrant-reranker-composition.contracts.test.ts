@@ -7,6 +7,7 @@ import { domainError } from '../src/domain/errors.js';
 import { makeCandidateId, makeCodeCandidate, type RankedCandidate } from '../src/domain/retrieval.js';
 import { err, ok, type Result } from '../src/domain/result.js';
 import { makeWorkspaceId, type RepoPath } from '../src/domain/workspace.js';
+import { createRetrievalBenchmarkTraceCollector } from '../src/domain/retrieval-benchmark.js';
 import type {
   ArtifactStore,
   CodeCandidatePort,
@@ -120,6 +121,7 @@ const qdrant: CodeCandidatePort = {
 };
 
 test('configured reranker reorders the fused shortlist before exact source/LSP verification', async () => {
+  const benchmarkTrace = createRetrievalBenchmarkTraceCollector('ace');
   const reranker: RerankerPort = {
     rerank: (input) => {
       assert.equal(input.documents.length, 3);
@@ -144,6 +146,9 @@ test('configured reranker reorders the fused shortlist before exact source/LSP v
     rerankerCandidateLimit: 8,
     candidateLimit: 2,
     newRequestId: () => 'reranked-request',
+    benchmarkTrace,
+    benchmarkRepositoryId: 'ace',
+    benchmarkProviderIdentities: { dense: 'test/dense', sparse: 'test/sparse', reranker: 'test/reranker' },
   });
   const result = await Effect.runPromise(provider.search({
     workspaceId,
@@ -156,6 +161,12 @@ test('configured reranker reorders the fused shortlist before exact source/LSP v
   assert.equal(result.value.evidence.length, 2);
   assert.equal(result.value.evidence[0]?.content, second.text);
   assert.equal(result.value.evidence[1]?.content, third.text);
+  assert.deepEqual(
+    benchmarkTrace.events.map((event) => event.stage),
+    ['dense', 'working_context', 'reranked', 'delivered'],
+  );
+  assert.equal(benchmarkTrace.events[0]?.candidates[0]?.runtimeCandidateId, first.candidate.candidateId);
+  assert.equal(benchmarkTrace.stageRanksFor('reranked-request').delivered.length, 2);
 });
 
 test('optional reranker outage falls back to fused ranking and reports degradation', async () => {
