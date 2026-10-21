@@ -102,6 +102,65 @@ export interface ContextReceiptInput {
   readonly knownBundleId?: string;
 }
 
+const freshnessWeight = (value: RetrievalEvidence['freshness']): number => {
+  switch (value) {
+    case 'current': return 4;
+    case 'unknown': return 3;
+    case 'stale': return 2;
+    case 'changed_during_request': return 1;
+  }
+};
+
+const proofWeight = (value: RetrievalEvidence['proofClass']): number => {
+  switch (value) {
+    case 'direct': return 3;
+    case 'derived': return 2;
+    case 'uncertain': return 1;
+  }
+};
+
+/**
+ * Only collapse duplicate current-code representations of the same exact span.
+ * Cross-source evidence is intentionally preserved even when text matches:
+ * independent docs/memory/history provenance is necessary for conflicts and
+ * rationale. Input order is the final tie-breaker, preserving retrieval rank.
+ */
+export const dedupeEvidenceForDelivery = (
+  evidence: readonly RetrievalEvidence[],
+): readonly RetrievalEvidence[] => {
+  const selected: RetrievalEvidence[] = [];
+  const codeIndex = new Map<string, number>();
+  for (const item of evidence) {
+    if (item.source !== 'code') {
+      selected.push(item);
+      continue;
+    }
+    const key = [
+      item.sourceDigest ?? item.sourceRevision ?? '',
+      item.citation,
+      item.expansionCursor ?? '',
+      String(item.expansionMaxBytes ?? ''),
+      item.content,
+    ].join('\0');
+    const priorIndex = codeIndex.get(key);
+    if (priorIndex === undefined) {
+      codeIndex.set(key, selected.length);
+      selected.push(item);
+      continue;
+    }
+    const prior = selected[priorIndex];
+    if (prior === undefined) continue;
+    const priorWeight = freshnessWeight(prior.freshness) * 10
+      + proofWeight(prior.proofClass)
+      + (prior.expansionHandle === undefined ? 0 : 1);
+    const nextWeight = freshnessWeight(item.freshness) * 10
+      + proofWeight(item.proofClass)
+      + (item.expansionHandle === undefined ? 0 : 1);
+    if (nextWeight > priorWeight) selected[priorIndex] = item;
+  }
+  return selected;
+};
+
 const suppressKnownEvidence = (
   evidence: readonly RetrievalEvidence[],
   knownEvidenceIds: readonly string[],
@@ -124,11 +183,15 @@ export const projectContextForDelivery = (
   intent: ContextDeliveryIntent,
   receipts: ContextReceiptInput = {},
 ): ContextBundle => {
+  const sourceAwareBundle: ContextBundle = {
+    ...bundle,
+    evidence: dedupeEvidenceForDelivery(bundle.evidence),
+  };
   const projected = intent === 'inspect'
-    ? bundle
+    ? sourceAwareBundle
     : (() => {
       let inlinedCode = 0;
-      const evidence: RetrievalEvidence[] = bundle.evidence.map((item) => {
+      const evidence: RetrievalEvidence[] = sourceAwareBundle.evidence.map((item) => {
         if (item.source !== 'code' || item.expansionHandle === undefined) return item;
         inlinedCode += 1;
 
@@ -145,7 +208,7 @@ export const projectContextForDelivery = (
           originalSpanLines: lines.length,
         };
       });
-      return { ...bundle, evidence };
+      return { ...sourceAwareBundle, evidence };
     })();
 
   const bundleId = projected.bundleId ?? bundleIdentity(projected);
