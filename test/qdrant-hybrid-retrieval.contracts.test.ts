@@ -174,3 +174,83 @@ test('Qdrant search can still issue a named dense-only query for explicit ablati
     filter: { must: [{ key: 'workspace_id', match: { value: workspaceId } }] },
   });
 });
+
+
+test('Qdrant search can issue provider-native sparse BM25 without a dense vector', async () => {
+  let requestBody: Readonly<Record<string, unknown>> | undefined;
+  const http: HttpPort = {
+    request: (request) => {
+      requestBody = request.body;
+      return Effect.succeed(ok({ status: 200, body: { result: { points: [] } } }));
+    },
+  };
+  const qdrant = makeQdrantCodeCandidatePort({
+    baseUrl: 'http://127.0.0.1:6333',
+    collection: 'ace-hybrid-current',
+    http,
+  });
+  const result = await Effect.runPromise(qdrant.search({
+    workspaceId,
+    queryText: 'ACE_QDRANT_URL',
+    strategy: 'sparse',
+    limit: 4,
+  }));
+  assert.equal(result._tag, 'Ok');
+  assert.deepEqual(requestBody, {
+    query: {
+      text: 'ACE_QDRANT_URL',
+      model: 'qdrant/bm25',
+      options: {
+        stemmer: { type: 'none' },
+        stopwords: {},
+        tokenizer: 'multilingual',
+        ascii_folding: true,
+      },
+    },
+    using: 'sparse',
+    limit: 4,
+    with_payload: true,
+    with_vector: false,
+    filter: { must: [{ key: 'workspace_id', match: { value: workspaceId } }] },
+  });
+});
+
+test('Qdrant retrieval strategies reject missing required query inputs before network I/O', async () => {
+  let calls = 0;
+  const http: HttpPort = {
+    request: () => {
+      calls += 1;
+      return Effect.succeed(ok({ status: 200, body: { result: { points: [] } } }));
+    },
+  };
+  const qdrant = makeQdrantCodeCandidatePort({
+    baseUrl: 'http://127.0.0.1:6333',
+    collection: 'ace-hybrid-current',
+    http,
+  });
+  const dense = await Effect.runPromise(qdrant.search({
+    workspaceId,
+    strategy: 'dense',
+    limit: 4,
+  }));
+  assert.equal(dense._tag, 'Err');
+  if (dense._tag === 'Err') assert.equal(dense.error.path, 'query_vector');
+
+  const sparse = await Effect.runPromise(qdrant.search({
+    workspaceId,
+    strategy: 'sparse',
+    limit: 4,
+  }));
+  assert.equal(sparse._tag, 'Err');
+  if (sparse._tag === 'Err') assert.equal(sparse.error.path, 'query_text');
+
+  const hybrid = await Effect.runPromise(qdrant.search({
+    workspaceId,
+    queryText: 'hybrid',
+    strategy: 'hybrid_rrf',
+    limit: 4,
+  }));
+  assert.equal(hybrid._tag, 'Err');
+  if (hybrid._tag === 'Err') assert.equal(hybrid.error.path, 'query_vector');
+  assert.equal(calls, 0);
+});
