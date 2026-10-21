@@ -199,11 +199,39 @@ export const ensureQdrantCollection = (
   const url = endpoint.value + '/collections/' + encodeURIComponent(collection);
   const headers = apiKey === undefined ? {} : { 'api-key': apiKey };
   const verifyExisting = (body: unknown): Result<void, DomainError> => {
-    const payload = body as { result?: { config?: { params?: { vectors?: { size?: number; distance?: string } } } } };
-    const configured = payload?.result?.config?.params?.vectors?.size;
-    return configured === dimension && payload?.result?.config?.params?.vectors?.distance === 'Cosine'
+    const payload = body as {
+      result?: {
+        config?: {
+          params?: {
+            vectors?: unknown;
+            sparse_vectors?: unknown;
+          };
+        };
+      };
+    };
+    const vectors = payload?.result?.config?.params?.vectors;
+    const sparseVectors = payload?.result?.config?.params?.sparse_vectors;
+    const dense = typeof vectors === 'object' && vectors !== null && !Array.isArray(vectors)
+      ? (vectors as Record<string, unknown>).dense
+      : undefined;
+    const denseConfig = typeof dense === 'object' && dense !== null && !Array.isArray(dense)
+      ? dense as Record<string, unknown>
+      : undefined;
+    const sparse = typeof sparseVectors === 'object' && sparseVectors !== null && !Array.isArray(sparseVectors)
+      ? (sparseVectors as Record<string, unknown>).sparse
+      : undefined;
+    const sparseConfig = typeof sparse === 'object' && sparse !== null && !Array.isArray(sparse)
+      ? sparse as Record<string, unknown>
+      : undefined;
+    return denseConfig?.size === dimension
+      && denseConfig.distance === 'Cosine'
+      && sparseConfig?.modifier === 'Idf'
       ? ok(undefined)
-      : err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant', 'collection vector size or distance is incompatible with cosine embeddings'));
+      : err(domainError(
+        'INVALID_EXTERNAL_RESPONSE',
+        'qdrant',
+        'collection schema must expose dense cosine vectors and IDF-modified sparse vectors',
+      ));
   };
   const found = yield* http.request({ method: 'GET', url, headers });
   if (found._tag === 'Err') return found;
@@ -214,7 +242,13 @@ export const ensureQdrantCollection = (
     return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'cannot inspect collection: HTTP ' + found.value.status));
   }
   const created = yield* http.request({
-    method: 'PUT', url, headers, body: { vectors: { size: dimension, distance: 'Cosine' } },
+    method: 'PUT',
+    url,
+    headers,
+    body: {
+      vectors: { dense: { size: dimension, distance: 'Cosine' } },
+      sparse_vectors: { sparse: { modifier: 'idf' } },
+    },
   });
   if (created._tag === 'Err') return created;
   if (created.value.status >= 200 && created.value.status < 300) return ok(undefined);
@@ -486,11 +520,16 @@ export const readQdrantSnapshotVectors = (
       const candidateId = (record.payload as { candidate_id?: unknown }).candidate_id;
       const embeddingKey = (record.payload as { embedding_key?: unknown }).embedding_key;
       if (typeof candidateId !== 'string') continue;
-      if (!Array.isArray(record.vector) || record.vector.length === 0
-        || !record.vector.every((value) => typeof value === 'number' && Number.isFinite(value))) {
-        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_vector', 'prior snapshot contains an invalid vector'));
+      const denseVector = Array.isArray(record.vector)
+        ? record.vector
+        : typeof record.vector === 'object' && record.vector !== null && !Array.isArray(record.vector)
+          ? (record.vector as Record<string, unknown>).dense
+          : undefined;
+      if (!Array.isArray(denseVector) || denseVector.length === 0
+        || !denseVector.every((value) => typeof value === 'number' && Number.isFinite(value))) {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_vector', 'prior snapshot contains an invalid dense vector'));
       }
-      vectors.set(typeof embeddingKey === 'string' ? embeddingKey : candidateId, record.vector as number[]);
+      vectors.set(typeof embeddingKey === 'string' ? embeddingKey : candidateId, denseVector as number[]);
     }
     const next = body.result.next_page_offset;
     if (next === undefined || next === null) break;
@@ -704,6 +743,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
             const result = yield* activeConfig.qdrant.search({
               workspaceId: input.workspaceId,
               vector,
+              queryText: input.query,
               limit: activeConfig.candidateLimit ?? 6,
               ...(activeConfig.generation === undefined ? {} : { generation: activeConfig.generation }),
               ...(activeConfig.indexKey === undefined ? {} : { indexKey: activeConfig.indexKey }),
