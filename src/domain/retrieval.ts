@@ -2,6 +2,7 @@ import { domainError, type DomainError } from './errors.js';
 import { err, ok, type Result } from './result.js';
 import type { ContentDigest, RepoPath, WorkspaceId } from './workspace.js';
 import type { SourceCoverage, SourceRequirements } from './source-coverage.js';
+import type { StructuralKind } from './semantic.js';
 
 export type CandidateId = string & { readonly __brand: 'CandidateId' };
 export type RequestId = string & { readonly __brand: 'RetrievalRequestId' };
@@ -29,6 +30,10 @@ export interface CodeCandidate {
   readonly repoPath: RepoPath;
   readonly range: SourceRange;
   readonly symbolName?: string;
+  /** ast-grep-derived structural metadata retained for compact navigation delivery. */
+  readonly structuralKind?: StructuralKind;
+  readonly structuralLanguage?: string;
+  readonly structuralExported?: boolean;
   /** Exact identifier range. Columns are one-based UTF-8 byte offsets; end is exclusive. */
   readonly semanticAnchor?: SemanticAnchorRange;
   readonly text: string;
@@ -106,6 +111,11 @@ export interface RetrievalEvidence {
   readonly freshness: CandidateFreshness;
   readonly sourceRevision?: string;
   readonly sourceTimestampMs?: number;
+  /** Compact structural identity used by locate-mode delivery. */
+  readonly structuralKind?: StructuralKind;
+  readonly structuralName?: string;
+  readonly structuralLanguage?: string;
+  readonly structuralExported?: boolean;
   /** A provider-supplied claim topic; absence means no conflict inference. */
   readonly conflictKey?: string;
   readonly conflictValue?: string;
@@ -190,7 +200,18 @@ const validRange = (range: SourceRange): boolean =>
   range.startLine >= 1 &&
   range.endLine >= range.startLine;
 
-export const makeCodeCandidate = (input: Omit<CodeCandidate, 'invalidated'> & { readonly invalidated?: boolean }): Result<CodeCandidate, DomainError> => {
+type CodeCandidateInput = Omit<
+CodeCandidate,
+'invalidated' | 'structuralKind' | 'structuralLanguage' | 'structuralExported'
+> & {
+  /** External payload decoders may surface an absent optional field as undefined. */
+  readonly structuralKind?: StructuralKind | undefined;
+  readonly structuralLanguage?: string | undefined;
+  readonly structuralExported?: boolean | undefined;
+  readonly invalidated?: boolean;
+};
+
+export const makeCodeCandidate = (input: CodeCandidateInput): Result<CodeCandidate, DomainError> => {
   if (input.text.length === 0) return err(domainError('INVALID_RETRIEVAL', 'text', 'candidate text must not be empty'));
   if (!validRange(input.range)) return err(domainError('INVALID_RETRIEVAL', 'range', 'source range is invalid'));
   if (input.semanticAnchor !== undefined) {
@@ -202,10 +223,33 @@ export const makeCodeCandidate = (input: Omit<CodeCandidate, 'invalidated'> & { 
       return err(domainError('INVALID_RETRIEVAL', 'semantic_anchor', 'semantic anchor must be a positive non-empty one-based UTF-8 range'));
     }
   }
+  const structuralKinds = new Set<StructuralKind>([
+    'class', 'function', 'interface', 'type', 'enum', 'method', 'struct', 'trait',
+    'impl', 'module', 'field', 'enum_variant', 'import', 'export', 'unknown',
+  ]);
+  if (input.structuralKind !== undefined && !structuralKinds.has(input.structuralKind)) {
+    return err(domainError('INVALID_RETRIEVAL', 'structural_kind', 'candidate structural kind is invalid'));
+  }
+  if (input.structuralLanguage !== undefined && input.structuralLanguage.trim().length === 0) {
+    return err(domainError('INVALID_RETRIEVAL', 'structural_language', 'candidate structural language must not be empty'));
+  }
   if (!Number.isSafeInteger(input.generation) || input.generation < 1) {
     return err(domainError('INVALID_RETRIEVAL', 'generation', 'index generation must be positive'));
   }
-  return ok({ ...input, invalidated: input.invalidated ?? false });
+  const {
+    structuralKind,
+    structuralLanguage,
+    structuralExported,
+    invalidated,
+    ...base
+  } = input;
+  return ok({
+    ...base,
+    ...(structuralKind === undefined ? {} : { structuralKind }),
+    ...(structuralLanguage === undefined ? {} : { structuralLanguage }),
+    ...(structuralExported === undefined ? {} : { structuralExported }),
+    invalidated: invalidated ?? false,
+  });
 };
 
 export const createCodeIndex = (generation: number, candidates: readonly CodeCandidate[] = []): Result<CodeIndex, DomainError> => {
@@ -331,6 +375,10 @@ export const evidenceFromCandidate = (item: RankedCandidate, id: EvidenceId): Re
   freshness: item.freshness,
   sourceRevision: item.candidate.sourceDigest,
   sourceTimestampMs: item.candidate.indexedAtMs,
+  ...(item.candidate.structuralKind === undefined ? {} : { structuralKind: item.candidate.structuralKind }),
+  ...(item.candidate.symbolName === undefined ? {} : { structuralName: item.candidate.symbolName }),
+  ...(item.candidate.structuralLanguage === undefined ? {} : { structuralLanguage: item.candidate.structuralLanguage }),
+  ...(item.candidate.structuralExported === undefined ? {} : { structuralExported: item.candidate.structuralExported }),
   ...(item.candidate.conflictKey === undefined ? {} : { conflictKey: item.candidate.conflictKey }),
   ...(item.candidate.conflictValue === undefined ? {} : { conflictValue: item.candidate.conflictValue }),
 });

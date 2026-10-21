@@ -27,6 +27,10 @@ const evidence: RetrievalEvidence[] = bodies.map((content, i) => ({
   sourceDigest: createHash('sha256').update(content).digest('hex') as never,
   freshness: 'current',
   proofClass: 'direct',
+  structuralKind: 'function',
+  structuralName: i < 2 ? ['correctHandler', 'relatedHandler'][i] : `other${i - 2}`,
+  structuralLanguage: 'typescript',
+  structuralExported: true,
   expansionHandle: `exact-original-handle-${i}`,
 }));
 const bundle: ContextBundle = {
@@ -50,7 +54,7 @@ test('locate mode progressively delivers source map instead of six complete bodi
     assert.equal(item.proofClass, 'direct');
     if (i >= 2) {
       assert.equal(item.contentDelivery, 'expand');
-      assert.ok(item.content.startsWith('export function'));
+      assert.equal(item.content, `exported function other${i - 2} [typescript]`);
       assert.ok(item.originalSpanLines && item.originalSpanLines > 40);
     }
   }
@@ -60,6 +64,10 @@ test('locate mode progressively delivers source map instead of six complete bodi
   assert.ok((projected.deliveryMetrics?.structuredContentBytes ?? Number.MAX_SAFE_INTEGER) < originalBytes / 3);
   assert.ok((projected.deliveryMetrics?.duplicateContentBytes ?? -1) >= 0);
   assert.equal(projected.deliveryMetrics?.expansionHandleCount, 6);
+  assert.ok(
+    Buffer.byteLength(projected.evidence[2]?.content ?? '') < Buffer.byteLength(bodies[2] ?? ''),
+    'ast-grep outline metadata must be cheaper than resending the verified body',
+  );
 });
 
 test('inspect mode preserves the exact verified snippet bodies and original file handles', () => {

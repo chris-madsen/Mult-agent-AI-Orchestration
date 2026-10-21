@@ -13,6 +13,7 @@ import {
 import { makeContentDigest, ingestRepoPath, type WorkspaceId } from '../domain/workspace.js';
 import { projectionKey, type ProjectionReceipt } from '../domain/memory.js';
 import { containsLikelySecret } from '../domain/sensitive-text.js';
+import type { StructuralKind } from '../domain/semantic.js';
 import type {
   CodeCandidatePort,
   CodePoint,
@@ -137,6 +138,12 @@ const candidateFromPayload = (point: Record<string, unknown>, workspaceId: Works
         ? { endColumn: payload.end_column } : {}),
     },
     ...(typeof payload.symbol_name === 'string' ? { symbolName: payload.symbol_name } : {}),
+    ...(typeof payload.structural_kind === 'string'
+      ? { structuralKind: payload.structural_kind as StructuralKind } : {}),
+    ...(typeof payload.structural_language === 'string'
+      ? { structuralLanguage: payload.structural_language } : {}),
+    ...(typeof payload.structural_exported === 'boolean'
+      ? { structuralExported: payload.structural_exported } : {}),
     ...(typeof payload.semantic_line === 'number' && Number.isSafeInteger(payload.semantic_line)
       && typeof payload.semantic_byte_column === 'number' && Number.isSafeInteger(payload.semantic_byte_column)
       && typeof payload.semantic_end_line === 'number' && Number.isSafeInteger(payload.semantic_end_line)
@@ -176,6 +183,9 @@ const qdrantBm25Options = (): Readonly<Record<string, unknown>> => ({
 const lexicalTextFor = (candidate: CodeCandidate): string => [
   candidate.repoPath,
   candidate.symbolName ?? '',
+  candidate.structuralKind ?? '',
+  candidate.structuralLanguage ?? '',
+  candidate.structuralExported === true ? 'exported' : '',
   candidate.text,
 ].filter((value) => value.length > 0).join('\n');
 
@@ -200,6 +210,9 @@ const qdrantPoint = (point: CodePoint): Readonly<Record<string, unknown>> => {
       ...(point.candidate.range.startColumn === undefined ? {} : { start_column: point.candidate.range.startColumn }),
       ...(point.candidate.range.endColumn === undefined ? {} : { end_column: point.candidate.range.endColumn }),
       ...(point.candidate.symbolName === undefined ? {} : { symbol_name: point.candidate.symbolName }),
+      ...(point.candidate.structuralKind === undefined ? {} : { structural_kind: point.candidate.structuralKind }),
+      ...(point.candidate.structuralLanguage === undefined ? {} : { structural_language: point.candidate.structuralLanguage }),
+      ...(point.candidate.structuralExported === undefined ? {} : { structural_exported: point.candidate.structuralExported }),
       ...(point.candidate.semanticAnchor === undefined ? {} : {
         semantic_line: point.candidate.semanticAnchor.line,
         semantic_byte_column: point.candidate.semanticAnchor.byteColumn,
