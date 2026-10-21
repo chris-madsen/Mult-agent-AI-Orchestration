@@ -87,9 +87,9 @@ test('frozen reranker runs require repository and runtime evidence identities', 
     status: 'frozen_reranker_holdout',
     repositories: [
       { id: 'ace', revision: '1'.repeat(40), sourceManifestSha256: 'b'.repeat(64) },
-      { id: 'chess', revision: '2'.repeat(40), sourceManifestSha256: 'c'.repeat(64) },
+      { id: 'repo-b', revision: '2'.repeat(40), sourceManifestSha256: 'c'.repeat(64) },
     ],
-    cases: fixture.cases.map((item, index) => ({ ...item, repositoryId: index === 0 ? 'ace' : 'chess' })),
+    cases: fixture.cases.map((item, index) => ({ ...item, repositoryId: index === 0 ? 'ace' : 'repo-b' })),
   };
   const incomplete = evaluateRerankerRun(frozenFixture, {
     ...run,

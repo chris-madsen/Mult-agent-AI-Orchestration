@@ -2,10 +2,10 @@
 
 This is the reproducible W03 evidence format. It does **not** choose hybrid/vector/lexical automatically until the dense-only non-inferiority gate has passed.
 
-The current frozen artifact is `benchmarks/retrieval/frozen-multi-repository-v1.json` with SHA-256
-`e147d03f626acedcb311b55ecf7604db13d9e5ebd3ff3bedbcd492823fe00a23`. It binds ACE at
-`4c1d6aa218bccf5dcd7ed33e32599aa79030c880` and Chess Trainer at
-`23a7bb6b27023e8520941841d69745dd623d0933`, with 12 cases per repository.
+The release-grade frozen artifact is created in an external evidence
+directory. Its path, SHA-256, repository revisions and source-manifest
+digests are supplied by the benchmark run and are not committed to ACE.
+Development fixtures must not be relabeled as release evidence.
 
 ## One holdout, every strategy
 
@@ -122,7 +122,7 @@ Working Context arm before scoring:
 
 ```bash
 npm run gate:retrieval-ablation -- \
-  benchmarks/retrieval/frozen-multi-repository-v1.json \
+  <external-evidence>/frozen/holdout.json \
   benchmarks/reports/retrieval-ablation-verdict.json \
   /path/to/sparse-run.json \
   /path/to/dense-run.json \

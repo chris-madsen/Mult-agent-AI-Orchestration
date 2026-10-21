@@ -58,7 +58,7 @@
 
 ## H6 Evaluation
 
-- [x] Freeze the multi-repository retrieval holdout artifact and exact source manifests before scored tuning (`frozen_multi_repository_holdout`, ACE + Chess Trainer, 24 cases).
+- [ ] Freeze the multi-repository retrieval holdout and exact source manifests in an external evidence workspace before scored tuning; do not vendor source repositories or generated holdout fixtures into ACE.
 - [x] Add benchmark-only stage-rank/provider trace boundary, canonical candidate IDs and frozen-run identity validation without adding MCP tools.
 - [ ] Run lexical-only vs dense-only vs hybrid vs hybrid+rerank ablation on the frozen holdout.
 - [ ] Run sparse/BM25-only vs dense-only vs hybrid RRF vs hybrid+reranker vs hybrid+reranker+Working Context on the frozen holdout.

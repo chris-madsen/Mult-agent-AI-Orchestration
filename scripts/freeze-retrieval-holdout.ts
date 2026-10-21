@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { canonicalBenchmarkCandidateId, type BenchmarkCandidateRange } from '../src/domain/retrieval-benchmark.js';
 import type {
   RetrievalHoldout,
@@ -45,6 +45,15 @@ interface ManifestEntry {
 const [sourceArg, holdoutArg, manifestDirectoryArg, ...repositoryArgs] = process.argv.slice(2);
 if (sourceArg === undefined || holdoutArg === undefined || manifestDirectoryArg === undefined || repositoryArgs.length === 0) {
   throw new Error('Usage: tsx scripts/freeze-retrieval-holdout.ts <source-spec.json> <holdout.json> <manifest-dir> <repository-id>=<checkout-root> [...]');
+}
+
+const aceRepositoryRoot = resolve(process.cwd());
+const isInsideAceRepository = (path: string): boolean => {
+  const relativePath = relative(aceRepositoryRoot, resolve(path));
+  return relativePath === '' || (!isAbsolute(relativePath) && !relativePath.startsWith(`..${sep}`) && relativePath !== '..');
+};
+if (isInsideAceRepository(holdoutArg) || isInsideAceRepository(manifestDirectoryArg)) {
+  throw new Error('frozen holdout and manifest outputs must be outside the ACE checkout; use an external evidence directory');
 }
 
 const repositoryRoots = new Map<string, string>();
