@@ -31,7 +31,11 @@ import type {
   VectorEmbeddingPort,
   WorkspaceFilePort,
 } from '../application/ports.js';
-import { canonicalBenchmarkCandidateId, type RetrievalBenchmarkTraceSink } from '../domain/retrieval-benchmark.js';
+import {
+  canonicalBenchmarkCandidateId,
+  type RetrievalBenchmarkStageStatus,
+  type RetrievalBenchmarkTraceSink,
+} from '../domain/retrieval-benchmark.js';
 import type { CodeCandidate } from '../domain/retrieval.js';
 import {
   workingContextFromSnapshot,
@@ -162,10 +166,12 @@ const recordBenchmarkStage = (
   candidates: readonly RankedCandidate[],
   startedAtMs: number,
   repositoryId?: string,
+  status: RetrievalBenchmarkStageStatus = 'executed',
 ): void => {
   trace?.record({
     requestId,
     stage,
+    status,
     candidates: candidates.map(({ candidate }) => ({
       runtimeCandidateId: candidate.candidateId,
       ...(repositoryId === undefined ? {} : {
@@ -867,6 +873,74 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
       if (includeCode) {
         const retrievalStrategy = activeConfig.retrievalStrategy
           ?? (activeConfig.sparseEmbeddings === undefined ? 'dense' : 'hybrid_rrf');
+        const benchmarkStageStatus = (stage: 'dense' | 'sparse' | 'fused'): RetrievalBenchmarkStageStatus =>
+          stage === retrievalStrategy
+            ? 'unavailable'
+            : retrievalStrategy === 'hybrid_rrf' && stage === 'fused'
+              ? 'unavailable'
+              : 'not_applicable';
+        recordBenchmarkStage(
+          activeConfig.benchmarkTrace,
+          activeConfig.benchmarkProviderIdentities,
+          requestId.value,
+          'dense',
+          [],
+          0,
+          activeConfig.benchmarkRepositoryId,
+          benchmarkStageStatus('dense'),
+        );
+        recordBenchmarkStage(
+          activeConfig.benchmarkTrace,
+          activeConfig.benchmarkProviderIdentities,
+          requestId.value,
+          'sparse',
+          [],
+          0,
+          activeConfig.benchmarkRepositoryId,
+          benchmarkStageStatus('sparse'),
+        );
+        recordBenchmarkStage(
+          activeConfig.benchmarkTrace,
+          activeConfig.benchmarkProviderIdentities,
+          requestId.value,
+          'fused',
+          [],
+          0,
+          activeConfig.benchmarkRepositoryId,
+          benchmarkStageStatus('fused'),
+        );
+        recordBenchmarkStage(
+          activeConfig.benchmarkTrace,
+          activeConfig.benchmarkProviderIdentities,
+          requestId.value,
+          'working_context',
+          [],
+          0,
+          activeConfig.benchmarkRepositoryId,
+          'unavailable',
+        );
+        recordBenchmarkStage(
+          activeConfig.benchmarkTrace,
+          activeConfig.benchmarkProviderIdentities,
+          requestId.value,
+          'reranked',
+          [],
+          0,
+          activeConfig.benchmarkRepositoryId,
+          activeConfig.reranker === undefined
+            ? activeConfig.rerankerMode === 'optional' ? 'unavailable' : 'not_applicable'
+            : 'unavailable',
+        );
+        recordBenchmarkStage(
+          activeConfig.benchmarkTrace,
+          activeConfig.benchmarkProviderIdentities,
+          requestId.value,
+          'delivered',
+          [],
+          0,
+          activeConfig.benchmarkRepositoryId,
+          'unavailable',
+        );
         let vector: readonly number[] | undefined;
         let sparseVector: SparseVector | undefined;
         if (retrievalStrategy !== 'sparse') {
@@ -964,9 +1038,29 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
                   warnings.push('reranker configured but unavailable; using configured retrieval ranking');
                 }
                 rankedResults = prioritized.slice(0, deliveryLimit);
+                recordBenchmarkStage(
+                  activeConfig.benchmarkTrace,
+                  activeConfig.benchmarkProviderIdentities,
+                  requestId.value,
+                  'reranked',
+                  [],
+                  0,
+                  activeConfig.benchmarkRepositoryId,
+                  'not_applicable',
+                );
               }
             } else if (prioritized.length === 0) {
               rankedResults = [];
+              recordBenchmarkStage(
+                activeConfig.benchmarkTrace,
+                activeConfig.benchmarkProviderIdentities,
+                requestId.value,
+                'reranked',
+                [],
+                0,
+                activeConfig.benchmarkRepositoryId,
+                'not_applicable',
+              );
             } else {
               const rerankStartedAtMs = Date.now();
               const reranked = yield* activeConfig.reranker.rerank({

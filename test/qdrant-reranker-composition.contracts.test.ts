@@ -162,10 +162,13 @@ test('configured reranker reorders the fused shortlist before exact source/LSP v
   assert.equal(result.value.evidence[0]?.content, second.text);
   assert.equal(result.value.evidence[1]?.content, third.text);
   assert.deepEqual(
-    benchmarkTrace.events.map((event) => event.stage),
+    benchmarkTrace.events.filter((event) => event.status === 'executed').map((event) => event.stage),
     ['dense', 'working_context', 'reranked', 'delivered'],
   );
-  assert.equal(benchmarkTrace.events[0]?.candidates[0]?.runtimeCandidateId, first.candidate.candidateId);
+  assert.equal(
+    benchmarkTrace.events.find((event) => event.status === 'executed')?.candidates[0]?.runtimeCandidateId,
+    first.candidate.candidateId,
+  );
   assert.equal(benchmarkTrace.stageRanksFor('reranked-request').delivered.length, 2);
 });
 

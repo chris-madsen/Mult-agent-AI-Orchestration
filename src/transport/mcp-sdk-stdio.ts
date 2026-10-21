@@ -4,6 +4,7 @@ import { Effect } from 'effect';
 import * as z from 'zod/v4';
 import type { GatewayResponse, ToolCall } from '../gateway/mcp-gateway.js';
 import { contextTransportText } from '../domain/context-delivery.js';
+import type { RetrievalBenchmarkTraceSink } from '../domain/retrieval-benchmark.js';
 
 export interface McpGatewayLike {
   readonly handle: (call: ToolCall) => Effect.Effect<GatewayResponse>;
@@ -34,9 +35,13 @@ const cancelledToolResult = () => ({
   structuredContent: { status: 'error', code: 'REQUEST_CANCELLED' },
 });
 
+export interface AceServerOptions {
+  readonly benchmarkTrace?: RetrievalBenchmarkTraceSink;
+}
+
 // The official v2 SDK owns framing, protocol initialization, request validation,
 // cancellation and stdio lifecycle. Do not reimplement the protocol in ACE.
-export const createAceServer = (gateway: McpGatewayLike): McpServer => {
+export const createAceServer = (gateway: McpGatewayLike, options: AceServerOptions = {}): McpServer => {
   const server = new McpServer({ name: 'ace-harness', version: '0.1.0' });
   const run = async (name: string, args: unknown, signal?: AbortSignal) => {
     const isAborted = (): boolean => signal?.aborted === true;
@@ -46,9 +51,18 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
       const response = signal === undefined
         ? await Effect.runPromise(operation)
         : await Effect.runPromise(operation, { signal });
+      if (options.benchmarkTrace !== undefined) await options.benchmarkTrace.flush();
       return toToolResult(response, name);
     } catch (error) {
       if (isAborted()) return cancelledToolResult();
+      if (options.benchmarkTrace !== undefined && options.benchmarkTrace.status.failureCode !== undefined) {
+        process.stderr.write('ace benchmark trace persistence failed\n');
+        return {
+          isError: true,
+          content: [{ type: 'text' as const, text: 'ACE benchmark trace persistence failed' }],
+          structuredContent: { status: 'error', code: 'BENCHMARK_TRACE_FAILURE' },
+        };
+      }
       // The thrown failure is an ACE error, not an invitation to leak a stack trace.
       process.stderr.write(`ace gateway failure: ${error instanceof Error ? error.message : 'unknown error'}\n`);
       return {
@@ -113,6 +127,6 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
   return server;
 };
 
-export const runMcpSdkStdio = async (gateway: McpGatewayLike): Promise<void> => {
-  await serveStdio(() => createAceServer(gateway));
+export const runMcpSdkStdio = async (gateway: McpGatewayLike, options: AceServerOptions = {}): Promise<void> => {
+  await serveStdio(() => createAceServer(gateway, options));
 };

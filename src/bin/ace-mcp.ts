@@ -2,9 +2,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { appendFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
@@ -27,6 +26,7 @@ import {
   sparseEmbeddingIdentityFingerprint,
 } from '../adapters/process-sparse-embedding.js';
 import { makeFileProviderTrace } from '../adapters/provider-trace.js';
+import { makeFileRetrievalBenchmarkTrace } from '../adapters/retrieval-benchmark-trace.js';
 import { makeProcessRerankerPort } from '../adapters/process-reranker.js';
 import {
   codeIndexKey,
@@ -255,15 +255,18 @@ const main = async (): Promise<void> => {
   let benchmarkTrace: RetrievalBenchmarkTraceSink | undefined;
   if (benchmarkTracePath !== undefined && benchmarkTracePath.length > 0) {
     const resolvedBenchmarkTracePath = resolve(benchmarkTracePath);
-    await mkdir(dirname(resolvedBenchmarkTracePath), { recursive: true });
-    let benchmarkTraceTail: Promise<void> = Promise.resolve();
-    benchmarkTrace = {
-      record: (event) => {
-        benchmarkTraceTail = benchmarkTraceTail
-          .then(() => appendFile(resolvedBenchmarkTracePath, JSON.stringify(event) + '\n', 'utf8'))
-          .catch(() => undefined);
-      },
-    };
+    let sourceCommit = process.env.ACE_EVIDENCE_SOURCE_COMMIT?.trim();
+    if (sourceCommit === undefined || sourceCommit.length === 0) {
+      try {
+        sourceCommit = execFileSync('git', ['-C', rootPath, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+      } catch {
+        sourceCommit = undefined;
+      }
+    }
+    benchmarkTrace = await makeFileRetrievalBenchmarkTrace(resolvedBenchmarkTracePath, {
+      ...(sourceCommit === undefined || sourceCommit.length === 0 ? {} : { sourceCommit }),
+      runnerVersion: process.env.ACE_BENCHMARK_RUNNER_VERSION?.trim() || 'ace-harness/0.1.0',
+    });
   }
   const history = makeGitHistoryPort({ trace: providerTrace, providerVersion: 'git/cli' });
   let memory: MemorySearchPort | undefined;
@@ -819,12 +822,25 @@ const main = async (): Promise<void> => {
     readiness: () => ({ ...readiness }),
   });
   try {
-    await runMcpSdkStdio(gateway);
+    await runMcpSdkStdio(gateway, benchmarkTrace === undefined ? {} : { benchmarkTrace });
   } finally {
-    if (closeSemantics !== undefined) closeSemantics();
-    if (closeReranker !== undefined) closeReranker();
-    if (closeSparseEmbeddings !== undefined) closeSparseEmbeddings();
-    if (closeMemory !== undefined) await closeMemory();
+    let cleanupError: unknown;
+    try {
+      if (closeSemantics !== undefined) closeSemantics();
+      if (closeReranker !== undefined) closeReranker();
+      if (closeSparseEmbeddings !== undefined) closeSparseEmbeddings();
+      if (closeMemory !== undefined) await closeMemory();
+    } catch (error) {
+      cleanupError = error;
+    } finally {
+      try {
+        if (benchmarkTrace !== undefined) await benchmarkTrace.close();
+      } catch (error) {
+        cleanupError ??= error;
+      }
+    }
+    if (cleanupError instanceof Error) throw cleanupError;
+    if (cleanupError !== undefined) throw new Error('ACE cleanup failed');
   }
 };
 
