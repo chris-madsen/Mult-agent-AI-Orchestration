@@ -769,7 +769,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
       }>();
 
       const initialFailures = new Map<RepoPath, string>();
-      for (const [i, ranked] of rankedResults.entries()) {
+      for (const ranked of rankedResults) {
         const candidate = ranked.candidate;
         // One authoritative exact read and one immutable artifact per source,
         // not one read per Qdrant symbol. All selected sources are revalidated
