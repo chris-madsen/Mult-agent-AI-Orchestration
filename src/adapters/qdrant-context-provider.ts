@@ -731,7 +731,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
       readonly includeCode?: boolean;
       readonly includeDocs: boolean;
       readonly includeMemory: boolean;
-      readonly includeHistory: boolean;
+      readonly includeHistory?: boolean;
       readonly sourceRequirements?: SourceRequirements;
       readonly workingContextHints?: WorkingContextHints;
     }): Effect.Effect<Result<ContextBundle, DomainError>> => Effect.gen(function* () {
@@ -1048,7 +1048,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
           }
         }
       }
-      if (input.includeHistory) {
+      if (input.includeHistory === true) {
         const historyRequirement = requirements.history
           ?? { requirement: 'not_requested' as const, allowed: true };
         if (activeConfig.history === undefined) {
