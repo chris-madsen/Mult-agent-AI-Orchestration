@@ -128,5 +128,19 @@ export const createAceServer = (gateway: McpGatewayLike, options: AceServerOptio
 };
 
 export const runMcpSdkStdio = async (gateway: McpGatewayLike, options: AceServerOptions = {}): Promise<void> => {
-  await serveStdio(() => createAceServer(gateway, options));
+  const handle = serveStdio(() => createAceServer(gateway, options));
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      process.stdin.off('end', finish);
+      process.stdin.off('close', finish);
+      resolve();
+    };
+    process.stdin.once('end', finish);
+    process.stdin.once('close', finish);
+    if (process.stdin.readableEnded || process.stdin.destroyed) finish();
+  });
+  await handle.close();
 };

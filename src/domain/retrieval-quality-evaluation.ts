@@ -1,5 +1,10 @@
 import { domainError, type DomainError } from './errors.js';
 import { err, ok, type Result } from './result.js';
+import type {
+  RetrievalBenchmarkStage,
+  RetrievalBenchmarkStageStatus,
+} from './retrieval-benchmark.js';
+import { retrievalBenchmarkStages } from './retrieval-benchmark.js';
 
 export interface RetrievalHoldoutRepository {
   readonly id: string;
@@ -45,8 +50,22 @@ export interface RetrievalObservation {
   readonly expansionCalls: number;
   readonly nativeReadDuplicates: number;
   readonly latencyMs: number;
+  /** Optional UTF-8 delivery telemetry; development runs may omit it. */
+  readonly payloadBytes?: number;
+  readonly initialEvidenceBytes?: number;
+  readonly newContextBytes?: number;
+  readonly reusedContextBytes?: number;
+  readonly projectionBytesAvoided?: number;
+  readonly duplicateContentBytes?: number;
+  readonly uniqueContentBytes?: number;
+  /** Backward-compatible alias for receipt-reused bytes. */
+  readonly duplicateContextBytesAvoided?: number;
   /** Internal benchmark-only ranked snapshots; omitted by development runs. */
   readonly stageRanks?: RetrievalStageRanks;
+  /** Runtime ids matching stageRanks, retained for trace correlation only. */
+  readonly rawStageRanks?: RetrievalStageRanks;
+  /** Frozen runs must state the outcome of every retrieval stage explicitly. */
+  readonly stageStatuses?: Readonly<Record<RetrievalBenchmarkStage, RetrievalBenchmarkStageStatus>>;
   readonly stageLatencyMs?: Readonly<Record<string, number>>;
 }
 
@@ -67,6 +86,8 @@ export interface RetrievalStrategyRun {
   readonly sourceCommit?: string;
   readonly runnerVersion?: string;
   readonly providerIdentities?: Readonly<Record<string, string>>;
+  readonly tracePaths?: readonly string[];
+  readonly terminalTraceReceiptPaths?: readonly string[];
 }
 
 export interface RetrievalQualityMetrics {
@@ -85,6 +106,14 @@ export interface RetrievalQualityMetrics {
   readonly expansionCallsMean: number;
   readonly nativeReadDuplicatesMean: number;
   readonly latencyP95Ms: number;
+  readonly payloadBytesMean?: number;
+  readonly initialEvidenceBytesMean?: number;
+  readonly newContextBytesMean?: number;
+  readonly reusedContextBytesMean?: number;
+  readonly projectionBytesAvoidedMean?: number;
+  readonly duplicateContentBytesMean?: number;
+  readonly uniqueContentBytesMean?: number;
+  readonly duplicateContextBytesAvoidedMean?: number;
   readonly missedCriticalCaseIds: readonly string[];
 }
 
@@ -131,16 +160,27 @@ export interface RetrievalStrategySelection {
 const sha256 = (value: string): boolean => /^[a-f0-9]{64}$/u.test(value);
 const unit = (value: number): boolean => Number.isFinite(value) && value >= 0 && value <= 1;
 const nonNegative = (value: number): boolean => Number.isFinite(value) && value >= 0;
+const validStageStatus = (value: RetrievalBenchmarkStageStatus): boolean =>
+  value === 'executed' || value === 'not_applicable' || value === 'unavailable';
 const commitIdentity = (value: string | undefined): boolean => value === undefined || /^[a-f0-9]{40,64}$/iu.test(value);
 const providerIdentityMap = (value: Readonly<Record<string, string>> | undefined): boolean => value !== undefined
   && Object.keys(value).length > 0
   && Object.entries(value).every(([key, identity]) => key.trim().length > 0 && identity.trim().length > 0);
 const mean = (values: readonly number[]): number =>
   values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
+const optionalMean = (values: readonly (number | undefined)[]): number | undefined => {
+  const present = values.filter((value): value is number => value !== undefined);
+  return present.length === 0 ? undefined : mean(present);
+};
 const p95 = (values: readonly number[]): number => {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] ?? 0;
+};
+
+const stageRankFor = (ranks: RetrievalStageRanks, stage: RetrievalBenchmarkStage): readonly string[] => {
+  if (stage === 'working_context') return ranks.workingContext;
+  return ranks[stage];
 };
 
 const reciprocalRank = (retrieved: readonly string[], relevant: ReadonlySet<string>): number => {
@@ -263,7 +303,15 @@ export const evaluateRetrievalStrategy = (
       observation.duplicateSourceHits,
       observation.expansionCalls,
       observation.nativeReadDuplicates,
-    ];
+      observation.payloadBytes,
+      observation.initialEvidenceBytes,
+      observation.newContextBytes,
+      observation.reusedContextBytes,
+      observation.projectionBytesAvoided,
+      observation.duplicateContentBytes,
+      observation.uniqueContentBytes,
+      observation.duplicateContextBytesAvoided,
+    ].filter((value): value is number => value !== undefined);
     if (new Set(observation.retrievedCandidateIds).size !== observation.retrievedCandidateIds.length
       || !integerCounters.every((value) => Number.isSafeInteger(value) && value >= 0)
       || !nonNegative(observation.latencyMs)
@@ -277,20 +325,20 @@ export const evaluateRetrievalStrategy = (
     }
     if (holdout.status === 'frozen_multi_repository_holdout') {
       const stageRanks = observation.stageRanks;
-      if (stageRanks === undefined
-        || ![
-          stageRanks.dense,
-          stageRanks.sparse,
-          stageRanks.fused,
-          stageRanks.workingContext,
-          stageRanks.reranked,
-          stageRanks.delivered,
-        ].every((ids) => new Set(ids).size === ids.length
-          && ids.every((id) => id.trim().length > 0))) {
+      const stageStatuses = observation.stageStatuses;
+      if (stageRanks === undefined || stageStatuses === undefined
+        || retrievalBenchmarkStages.some((stage) => {
+          const status = stageStatuses[stage];
+          const ids = stageRankFor(stageRanks, stage);
+          if (status === undefined || !validStageStatus(status)
+            || new Set(ids).size !== ids.length
+            || ids.some((id) => id.trim().length === 0)) return true;
+          return status === 'executed' ? ids.length === 0 : ids.length > 0;
+        })) {
         return err(domainError(
           'INVALID_BENCHMARK',
           'retrieval_run.stage_ranks',
-          'frozen multi-repository runs require unique ranked IDs for every retrieval stage',
+          'frozen multi-repository runs require explicit status and unique ranks for every retrieval stage',
         ));
       }
     }
@@ -310,6 +358,32 @@ export const evaluateRetrievalStrategy = (
     };
   });
   const critical = scores.filter((item) => item.item.critical === true);
+  const byteMetrics: Partial<Record<
+  'payloadBytesMean'
+  | 'initialEvidenceBytesMean'
+  | 'newContextBytesMean'
+  | 'reusedContextBytesMean'
+  | 'projectionBytesAvoidedMean'
+  | 'duplicateContentBytesMean'
+  | 'uniqueContentBytesMean'
+  | 'duplicateContextBytesAvoidedMean',
+  number
+  >> = {};
+  const addOptionalMean = (
+    key: keyof typeof byteMetrics,
+    values: readonly (number | undefined)[],
+  ): void => {
+    const value = optionalMean(values);
+    if (value !== undefined) byteMetrics[key] = value;
+  };
+  addOptionalMean('payloadBytesMean', scores.map((item) => item.observed.payloadBytes));
+  addOptionalMean('initialEvidenceBytesMean', scores.map((item) => item.observed.initialEvidenceBytes));
+  addOptionalMean('newContextBytesMean', scores.map((item) => item.observed.newContextBytes));
+  addOptionalMean('reusedContextBytesMean', scores.map((item) => item.observed.reusedContextBytes));
+  addOptionalMean('projectionBytesAvoidedMean', scores.map((item) => item.observed.projectionBytesAvoided));
+  addOptionalMean('duplicateContentBytesMean', scores.map((item) => item.observed.duplicateContentBytes));
+  addOptionalMean('uniqueContentBytesMean', scores.map((item) => item.observed.uniqueContentBytes));
+  addOptionalMean('duplicateContextBytesAvoidedMean', scores.map((item) => item.observed.duplicateContextBytesAvoided));
   return ok({
     strategy: run.strategy,
     holdoutStatus: holdout.status,
@@ -327,6 +401,7 @@ export const evaluateRetrievalStrategy = (
     expansionCallsMean: mean(scores.map((item) => item.observed.expansionCalls)),
     nativeReadDuplicatesMean: mean(scores.map((item) => item.observed.nativeReadDuplicates)),
     latencyP95Ms: p95(scores.map((item) => item.observed.latencyMs)),
+    ...byteMetrics,
     missedCriticalCaseIds: critical.filter((item) => item.r5 === 0).map((item) => item.item.id),
   });
 };
@@ -442,7 +517,7 @@ export const selectRetrievalStrategy = (
     right.criticalRecallAt5 - left.criticalRecallAt5
       || right.mrr - left.mrr
       || right.ndcgAt5 - left.ndcgAt5
-      || left.payloadCharactersMean - right.payloadCharactersMean
+      || (left.payloadBytesMean ?? left.payloadCharactersMean) - (right.payloadBytesMean ?? right.payloadCharactersMean)
       || left.latencyP95Ms - right.latencyP95Ms
       || left.strategy.localeCompare(right.strategy));
   const selected = ranked[0] ?? baseline;
