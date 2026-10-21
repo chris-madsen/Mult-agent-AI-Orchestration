@@ -36,7 +36,7 @@ for private code. Current verified source bytes outrank stale index data,
 derived memory and documentation when determining actual program behavior.
 The 5× accepted-task token reduction is a benchmark hypothesis, not a reported
 achievement. See [Accepted ADR-014](docs/docs/references/ADR-014-hybrid-context-engine.md),
-[OpenSpec 007](docs/openspec/changes/007-hybrid-context-engine/),
+[OpenSpec 007](openspec/changes/007-hybrid-context-engine/),
 and the [2026-10-21 targeted code review](docs/reviews/2026-10-21-hybrid-context-static-code-review.md).
 
 ## Current implementation
@@ -167,7 +167,7 @@ The test suite includes Bertrand Meyer-style contract tests in
 invariants, fail-closed behavior, losslessness, and layer boundaries executable.
 
 The active OpenSpec implementation sequence is defined by
-[`docs/openspec/README.md`](docs/openspec/README.md) and includes
+[`openspec/README.md`](openspec/README.md) and includes
 `001-foundation` through `007-hybrid-context-engine`, including
 `006-production-retrieval-vertical-slice`. The checked implementation tasks
 do **not** replace frozen real-provider/agent-E2E/Harbor quality gates.
