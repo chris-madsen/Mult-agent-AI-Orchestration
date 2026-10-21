@@ -225,7 +225,8 @@ export const ensureQdrantCollection = (
       : undefined;
     return denseConfig?.size === dimension
       && denseConfig.distance === 'Cosine'
-      && sparseConfig?.modifier === 'Idf'
+      && typeof sparseConfig?.modifier === 'string'
+      && sparseConfig.modifier.toLowerCase() === 'idf'
       ? ok(undefined)
       : err(domainError(
         'INVALID_EXTERNAL_RESPONSE',
