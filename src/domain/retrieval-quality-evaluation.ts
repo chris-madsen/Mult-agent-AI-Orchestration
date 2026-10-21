@@ -1,16 +1,27 @@
 import { domainError, type DomainError } from './errors.js';
 import { err, ok, type Result } from './result.js';
 
+export interface RetrievalHoldoutRepository {
+  readonly id: string;
+  /** Exact Git revision or equivalent immutable source revision. */
+  readonly revision: string;
+  /** Digest of the repository source manifest used to derive candidate labels. */
+  readonly sourceManifestSha256: string;
+}
+
 export interface RetrievalHoldoutCase {
   readonly id: string;
   readonly query: string;
   readonly relevantCandidateIds: readonly string[];
+  /** Required for release-grade multi-repository holdouts. */
+  readonly repositoryId?: string;
   readonly critical?: boolean;
 }
 
 export interface RetrievalHoldout {
   readonly schemaVersion: 1;
   readonly status: string;
+  readonly repositories?: readonly RetrievalHoldoutRepository[];
   readonly cases: readonly RetrievalHoldoutCase[];
 }
 
@@ -35,6 +46,7 @@ export interface RetrievalQualityMetrics {
   readonly strategy: string;
   readonly holdoutStatus: string;
   readonly cases: number;
+  readonly repositoryCount: number;
   readonly recallAt1: number;
   readonly recallAt3: number;
   readonly recallAt5: number;
@@ -64,6 +76,8 @@ export interface RetrievalQualityPolicy {
   readonly maxExpansionCallsMean?: number;
   readonly maxNativeReadDuplicatesMean?: number;
   readonly maxLatencyP95Ms?: number;
+  /** Release policy can require true multi-repository coverage without affecting dev fixtures. */
+  readonly minRepositoryCount?: number;
 }
 
 export interface RetrievalQualityVerdict {
@@ -107,6 +121,28 @@ const validateHoldout = (holdout: RetrievalHoldout): Result<void, DomainError> =
   if (holdout.schemaVersion !== 1 || holdout.cases.length === 0) {
     return err(domainError('INVALID_BENCHMARK', 'retrieval_holdout', 'retrieval holdout schema/cases are invalid'));
   }
+  const repositories = holdout.repositories ?? [];
+  const repositoryIds = new Set<string>();
+  for (const repository of repositories) {
+    if (repository.id.trim().length === 0
+      || repositoryIds.has(repository.id)
+      || !/^[a-f0-9]{40,64}$/iu.test(repository.revision)
+      || !sha256(repository.sourceManifestSha256)) {
+      return err(domainError(
+        'INVALID_BENCHMARK',
+        'retrieval_holdout.repositories',
+        'repository identities must be unique and bind exact revision + source manifest SHA-256',
+      ));
+    }
+    repositoryIds.add(repository.id);
+  }
+  if (holdout.status === 'frozen_multi_repository_holdout' && repositories.length < 2) {
+    return err(domainError(
+      'INVALID_BENCHMARK',
+      'retrieval_holdout.repositories',
+      'frozen multi-repository holdout requires at least two bound repositories',
+    ));
+  }
   const ids = new Set<string>();
   for (const item of holdout.cases) {
     if (item.id.trim().length === 0 || item.query.trim().length === 0
@@ -115,7 +151,31 @@ const validateHoldout = (holdout: RetrievalHoldout): Result<void, DomainError> =
       || ids.has(item.id)) {
       return err(domainError('INVALID_BENCHMARK', 'retrieval_holdout', 'holdout cases require unique IDs, queries and non-empty unique labels'));
     }
+    if (item.repositoryId !== undefined && !repositoryIds.has(item.repositoryId)) {
+      return err(domainError(
+        'INVALID_BENCHMARK',
+        'retrieval_holdout.repository_id',
+        'case repository_id must reference a repository bound by the holdout',
+      ));
+    }
+    if (holdout.status === 'frozen_multi_repository_holdout' && item.repositoryId === undefined) {
+      return err(domainError(
+        'INVALID_BENCHMARK',
+        'retrieval_holdout.repository_id',
+        'every case in a frozen multi-repository holdout must identify its repository',
+      ));
+    }
     ids.add(item.id);
+  }
+  if (holdout.status === 'frozen_multi_repository_holdout') {
+    const usedRepositories = new Set(holdout.cases.map((item) => item.repositoryId));
+    if (repositories.some((repository) => !usedRepositories.has(repository.id))) {
+      return err(domainError(
+        'INVALID_BENCHMARK',
+        'retrieval_holdout.repositories',
+        'every bound repository must contribute at least one holdout case',
+      ));
+    }
   }
   if (!holdout.cases.some((item) => item.critical === true)) {
     return err(domainError('INVALID_BENCHMARK', 'retrieval_holdout', 'holdout requires at least one critical case'));
@@ -177,6 +237,8 @@ export const evaluateRetrievalStrategy = (
     strategy: run.strategy,
     holdoutStatus: holdout.status,
     cases: scores.length,
+    repositoryCount: holdout.repositories?.length
+      ?? new Set(holdout.cases.flatMap((item) => item.repositoryId === undefined ? [] : [item.repositoryId])).size,
     recallAt1: mean(scores.map((item) => item.r1)),
     recallAt3: mean(scores.map((item) => item.r3)),
     recallAt5: mean(scores.map((item) => item.r5)),
@@ -217,8 +279,10 @@ export const evaluateRetrievalQualityPolicy = (
     policy.maxNativeReadDuplicatesMean,
     policy.maxLatencyP95Ms,
   ].filter((value): value is number => value !== undefined);
-  if (!optional.every(nonNegative)) {
-    return err(domainError('INVALID_BENCHMARK', 'retrieval_policy', 'retrieval optional limits must be non-negative finite numbers'));
+  if (!optional.every(nonNegative)
+    || (policy.minRepositoryCount !== undefined
+      && (!Number.isSafeInteger(policy.minRepositoryCount) || policy.minRepositoryCount < 1))) {
+    return err(domainError('INVALID_BENCHMARK', 'retrieval_policy', 'retrieval optional limits must be non-negative and repository count must be a positive integer'));
   }
   const failures: string[] = [];
   if (metrics.strategy !== policy.selectedStrategy) failures.push('strategy_mismatch');
@@ -240,6 +304,8 @@ export const evaluateRetrievalQualityPolicy = (
     && metrics.nativeReadDuplicatesMean > policy.maxNativeReadDuplicatesMean) failures.push('native_read_duplicates_above_threshold');
   if (policy.maxLatencyP95Ms !== undefined
     && metrics.latencyP95Ms > policy.maxLatencyP95Ms) failures.push('latency_p95_above_threshold');
+  if (policy.minRepositoryCount !== undefined
+    && metrics.repositoryCount < policy.minRepositoryCount) failures.push('repository_count_below_threshold');
   return ok({
     selectedStrategy: policy.selectedStrategy,
     measurementAccepted: failures.length === 0,
