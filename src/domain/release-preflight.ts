@@ -18,6 +18,8 @@ export interface ReleaseOwnerApproval {
   readonly releaseCommit: string;
   readonly reference: string;
   readonly approvedCapabilities: readonly ReleaseCapability[];
+  /** Provider identities covered by this signed approval scope. */
+  readonly approvedProviderIdentities: readonly string[];
   readonly signingKeyId?: string;
   readonly publicKeyPem?: string;
   readonly signedPayloadSha256?: string;
@@ -103,8 +105,36 @@ export const ownerApprovalPayload = (approval: ReleaseOwnerApproval): string => 
   releaseCommit: approval.releaseCommit,
   reference: approval.reference,
   approvedCapabilities: [...approval.approvedCapabilities].sort(),
+  approvedProviderIdentities: [...approval.approvedProviderIdentities].sort(),
   signingKeyId: approval.signingKeyId ?? null,
 });
+
+const selectedProviderIdentities = (
+  embeddingSelection: unknown,
+  semanticSelection: unknown,
+): readonly string[] => [
+  nested(embeddingSelection, 'verdict', 'selectedProvider'),
+  nested(semanticSelection, 'verdict', 'selectedProvider'),
+].filter((value): value is string => typeof value === 'string' && nonEmpty(value));
+
+export const validateOwnerApprovalProviderScope = (
+  approval: ReleaseOwnerApproval,
+  embeddingSelection: unknown,
+  semanticSelection: unknown,
+): readonly string[] => {
+  if (!Array.isArray(approval.approvedProviderIdentities)
+    || approval.approvedProviderIdentities.length === 0
+    || approval.approvedProviderIdentities.some((identity) => typeof identity !== 'string' || !nonEmpty(identity))
+    || new Set(approval.approvedProviderIdentities).size !== approval.approvedProviderIdentities.length) {
+    return ['owner_approval_provider_scope_invalid'];
+  }
+  const approved = [...approval.approvedProviderIdentities].sort();
+  const selected = [...selectedProviderIdentities(embeddingSelection, semanticSelection)].sort();
+  return approved.length === selected.length
+    && approved.every((identity, index) => identity === selected[index])
+    ? []
+    : ['owner_approval_provider_scope_mismatch'];
+};
 
 const approvalTrustRootFailures = (
   approval: ReleaseOwnerApproval,
@@ -230,6 +260,11 @@ export const evaluateReleasePreflight = (
     input.semanticSelection,
   ));
   failures.push(...validateOwnerApproval(input.ownerApproval, input.currentCommit, input.ownerApprovalTrustRoot));
+  failures.push(...validateOwnerApprovalProviderScope(
+    input.ownerApproval,
+    input.embeddingSelection,
+    input.semanticSelection,
+  ));
 
   if (nested(input.embeddingSelection, 'verdict', 'productionApproved') !== true
     || nested(input.embeddingSelection, 'verdict', 'status') !== 'PRODUCTION_APPROVED') {
