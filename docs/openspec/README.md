@@ -13,7 +13,7 @@ evidence-backed only; do not infer completion from the proposal text.
 2. `002-harbor-evaluation` — strong Codex baseline and actual usage metrics (early enough to guide retrieval design).
 3. `003-unified-retrieval` — Qdrant code retrieval, Tree-sitter AST, selectable LSP, Vertex docs, unified evidence bundle.
 4. `004-temporal-memory` — Codex raw session archive + Graphiti extraction + temporal recall.
-5. `005-adaptive-routing-spike` — experiment: deterministic route policy vs Jev; **not** automatic inclusion in production.
+5. `005-adaptive-routing-spike` — experiment: deterministic route policy vs Jev; **not** automatic inclusion in production.\n6. `006-production-retrieval-vertical-slice` — real-provider/DBC acceptance closure.\n7. `007-hybrid-context-engine` — accepted next architecture: dense+sparse fusion, evidence-gated reranking, working-state priors and delta context delivery.
 
 After each change: tests, design/ADR review, benchmark where meaningful, archive/sync OpenSpec specs only after implementation passes. Upstream capabilities are specified by earlier changes; sequential application avoids ambiguity.
 
@@ -28,7 +28,7 @@ openspec validate 001-foundation --strict
 openspec instructions apply --change 001-foundation
 ```
 
-The exact CLI version and options must be checked against `openspec --help`/`openspec validate --help` in the target environment. In the current environment, OpenSpec `1.14.0` validates all five active changes with `--strict` from the `docs/` OpenSpec root.
+The exact CLI version and options must be checked against `openspec --help`/`openspec validate --help` in the target environment. Validate all active changes with the installed OpenSpec CLI from the `docs/` OpenSpec root; do not reuse an old count as evidence after adding change 007.
 
 ## Architecture and source documents
 
@@ -56,3 +56,8 @@ Read `docs/docs/architecture/07-architecture-fitness-contracts.md`, the proposed
 ## Codex immediate work (owner approved 2026-10-19)
 
 Read [`changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md`](changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md) first. ADR-012 is **Accepted** as a six-rule acceptance policy and ADR-013 is **Accepted only as an experimental embedding-evaluation protocol**. This is not model selection, retrieval production readiness or 5× validation. Run candidate integration, Serena-vs-TS-LS comparison, local Graphiti and gcloud Vertex probes and real Harbor tests without further planning bureaucracy; retain production gates as unchecked until actual evidence exists.
+
+
+## Current architecture direction — 2026-10-21
+
+ADR-014 is Accepted. PR #94 already completed most provider de-bespoking. New retrieval work belongs to `007-hybrid-context-engine`; do not extend old custom Tree-sitter/Qdrant-lease/TS-LS-host machinery that has been replaced.
