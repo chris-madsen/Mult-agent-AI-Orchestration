@@ -5,7 +5,7 @@ import { workspaceIdFrom, type WorkspaceServicePorts } from '../application/work
 import type { ArtifactStore, MemorySearchPort } from '../application/ports.js';
 import type { ContextBundle } from '../domain/retrieval.js';
 import { projectContextForDelivery, resolveDeliveryIntent } from '../domain/context-delivery.js';
-import type { WorkspaceId } from '../domain/workspace.js';
+import { ingestRepoPath, type RepoPath, type WorkingContextHints, type WorkspaceId } from '../domain/workspace.js';
 import { deterministicRoute } from '../domain/routing.js';
 import {
   resolveExplicitSourceRequirements,
@@ -24,6 +24,14 @@ const ContextInput = Schema.Struct({
   include_memory: Schema.optional(Schema.Boolean),
   known_bundle_id: Schema.optional(Schema.String),
   known_evidence_ids: Schema.optional(Schema.Array(Schema.String)),
+  working_context: Schema.optional(Schema.Struct({
+    focused_path: Schema.optional(Schema.String),
+    open_paths: Schema.optional(Schema.Array(Schema.String)),
+    focused_range: Schema.optional(Schema.Struct({
+      start_line: Schema.Number,
+      end_line: Schema.Number,
+    })),
+  })),
   source_obligations: Schema.optional(Schema.Struct({
     required: Schema.optional(Schema.Array(Schema.Literal('code', 'structural', 'lsp', 'documentation', 'memory'))),
     optional: Schema.optional(Schema.Array(Schema.Literal('code', 'structural', 'lsp', 'documentation', 'memory'))),
@@ -86,6 +94,7 @@ export interface ContextProvider {
     readonly includeDocs: boolean;
     readonly includeMemory: boolean;
     readonly sourceRequirements?: SourceRequirements;
+    readonly workingContextHints?: WorkingContextHints;
   }) => Effect.Effect<Result<ContextBundle, DomainError>>;
 }
 
@@ -159,6 +168,45 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
             // The routed branch is wrapped only to keep one error-shaped
             // value at this boundary; its resolver is total.
             const sourceRequirements = sourceRequirementsResult.value;
+            let workingContextHints: WorkingContextHints | undefined;
+            if (input.value.working_context !== undefined) {
+              const focusedPath = input.value.working_context.focused_path === undefined
+                ? undefined
+                : ingestRepoPath(input.value.working_context.focused_path);
+              if (focusedPath?._tag === 'Err') return responseError(focusedPath);
+              const openPaths: RepoPath[] = [];
+              if ((input.value.working_context.open_paths?.length ?? 0) > 100) {
+                return responseError(err(domainError(
+                  'INVALID_INPUT',
+                  'working_context.open_paths',
+                  'at most 100 open paths are allowed',
+                )));
+              }
+              for (const path of input.value.working_context.open_paths ?? []) {
+                const parsed = ingestRepoPath(path);
+                if (parsed._tag === 'Err') return responseError(parsed);
+                openPaths.push(parsed.value);
+              }
+              const focusedRange = input.value.working_context.focused_range;
+              if (focusedRange !== undefined
+                && (!Number.isSafeInteger(focusedRange.start_line)
+                  || !Number.isSafeInteger(focusedRange.end_line)
+                  || focusedRange.start_line < 1
+                  || focusedRange.end_line < focusedRange.start_line)) {
+                return responseError(err(domainError(
+                  'INVALID_INPUT',
+                  'working_context.focused_range',
+                  'focused range must be positive and ordered',
+                )));
+              }
+              workingContextHints = {
+                ...(focusedPath?._tag === 'Ok' ? { focusedPath: focusedPath.value } : {}),
+                ...(openPaths.length === 0 ? {} : { openPaths }),
+                ...(focusedRange === undefined ? {} : {
+                  focusedRange: { startLine: focusedRange.start_line, endLine: focusedRange.end_line },
+                }),
+              };
+            }
             const result = yield* ports.context.search({
               workspaceId: workspaceId.value,
               query: input.value.query,
@@ -173,6 +221,7 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
               includeDocs: sourceIsRequested(sourceRequirements.documentation),
               includeMemory: sourceIsRequested(sourceRequirements.memory),
               sourceRequirements,
+              ...(workingContextHints === undefined ? {} : { workingContextHints }),
             });
             if (isErr(result)) return responseError(result);
             const delivered = projectContextForDelivery(

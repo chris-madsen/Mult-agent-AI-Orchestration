@@ -15,6 +15,21 @@ export interface FileObservation {
   readonly observedAtMs: number;
 }
 
+export interface WorkingContext {
+  readonly headRevision: string;
+  readonly branch?: string;
+  readonly stagedPaths: readonly RepoPath[];
+  readonly unstagedPaths: readonly RepoPath[];
+  readonly untrackedPaths: readonly RepoPath[];
+  readonly deletedPaths: readonly RepoPath[];
+}
+
+export interface WorkingContextHints {
+  readonly focusedPath?: RepoPath;
+  readonly openPaths?: readonly RepoPath[];
+  readonly focusedRange?: { readonly startLine: number; readonly endLine: number };
+}
+
 export interface WorkingTreeVersion {
   readonly headRevision: string;
   readonly observationEpoch: number;
@@ -37,7 +52,21 @@ export interface WorkspaceSnapshot {
   readonly files: readonly FileObservation[];
   readonly removedPaths: readonly RepoPath[];
   readonly gitStatus?: 'available' | 'not_repository';
+  readonly branch?: string;
+  readonly stagedPaths?: readonly RepoPath[];
+  readonly unstagedPaths?: readonly RepoPath[];
+  readonly untrackedPaths?: readonly RepoPath[];
+  readonly deletedPaths?: readonly RepoPath[];
 }
+
+export const workingContextFromSnapshot = (snapshot: WorkspaceSnapshot): WorkingContext => ({
+  headRevision: snapshot.headRevision,
+  ...(snapshot.branch === undefined ? {} : { branch: snapshot.branch }),
+  stagedPaths: snapshot.stagedPaths ?? [],
+  unstagedPaths: snapshot.unstagedPaths ?? [],
+  untrackedPaths: snapshot.untrackedPaths ?? snapshot.files.filter((file) => file.state === 'untracked').map((file) => file.repoPath),
+  deletedPaths: snapshot.deletedPaths ?? snapshot.removedPaths,
+});
 
 export const makeWorkspaceId = (value: string): Result<WorkspaceId, DomainError> =>
   value.trim().length === 0
