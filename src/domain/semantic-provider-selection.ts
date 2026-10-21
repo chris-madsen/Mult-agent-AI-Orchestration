@@ -45,6 +45,7 @@ export interface SemanticSelectionPolicy {
 
 export interface SemanticSelectionVerdict {
   readonly selectedProvider: string;
+  readonly selectedProviderIdentity: string;
   readonly matchedComparison: boolean;
   readonly measurementAccepted: boolean;
   readonly productionApproved: boolean;
@@ -56,6 +57,17 @@ export interface SemanticSelectionVerdict {
   | 'REJECTED';
   readonly failures: readonly string[];
 }
+
+const stableRuntime = (runtime: Readonly<Record<string, string>>): Readonly<Record<string, string>> =>
+  Object.fromEntries(Object.entries(runtime).sort(([left], [right]) => left.localeCompare(right)));
+
+export const semanticProviderIdentity = (report: SemanticProviderReport): string => JSON.stringify({
+  provider: report.provider,
+  providerVersion: report.providerVersion,
+  fixtureSha256: report.fixtureSha256,
+  oracleSha256: report.oracleSha256,
+  runtime: stableRuntime(report.runtime),
+});
 
 const sha256 = (value: string): boolean => /^[a-f0-9]{64}$/u.test(value);
 const nonEmpty = (value: string): boolean => value.trim().length > 0;
@@ -144,6 +156,7 @@ export const evaluateSemanticProviderSelection = (
   if (policy.ownerApproval.status === 'rejected') {
     return ok({
       selectedProvider: policy.selectedProvider,
+      selectedProviderIdentity: semanticProviderIdentity(selected),
       matchedComparison,
       measurementAccepted,
       productionApproved: false,
@@ -158,6 +171,7 @@ export const evaluateSemanticProviderSelection = (
 
   return ok({
     selectedProvider: policy.selectedProvider,
+    selectedProviderIdentity: semanticProviderIdentity(selected),
     matchedComparison,
     measurementAccepted,
     productionApproved,

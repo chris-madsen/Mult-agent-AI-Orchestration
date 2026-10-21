@@ -113,8 +113,8 @@ const selectedProviderIdentities = (
   embeddingSelection: unknown,
   semanticSelection: unknown,
 ): readonly string[] => [
-  nested(embeddingSelection, 'verdict', 'selectedProvider'),
-  nested(semanticSelection, 'verdict', 'selectedProvider'),
+  nested(embeddingSelection, 'verdict', 'selectedProviderIdentity'),
+  nested(semanticSelection, 'verdict', 'selectedProviderIdentity'),
 ].filter((value): value is string => typeof value === 'string' && nonEmpty(value));
 
 export const validateOwnerApprovalProviderScope = (

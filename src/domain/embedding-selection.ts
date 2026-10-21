@@ -71,11 +71,25 @@ export interface EmbeddingSelectionPolicy {
 
 export interface EmbeddingSelectionVerdict {
   readonly selectedProvider: string;
+  readonly selectedProviderIdentity: string;
   readonly measurementAccepted: boolean;
   readonly productionApproved: boolean;
   readonly status: 'MEASUREMENT_PASS_APPROVAL_PENDING' | 'MEASUREMENT_FAIL' | 'PRODUCTION_APPROVED' | 'REJECTED';
   readonly failures: readonly string[];
 }
+
+const stableRuntime = (runtime: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> =>
+  Object.fromEntries(Object.entries(runtime).sort(([left], [right]) => left.localeCompare(right)));
+
+export const embeddingProviderIdentity = (candidate: EmbeddingComparisonCandidate): string => JSON.stringify({
+  provider: candidate.provider,
+  model: candidate.model,
+  revision: candidate.revision,
+  dimensions: candidate.dimensions,
+  preprocessing: candidate.preprocessing,
+  artifact: candidate.artifact ?? null,
+  runtime: candidate.runtime === undefined ? null : stableRuntime(candidate.runtime),
+});
 
 const sha256 = (value: string): boolean => /^[a-f0-9]{64}$/u.test(value);
 const gitRevision = (value: string): boolean => /^[a-f0-9]{40,64}$/u.test(value);
@@ -177,6 +191,7 @@ export const evaluateEmbeddingSelection = (
   if (policy.ownerApproval.status === 'rejected') {
     return ok({
       selectedProvider: policy.selectedProvider,
+      selectedProviderIdentity: embeddingProviderIdentity(candidate),
       measurementAccepted,
       productionApproved: false,
       status: 'REJECTED',
@@ -190,6 +205,7 @@ export const evaluateEmbeddingSelection = (
 
   return ok({
     selectedProvider: policy.selectedProvider,
+    selectedProviderIdentity: embeddingProviderIdentity(candidate),
     measurementAccepted,
     productionApproved,
     status: productionApproved

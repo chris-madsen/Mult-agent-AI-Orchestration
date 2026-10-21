@@ -177,12 +177,14 @@ const verdict = evaluateReleasePreflight({
       { name: 'resourceBudget', path: resourceBudget.path, sha256: resourceBudget.sha256 },
       { name: 'runtimeConfig', path: runtimeConfig.path, sha256: runtimeConfig.sha256 },
     ].sort((left, right) => left.name.localeCompare(right.name));
+    const embeddingVerdict = (embedding.value as { verdict?: { selectedProvider?: unknown; selectedProviderIdentity?: unknown } }).verdict;
+    const semanticVerdict = (semantic.value as { verdict?: { selectedProvider?: unknown; selectedProviderIdentity?: unknown } }).verdict;
     const providerIdentities = [
-      typeof (embedding.value as { verdict?: { selectedProvider?: unknown } }).verdict?.selectedProvider === 'string'
-        ? (embedding.value as { verdict: { selectedProvider: string } }).verdict.selectedProvider : '',
-      typeof (semantic.value as { verdict?: { selectedProvider?: unknown } }).verdict?.selectedProvider === 'string'
-        ? (semantic.value as { verdict: { selectedProvider: string } }).verdict.selectedProvider : '',
-    ].filter((identity) => identity.length > 0);
+      embeddingVerdict?.selectedProvider,
+      embeddingVerdict?.selectedProviderIdentity,
+      semanticVerdict?.selectedProvider,
+      semanticVerdict?.selectedProviderIdentity,
+    ].filter((identity): identity is string => typeof identity === 'string' && identity.length > 0);
     return {
       schemaVersion: 1,
       sourceCommit: currentCommit,
