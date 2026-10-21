@@ -22,6 +22,7 @@ import type {
   HttpPort,
   MemorySearchPort,
   ProviderTraceSink,
+  RerankerPort,
   SemanticAnalysisPort,
   VectorEmbeddingPort,
   WorkspaceFilePort,
@@ -67,6 +68,12 @@ export interface QdrantContextConfig {
   readonly documentation?: DocumentationPort;
   readonly memory?: MemorySearchPort;
   readonly candidateLimit?: number;
+  /** Optional evidence-gated cross-encoder stage after Qdrant RRF fusion. */
+  readonly reranker?: RerankerPort;
+  /** Optional falls back to fused ranking on outage; required fails the code branch closed. */
+  readonly rerankerMode?: 'optional' | 'required';
+  /** Fused shortlist depth sent to the reranker before final delivery trimming. */
+  readonly rerankerCandidateLimit?: number;
   readonly coverage?: IndexCoverageSummary;
   /** If set, every request must reconcile the authoritative working tree. */
   readonly workspaceManifest?: WorkspaceManifest;
@@ -793,7 +800,12 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
                 && (requestWorkingContext.stagedPaths.length > 0
                   || requestWorkingContext.unstagedPaths.length > 0
                   || requestWorkingContext.untrackedPaths.length > 0));
-            const retrievalLimit = hasWorkingPrior ? Math.min(20, deliveryLimit * 2) : deliveryLimit;
+            const rerankerEnabled = activeConfig.reranker !== undefined;
+            const rerankerCandidateLimit = activeConfig.rerankerCandidateLimit
+              ?? Math.min(50, Math.max(deliveryLimit, deliveryLimit * 4));
+            const retrievalLimit = rerankerEnabled
+              ? rerankerCandidateLimit
+              : hasWorkingPrior ? Math.min(20, deliveryLimit * 2) : deliveryLimit;
             const result = yield* activeConfig.qdrant.search({
               workspaceId: input.workspaceId,
               vector,
@@ -803,13 +815,64 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
               ...(activeConfig.indexKey === undefined ? {} : { indexKey: activeConfig.indexKey }),
               requestId: requestId.value,
             });
-            if (result._tag === 'Err') codeProviderError = result.error;
-            else rankedResults = applyWorkingContextPriors(
-              result.value,
-              requestWorkingContext,
-              input.workingContextHints,
-              deliveryLimit,
-            );
+            if (result._tag === 'Err') {
+              codeProviderError = result.error;
+            } else {
+              const prioritized = applyWorkingContextPriors(
+                result.value,
+                requestWorkingContext,
+                input.workingContextHints,
+                retrievalLimit,
+              );
+              if (activeConfig.reranker === undefined) {
+                if (activeConfig.rerankerMode === 'required') {
+                  codeProviderError = domainError(
+                    'NOT_READY',
+                    'reranker',
+                    'reranking is required by runtime policy but no verified reranker is available',
+                  );
+                } else {
+                  if (activeConfig.rerankerMode === 'optional') {
+                    warnings.push('reranker configured but unavailable; using fused RRF ranking');
+                  }
+                  rankedResults = prioritized.slice(0, deliveryLimit);
+                }
+              } else if (prioritized.length === 0) {
+                rankedResults = [];
+              } else {
+                const reranked = yield* activeConfig.reranker.rerank({
+                  query: input.query,
+                  documents: prioritized.map((item) => [
+                    item.candidate.repoPath,
+                    item.candidate.symbolName ?? '',
+                    item.candidate.text,
+                  ].filter((value) => value.length > 0).join('\n')),
+                  requestId: requestId.value,
+                });
+                if (reranked._tag === 'Err') {
+                  if (activeConfig.rerankerMode === 'required') {
+                    codeProviderError = reranked.error;
+                  } else {
+                    warnings.push('reranker unavailable: ' + reranked.error.code + '; using fused RRF ranking');
+                    rankedResults = prioritized.slice(0, deliveryLimit);
+                  }
+                } else {
+                  const reordered: RankedCandidate[] = [];
+                  for (const score of reranked.value) {
+                    const original = prioritized[score.index];
+                    if (original === undefined) continue;
+                    reordered.push({
+                      ...original,
+                      score: score.score,
+                      warning: original.warning === undefined
+                        ? 'ranked by configured cross-encoder after Qdrant RRF'
+                        : original.warning + '; ranked by configured cross-encoder after Qdrant RRF',
+                    });
+                  }
+                  rankedResults = reordered.slice(0, deliveryLimit);
+                }
+              }
+            }
           }
         }
         if (codeProviderError !== undefined) {

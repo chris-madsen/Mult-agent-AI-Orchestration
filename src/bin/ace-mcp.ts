@@ -21,6 +21,7 @@ import {
   type ResolvedEmbeddingConfig,
 } from '../adapters/process-embedding.js';
 import { makeFileProviderTrace } from '../adapters/provider-trace.js';
+import { makeProcessRerankerPort } from '../adapters/process-reranker.js';
 import {
   codeIndexKey,
   qdrantCollectionName,
@@ -205,6 +206,11 @@ const main = async (): Promise<void> => {
   const observed = await Effect.runPromise(observeWorkspace(ports, registered.value.workspaceId));
   if (observed._tag === 'Err') throw new Error(`${observed.error.code}: ${observed.error.message}`);
   const observationEpoch = observed.value.observationEpoch;
+  const rerankerModeRaw = process.env.ACE_RERANKER_MODE?.trim() || 'disabled';
+  if (!['disabled', 'optional', 'required'].includes(rerankerModeRaw)) {
+    throw new Error('ACE_RERANKER_MODE must be disabled, optional, or required');
+  }
+  const rerankerMode = rerankerModeRaw as 'disabled' | 'optional' | 'required';
   const readiness: Record<string, CapabilityReadiness> = {
     worktree: {
       state: 'ready',
@@ -213,6 +219,9 @@ const main = async (): Promise<void> => {
     code_retrieval: { state: 'not_ready', reason: 'provider_not_initialized' },
     unified_context: { state: 'not_ready', reason: 'provider_not_initialized' },
     semantic_lsp: { state: 'not_ready', reason: 'provider_not_initialized' },
+    reranker: rerankerMode === 'disabled'
+      ? { state: 'disabled', reason: 'reranker_disabled' }
+      : { state: 'not_ready', reason: 'provider_not_initialized' },
     project_memory: process.env.ACE_ENABLE_GRAPHITI === 'true'
       ? { state: 'not_ready', reason: 'provider_not_initialized' }
       : { state: 'disabled', reason: 'graphiti_disabled' },
@@ -236,6 +245,7 @@ const main = async (): Promise<void> => {
   let memory: MemorySearchPort | undefined;
   let closeMemory: (() => Promise<void>) | undefined;
   let closeSemantics: (() => void) | undefined;
+  let closeReranker: (() => void) | undefined;
   if (process.env.ACE_ENABLE_GRAPHITI === 'true') {
     const archiveRoot = resolve(required('ACE_MEMORY_ARCHIVE_ROOT'));
     const command = required('ACE_GRAPHITI_COMMAND');
@@ -342,6 +352,46 @@ const main = async (): Promise<void> => {
     }
     const candidateLimit = Number(process.env.ACE_CONTEXT_CANDIDATE_LIMIT ?? '6');
     if (!Number.isSafeInteger(candidateLimit) || candidateLimit < 1 || candidateLimit > 20) throw new Error('ACE_CONTEXT_CANDIDATE_LIMIT must be an integer between 1 and 20');
+    const rerankerCandidateLimit = Number(process.env.ACE_RERANKER_CANDIDATE_LIMIT ?? String(Math.min(50, candidateLimit * 4)));
+    if (!Number.isSafeInteger(rerankerCandidateLimit) || rerankerCandidateLimit < candidateLimit || rerankerCandidateLimit > 50) {
+      throw new Error('ACE_RERANKER_CANDIDATE_LIMIT must be an integer between ACE_CONTEXT_CANDIDATE_LIMIT and 50');
+    }
+    const rerankerTimeoutMs = Number(process.env.ACE_RERANKER_TIMEOUT_MS ?? '120000');
+    if (!Number.isSafeInteger(rerankerTimeoutMs) || rerankerTimeoutMs < 100 || rerankerTimeoutMs > 3_600_000) {
+      throw new Error('ACE_RERANKER_TIMEOUT_MS must be an integer between 100 and 3600000');
+    }
+    const rerankerModel = process.env.ACE_RERANKER_MODEL?.trim();
+    const rerankerWorker = process.env.ACE_RERANKER_WORKER?.trim() || resolve('scripts/fastembed-reranker-worker.sh');
+    let reranker: ReturnType<typeof makeProcessRerankerPort> | undefined;
+    if (rerankerMode !== 'disabled') {
+      if (rerankerModel === undefined || rerankerModel.length === 0 || !existsSync(rerankerWorker)) {
+        readiness.reranker = { state: 'not_ready', reason: 'reranker_configuration_missing' };
+      } else {
+        const rerankerEnvironment: Record<string, string> = { ACE_RERANKER_MODEL: rerankerModel };
+        for (const name of ['ACE_RERANKER_PYTHON', 'ACE_RERANKER_THREADS', 'FASTEMBED_CACHE_PATH', 'HF_HOME', 'HF_HUB_CACHE']) {
+          const value = process.env[name]?.trim();
+          if (value !== undefined && value.length > 0) rerankerEnvironment[name] = value;
+        }
+        const candidate = makeProcessRerankerPort({
+          command: rerankerWorker,
+          expectedModel: rerankerModel,
+          timeoutMs: rerankerTimeoutMs,
+          providerVersion: `fastembed/cross-encoder|model=${rerankerModel}`,
+          trace: providerTrace,
+          env: rerankerEnvironment,
+        });
+        const probe = await Effect.runPromise(candidate.probe());
+        if (probe._tag === 'Ok') {
+          reranker = candidate;
+          closeReranker = candidate.close;
+          readiness.reranker = { state: 'ready', reason: 'real_reranker_preflight_passed' };
+        } else {
+          candidate.close();
+          readiness.reranker = { state: 'not_ready', reason: 'reranker_provider_unavailable' };
+          process.stderr.write(`ace-mcp reranker NOT_READY: provider preflight failed (${probe.error.code})\n`);
+        }
+      }
+    }
     const workspaceKey = createHash('sha256').update(registered.value.workspaceId).digest('hex').slice(0, 12);
     const generation = observationEpoch;
     const embeddingWorker = process.env.ACE_EMBEDDING_WORKER?.trim()
@@ -558,12 +608,17 @@ const main = async (): Promise<void> => {
                   ? { state: 'not_ready', reason: 'vertex_configuration_missing' }
                   : { state: 'degraded', reason: 'provider_configured_not_health_probed' };
             }
-            readiness.code_retrieval = build.coverage.failedPaths === 0
-              ? { state: 'ready', reason: 'real_provider_preflight_passed' }
-              : { state: 'degraded', reason: 'index_coverage_partial' };
-            readiness.unified_context = build.coverage.failedPaths === 0
-              ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
-              : { state: 'degraded', reason: 'index_coverage_partial' };
+            const requiredRerankerMissing = rerankerMode === 'required' && reranker === undefined;
+            readiness.code_retrieval = requiredRerankerMissing
+              ? { state: 'not_ready', reason: 'required_reranker_unavailable' }
+              : build.coverage.failedPaths === 0
+                ? { state: 'ready', reason: 'real_provider_preflight_passed' }
+                : { state: 'degraded', reason: 'index_coverage_partial' };
+            readiness.unified_context = requiredRerankerMissing
+              ? { state: 'not_ready', reason: 'required_reranker_unavailable' }
+              : build.coverage.failedPaths === 0
+                ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
+                : { state: 'degraded', reason: 'index_coverage_partial' };
             process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${buildGeneration} indexed_paths=${build.indexedPaths.length} candidates=${build.index.candidates.length} coverage_failed=${build.coverage.failedPaths} source_snapshot_digest=${build.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} retrieval_mode=hybrid_rrf sparse_model=qdrant/bm25 structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
             return ok({
               workspaceId: registered.value.workspaceId,
@@ -577,6 +632,9 @@ const main = async (): Promise<void> => {
               ...(indexed.value.reused ? {} : { generation: buildGeneration }),
               indexKey: sourceKey,
               candidateLimit,
+              ...(rerankerMode === 'disabled' ? {} : { rerankerMode }),
+              ...(reranker === undefined ? {} : { reranker }),
+              ...(rerankerMode === 'disabled' ? {} : { rerankerCandidateLimit }),
               coverage: build.coverage,
               workspaceManifest: build.workspaceManifest,
               scopeFingerprint,
@@ -662,6 +720,7 @@ const main = async (): Promise<void> => {
     await runMcpSdkStdio(gateway);
   } finally {
     if (closeSemantics !== undefined) closeSemantics();
+    if (closeReranker !== undefined) closeReranker();
     if (closeMemory !== undefined) await closeMemory();
   }
 };
