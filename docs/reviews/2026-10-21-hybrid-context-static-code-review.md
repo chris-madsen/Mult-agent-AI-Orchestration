@@ -1,8 +1,8 @@
 # ACE hybrid context: targeted static code review
 
-**Date:** 2026-10-21  
-**Reviewed revision:** `2aa9804c4ce1287318f7b8dbc6dc9623ded16405` (`main`)  
-**Scope:** MCP context-delivery/receipt behavior, delivery metrics, benchmark trace durability, selected runtime wiring, corresponding contract tests, and architecture/documentation consistency.  
+**Date:** 2026-10-21
+**Reviewed revision:** `2aa9804c4ce1287318f7b8dbc6dc9623ded16405` (`main`)
+**Scope:** MCP context-delivery/receipt behavior, delivery metrics, benchmark trace durability, selected runtime wiring, corresponding contract tests, and architecture/documentation consistency.
 **Evidence level:** source inspection and existing test inspection only; no test execution, external provider, real MCP process, or Harbor benchmark was run in this review.
 
 ## Product/architecture boundary
