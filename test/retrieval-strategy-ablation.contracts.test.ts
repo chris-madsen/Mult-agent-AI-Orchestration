@@ -9,6 +9,7 @@ import type {
   ArtifactStore,
   CodeCandidatePort,
   SemanticAnalysisPort,
+  SparseEmbeddingPort,
   VectorEmbeddingPort,
   WorkspaceFilePort,
 } from '../src/application/ports.js';
@@ -42,14 +43,23 @@ const semantics: SemanticAnalysisPort = {
 
 const run = async (strategy: CodeRetrievalStrategy): Promise<{
   readonly embeddingCalls: number;
+  readonly sparseQueryCalls: number;
   readonly observed: Parameters<CodeCandidatePort['search']>[0] | undefined;
 }> => {
   let embeddingCalls = 0;
+  let sparseQueryCalls = 0;
   let observed: Parameters<CodeCandidatePort['search']>[0] | undefined;
   const embeddings: VectorEmbeddingPort = {
     embedMany: () => {
       embeddingCalls += 1;
       return Effect.succeed(ok([[0.25, 0.75]]));
+    },
+  };
+  const sparseEmbeddings: SparseEmbeddingPort = {
+    embedDocuments: () => Effect.succeed(ok([])),
+    embedQueries: () => {
+      sparseQueryCalls += 1;
+      return Effect.succeed(ok([{ indices: [2, 7], values: [1.4, 0.6] }]));
     },
   };
   const qdrant: CodeCandidatePort = {
@@ -65,6 +75,7 @@ const run = async (strategy: CodeRetrievalStrategy): Promise<{
     files,
     qdrant,
     embeddings,
+    sparseEmbeddings,
     artifacts,
     semantics,
     retrievalStrategy: strategy,
@@ -77,20 +88,23 @@ const run = async (strategy: CodeRetrievalStrategy): Promise<{
     includeMemory: false,
   }));
   assert.equal(result._tag, 'Ok');
-  return { embeddingCalls, observed };
+  return { embeddingCalls, sparseQueryCalls, observed };
 };
 
 test('sparse-only context retrieval skips dense query embedding entirely', async () => {
   const result = await run('sparse');
   assert.equal(result.embeddingCalls, 0);
+  assert.equal(result.sparseQueryCalls, 1);
   assert.equal(result.observed?.strategy, 'sparse');
   assert.equal(result.observed?.queryText, 'find exact ACE_QDRANT_COLLECTION usage');
   assert.equal(result.observed?.vector, undefined);
+  assert.deepEqual(result.observed?.sparseVector, { indices: [2, 7], values: [1.4, 0.6] });
 });
 
 test('dense-only context retrieval computes a dense query vector through the same production adapter', async () => {
   const result = await run('dense');
   assert.equal(result.embeddingCalls, 1);
+  assert.equal(result.sparseQueryCalls, 0);
   assert.equal(result.observed?.strategy, 'dense');
   assert.deepEqual(result.observed?.vector, [0.25, 0.75]);
 });
@@ -98,7 +112,9 @@ test('dense-only context retrieval computes a dense query vector through the sam
 test('hybrid RRF context retrieval computes dense query vector and preserves lexical query text', async () => {
   const result = await run('hybrid_rrf');
   assert.equal(result.embeddingCalls, 1);
+  assert.equal(result.sparseQueryCalls, 1);
   assert.equal(result.observed?.strategy, 'hybrid_rrf');
   assert.deepEqual(result.observed?.vector, [0.25, 0.75]);
+  assert.deepEqual(result.observed?.sparseVector, { indices: [2, 7], values: [1.4, 0.6] });
   assert.equal(result.observed?.queryText, 'find exact ACE_QDRANT_COLLECTION usage');
 });
