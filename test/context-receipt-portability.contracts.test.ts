@@ -48,6 +48,7 @@ const makeStatelessServer = (bundle: ContextBundle = base) => createAceServer({
       {
         ...(args.known_bundle_id === undefined ? {} : { knownBundleId: args.known_bundle_id }),
         ...(args.known_evidence_ids === undefined ? {} : { knownEvidenceIds: args.known_evidence_ids }),
+        receiptScope: 'portable-workspace',
       },
     );
     return Effect.succeed({ status: 'ok' as const, result: { ...projected } });
@@ -57,6 +58,7 @@ const makeStatelessServer = (bundle: ContextBundle = base) => createAceServer({
 const callContext = async (
   options: {
     readonly bundle?: ContextBundle;
+    readonly intent?: 'locate' | 'inspect';
     readonly knownBundleId?: string;
     readonly knownEvidenceIds?: readonly string[];
   } = {},
@@ -72,7 +74,7 @@ const callContext = async (
       arguments: {
         workspace_id: 'portable-workspace',
         query: 'find stable evidence',
-        intent: 'inspect',
+        intent: options.intent ?? 'inspect',
         ...(options.knownBundleId === undefined ? {} : { known_bundle_id: options.knownBundleId }),
         ...(options.knownEvidenceIds === undefined ? {} : { known_evidence_ids: options.knownEvidenceIds }),
         working_context: {
@@ -95,6 +97,7 @@ test('stable evidence receipts survive independent MCP client/server instances',
   const firstBundleId = first.bundleId;
   assert.match(firstBundleId ?? '', /^[a-f0-9]{64}$/u);
   assert.equal(first.evidence[0]?.content, body);
+  assert.match(first.evidence[0]?.receiptId ?? '', /^receipt-v1-[a-f0-9]{64}$/u);
   if (firstBundleId === undefined) throw new Error('first response did not include a bundle id');
 
   const second = await callContext({
@@ -127,6 +130,52 @@ test('changed digest, range, and content are delivered as new evidence', async (
   assert.equal(changed.deliveryMetrics?.reusedContextBytes, 0);
 });
 
+test('evidence-only receipts suppress unchanged items in a changed bundle', async () => {
+  const secondEvidence: RetrievalEvidence = {
+    ...evidence,
+    evidenceId: 'portable-evidence-2' as RetrievalEvidence['evidenceId'],
+    citation: 'src/other.ts:1-1',
+    content: 'export const otherEvidence = true;',
+  };
+  const mixed = { ...base, evidence: [evidence, secondEvidence] };
+  const changedMixed = {
+    ...mixed,
+    evidence: [
+      { ...evidence, content: 'export function stableEvidence() { return 43; }' },
+      secondEvidence,
+    ],
+  };
+  const first = await callContext({ bundle: mixed });
+  const changed = await callContext({
+    bundle: changedMixed,
+    knownEvidenceIds: first.evidence.map((item) => String(item.receiptId)),
+  });
+
+  assert.equal(changed.evidence[0]?.content, changedMixed.evidence[0]?.content);
+  assert.notEqual(changed.evidence[0]?.contentDelivery, 'known_reference');
+  assert.equal(changed.evidence[1]?.content, '');
+  assert.equal(changed.evidence[1]?.contentDelivery, 'known_reference');
+  assert.equal(changed.deliveryMetrics?.reusedContextBytes, Buffer.byteLength(secondEvidence.content));
+});
+
+test('exact bundle receipt can suppress the complete bundle without item ids', async () => {
+  const first = await callContext();
+  const repeated = await callContext({ knownBundleId: first.bundleId });
+  assert.equal(repeated.evidence[0]?.content, '');
+  assert.equal(repeated.evidence[0]?.contentDelivery, 'known_reference');
+});
+
+test('delivery projection changes create a new receipt even when source bytes are unchanged', async () => {
+  const first = await callContext({ intent: 'locate' });
+  const inspected = await callContext({
+    intent: 'inspect',
+    knownEvidenceIds: [String(first.evidence[0]?.receiptId)],
+  });
+  assert.equal(inspected.evidence[0]?.content, body);
+  assert.notEqual(inspected.evidence[0]?.contentDelivery, 'known_reference');
+  assert.notEqual(inspected.evidence[0]?.receiptId, first.evidence[0]?.receiptId);
+});
+
 test('unknown or stale receipts never suppress current evidence', async () => {
   const delivered = await callContext({
     knownBundleId: 'not-a-current-bundle',
@@ -135,4 +184,32 @@ test('unknown or stale receipts never suppress current evidence', async () => {
 
   assert.equal(delivered.evidence[0]?.content, body);
   assert.notEqual(delivered.evidence[0]?.contentDelivery, 'known_reference');
+});
+
+test('a current evidence receipt remains usable when the bundle receipt is stale', async () => {
+  const first = await callContext();
+  const delivered = await callContext({
+    knownBundleId: 'stale-bundle-id',
+    knownEvidenceIds: [String(first.evidence[0]?.receiptId)],
+  });
+
+  assert.equal(delivered.evidence[0]?.content, '');
+  assert.equal(delivered.evidence[0]?.contentDelivery, 'known_reference');
+});
+
+test('receipt identity includes source class even when citation and body match', async () => {
+  const documentation = await callContext({
+    bundle: {
+      ...base,
+      evidence: [{ ...evidence, source: 'documentation' }],
+    },
+  });
+  const code = await callContext({
+    bundle: base,
+    knownEvidenceIds: [String(documentation.evidence[0]?.receiptId)],
+  });
+
+  assert.equal(code.evidence[0]?.content, body);
+  assert.notEqual(code.evidence[0]?.contentDelivery, 'known_reference');
+  assert.notEqual(code.evidence[0]?.receiptId, documentation.evidence[0]?.receiptId);
 });
