@@ -10,7 +10,7 @@ import type {
   WorkspaceSnapshot,
 } from '../domain/workspace.js';
 import type { Result } from '../domain/result.js';
-import type { ContextBundle, CodeCandidate, RankedCandidate } from '../domain/retrieval.js';
+import type { CodeRetrievalStrategy, ContextBundle, CodeCandidate, RankedCandidate } from '../domain/retrieval.js';
 import type { DecisionRecord, EpisodeId, MemorySearchResult, ProjectionKey, ProjectionReceipt, SessionEpisode } from '../domain/memory.js';
 import type {
   SemanticDefinition,
@@ -75,9 +75,12 @@ export interface CodePoint {
 export interface CodeCandidatePort {
   readonly search: (input: {
     readonly workspaceId: WorkspaceId;
-    readonly vector: readonly number[];
-    /** Original query text for sparse/BM25 retrieval. When present, the Qdrant adapter performs hybrid fusion. */
+    /** Dense query vector; not required by sparse-only ablation. */
+    readonly vector?: readonly number[];
+    /** Original text used by provider-native Qdrant BM25. */
     readonly queryText?: string;
+    /** Explicit strategy keeps benchmark arms on the same production adapter. */
+    readonly strategy?: CodeRetrievalStrategy;
     readonly limit: number;
     /** Per-branch candidate depth before fusion; defaults to a bounded multiple of limit. */
     readonly prefetchLimit?: number;
