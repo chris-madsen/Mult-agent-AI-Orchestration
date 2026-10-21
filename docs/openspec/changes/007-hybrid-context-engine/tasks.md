@@ -1,10 +1,8 @@
 # Tasks — Hybrid Context Engine completion
 
-**Current implementation baseline:** `main@4c1d6aa218bccf5dcd7ed33e32599aa79030c880` after merged PRs #103, #106, #108, #109, #110, #111, #112, #116 and #118–#121 plus the H4/H5 evidence commit.
+**Current implementation baseline:** `main@acb2630e9c49d56b5c8a224e900fd4999fd91358` after merged Hybrid follow-up PRs #124–#126.
 
-**Evidence update 2026-10-21:** H3 history, H4 portability and H5 source-aware delivery are backed by the current contract suite and evidence commit `4c1d6aa218bccf5dcd7ed33e32599aa79030c880`. H6 retrieval/agent measurements and production-provider evidence remain open.
-
-**Static review update (2026-10-21, `main@2aa9804c4ce1287318f7b8dbc6dc9623ded16405`):** PR #122 is merged. [Review findings](../../../reviews/2026-10-21-hybrid-context-static-code-review.md) identify gaps in changed-bundle delta reuse and duplicate-byte accounting plus a benchmark trace durability risk. Current checked items retain their narrower implemented/tested meaning; they do not claim these additional cases or real Harbor acceptance pass.
+**Evidence update 2026-10-21:** H4/H5 correctness, per-evidence receipts, durable benchmark traces and the external holdout freeze are backed by current contract/evidence artifacts. H6 retrieval/agent measurements and production-provider evidence remain open or blocked by unavailable external runtimes.
 
 ## Already present on main
 
@@ -46,11 +44,11 @@
 
 ## H4 Context receipts
 
-- [x] Add bundle_id and stable evidence receipts.
-- [x] Accept known bundle/evidence identities.
+- [x] Add bundle_id and versioned workspace-scoped per-evidence receipts.
+- [x] Accept known bundle/evidence identities, including evidence-only reuse without a bundle ID.
 - [x] Suppress unchanged repeated bodies while retaining exact expansion.
 - [x] Add new/reused/duplicate-avoided/expanded byte metrics.
-- [x] Prove receipt portability across two independent MCP clients/processes, including unchanged, changed, unknown and stale receipts; exact expansion remains covered by the MCP contract suite.
+- [x] Prove receipt portability across independent MCP clients and actual process restart, including unchanged, changed, unknown and stale receipts; exact expansion remains covered by the MCP contract suite.
 
 ## H5 Context assembly
 
@@ -60,21 +58,14 @@
 
 ## H6 Evaluation
 
-- [ ] Freeze the multi-repository retrieval holdout and exact source manifests in an external evidence workspace before scored tuning; do not vendor source repositories or generated holdout fixtures into ACE.
-- [x] Add benchmark-only stage-rank/provider trace boundary, canonical candidate IDs and frozen-run identity validation without adding MCP tools.
+- [x] Freeze the multi-repository retrieval holdout and exact source manifests in an external evidence workspace before scored tuning; do not vendor source repositories or generated holdout fixtures into ACE.
+- [x] Add benchmark-only stage-rank/provider trace boundary, canonical candidate IDs, durable JSONL/terminal receipts and frozen-run identity validation without adding MCP tools.
 - [ ] Run lexical-only vs dense-only vs hybrid vs hybrid+rerank ablation on the frozen holdout.
 - [ ] Run sparse/BM25-only vs dense-only vs hybrid RRF vs hybrid+reranker vs hybrid+reranker+Working Context on the frozen holdout.
 - [ ] Run Native Codex vs dense ACE vs hybrid ACE vs hybrid+receipt/delta Harbor arms.
 - [ ] Run the separate frozen CPU reranker holdout and approve or reject a concrete model identity.
 - [ ] Require task-quality non-inferiority before token-savings acceptance.
-- [ ] Publish duplicate context avoided separately from embedding/index reuse in benchmark reports.
-
-## Review-driven regression and instrumentation work (still open)
-
-- [ ] ACE-CR-02: add same-source-digest/different-span RED tests and correct delivery duplicate-byte accounting; separate measured body dedupe, receipt reuse and locate projection.
-- [ ] ACE-CR-01: add mixed changed/unchanged evidence and evidence-only receipt official-MCP contract cases; fix per-item delta reuse without breaking stale/unauthorized receipt safety or exact expansion.
-- [ ] ACE-CR-03: make benchmark trace append/flush failures observable, and require a durable complete stage/request receipt set for scored H6 runs.
-- [ ] Re-run applicable contract, real-MCP/provider and benchmark evidence before changing H6 acceptance claims; **this static review did not execute tests**.
+- [ ] Publish duplicate context avoided separately from receipt reuse, projection savings and embedding/index reuse in benchmark reports.
 
 ## Production track remains separate
 
