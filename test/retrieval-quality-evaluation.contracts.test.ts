@@ -290,7 +290,12 @@ test('multi-repository holdout rejects fake coverage and unbound cases', () => {
       { id: 'repo-a', revision: '1'.repeat(40), sourceManifestSha256: 'a'.repeat(64) },
       { id: 'repo-b', revision: '2'.repeat(40), sourceManifestSha256: 'b'.repeat(64) },
     ],
-    cases: [{ ...oneRepo.cases[0]!, repositoryId: undefined }],
+    cases: [{
+      id: 'only-case',
+      query: 'find behavior',
+      relevantCandidateIds: ['a'],
+      critical: true,
+    }],
   };
   assert.equal(evaluateRetrievalStrategy(unbound, runForOne)._tag, 'Err');
 });
