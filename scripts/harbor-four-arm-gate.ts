@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { verifyHarborJobByteBinding } from '../src/application/harbor-byte-binding.js';
 import { validateHarborFourArmDesign, validateHarborFourArmReport } from '../src/domain/harbor-four-arm.js';
 
 const [nativeJobPath, denseJobPath, hybridJobPath, deltaJobPath, reportPath, outputPath] = process.argv.slice(2);
@@ -22,9 +24,27 @@ const [nativeJob, denseJob, hybridJob, deltaJob, report] = await Promise.all([
 ]);
 const design = validateHarborFourArmDesign(nativeJob, denseJob, hybridJob, deltaJob, {
   repositoryIds,
-  requireExternalEvidence: process.env.ACE_HARBOR_REQUIRE_EXTERNAL_EVIDENCE === 'true',
+  requireExternalEvidence: true,
 });
 if (design._tag === 'Err') throw new Error(`${design.error.code}: ${design.error.path}: ${design.error.message}`);
+const workspaceRoot = resolve(process.env.ACE_HARBOR_WORKSPACE_ROOT?.trim() || process.cwd());
+const requiredIdentity = (name: string): string => {
+  const value = process.env[name]?.trim();
+  if (value === undefined || value.length === 0) throw new Error(`BLOCKED: ${name} is required to verify Harbor execution identity`);
+  return value;
+};
+const expectedModelIdentity = requiredIdentity('ACE_HARBOR_MODEL_IDENTITY');
+const expectedProviderIdentity = requiredIdentity('ACE_HARBOR_PROVIDER_IDENTITY');
+const expectedRuntimeImageIdentity = requiredIdentity('ACE_HARBOR_RUNTIME_IMAGE_IDENTITY');
+const byteBindings = await Promise.all([
+  verifyHarborJobByteBinding(nativeJob, { workspaceRoot, expectedModelIdentity, expectedProviderIdentity, expectedRuntimeImageIdentity }),
+  verifyHarborJobByteBinding(denseJob, { workspaceRoot, expectedModelIdentity, expectedProviderIdentity, expectedRuntimeImageIdentity }),
+  verifyHarborJobByteBinding(hybridJob, { workspaceRoot, expectedModelIdentity, expectedProviderIdentity, expectedRuntimeImageIdentity }),
+  verifyHarborJobByteBinding(deltaJob, { workspaceRoot, expectedModelIdentity, expectedProviderIdentity, expectedRuntimeImageIdentity }),
+]);
+for (const [index, binding] of byteBindings.entries()) {
+  if (binding._tag === 'Err') throw new Error(`BLOCKED: harbor job ${index} byte binding: ${binding.error.code}: ${binding.error.path}: ${binding.error.message}`);
+}
 const checkedReport = validateHarborFourArmReport(report);
 if (checkedReport._tag === 'Err') throw new Error(`${checkedReport.error.code}: ${checkedReport.error.path}: ${checkedReport.error.message}`);
 const [nativeJobSha256, denseJobSha256, hybridJobSha256, deltaJobSha256, reportSha256] = await Promise.all([
@@ -34,6 +54,15 @@ const [nativeJobSha256, denseJobSha256, hybridJobSha256, deltaJobSha256, reportS
   sha256File(deltaJobPath as string),
   sha256File(reportPath as string),
 ]);
+const readEvidenceArtifact = async (path: string, category: string): Promise<{ readonly path: string; readonly sha256: string }> => {
+  const resolved = resolve(workspaceRoot, path);
+  const bytes = await readFile(resolved);
+  if (bytes.length === 0) throw new Error(`BLOCKED: ${category} artifact is empty: ${path}`);
+  return { path, sha256: createHash('sha256').update(bytes).digest('hex') };
+};
+const rawTraceArtifacts = await Promise.all(checkedReport.value.rawTracePaths.map((path) => readEvidenceArtifact(path, 'raw trace')));
+const usageEventArtifacts = await Promise.all(checkedReport.value.usageEventPaths.map((path) => readEvidenceArtifact(path, 'usage event')));
+const failedRunArtifacts = await Promise.all(checkedReport.value.failedRunPaths.map((path) => readEvidenceArtifact(path, 'failure')));
 const designFingerprint = createHash('sha256').update(JSON.stringify(design.value), 'utf8').digest('hex');
 const native = checkedReport.value.arms.native;
 const delta = checkedReport.value.arms['hybrid-delta'];
@@ -75,9 +104,21 @@ const reportOutput = {
     denseJobSha256,
     hybridJobSha256,
     hybridDeltaJobSha256: deltaJobSha256,
-    rawTracePaths: checkedReport.value.rawTracePaths,
-    usageEventPaths: checkedReport.value.usageEventPaths,
-    failedRunPaths: checkedReport.value.failedRunPaths,
+    workspaceRoot,
+    taskManifestSha256: design.value.native.externalEvidence?.taskManifestSha256,
+    taskBytesSha256: design.value.native.externalEvidence?.taskBytesSha256,
+    modelIdentity: design.value.native.externalEvidence?.modelIdentity,
+    providerIdentity: design.value.native.externalEvidence?.providerIdentity,
+    runtimeImageIdentity: design.value.native.externalEvidence?.runtimeImageIdentity,
+    configBindings: {
+      native: design.value.native.externalEvidence?.codexConfig,
+      dense: design.value.dense.externalEvidence?.codexConfig,
+      hybrid: design.value.hybrid.externalEvidence?.codexConfig,
+      hybridDelta: design.value.hybridDelta.externalEvidence?.codexConfig,
+    },
+    rawTraceArtifacts,
+    usageEventArtifacts,
+    failedRunArtifacts,
   },
 };
 await writeFile(outputPath as string, JSON.stringify(reportOutput, null, 2) + '\n', 'utf8');
