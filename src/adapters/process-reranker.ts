@@ -18,6 +18,7 @@ export interface RerankerWorkerIdentity {
   readonly model: string;
   readonly runtimeBuild: string;
   readonly runtimeVersion: string;
+  readonly rssBytes?: number;
 }
 
 export interface ProcessRerankerOptions {
@@ -55,11 +56,16 @@ const parseIdentity = (value: unknown): Result<RerankerWorkerIdentity, DomainErr
     || !nonEmpty(raw.runtimeBuild) || !nonEmpty(raw.runtimeVersion)) {
     return err(domainError('INVALID_EXTERNAL_RESPONSE', 'reranker.identity', 'reranker worker returned an invalid identity'));
   }
+  if (raw.rssBytes !== undefined
+    && (!Number.isSafeInteger(raw.rssBytes) || (raw.rssBytes as number) < 0)) {
+    return err(domainError('INVALID_EXTERNAL_RESPONSE', 'reranker.identity.rssBytes', 'reranker worker RSS must be a non-negative integer'));
+  }
   return ok({
     provider: raw.provider,
     model: raw.model,
     runtimeBuild: raw.runtimeBuild,
     runtimeVersion: raw.runtimeVersion,
+    ...(raw.rssBytes === undefined ? {} : { rssBytes: raw.rssBytes as number }),
   });
 };
 

@@ -6,6 +6,20 @@ export interface RerankerFixtureCase {
   readonly repositoryId?: string;
   readonly query: string;
   readonly documents: readonly string[];
+  /**
+   * Source-bound candidate identities are present only in external frozen
+   * holdouts. Development fixtures remain string-only for compatibility.
+   */
+  readonly documentCandidateIds?: readonly string[];
+  readonly documentRefs?: readonly {
+    readonly candidateId: string;
+    readonly repoPath: string;
+    readonly sourceDigest: string;
+    readonly startLine: number;
+    readonly endLine: number;
+    readonly startColumn?: number;
+    readonly endColumn?: number;
+  }[];
   readonly relevantDocumentIndexes: readonly number[];
   readonly critical?: boolean;
 }
@@ -18,6 +32,7 @@ export interface RerankerFixture {
     readonly revision: string;
     readonly sourceManifestSha256: string;
   }[];
+  readonly excludedRetrievalCandidateIds?: readonly string[];
   readonly cases: readonly RerankerFixtureCase[];
 }
 
@@ -31,12 +46,14 @@ export interface RerankerObservation {
 export interface RerankerEvaluationRun {
   readonly fixtureSha256: string;
   readonly observations: readonly RerankerObservation[];
+  readonly role?: 'baseline' | 'candidate';
   readonly sourceCommit?: string;
   readonly runnerVersion?: string;
   readonly providerIdentity?: string;
   readonly modelRevision?: string;
   readonly artifactIdentity?: string;
   readonly licenseEvidence?: string;
+  readonly modelId?: string;
   readonly startupMs?: number;
   readonly rssBytes?: number;
 }
@@ -57,6 +74,7 @@ export interface RerankerEvaluationMetrics {
 
 export interface RerankerSelectionCandidate {
   readonly identity: string;
+  readonly modelId?: string;
   readonly metrics: RerankerEvaluationMetrics;
   readonly licenseEvidence: string;
 }
@@ -71,6 +89,21 @@ export interface RerankerSelectionVerdict {
 const nonNegative = (value: number): boolean => Number.isFinite(value) && value >= 0;
 const sha256 = (value: string): boolean => /^[a-f0-9]{64}$/u.test(value);
 const commit = (value: string): boolean => /^[a-f0-9]{40,64}$/iu.test(value);
+
+export const frozenRerankerModelCandidates = [
+  'Xenova/ms-marco-MiniLM-L-6-v2',
+  'Xenova/ms-marco-MiniLM-L-12-v2',
+  'jinaai/jina-reranker-v1-tiny-en',
+  'jinaai/jina-reranker-v1-turbo-en',
+  'BAAI/bge-reranker-base',
+  'jinaai/jina-reranker-v2-base-multilingual',
+] as const;
+
+const knownLicenseEvidence = (value: string): boolean => {
+  const normalized = value.trim().toLocaleLowerCase();
+  return normalized.length > 0
+    && !['unknown', 'not_available', 'unverified', 'not_applicable'].includes(normalized);
+};
 
 const percentile = (values: readonly number[], p: number): number => {
   if (values.length === 0) return 0;
@@ -138,6 +171,31 @@ const validateFixture = (fixture: RerankerFixture): Result<void, DomainError> =>
         'cases require unique ids, non-empty query/documents and valid unique relevance labels',
       ));
     }
+    if (item.documentCandidateIds !== undefined
+      && (item.documentCandidateIds.length !== item.documents.length
+        || new Set(item.documentCandidateIds).size !== item.documentCandidateIds.length
+        || item.documentCandidateIds.some((candidateId) => !sha256(candidateId)))) {
+      return err(domainError('INVALID_BENCHMARK', 'reranker_fixture.documents', 'document candidate ids must be unique SHA-256 identities'));
+    }
+    if (item.documentRefs !== undefined
+      && (item.documentRefs.length !== item.documents.length
+        || item.documentRefs.some((reference, index) => reference.candidateId !== item.documentCandidateIds?.[index]
+          || reference.repoPath.trim().length === 0
+          || !sha256(reference.sourceDigest)
+          || !Number.isSafeInteger(reference.startLine)
+          || !Number.isSafeInteger(reference.endLine)
+          || reference.startLine < 1
+          || reference.endLine < reference.startLine))) {
+      return err(domainError('INVALID_BENCHMARK', 'reranker_fixture.documents', 'source references must match every document identity'));
+    }
+    if (fixture.status === 'frozen_reranker_holdout'
+      && (item.documentCandidateIds === undefined || item.documentRefs === undefined)) {
+      return err(domainError('INVALID_BENCHMARK', 'reranker_fixture.documents', 'frozen reranker documents require source-bound candidate references'));
+    }
+    if (fixture.excludedRetrievalCandidateIds !== undefined
+      && item.documentCandidateIds?.some((candidateId) => fixture.excludedRetrievalCandidateIds?.includes(candidateId))) {
+      return err(domainError('INVALID_BENCHMARK', 'reranker_fixture.documents', 'reranker holdout overlaps retrieval holdout candidates'));
+    }
     ids.add(item.id);
   }
   if (fixture.status === 'frozen_reranker_holdout'
@@ -163,11 +221,11 @@ export const evaluateRerankerRun = (
     && (!run.sourceCommit || !commit(run.sourceCommit)
       || run.runnerVersion?.trim().length === 0
       || run.providerIdentity?.trim().length === 0
-      || run.modelRevision?.trim().length === 0
-      || run.artifactIdentity?.trim().length === 0
-      || run.licenseEvidence?.trim().length === 0
-      || run.startupMs === undefined || !nonNegative(run.startupMs)
-      || run.rssBytes === undefined || !Number.isSafeInteger(run.rssBytes) || run.rssBytes < 0)) {
+      || (run.role !== 'baseline' && (run.modelRevision?.trim().length === 0
+        || run.artifactIdentity?.trim().length === 0
+        || run.licenseEvidence === undefined || !knownLicenseEvidence(run.licenseEvidence)
+        || run.startupMs === undefined || !nonNegative(run.startupMs)
+        || run.rssBytes === undefined || !Number.isSafeInteger(run.rssBytes) || run.rssBytes < 0)))) {
     return err(domainError(
       'INVALID_BENCHMARK',
       'reranker_run.identity',
@@ -245,7 +303,7 @@ export const selectRerankerCandidate = (
     && candidate.metrics.criticalRecallAt3 >= baseline.criticalRecallAt3
     && candidate.metrics.mrr >= baseline.mrr
     && candidate.metrics.ndcgAt5 >= baseline.ndcgAt5
-    && candidate.licenseEvidence.trim().length > 0
+    && knownLicenseEvidence(candidate.licenseEvidence)
     && (candidate.metrics.criticalRecallAt3 > baseline.criticalRecallAt3
       || candidate.metrics.mrr > baseline.mrr
       || candidate.metrics.ndcgAt5 > baseline.ndcgAt5

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   evaluateRerankerRun,
+  frozenRerankerModelCandidates,
   selectRerankerCandidate,
   type RerankerFixture,
   type RerankerEvaluationRun,
@@ -89,7 +90,21 @@ test('frozen reranker runs require repository and runtime evidence identities', 
       { id: 'ace', revision: '1'.repeat(40), sourceManifestSha256: 'b'.repeat(64) },
       { id: 'repo-b', revision: '2'.repeat(40), sourceManifestSha256: 'c'.repeat(64) },
     ],
-    cases: fixture.cases.map((item, index) => ({ ...item, repositoryId: index === 0 ? 'ace' : 'repo-b' })),
+    cases: fixture.cases.map((item, index) => {
+      const documentCandidateIds = item.documents.map((_, documentIndex) => `${String(index * 3 + documentIndex + 1).padStart(64, '0')}`);
+      return {
+        ...item,
+        repositoryId: index === 0 ? 'ace' : 'repo-b',
+        documentCandidateIds,
+        documentRefs: item.documents.map((_, documentIndex) => ({
+          candidateId: documentCandidateIds[documentIndex] as string,
+          repoPath: `src/${index}-${documentIndex}.ts`,
+          sourceDigest: `${String(index * 3 + documentIndex + 1).padStart(64, '0')}`,
+          startLine: 1,
+          endLine: 1,
+        })),
+      };
+    }),
   };
   const incomplete = evaluateRerankerRun(frozenFixture, {
     ...run,
@@ -127,4 +142,50 @@ test('reranker selection requires non-inferiority plus measurable quality or pay
   }]);
   assert.equal(accepted.accepted, true);
   assert.equal(accepted.selectedIdentity, 'model-better');
+});
+
+test('frozen model candidate list is explicit and unknown license evidence is rejected', () => {
+  assert.deepEqual(frozenRerankerModelCandidates, [
+    'Xenova/ms-marco-MiniLM-L-6-v2',
+    'Xenova/ms-marco-MiniLM-L-12-v2',
+    'jinaai/jina-reranker-v1-tiny-en',
+    'jinaai/jina-reranker-v1-turbo-en',
+    'BAAI/bge-reranker-base',
+    'jinaai/jina-reranker-v2-base-multilingual',
+  ]);
+  const frozenFixture: RerankerFixture = {
+    ...fixture,
+    status: 'frozen_reranker_holdout',
+    repositories: [
+      { id: 'ace', revision: '1'.repeat(40), sourceManifestSha256: 'b'.repeat(64) },
+      { id: 'repo-b', revision: '2'.repeat(40), sourceManifestSha256: 'c'.repeat(64) },
+    ],
+    cases: fixture.cases.map((item, index) => {
+      const documentCandidateIds = item.documents.map((_, documentIndex) => `${String(index * 3 + documentIndex + 1).padStart(64, '0')}`);
+      return {
+        ...item,
+        repositoryId: index === 0 ? 'ace' : 'repo-b',
+        documentCandidateIds,
+        documentRefs: item.documents.map((_, documentIndex) => ({
+          candidateId: documentCandidateIds[documentIndex] as string,
+          repoPath: `src/${index}-${documentIndex}.ts`,
+          sourceDigest: `${String(index * 3 + documentIndex + 1).padStart(64, '0')}`,
+          startLine: 1,
+          endLine: 1,
+        })),
+      };
+    }),
+  };
+  const invalid = evaluateRerankerRun(frozenFixture, {
+    ...run,
+    sourceCommit: '3'.repeat(40),
+    runnerVersion: 'contract-test/v1',
+    providerIdentity: 'fastembed/cross-encoder|model=test',
+    modelRevision: 'model-revision',
+    artifactIdentity: 'artifact-sha256',
+    licenseEvidence: 'unknown',
+    startupMs: 1,
+    rssBytes: 1,
+  });
+  assert.equal(invalid._tag, 'Err');
 });

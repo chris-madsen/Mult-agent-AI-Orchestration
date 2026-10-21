@@ -27,6 +27,17 @@ def _runtime_build() -> str:
     return f"{os.path.basename(__file__)}#{digest.hexdigest()}"
 
 
+def _rss_bytes() -> int | None:
+    try:
+        with open("/proc/self/status", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
 def main() -> int:
     model_name = sys.argv[1]
     threads = int(os.environ.get("ACE_RERANKER_THREADS", "0"))
@@ -34,6 +45,7 @@ def main() -> int:
         model_name=model_name,
         **({"threads": threads} if threads > 0 else {}),
     )
+    rss_bytes = _rss_bytes()
     identity = {
         "provider": "fastembed/cross-encoder",
         "model": model_name,
@@ -43,6 +55,7 @@ def main() -> int:
             f"fastembed/{_version('fastembed')}|"
             f"onnxruntime/{_version('onnxruntime')}"
         ),
+        **({"rssBytes": rss_bytes} if rss_bytes is not None else {}),
     }
     print(json.dumps({"type": "ready", "identity": identity}, separators=(",", ":")), flush=True)
 
