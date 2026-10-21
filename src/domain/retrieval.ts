@@ -9,6 +9,7 @@ export type RequestId = string & { readonly __brand: 'RetrievalRequestId' };
 export type Generation = number & { readonly __brand: 'IndexGeneration' };
 export type EvidenceId = string & { readonly __brand: 'EvidenceId' };
 export type BundleId = string & { readonly __brand: 'ContextBundleId' };
+export type CodeRetrievalStrategy = 'dense' | 'sparse' | 'hybrid_rrf';
 
 export interface SourceRange {
   readonly startLine: number;
