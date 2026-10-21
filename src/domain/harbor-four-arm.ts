@@ -10,13 +10,21 @@ export interface HarborFourArmDesign {
   readonly hybrid: NormalizedHarborJob;
   readonly hybridDelta: NormalizedHarborJob;
   readonly distinctTaskCount: number;
-  readonly tasksPerRepository: Readonly<Record<'ace' | 'chess', number>>;
+  readonly tasksPerRepository: Readonly<Record<string, number>>;
 }
 
-const repositoryForTask = (task: string): 'ace' | 'chess' | undefined => {
-  if (/(?:^|[/_-])ace(?:[/_-]|$)/iu.test(task)) return 'ace';
-  if (/(?:^|[/_-])chess(?:[/_-]|$)/iu.test(task)) return 'chess';
-  return undefined;
+export interface HarborFourArmValidationOptions {
+  /** Repository IDs must be supplied by the external benchmark composition. */
+  readonly repositoryIds: readonly string[];
+}
+
+const repositoryForTask = (task: string, repositoryIds: readonly string[]): string | undefined => {
+  const segments = task.split(/[\\/]/u).filter((segment) => segment.length > 0);
+  return repositoryIds.find((repositoryId) => {
+    const escaped = repositoryId.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+    const marker = new RegExp(`(?:^|[-_])${escaped}(?:[-_]|$)`, 'u');
+    return segments.some((segment) => marker.test(segment));
+  });
 };
 
 const configHas = (job: NormalizedHarborJob, pattern: RegExp): boolean =>
@@ -27,7 +35,13 @@ export const validateHarborFourArmDesign = (
   denseValue: unknown,
   hybridValue: unknown,
   hybridDeltaValue: unknown,
+  options: HarborFourArmValidationOptions,
 ): Result<HarborFourArmDesign, DomainError> => {
+  const repositoryIds = [...new Set(options.repositoryIds.map((repositoryId) => repositoryId.trim()))]
+    .filter((repositoryId) => repositoryId.length > 0);
+  if (repositoryIds.length === 0) {
+    return err(domainError('INVALID_BENCHMARK', 'harbor_job.repositories', 'at least one repository ID must be configured'));
+  }
   const native = normalizeHarborJob('native', nativeValue);
   const dense = normalizeHarborJob('dense', denseValue);
   const hybrid = normalizeHarborJob('hybrid', hybridValue);
@@ -59,16 +73,24 @@ export const validateHarborFourArmDesign = (
     ));
   }
   const distinctTaskCount = new Set(native.value.tasks).size;
-  const counts = { ace: 0, chess: 0 };
+  const counts: Record<string, number> = Object.fromEntries(repositoryIds.map((repositoryId) => [repositoryId, 0]));
   for (const task of native.value.tasks) {
-    const repository = repositoryForTask(task);
+    const repository = repositoryForTask(task, repositoryIds);
     if (repository === undefined) {
-      return err(domainError('INVALID_BENCHMARK', 'harbor_job.tasks', `task path does not identify ACE or Chess Trainer: ${task}`));
+      return err(domainError(
+        'INVALID_BENCHMARK',
+        'harbor_job.tasks',
+        `task path does not identify one of the configured repositories (${repositoryIds.join(', ')}): ${task}`,
+      ));
     }
-    counts[repository] += 1;
+    counts[repository] = (counts[repository] ?? 0) + 1;
   }
-  if (distinctTaskCount < 6 || counts.ace < 3 || counts.chess < 3) {
-    return err(domainError('INVALID_BENCHMARK', 'harbor_job.tasks', 'four-arm workload requires at least three distinct tasks per repository'));
+  if (distinctTaskCount < repositoryIds.length * 3 || repositoryIds.some((repositoryId) => (counts[repositoryId] ?? 0) < 3)) {
+    return err(domainError(
+      'INVALID_BENCHMARK',
+      'harbor_job.tasks',
+      'four-arm workload requires at least three distinct tasks per configured repository',
+    ));
   }
   const repeatCounts = new Map(native.value.tasks.map((task) => [task, 0]));
   for (const task of native.value.tasks) repeatCounts.set(task, (repeatCounts.get(task) ?? 0) + 1);

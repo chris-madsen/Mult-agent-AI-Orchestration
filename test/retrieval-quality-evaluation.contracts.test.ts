@@ -352,7 +352,7 @@ test('frozen benchmark candidate ids are workspace-independent and traces retain
   const first = canonicalBenchmarkCandidateId('ace', 'src/example.ts', 'd'.repeat(64), range);
   const second = canonicalBenchmarkCandidateId('ace', 'src/example.ts', 'd'.repeat(64), range);
   assert.equal(first, second);
-  assert.notEqual(first, canonicalBenchmarkCandidateId('chess', 'src/example.ts', 'd'.repeat(64), range));
+  assert.notEqual(first, canonicalBenchmarkCandidateId('repo-b', 'src/example.ts', 'd'.repeat(64), range));
 
   const collector = createRetrievalBenchmarkTraceCollector('ace');
   collector.record({

@@ -5,8 +5,12 @@ import { validateHarborFourArmDesign, validateHarborFourArmReport } from '../src
 
 const [nativeJobPath, denseJobPath, hybridJobPath, deltaJobPath, reportPath, outputPath] = process.argv.slice(2);
 if ([nativeJobPath, denseJobPath, hybridJobPath, deltaJobPath, reportPath, outputPath].some((value) => value === undefined)) {
-  throw new Error('Usage: tsx scripts/harbor-four-arm-gate.ts <native-job.json> <dense-job.json> <hybrid-job.json> <hybrid-delta-job.json> <report.json> <output.json>');
+  throw new Error('Usage: ACE_HARBOR_REPOSITORY_IDS=repo-a,repo-b tsx scripts/harbor-four-arm-gate.ts <native-job.json> <dense-job.json> <hybrid-job.json> <hybrid-delta-job.json> <report.json> <output.json>');
 }
+const repositoryIds = (process.env.ACE_HARBOR_REPOSITORY_IDS ?? 'ace')
+  .split(',')
+  .map((repositoryId) => repositoryId.trim())
+  .filter((repositoryId) => repositoryId.length > 0);
 const readJson = async (path: string): Promise<unknown> => JSON.parse(await readFile(path, 'utf8')) as unknown;
 const sha256File = async (path: string): Promise<string> => createHash('sha256').update(await readFile(path)).digest('hex');
 const [nativeJob, denseJob, hybridJob, deltaJob, report] = await Promise.all([
@@ -16,7 +20,7 @@ const [nativeJob, denseJob, hybridJob, deltaJob, report] = await Promise.all([
   readJson(deltaJobPath as string),
   readJson(reportPath as string),
 ]);
-const design = validateHarborFourArmDesign(nativeJob, denseJob, hybridJob, deltaJob);
+const design = validateHarborFourArmDesign(nativeJob, denseJob, hybridJob, deltaJob, { repositoryIds });
 if (design._tag === 'Err') throw new Error(`${design.error.code}: ${design.error.path}: ${design.error.message}`);
 const checkedReport = validateHarborFourArmReport(report);
 if (checkedReport._tag === 'Err') throw new Error(`${checkedReport.error.code}: ${checkedReport.error.path}: ${checkedReport.error.message}`);
