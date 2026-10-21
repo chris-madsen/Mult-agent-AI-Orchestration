@@ -1,4 +1,4 @@
-import type { BundleId, ContextBundle, ContextDeliveryMetrics, RetrievalEvidence } from './retrieval.js';
+import type { BundleId, ContextBundle, ContextDeliveryMetrics, EvidenceId, RetrievalEvidence } from './retrieval.js';
 
 /**
  * User-visible retrieval intent is a delivery choice, not a different trust
@@ -90,7 +90,9 @@ const bundleIdentity = (bundle: ContextBundle): BundleId => stableReceiptDigest(
     item.evidenceId,
     item.source,
     item.citation,
-    item.sourceRevision ?? item.sourceDigest ?? null,
+    item.sourceDigest ?? null,
+    item.sourceRevision ?? null,
+    item.content,
     item.freshness,
   ]),
   partialSources: [...bundle.partialSources].sort(),
@@ -119,8 +121,43 @@ const proofWeight = (value: RetrievalEvidence['proofClass']): number => {
   }
 };
 
+const dedupeKeyFor = (item: RetrievalEvidence): string | undefined => {
+  // A source digest is the verification boundary. Without it, equal-looking
+  // snippets may come from different revisions and must remain distinct.
+  if (item.source !== 'code' || item.sourceDigest === undefined) return undefined;
+  return JSON.stringify([
+    item.sourceDigest,
+    item.citation,
+    item.content,
+    item.conflictKey ?? null,
+    item.conflictValue ?? null,
+  ]);
+};
+
+const evidenceAliases = (item: RetrievalEvidence): Set<string> => new Set([
+  String(item.evidenceId),
+  ...(item.equivalentEvidenceIds ?? []).map(String),
+]);
+
+const withEvidenceAliases = (
+  item: RetrievalEvidence,
+  ...others: readonly RetrievalEvidence[]
+): RetrievalEvidence => {
+  const aliases = new Set<string>();
+  for (const candidate of [item, ...others]) {
+    for (const id of evidenceAliases(candidate)) aliases.add(id);
+  }
+  aliases.delete(String(item.evidenceId));
+  return aliases.size === 0
+    ? item
+    : { ...item, equivalentEvidenceIds: [...aliases].map((id) => id as EvidenceId) };
+};
+
 /**
- * Only collapse duplicate current-code representations of the same exact span.
+ * Only collapse duplicate digest-verified code representations of the same
+ * exact span/body. This is intentionally an exact-span rule: nested ranges
+ * are not inferred to be redundant because an inner function, claim, or
+ * citation can carry independent retrieval value.
  * Cross-source evidence is intentionally preserved even when text matches:
  * independent docs/memory/history provenance is necessary for conflicts and
  * rationale. Input order is the final tie-breaker, preserving retrieval rank.
@@ -131,17 +168,11 @@ export const dedupeEvidenceForDelivery = (
   const selected: RetrievalEvidence[] = [];
   const codeIndex = new Map<string, number>();
   for (const item of evidence) {
-    if (item.source !== 'code') {
+    const key = dedupeKeyFor(item);
+    if (key === undefined) {
       selected.push(item);
       continue;
     }
-    const key = [
-      item.sourceDigest ?? item.sourceRevision ?? '',
-      item.citation,
-      item.expansionCursor ?? '',
-      String(item.expansionMaxBytes ?? ''),
-      item.content,
-    ].join('\0');
     const priorIndex = codeIndex.get(key);
     if (priorIndex === undefined) {
       codeIndex.set(key, selected.length);
@@ -156,7 +187,11 @@ export const dedupeEvidenceForDelivery = (
     const nextWeight = freshnessWeight(item.freshness) * 10
       + proofWeight(item.proofClass)
       + (item.expansionHandle === undefined ? 0 : 1);
-    if (nextWeight > priorWeight) selected[priorIndex] = item;
+    if (nextWeight > priorWeight) {
+      selected[priorIndex] = withEvidenceAliases(item, prior);
+    } else {
+      selected[priorIndex] = withEvidenceAliases(prior, item);
+    }
   }
   return selected;
 };
@@ -164,8 +199,9 @@ export const dedupeEvidenceForDelivery = (
 const suppressKnownEvidence = (
   evidence: readonly RetrievalEvidence[],
   knownEvidenceIds: readonly string[],
+  receiptMatchesBundle: boolean,
 ): readonly RetrievalEvidence[] => {
-  if (knownEvidenceIds.length === 0) return evidence;
+  if (!receiptMatchesBundle || knownEvidenceIds.length === 0) return evidence;
   const known = new Set(knownEvidenceIds);
   return evidence.map((item) => {
     if (!known.has(item.evidenceId) || item.content.length === 0) return item;
@@ -211,9 +247,16 @@ export const projectContextForDelivery = (
       return { ...sourceAwareBundle, evidence };
     })();
 
-  const bundleId = projected.bundleId ?? bundleIdentity(projected);
+  // Recompute from the projected evidence instead of trusting an upstream
+  // optional id: a caller may reuse a ContextBundle object after source bytes
+  // or delivery projection changed.
+  const bundleId = bundleIdentity(projected);
   const knownEvidenceIds = receipts.knownEvidenceIds ?? [];
-  const evidence = suppressKnownEvidence(projected.evidence, knownEvidenceIds);
+  const evidence = suppressKnownEvidence(
+    projected.evidence,
+    knownEvidenceIds,
+    receipts.knownBundleId !== undefined && receipts.knownBundleId === bundleId,
+  );
   const delivered: ContextBundle = {
     ...projected,
     bundleId,

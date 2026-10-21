@@ -77,77 +77,77 @@ export const makeGitHistoryPort = (options: GitHistoryOptions = {}): GitHistoryP
     const startedAtMs = Date.now();
     const operation = recoverResult(Effect.tryPromise<Result<readonly RetrievalEvidence[], DomainError>, DomainError>({
       try: async () => {
-      if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 20) {
-        return err(domainError('INVALID_INPUT', 'history.limit', 'history limit must be between 1 and 20'));
-      }
-      let logOutput: string;
-      try {
-        const result = await execFileAsync('git', [
-          'log',
-          '--all',
-          '--no-merges',
-          '--date-order',
-          `--max-count=${HISTORY_SCAN_LIMIT}`,
-          '--pretty=format:%x1e%H%x1f%ct%x1f%s',
-          '--name-only',
-        ], {
-          cwd: input.rootPath,
-          encoding: 'utf8',
-          maxBuffer: MAX_BUFFER_BYTES,
-        });
-        logOutput = result.stdout;
-      } catch {
-        return err(gitFailure('Git history is unavailable for this workspace'));
-      }
-
-      const terms = queryTerms(input.query);
-      const selected = parseLog(logOutput)
-        .map((summary) => ({ summary, score: rankSummary(summary, input.query, terms) }))
-        .filter((item) => terms.length === 0 || item.score > 0)
-        .sort((left, right) => right.score - left.score
-          || right.summary.timestampMs - left.summary.timestampMs)
-        .slice(0, input.limit);
-
-      const evidence: RetrievalEvidence[] = [];
-      for (const item of selected) {
-        let message: string;
+        if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 20) {
+          return err(domainError('INVALID_INPUT', 'history.limit', 'history limit must be between 1 and 20'));
+        }
+        let logOutput: string;
         try {
-          const shown = await execFileAsync('git', ['show', '-s', '--format=%B', item.summary.revision], {
+          const result = await execFileAsync('git', [
+            'log',
+            '--all',
+            '--no-merges',
+            '--date-order',
+            `--max-count=${HISTORY_SCAN_LIMIT}`,
+            '--pretty=format:%x1e%H%x1f%ct%x1f%s',
+            '--name-only',
+          ], {
             cwd: input.rootPath,
             encoding: 'utf8',
             maxBuffer: MAX_BUFFER_BYTES,
           });
-          message = shown.stdout.trim();
+          logOutput = result.stdout;
         } catch {
-          return err(gitFailure(`Git commit ${item.summary.revision} could not be read`));
+          return err(gitFailure('Git history is unavailable for this workspace'));
         }
-        const content = [
-          `commit ${item.summary.revision}`,
-          `timestamp_ms: ${item.summary.timestampMs}`,
-          'message:',
-          message.length === 0 ? item.summary.subject : message,
-          'paths:',
-          ...(item.summary.paths.length === 0 ? ['(none)'] : item.summary.paths),
-        ].join('\n');
-        const evidenceId = makeEvidenceId('history-' + createHash('sha256')
-          .update(item.summary.revision, 'utf8')
-          .update('\0', 'utf8')
-          .update(content, 'utf8')
-          .digest('hex'));
-        if (evidenceId._tag === 'Err') return evidenceId;
-        evidence.push({
-          evidenceId: evidenceId.value,
-          source: 'history',
-          citation: `git:${item.summary.revision}`,
-          content,
-          proofClass: 'direct',
-          // The commit object itself is immutable, but it is historical rather
-          // than a claim about current working-tree bytes.
-          freshness: 'unknown',
-          sourceRevision: item.summary.revision,
-          sourceTimestampMs: item.summary.timestampMs,
-        });
-      }
+
+        const terms = queryTerms(input.query);
+        const selected = parseLog(logOutput)
+          .map((summary) => ({ summary, score: rankSummary(summary, input.query, terms) }))
+          .filter((item) => terms.length === 0 || item.score > 0)
+          .sort((left, right) => right.score - left.score
+            || right.summary.timestampMs - left.summary.timestampMs)
+          .slice(0, input.limit);
+
+        const evidence: RetrievalEvidence[] = [];
+        for (const item of selected) {
+          let message: string;
+          try {
+            const shown = await execFileAsync('git', ['show', '-s', '--format=%B', item.summary.revision], {
+              cwd: input.rootPath,
+              encoding: 'utf8',
+              maxBuffer: MAX_BUFFER_BYTES,
+            });
+            message = shown.stdout.trim();
+          } catch {
+            return err(gitFailure(`Git commit ${item.summary.revision} could not be read`));
+          }
+          const content = [
+            `commit ${item.summary.revision}`,
+            `timestamp_ms: ${item.summary.timestampMs}`,
+            'message:',
+            message.length === 0 ? item.summary.subject : message,
+            'paths:',
+            ...(item.summary.paths.length === 0 ? ['(none)'] : item.summary.paths),
+          ].join('\n');
+          const evidenceId = makeEvidenceId('history-' + createHash('sha256')
+            .update(item.summary.revision, 'utf8')
+            .update('\0', 'utf8')
+            .update(content, 'utf8')
+            .digest('hex'));
+          if (evidenceId._tag === 'Err') return evidenceId;
+          evidence.push({
+            evidenceId: evidenceId.value,
+            source: 'history',
+            citation: `git:${item.summary.revision}`,
+            content,
+            proofClass: 'direct',
+            // The commit object itself is immutable, but it is historical rather
+            // than a claim about current working-tree bytes.
+            freshness: 'unknown',
+            sourceRevision: item.summary.revision,
+            sourceTimestampMs: item.summary.timestampMs,
+          });
+        }
         return ok(evidence);
       },
       catch: () => gitFailure('Git history lookup failed'),

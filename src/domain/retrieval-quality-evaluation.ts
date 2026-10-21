@@ -78,6 +78,13 @@ export interface RetrievalQualityPolicy {
   readonly maxLatencyP95Ms?: number;
   /** Release policy can require true multi-repository coverage without affecting dev fixtures. */
   readonly minRepositoryCount?: number;
+  /** Candidate quality must not regress against a same-holdout reference run. */
+  readonly nonInferiority?: {
+    readonly baselineStrategy: string;
+    readonly maxCriticalRecallAt5Regression?: number;
+    readonly maxMrrRegression?: number;
+    readonly maxNdcgAt5Regression?: number;
+  };
 }
 
 export interface RetrievalQualityVerdict {
@@ -258,6 +265,7 @@ export const evaluateRetrievalQualityPolicy = (
   metrics: RetrievalQualityMetrics,
   holdoutSha256: string,
   policy: RetrievalQualityPolicy,
+  baseline?: RetrievalQualityMetrics,
 ): Result<RetrievalQualityVerdict, DomainError> => {
   const quality = [
     policy.minRecallAt1,
@@ -281,7 +289,14 @@ export const evaluateRetrievalQualityPolicy = (
   ].filter((value): value is number => value !== undefined);
   if (!optional.every(nonNegative)
     || (policy.minRepositoryCount !== undefined
-      && (!Number.isSafeInteger(policy.minRepositoryCount) || policy.minRepositoryCount < 1))) {
+      && (!Number.isSafeInteger(policy.minRepositoryCount) || policy.minRepositoryCount < 1))
+    || (policy.nonInferiority !== undefined
+      && (policy.nonInferiority.baselineStrategy.trim().length === 0
+        || ![
+          policy.nonInferiority.maxCriticalRecallAt5Regression,
+          policy.nonInferiority.maxMrrRegression,
+          policy.nonInferiority.maxNdcgAt5Regression,
+        ].filter((value): value is number => value !== undefined).every(nonNegative)))) {
     return err(domainError('INVALID_BENCHMARK', 'retrieval_policy', 'retrieval optional limits must be non-negative and repository count must be a positive integer'));
   }
   const failures: string[] = [];
@@ -306,6 +321,26 @@ export const evaluateRetrievalQualityPolicy = (
     && metrics.latencyP95Ms > policy.maxLatencyP95Ms) failures.push('latency_p95_above_threshold');
   if (policy.minRepositoryCount !== undefined
     && metrics.repositoryCount < policy.minRepositoryCount) failures.push('repository_count_below_threshold');
+  if (policy.nonInferiority !== undefined) {
+    if (baseline === undefined) {
+      failures.push('baseline_missing');
+    } else {
+      if (baseline.strategy !== policy.nonInferiority.baselineStrategy) failures.push('baseline_strategy_mismatch');
+      if (baseline.holdoutStatus !== metrics.holdoutStatus
+        || baseline.cases !== metrics.cases
+        || baseline.repositoryCount !== metrics.repositoryCount) {
+        failures.push('baseline_holdout_mismatch');
+      }
+      const criticalTolerance = policy.nonInferiority.maxCriticalRecallAt5Regression ?? 0;
+      const mrrTolerance = policy.nonInferiority.maxMrrRegression ?? 0;
+      const ndcgTolerance = policy.nonInferiority.maxNdcgAt5Regression ?? 0;
+      if (metrics.criticalRecallAt5 < baseline.criticalRecallAt5 - criticalTolerance) {
+        failures.push('critical_recall_at_5_below_baseline');
+      }
+      if (metrics.mrr < baseline.mrr - mrrTolerance) failures.push('mrr_below_baseline');
+      if (metrics.ndcgAt5 < baseline.ndcgAt5 - ndcgTolerance) failures.push('ndcg_at_5_below_baseline');
+    }
+  }
   return ok({
     selectedStrategy: policy.selectedStrategy,
     measurementAccepted: failures.length === 0,

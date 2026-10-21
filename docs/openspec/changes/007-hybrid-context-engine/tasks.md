@@ -1,6 +1,8 @@
 # Tasks — Hybrid Context Engine completion
 
-**Current implementation baseline:** `main@5ad3649dc9696761a6f443ce2d2248e9a0fa26f7` after merged PRs #103, #106, #108, #109, #110, #111 and #112.
+**Current implementation baseline:** `main@935185a7c1f45be9b81fc379c19af8800fda2d79` after merged PRs #103, #106, #108, #109, #110, #111, #112, #116 and #118–#121.
+
+**Evidence update 2026-10-21:** H3 history, H4 portability and H5 source-aware delivery are backed by the current contract suite. The local follow-up changes are still uncommitted; the exact evidence commit must be refreshed after they are committed. H6 retrieval/agent measurements and production-provider evidence remain open.
 
 ## Already present on main
 
@@ -38,8 +40,7 @@
 - [x] Add branch + staged/unstaged/untracked/deleted path observation.
 - [x] Extend ace_context with optional focused/open path/range hints.
 - [x] Add ranking priors without weakening current-source verification.
-- [ ] Add Git-history evidence only for explicit history/why requests.  
-  **In progress:** PR #116; do not mark complete until merged green.
+- [x] Add Git-history evidence only for explicit history/why requests.
 
 ## H4 Context receipts
 
@@ -47,12 +48,12 @@
 - [x] Accept known bundle/evidence identities.
 - [x] Suppress unchanged repeated bodies while retaining exact expansion.
 - [x] Add new/reused/duplicate-avoided/expanded byte metrics.
-- [ ] Prove receipt portability across two independent MCP clients/processes, not only repeated calls within one test client.
+- [x] Prove receipt portability across two independent MCP clients/processes, including unchanged, changed, unknown and stale receipts; exact expansion remains covered by the MCP contract suite.
 
 ## H5 Context assembly
 
 - [x] Use ast-grep structural metadata/outlines as compact locate-mode navigation evidence.
-- [ ] Add source-aware evidence dedupe/selection so overlapping code snippets are not repeatedly delivered.
+- [x] Add one source-aware delivery dedupe path for identical digest-verified code spans; preserve aliases/provenance, source classes, conflicts, freshness and completeness.
 - [x] Preserve explicit code/docs/memory conflict semantics and required-source completeness.
 
 ## H6 Evaluation

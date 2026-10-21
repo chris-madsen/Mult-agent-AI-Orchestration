@@ -135,6 +135,59 @@ test('predeclared retrieval policy accepts only the selected strategy on the exa
   }
 });
 
+test('non-inferiority gate compares critical recall, MRR and nDCG to dense-only baseline', () => {
+  const candidateMetrics = evaluateRetrievalStrategy(holdout, run);
+  const baselineMetrics = evaluateRetrievalStrategy(holdout, { ...run, strategy: 'dense' });
+  assert.equal(candidateMetrics._tag, 'Ok');
+  assert.equal(baselineMetrics._tag, 'Ok');
+  if (candidateMetrics._tag === 'Err' || baselineMetrics._tag === 'Err') return;
+
+  const nonInferiorityPolicy: RetrievalQualityPolicy = {
+    ...policy,
+    nonInferiority: { baselineStrategy: 'dense' },
+  };
+  const accepted = evaluateRetrievalQualityPolicy(
+    candidateMetrics.value,
+    holdoutSha,
+    nonInferiorityPolicy,
+    baselineMetrics.value,
+  );
+  assert.equal(accepted._tag, 'Ok');
+  if (accepted._tag === 'Ok') assert.equal(accepted.value.measurementAccepted, true);
+
+  const degradedMetrics = evaluateRetrievalStrategy(holdout, {
+    ...run,
+    strategy: 'hybrid_rrf',
+    observations: run.observations.map((item) => ({
+      ...item,
+      retrievedCandidateIds: ['x', 'y', 'z'],
+    })),
+  });
+  assert.equal(degradedMetrics._tag, 'Ok');
+  if (degradedMetrics._tag === 'Err') return;
+  const rejected = evaluateRetrievalQualityPolicy(
+    degradedMetrics.value,
+    holdoutSha,
+    nonInferiorityPolicy,
+    baselineMetrics.value,
+  );
+  assert.equal(rejected._tag, 'Ok');
+  if (rejected._tag === 'Ok') {
+    assert.equal(rejected.value.measurementAccepted, false);
+    assert.ok(rejected.value.failures.includes('critical_recall_at_5_below_baseline'));
+    assert.ok(rejected.value.failures.includes('mrr_below_baseline'));
+    assert.ok(rejected.value.failures.includes('ndcg_at_5_below_baseline'));
+  }
+
+  const missingBaseline = evaluateRetrievalQualityPolicy(
+    candidateMetrics.value,
+    holdoutSha,
+    nonInferiorityPolicy,
+  );
+  assert.equal(missingBaseline._tag, 'Ok');
+  if (missingBaseline._tag === 'Ok') assert.ok(missingBaseline.value.failures.includes('baseline_missing'));
+});
+
 test('quality, critical recall, compactness and latency regressions are separately visible', () => {
   const degraded = evaluateRetrievalStrategy(holdout, {
     ...run,

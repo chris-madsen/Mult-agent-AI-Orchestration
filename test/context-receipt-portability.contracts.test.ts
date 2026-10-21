@@ -25,7 +25,17 @@ const base: ContextBundle = {
   complete: true,
 };
 
-const makeStatelessServer = () => createAceServer({
+const changedBase: ContextBundle = {
+  ...base,
+  evidence: [{
+    ...evidence,
+    citation: 'src/stable.ts:1-2',
+    content: 'export function stableEvidence() { return 43; }',
+    sourceDigest: 'b'.repeat(64) as RetrievalEvidence['sourceDigest'],
+  }],
+};
+
+const makeStatelessServer = (bundle: ContextBundle = base) => createAceServer({
   handle: (call) => {
     const args = call.arguments as {
       intent?: string;
@@ -33,7 +43,7 @@ const makeStatelessServer = () => createAceServer({
       known_evidence_ids?: readonly string[];
     };
     const projected = projectContextForDelivery(
-      base,
+      bundle,
       args.intent === 'inspect' ? 'inspect' : 'locate',
       {
         ...(args.known_bundle_id === undefined ? {} : { knownBundleId: args.known_bundle_id }),
@@ -45,11 +55,14 @@ const makeStatelessServer = () => createAceServer({
 });
 
 const callContext = async (
-  knownBundleId?: string,
-  knownEvidenceIds?: readonly string[],
+  options: {
+    readonly bundle?: ContextBundle;
+    readonly knownBundleId?: string;
+    readonly knownEvidenceIds?: readonly string[];
+  } = {},
 ): Promise<ContextBundle> => {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const server = makeStatelessServer();
+  const server = makeStatelessServer(options.bundle);
   const client = new Client({ name: 'portable-receipt-client', version: '1.0.0' });
   await server.connect(serverTransport);
   try {
@@ -60,8 +73,8 @@ const callContext = async (
         workspace_id: 'portable-workspace',
         query: 'find stable evidence',
         intent: 'inspect',
-        ...(knownBundleId === undefined ? {} : { known_bundle_id: knownBundleId }),
-        ...(knownEvidenceIds === undefined ? {} : { known_evidence_ids: knownEvidenceIds }),
+        ...(options.knownBundleId === undefined ? {} : { known_bundle_id: options.knownBundleId }),
+        ...(options.knownEvidenceIds === undefined ? {} : { known_evidence_ids: options.knownEvidenceIds }),
         working_context: {
           focused_path: 'src/stable.ts',
           open_paths: ['src/stable.ts'],
@@ -79,13 +92,15 @@ const callContext = async (
 
 test('stable evidence receipts survive independent MCP client/server instances', async () => {
   const first = await callContext();
-  assert.match(first.bundleId ?? '', /^[a-f0-9]{64}$/u);
+  const firstBundleId = first.bundleId;
+  assert.match(firstBundleId ?? '', /^[a-f0-9]{64}$/u);
   assert.equal(first.evidence[0]?.content, body);
+  if (firstBundleId === undefined) throw new Error('first response did not include a bundle id');
 
-  const second = await callContext(
-    first.bundleId,
-    first.evidence.map((item) => String(item.evidenceId)),
-  );
+  const second = await callContext({
+    knownBundleId: firstBundleId,
+    knownEvidenceIds: first.evidence.map((item) => String(item.evidenceId)),
+  });
 
   assert.equal(second.bundleId, first.bundleId);
   assert.equal(second.supersedesBundleId, first.bundleId);
@@ -94,4 +109,30 @@ test('stable evidence receipts survive independent MCP client/server instances',
   assert.equal(second.deliveryMetrics?.reusedContextBytes, Buffer.byteLength(body));
   assert.equal(second.deliveryMetrics?.duplicateContextBytesAvoided, Buffer.byteLength(body));
   assert.equal(second.deliveryMetrics?.newContextBytes, 0);
+});
+
+test('changed digest, range, and content are delivered as new evidence', async () => {
+  const first = await callContext();
+  const firstBundleId = first.bundleId;
+  if (firstBundleId === undefined) throw new Error('first response did not include a bundle id');
+  const changed = await callContext({
+    bundle: changedBase,
+    knownBundleId: firstBundleId,
+    knownEvidenceIds: first.evidence.map((item) => String(item.evidenceId)),
+  });
+
+  assert.notEqual(changed.bundleId, first.bundleId);
+  assert.equal(changed.evidence[0]?.content, changedBase.evidence[0]?.content);
+  assert.notEqual(changed.evidence[0]?.contentDelivery, 'known_reference');
+  assert.equal(changed.deliveryMetrics?.reusedContextBytes, 0);
+});
+
+test('unknown or stale receipts never suppress current evidence', async () => {
+  const delivered = await callContext({
+    knownBundleId: 'not-a-current-bundle',
+    knownEvidenceIds: [String(evidence[0]?.evidenceId)],
+  });
+
+  assert.equal(delivered.evidence[0]?.content, body);
+  assert.notEqual(delivered.evidence[0]?.contentDelivery, 'known_reference');
 });

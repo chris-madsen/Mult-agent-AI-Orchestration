@@ -111,17 +111,19 @@ Before looking at the final holdout outcomes, create a policy containing:
 
 Threshold values are not defined by this runbook; they must be chosen before the final holdout result is inspected.
 
-Then run:
+For the final candidate gate, pass the dense-only reference run as the fifth
+argument when the policy declares `nonInferiority.baselineStrategy`:
 
 ```bash
 npm run gate:retrieval-quality -- \
   benchmarks/retrieval/<frozen-holdout>.json \
   /path/to/selected-strategy-run.json \
   /path/to/predeclared-policy.json \
-  benchmarks/reports/retrieval-quality-verdict.json
+  benchmarks/reports/retrieval-quality-verdict.json \
+  /path/to/dense-only-baseline-run.json
 ```
 
-A run cannot silently substitute the development fixture: both exact SHA-256 and declared holdout status are checked.
+A run cannot silently substitute the development fixture: both exact SHA-256 and declared holdout status are checked. When `nonInferiority` is declared, the gate fails closed if the baseline is missing, names a different strategy, has a different case/repository shape, or if critical Recall@5, MRR or nDCG@5 regresses beyond the predeclared tolerance. Compactness and latency are considered only after this quality gate.
 
 ## What Codex still needs to run
 
