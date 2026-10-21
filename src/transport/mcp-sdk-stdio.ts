@@ -68,6 +68,16 @@ export const createAceServer = (gateway: McpGatewayLike): McpServer => {
       include_docs: z.boolean().optional(),
       include_memory: z.boolean().optional(),
       include_history: z.boolean().optional(),
+      known_bundle_id: z.string().min(1).optional(),
+      known_evidence_ids: z.string().min(1).array().max(1000).optional(),
+      working_context: z.object({
+        focused_path: z.string().min(1).optional(),
+        open_paths: z.string().min(1).array().max(100).optional(),
+        focused_range: z.object({
+          start_line: z.number().int().positive(),
+          end_line: z.number().int().positive(),
+        }).strict().optional(),
+      }).strict().optional(),
       source_obligations: z.object({
         required: z.enum(['code', 'structural', 'lsp', 'documentation', 'memory', 'history']).array().optional(),
         optional: z.enum(['code', 'structural', 'lsp', 'documentation', 'memory', 'history']).array().optional(),
