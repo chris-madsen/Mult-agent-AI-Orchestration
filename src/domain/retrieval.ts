@@ -48,6 +48,8 @@ export interface CodeCandidate {
 
 export type CandidateFreshness = 'current' | 'stale' | 'changed_during_request' | 'unknown';
 
+export type CodeRetrievalStrategy = 'dense' | 'sparse' | 'hybrid_rrf';
+
 export interface RankedCandidate {
   readonly candidate: CodeCandidate;
   readonly score: number;
