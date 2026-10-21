@@ -7,6 +7,7 @@ export type CandidateId = string & { readonly __brand: 'CandidateId' };
 export type RequestId = string & { readonly __brand: 'RetrievalRequestId' };
 export type Generation = number & { readonly __brand: 'IndexGeneration' };
 export type EvidenceId = string & { readonly __brand: 'EvidenceId' };
+export type BundleId = string & { readonly __brand: 'ContextBundleId' };
 
 export interface SourceRange {
   readonly startLine: number;
@@ -108,8 +109,10 @@ export interface RetrievalEvidence {
   /** A provider-supplied claim topic; absence means no conflict inference. */
   readonly conflictKey?: string;
   readonly conflictValue?: string;
-  /** An outline, not a truncated claim: full original bytes remain available. */
-  readonly contentDelivery?: 'expand';
+  /** An outline/reference, not a truncated claim: full original bytes remain available when a handle exists. */
+  readonly contentDelivery?: 'expand' | 'known_reference';
+  /** Original body bytes suppressed because the caller presented this stable evidence receipt. */
+  readonly reusedContentBytes?: number;
   readonly originalSpanLines?: number;
   /** Handle for authorized, byte-exact full-source expansion via ace_expand. */
   readonly expansionHandle?: string;
@@ -129,6 +132,10 @@ export interface RetrievalConflict {
 
 export interface ContextBundle {
   readonly requestId: RequestId;
+  /** Stable identity of query + evidence receipts; portable across MCP clients. */
+  readonly bundleId?: BundleId;
+  /** Caller-supplied prior bundle this response logically supersedes. */
+  readonly supersedesBundleId?: BundleId;
   readonly query: string;
   readonly evidence: readonly RetrievalEvidence[];
   readonly warnings: readonly string[];
@@ -147,6 +154,12 @@ export interface ContextDeliveryMetrics {
   readonly structuredContentBytes: number;
   readonly uniqueContentBytes: number;
   readonly duplicateContentBytes: number;
+  /** Bytes actually sent as evidence bodies after known-evidence suppression. */
+  readonly newContextBytes: number;
+  /** Bytes intentionally omitted because the client supplied stable evidence receipts. */
+  readonly reusedContextBytes: number;
+  readonly duplicateContextBytesAvoided: number;
+  readonly uniqueEvidenceCount: number;
   readonly expansionBytesAvailable: number;
   readonly expansionHandleCount: number;
 }
