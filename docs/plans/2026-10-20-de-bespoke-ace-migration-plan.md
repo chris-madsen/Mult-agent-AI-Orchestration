@@ -1,3 +1,5 @@
+> **Status update — 2026-10-21:** PR #94 implemented the core de-bespoke migrations: ast-grep production structure, generic LSP, Qdrant immutable collections/atomic alias publication, content-addressed vector reuse, deletion of filesystem snapshot/lease/caches, request-time reconciliation and explicit source obligations. This plan is now historical migration guidance. **Current next-step plan:** [2026-10-21-cursor-like-hybrid-context-completion-plan.md](2026-10-21-cursor-like-hybrid-context-completion-plan.md).
+
 # ACE de-bespoke migration plan — replace custom infrastructure with maintained engines
 
 **Date:** 2026-10-20  
