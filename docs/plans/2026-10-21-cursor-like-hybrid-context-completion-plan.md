@@ -24,7 +24,7 @@
 
 **Purpose:** install and actually use the [official Fission-AI/OpenSpec OPSX Codex skills](https://github.com/Fission-AI/OpenSpec) for the *existing* ACE spec-driven workflow, not invent a second spec framework or a new ACE agent orchestration layer. This is an **implementation task for Codex**, not evidence that skills are already installed. Run it as one narrow tooling/migration PR **before** using the workflow for the H6 follow-up PR E–H above. Do not mix an OpenSpec migration with retrieval/benchmark changes.
 
-### Mandatory as-built audit and non-destructive safety gate — **BEFORE** migration, init or apply
+### Non-destructive safety gate — install first, audit each affected capability before apply
 
 **Verified risk in ACE's existing specs (2026-10-21, static inspection):** the active tree contains changes 001–007, but its Markdown is **not a complete current as-built inventory**. In `007`, the short delta spec covers broad hybrid/receipt/quality behavior without the concrete H6 runtime provenance, external Harbor byte-binding, cross-process receipt and trace controls added by PRs #124–#134. Earlier `003` still describes legacy Tree-sitter/LSP selection scenarios, and `docs/openspec/config.yaml` has stale provider/context statements. The OpenSpec README still calls these "five changes" while listing seven. Do **not** assume every accepted shipped behavior or regression test is in `spec.md`.
 
@@ -38,7 +38,7 @@
 - **Allowlist and change review for every apply:** specify the one approved task, precise allowed files (and expected additions), tests and invariants to preserve before invoking Codex; mark all non-task files read-only. Require prior owner approval for any deletion, rename, contract removal or test weakening. On completion inspect `git diff --name-status`, `git diff --check`, all changed code, unit/contract tests and `npm run verify:pr`. Any unexpected removed source/test/config/spec path means **STOP/REJECT the PR**, not an automatic correction. Do not run outside the branch/isolated worktree.
 - **Protection must survive the migration:** retain historical changes and source files in Git history, keep canonical spec IDs and frozen holdouts, and never let `sync` or `archive` erase non-modeled as-built functionality. The intended result is to **bring approved specs up to date with shipped code**, not automatically roll back code to stale specs.
 
-**Gate:** No root migration, skill initialization, `apply`, `sync` or `archive` until the current-code-to-001–007 coverage matrix and all expected file operations have been approved. A docs-only, read-only gap report may proceed immediately. A generic "OpenSpec validate passed" is **not proof** that its specs enumerate every implemented behavior.
+**Gate:** Root migration and skill initialization require a reversible Git snapshot, inventory of the seven existing changes, and review of anticipated filesystem changes. They do not require documenting every line of ACE. Before `apply`, `sync`, or `archive`, require the *affected capability's* reviewed source/test/spec matrix and approved delta. A generic "OpenSpec validate passed" is not proof that all implemented behavior is modeled.
 
 ### Incremental brownfield spec recovery from implemented ACE code
 
