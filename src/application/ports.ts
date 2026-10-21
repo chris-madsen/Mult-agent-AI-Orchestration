@@ -72,12 +72,16 @@ export interface CodePoint {
   readonly embeddingKey?: string;
 }
 
+export type CodeRetrievalMode = 'dense' | 'sparse' | 'hybrid';
+
 export interface CodeCandidatePort {
   readonly search: (input: {
     readonly workspaceId: WorkspaceId;
     readonly vector: readonly number[];
     /** Original query text for sparse/BM25 retrieval. When present, the Qdrant adapter performs hybrid fusion. */
     readonly queryText?: string;
+    /** Explicit only for evaluation/ablation; production callers normally use hybrid by providing queryText. */
+    readonly mode?: CodeRetrievalMode;
     readonly limit: number;
     /** Per-branch candidate depth before fusion; defaults to a bounded multiple of limit. */
     readonly prefetchLimit?: number;
