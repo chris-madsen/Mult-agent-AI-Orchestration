@@ -2,7 +2,7 @@ import type { RouteSource } from './routing.js';
 import { domainError, type DomainError } from './errors.js';
 import { err, ok, type Result } from './result.js';
 
-export type ContextSource = 'code' | 'structural' | 'lsp' | 'documentation' | 'memory';
+export type ContextSource = 'code' | 'structural' | 'lsp' | 'documentation' | 'memory' | 'history';
 export type SourceRequirement = 'required' | 'optional' | 'not_requested';
 export type SourceCoverageStatus = 'satisfied' | 'partial' | 'empty' | 'unavailable' | 'denied' | 'not_requested';
 
@@ -25,6 +25,8 @@ export interface SourceRequirements {
   readonly lsp?: SourceRequest;
   readonly documentation: SourceRequest;
   readonly memory: SourceRequest;
+  /** Optional for backward compatibility with pre-history callers. */
+  readonly history?: SourceRequest;
 }
 
 /**
@@ -41,14 +43,16 @@ export interface SourceRequestOverrides {
   readonly includeCode?: boolean;
   readonly includeDocs?: boolean;
   readonly includeMemory?: boolean;
+  readonly includeHistory?: boolean;
 }
 
-const sourceNames: readonly ContextSource[] = ['code', 'structural', 'lsp', 'documentation', 'memory'];
+const sourceNames: readonly ContextSource[] = ['code', 'structural', 'lsp', 'documentation', 'memory', 'history'];
 
 const sourceOverride = (source: ContextSource, overrides: SourceRequestOverrides): boolean => {
   if (source === 'code' || source === 'structural' || source === 'lsp') return overrides.includeCode !== false;
   if (source === 'documentation') return overrides.includeDocs !== false;
-  return overrides.includeMemory !== false;
+  if (source === 'memory') return overrides.includeMemory !== false;
+  return overrides.includeHistory !== false;
 };
 
 const invalidObligations = (message: string): Result<never, DomainError> =>
@@ -80,7 +84,12 @@ export const resolveExplicitSourceRequirements = (
   }
   const requiredSet = new Set(required);
   const optionalSet = new Set(optional);
-  return ok(Object.fromEntries(sourceNames.map((source) => [source, {
+  const activeSources = sourceNames.filter((source) =>
+    source !== 'history'
+      || requiredSet.has(source)
+      || optionalSet.has(source)
+      || overrides.includeHistory !== undefined);
+  return ok(Object.fromEntries(activeSources.map((source) => [source, {
     requirement: requiredSet.has(source)
       ? 'required'
       : optionalSet.has(source) ? 'optional' : 'not_requested',
@@ -118,6 +127,9 @@ export const resolveSourceRequirements = (
     lsp,
     documentation: requestFor(routeSources.includes('documentation'), overrides.includeDocs),
     memory: requestFor(routeSources.includes('memory'), overrides.includeMemory),
+    ...(overrides.includeHistory === true
+      ? { history: requestFor(false, true) }
+      : {}),
   };
 };
 
