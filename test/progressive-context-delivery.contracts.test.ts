@@ -246,3 +246,35 @@ test('unknown evidence receipts do not suppress any verified body', () => {
   assert.deepEqual(delivered.evidence.map((item) => item.content), bodies);
   assert.equal(delivered.deliveryMetrics?.reusedContextBytes, 0);
 });
+
+
+test('source-aware delivery collapses duplicate code spans but preserves independent cross-source provenance', () => {
+  const canonical = evidence[0] as RetrievalEvidence;
+  const uncertainDuplicate: RetrievalEvidence = {
+    ...canonical,
+    evidenceId: 'duplicate-code-hit' as RetrievalEvidence['evidenceId'],
+    proofClass: 'uncertain',
+    expansionHandle: undefined,
+  };
+  const documentation: RetrievalEvidence = {
+    evidenceId: 'matching-doc' as RetrievalEvidence['evidenceId'],
+    source: 'documentation',
+    citation: 'docs/handler.md',
+    content: canonical.content,
+    sourceDigest: canonical.sourceDigest,
+    freshness: 'current',
+    proofClass: 'derived',
+  };
+  const delivered = projectContextForDelivery({
+    ...bundle,
+    evidence: [uncertainDuplicate, canonical, documentation],
+  }, 'inspect');
+
+  assert.equal(delivered.evidence.length, 2);
+  assert.equal(delivered.evidence[0]?.evidenceId, canonical.evidenceId);
+  assert.equal(delivered.evidence[0]?.proofClass, 'direct');
+  assert.equal(delivered.evidence[0]?.expansionHandle, canonical.expansionHandle);
+  assert.equal(delivered.evidence[1]?.source, 'documentation');
+  assert.equal(delivered.evidence[1]?.content, canonical.content);
+  assert.equal(delivered.deliveryMetrics?.uniqueEvidenceCount, 2);
+});
