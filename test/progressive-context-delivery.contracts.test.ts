@@ -64,6 +64,7 @@ test('locate mode progressively delivers source map instead of six complete bodi
   assert.ok((projected.deliveryMetrics?.structuredContentBytes ?? Number.MAX_SAFE_INTEGER) < originalBytes / 3);
   assert.ok((projected.deliveryMetrics?.duplicateContentBytes ?? -1) >= 0);
   assert.equal(projected.deliveryMetrics?.expansionHandleCount, 6);
+  assert.ok((projected.deliveryMetrics?.projectionBytesAvoided ?? -1) > 0);
   assert.ok(
     Buffer.byteLength(projected.evidence[2]?.content ?? '') < Buffer.byteLength(bodies[2] ?? ''),
     'ast-grep outline metadata must be cheaper than resending the verified body',
@@ -75,6 +76,32 @@ test('inspect mode preserves the exact verified snippet bodies and original file
   assert.deepEqual(inspected.evidence, bundle.evidence);
   assert.equal(inspected.deliveryMetrics?.initialEvidenceBytes, bodies.reduce((total, body) => total + Buffer.byteLength(body), 0));
   assert.equal(inspected.evidence[3]?.content, bodies[3]);
+  assert.equal(inspected.deliveryMetrics?.projectionBytesAvoided, 0);
+});
+
+test('delivery metrics do not call distinct same-file spans duplicates', () => {
+  const sharedDigest = createHash('sha256').update('complete-file').digest('hex') as never;
+  const firstSpan = { ...evidence[0] as RetrievalEvidence, sourceDigest: sharedDigest, citation: 'src/shared.ts:1-3' };
+  const secondSpan = { ...evidence[1] as RetrievalEvidence, sourceDigest: sharedDigest, citation: 'src/shared.ts:5-7' };
+  const delivered = projectContextForDelivery({ ...bundle, evidence: [firstSpan, secondSpan] }, 'inspect');
+  assert.equal(delivered.deliveryMetrics?.duplicateContentBytes, 0);
+  assert.equal(
+    delivered.deliveryMetrics?.uniqueContentBytes,
+    Buffer.byteLength(firstSpan.content) + Buffer.byteLength(secondSpan.content),
+  );
+});
+
+test('delivery metrics count only exact repeated bodies as in-bundle duplicates', () => {
+  const repeated = {
+    ...evidence[0] as RetrievalEvidence,
+    evidenceId: 'repeated' as RetrievalEvidence['evidenceId'],
+    citation: 'src/module-0.ts:200-202',
+  };
+  const delivered = projectContextForDelivery({ ...bundle, evidence: [evidence[0] as RetrievalEvidence, repeated] }, 'inspect');
+  assert.equal(delivered.deliveryMetrics?.uniqueContentBytes, Buffer.byteLength(repeated.content));
+  assert.equal(delivered.deliveryMetrics?.duplicateContentBytes, Buffer.byteLength(repeated.content));
+  assert.equal(delivered.deliveryMetrics?.reusedContextBytes, 0);
+  assert.equal(delivered.deliveryMetrics?.projectionBytesAvoided, 0);
 });
 
 test('MCP navigation text is not another full JSON copy and gives actionable exact-expansion references', () => {
