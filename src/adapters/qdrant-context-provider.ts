@@ -25,6 +25,7 @@ import type {
   ProviderTraceSink,
   RerankerPort,
   SemanticAnalysisPort,
+  SparseEmbeddingPort,
   VectorEmbeddingPort,
   WorkspaceFilePort,
 } from '../application/ports.js';
@@ -45,7 +46,10 @@ import {
   sourceIsRequested,
   type SourceRequirements,
 } from '../domain/source-coverage.js';
-import { validateLocalQdrantBaseUrl } from './http-provider-boundaries.js';
+import {
+  qdrantLexicalTextForCandidate,
+  validateLocalQdrantBaseUrl,
+} from './http-provider-boundaries.js';
 import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
 import {
   diffWorkspaceManifests,
@@ -61,6 +65,8 @@ export interface QdrantContextConfig {
   readonly files: WorkspaceFilePort;
   readonly qdrant: CodeCandidatePort;
   readonly embeddings: VectorEmbeddingPort;
+  /** Client-side sparse embeddings are mandatory for sparse/hybrid self-hosted Qdrant queries. */
+  readonly sparseEmbeddings?: SparseEmbeddingPort;
   readonly artifacts: ArtifactStore;
   readonly semantics: SemanticAnalysisPort;
   readonly newRequestId: () => string;
@@ -177,6 +183,7 @@ export const populateQdrantFromStructuralIndex = (
   indexKey?: string,
   seedVectors: ReadonlyMap<string, readonly number[]> = new Map(),
   embeddingProviderIdentity?: string,
+  sparseEmbeddings?: SparseEmbeddingPort,
 ): Effect.Effect<Result<number, DomainError>> => Effect.gen(function* () {
   if (index.candidates.length === 0) {
     return err(domainError('UNSUPPORTED_PROVIDER', 'index', 'no verified structural candidates available for Qdrant'));
@@ -196,14 +203,31 @@ export const populateQdrantFromStructuralIndex = (
       return err(domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'embedding batch size mismatch'));
     }
     const generated = new Map(missing.map((candidate, vectorIndex) => [candidate.candidateId, embedded.value[vectorIndex] ?? []] as const));
+    const sparse = sparseEmbeddings === undefined
+      ? ok<readonly import('../application/ports.js').SparseVector[], DomainError>([])
+      : yield* sparseEmbeddings.embedDocuments(candidates.map(qdrantLexicalTextForCandidate));
+    if (sparse._tag === 'Err') return sparse;
+    if (sparseEmbeddings !== undefined && sparse.value.length !== candidates.length) {
+      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'sparse_embedding', 'sparse embedding batch size mismatch'));
+    }
     const points: CodePoint[] = [];
-    for (const candidate of candidates) {
+    for (const [candidateIndex, candidate] of candidates.entries()) {
       const embeddingKey = keyFor(candidate);
       const vector = seedVectors.get(embeddingKey) ?? generated.get(candidate.candidateId);
       if (vector === undefined || vector.length === 0 || !vector.every((value) => Number.isFinite(value))) {
         return err(domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'candidate is missing a valid vector'));
       }
-      points.push({ candidate, vector, ...(indexKey === undefined ? {} : { indexKey }), embeddingKey });
+      const sparseVector = sparseEmbeddings === undefined ? undefined : sparse.value[candidateIndex];
+      if (sparseEmbeddings !== undefined && sparseVector === undefined) {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'sparse_embedding', 'candidate is missing a sparse vector'));
+      }
+      points.push({
+        candidate,
+        vector,
+        ...(sparseVector === undefined ? {} : { sparseVector }),
+        ...(indexKey === undefined ? {} : { indexKey }),
+        embeddingKey,
+      });
     }
     const result = yield* qdrant.upsert(points);
     if (result._tag === 'Err') return result;
@@ -794,6 +818,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
       if (includeCode) {
         const retrievalStrategy = activeConfig.retrievalStrategy ?? 'hybrid_rrf';
         let vector: readonly number[] | undefined;
+        let sparseVector: import('../application/ports.js').SparseVector | undefined;
         if (retrievalStrategy !== 'sparse') {
           const vectors = yield* activeConfig.embeddings.embedMany([input.query], requestId.value);
           if (vectors._tag === 'Err') {
@@ -802,6 +827,25 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
             vector = vectors.value[0];
             if (vector === undefined) {
               codeProviderError = domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'empty query vector');
+            }
+          }
+        }
+        if (codeProviderError === undefined && retrievalStrategy !== 'dense') {
+          if (activeConfig.sparseEmbeddings === undefined) {
+            codeProviderError = domainError(
+              'NOT_READY',
+              'sparse_embedding',
+              `${retrievalStrategy} retrieval requires the verified local sparse embedding provider`,
+            );
+          } else {
+            const sparse = yield* activeConfig.sparseEmbeddings.embedQueries([input.query], requestId.value);
+            if (sparse._tag === 'Err') {
+              codeProviderError = sparse.error;
+            } else {
+              sparseVector = sparse.value[0];
+              if (sparseVector === undefined) {
+                codeProviderError = domainError('INVALID_EXTERNAL_RESPONSE', 'sparse_embedding', 'empty sparse query vector');
+              }
             }
           }
         }
@@ -821,6 +865,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
           const result = yield* activeConfig.qdrant.search({
             workspaceId: input.workspaceId,
             ...(vector === undefined ? {} : { vector }),
+            ...(sparseVector === undefined ? {} : { sparseVector }),
             queryText: input.query,
             strategy: retrievalStrategy,
             limit: retrievalLimit,
