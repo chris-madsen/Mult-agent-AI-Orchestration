@@ -3,10 +3,11 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Effect } from 'effect';
 import { recoverResult } from '../application/effect-result.js';
-import type { GitHistoryPort } from '../application/ports.js';
+import type { GitHistoryPort, ProviderTraceSink } from '../application/ports.js';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { makeEvidenceId, type RetrievalEvidence } from '../domain/retrieval.js';
 import { err, ok, type Result } from '../domain/result.js';
+import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
 
 const execFileAsync = promisify(execFile);
 const HISTORY_SCAN_LIMIT = 200;
@@ -66,9 +67,16 @@ const rankSummary = (summary: CommitSummary, query: string, terms: readonly stri
 const gitFailure = (message: string): DomainError =>
   domainError('EXTERNAL_UNAVAILABLE', 'git_history', message);
 
-export const makeGitHistoryPort = (): GitHistoryPort => ({
-  search: (input) => recoverResult(Effect.tryPromise<Result<readonly RetrievalEvidence[], DomainError>, DomainError>({
-    try: async () => {
+export interface GitHistoryOptions {
+  readonly trace?: ProviderTraceSink;
+  readonly providerVersion?: string;
+}
+
+export const makeGitHistoryPort = (options: GitHistoryOptions = {}): GitHistoryPort => ({
+  search: (input) => {
+    const startedAtMs = Date.now();
+    const operation = recoverResult(Effect.tryPromise<Result<readonly RetrievalEvidence[], DomainError>, DomainError>({
+      try: async () => {
       if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 20) {
         return err(domainError('INVALID_INPUT', 'history.limit', 'history limit must be between 1 and 20'));
       }
@@ -140,8 +148,21 @@ export const makeGitHistoryPort = (): GitHistoryPort => ({
           sourceTimestampMs: item.summary.timestampMs,
         });
       }
-      return ok(evidence);
-    },
-    catch: () => gitFailure('Git history lookup failed'),
-  })),
+        return ok(evidence);
+      },
+      catch: () => gitFailure('Git history lookup failed'),
+    }));
+    return Effect.map(operation, (result) => {
+      providerTraceEvent(options.trace ?? noopProviderTrace, {
+        provider: 'git_history',
+        providerVersion: options.providerVersion ?? 'git/cli',
+        operation: 'log_show',
+        status: result._tag === 'Ok' ? 'success' : 'failure',
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
+        ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
+      });
+      return result;
+    });
+  },
 });
