@@ -5,7 +5,7 @@
   "description": "Adaptive Context Engine foundation",
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/generate-runtime-provenance.mjs",
     "mcp:stdio": "npm run build && node dist/bin/ace-mcp.js",
     "check": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src test --ext .ts --max-warnings=0",

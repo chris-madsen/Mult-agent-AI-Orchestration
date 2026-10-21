@@ -18,6 +18,7 @@ const requestContext = async (workspaceId: string, environment: Record<string, s
     cwd: process.cwd(),
     env: {
       ...process.env,
+      ACE_ALLOW_SOURCE_RUNTIME: 'true',
       ...environment,
     },
     stdio: ['pipe', 'pipe', 'pipe'],

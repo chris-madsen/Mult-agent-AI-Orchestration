@@ -313,6 +313,7 @@ const runRepositoryStrategy = async (
   const runtimeArgs = existsSync(join(runtimeRoot, 'dist', 'bin', 'ace-mcp.js'))
     ? ['dist/bin/ace-mcp.js']
     : ['--import', 'tsx', 'src/bin/ace-mcp.ts'];
+  if (runtimeArgs[0] === '--import') env.ACE_ALLOW_SOURCE_RUNTIME = 'true';
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: runtimeArgs,
