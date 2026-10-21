@@ -8,6 +8,7 @@ import {
   makeRequestId,
   mergeEvidence,
   type CodeIndex,
+  type CodeRetrievalStrategy,
   type ContextBundle,
   type IndexCoverageSummary,
   type IndexFileIdentity,
@@ -68,6 +69,8 @@ export interface QdrantContextConfig {
   readonly documentation?: DocumentationPort;
   readonly memory?: MemorySearchPort;
   readonly candidateLimit?: number;
+  /** Production default is hybrid; explicit alternatives exist for controlled ablation. */
+  readonly retrievalStrategy?: CodeRetrievalStrategy;
   /** Optional evidence-gated cross-encoder stage after Qdrant RRF fusion. */
   readonly reranker?: RerankerPort;
   /** Optional falls back to fused ranking on outage; required fails the code branch closed. */
@@ -789,91 +792,97 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
       let rankedResults: readonly RankedCandidate[] = [];
       let lspConfirmedCount = 0;
       if (includeCode) {
-        const vectors = yield* activeConfig.embeddings.embedMany([input.query], requestId.value);
-        if (vectors._tag === 'Err') {
-          codeProviderError = vectors.error;
-        } else {
-          const vector = vectors.value[0];
-          if (vector === undefined) {
-            codeProviderError = domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'empty query vector');
+        const retrievalStrategy = activeConfig.retrievalStrategy ?? 'hybrid_rrf';
+        let vector: readonly number[] | undefined;
+        if (retrievalStrategy !== 'sparse') {
+          const vectors = yield* activeConfig.embeddings.embedMany([input.query], requestId.value);
+          if (vectors._tag === 'Err') {
+            codeProviderError = vectors.error;
           } else {
-            const deliveryLimit = activeConfig.candidateLimit ?? 6;
-            const hasWorkingPrior = input.workingContextHints !== undefined
-              || (requestWorkingContext !== undefined
-                && (requestWorkingContext.stagedPaths.length > 0
-                  || requestWorkingContext.unstagedPaths.length > 0
-                  || requestWorkingContext.untrackedPaths.length > 0));
-            const rerankerEnabled = activeConfig.reranker !== undefined;
-            const rerankerCandidateLimit = activeConfig.rerankerCandidateLimit
-              ?? Math.min(50, Math.max(deliveryLimit, deliveryLimit * 4));
-            const retrievalLimit = rerankerEnabled
-              ? rerankerCandidateLimit
-              : hasWorkingPrior ? Math.min(20, deliveryLimit * 2) : deliveryLimit;
-            const result = yield* activeConfig.qdrant.search({
-              workspaceId: input.workspaceId,
-              vector,
-              queryText: input.query,
-              limit: retrievalLimit,
-              ...(activeConfig.generation === undefined ? {} : { generation: activeConfig.generation }),
-              ...(activeConfig.indexKey === undefined ? {} : { indexKey: activeConfig.indexKey }),
-              requestId: requestId.value,
-            });
-            if (result._tag === 'Err') {
-              codeProviderError = result.error;
+            vector = vectors.value[0];
+            if (vector === undefined) {
+              codeProviderError = domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'empty query vector');
+            }
+          }
+        }
+        if (codeProviderError === undefined) {
+          const deliveryLimit = activeConfig.candidateLimit ?? 6;
+          const hasWorkingPrior = input.workingContextHints !== undefined
+            || (requestWorkingContext !== undefined
+              && (requestWorkingContext.stagedPaths.length > 0
+                || requestWorkingContext.unstagedPaths.length > 0
+                || requestWorkingContext.untrackedPaths.length > 0));
+          const rerankerEnabled = activeConfig.reranker !== undefined;
+          const rerankerCandidateLimit = activeConfig.rerankerCandidateLimit
+            ?? Math.min(50, Math.max(deliveryLimit, deliveryLimit * 4));
+          const retrievalLimit = rerankerEnabled
+            ? rerankerCandidateLimit
+            : hasWorkingPrior ? Math.min(20, deliveryLimit * 2) : deliveryLimit;
+          const result = yield* activeConfig.qdrant.search({
+            workspaceId: input.workspaceId,
+            ...(vector === undefined ? {} : { vector }),
+            queryText: input.query,
+            strategy: retrievalStrategy,
+            limit: retrievalLimit,
+            ...(activeConfig.generation === undefined ? {} : { generation: activeConfig.generation }),
+            ...(activeConfig.indexKey === undefined ? {} : { indexKey: activeConfig.indexKey }),
+            requestId: requestId.value,
+          });
+          if (result._tag === 'Err') {
+            codeProviderError = result.error;
+          } else {
+            const prioritized = applyWorkingContextPriors(
+              result.value,
+              requestWorkingContext,
+              input.workingContextHints,
+              retrievalLimit,
+            );
+            if (activeConfig.reranker === undefined) {
+              if (activeConfig.rerankerMode === 'required') {
+                codeProviderError = domainError(
+                  'NOT_READY',
+                  'reranker',
+                  'reranking is required by runtime policy but no verified reranker is available',
+                );
+              } else {
+                if (activeConfig.rerankerMode === 'optional') {
+                  warnings.push('reranker configured but unavailable; using configured retrieval ranking');
+                }
+                rankedResults = prioritized.slice(0, deliveryLimit);
+              }
+            } else if (prioritized.length === 0) {
+              rankedResults = [];
             } else {
-              const prioritized = applyWorkingContextPriors(
-                result.value,
-                requestWorkingContext,
-                input.workingContextHints,
-                retrievalLimit,
-              );
-              if (activeConfig.reranker === undefined) {
+              const reranked = yield* activeConfig.reranker.rerank({
+                query: input.query,
+                documents: prioritized.map((item) => [
+                  item.candidate.repoPath,
+                  item.candidate.symbolName ?? '',
+                  item.candidate.text,
+                ].filter((value) => value.length > 0).join('\n')),
+                requestId: requestId.value,
+              });
+              if (reranked._tag === 'Err') {
                 if (activeConfig.rerankerMode === 'required') {
-                  codeProviderError = domainError(
-                    'NOT_READY',
-                    'reranker',
-                    'reranking is required by runtime policy but no verified reranker is available',
-                  );
+                  codeProviderError = reranked.error;
                 } else {
-                  if (activeConfig.rerankerMode === 'optional') {
-                    warnings.push('reranker configured but unavailable; using fused RRF ranking');
-                  }
+                  warnings.push('reranker unavailable: ' + reranked.error.code + '; using configured retrieval ranking');
                   rankedResults = prioritized.slice(0, deliveryLimit);
                 }
-              } else if (prioritized.length === 0) {
-                rankedResults = [];
               } else {
-                const reranked = yield* activeConfig.reranker.rerank({
-                  query: input.query,
-                  documents: prioritized.map((item) => [
-                    item.candidate.repoPath,
-                    item.candidate.symbolName ?? '',
-                    item.candidate.text,
-                  ].filter((value) => value.length > 0).join('\n')),
-                  requestId: requestId.value,
-                });
-                if (reranked._tag === 'Err') {
-                  if (activeConfig.rerankerMode === 'required') {
-                    codeProviderError = reranked.error;
-                  } else {
-                    warnings.push('reranker unavailable: ' + reranked.error.code + '; using fused RRF ranking');
-                    rankedResults = prioritized.slice(0, deliveryLimit);
-                  }
-                } else {
-                  const reordered: RankedCandidate[] = [];
-                  for (const score of reranked.value) {
-                    const original = prioritized[score.index];
-                    if (original === undefined) continue;
-                    reordered.push({
-                      ...original,
-                      score: score.score,
-                      warning: original.warning === undefined
-                        ? 'ranked by configured cross-encoder after Qdrant RRF'
-                        : original.warning + '; ranked by configured cross-encoder after Qdrant RRF',
-                    });
-                  }
-                  rankedResults = reordered.slice(0, deliveryLimit);
+                const reordered: RankedCandidate[] = [];
+                for (const score of reranked.value) {
+                  const original = prioritized[score.index];
+                  if (original === undefined) continue;
+                  reordered.push({
+                    ...original,
+                    score: score.score,
+                    warning: original.warning === undefined
+                      ? `ranked by configured cross-encoder after ${retrievalStrategy}`
+                      : original.warning + `; ranked by configured cross-encoder after ${retrievalStrategy}`,
+                  });
                 }
+                rankedResults = reordered.slice(0, deliveryLimit);
               }
             }
           }
