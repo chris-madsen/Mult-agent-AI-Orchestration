@@ -27,7 +27,13 @@ import type {
   WorkspaceFilePort,
 } from '../application/ports.js';
 import type { CodeCandidate } from '../domain/retrieval.js';
-import type { RepoPath, WorkspaceId } from '../domain/workspace.js';
+import {
+  workingContextFromSnapshot,
+  type RepoPath,
+  type WorkingContext,
+  type WorkingContextHints,
+  type WorkspaceId,
+} from '../domain/workspace.js';
 import {
   initialSourceCoverage,
   legacySourceRequirements,
@@ -86,6 +92,43 @@ export const qdrantCollectionName = (workspaceKey: string, embeddingKey: string,
 
 export const qdrantCurrentAlias = (workspaceKey: string, embeddingKey: string): string =>
   `ace_${workspaceKey}_${embeddingKey.slice(0, 16)}_current`;
+
+const workingContextBoost = (
+  candidate: RankedCandidate,
+  workingContext: WorkingContext | undefined,
+  hints: WorkingContextHints | undefined,
+): number => {
+  let boost = 0;
+  if (hints?.focusedPath === candidate.candidate.repoPath) {
+    boost += 0.08;
+    const range = hints.focusedRange;
+    if (range !== undefined
+      && candidate.candidate.range.endLine >= range.startLine
+      && candidate.candidate.range.startLine <= range.endLine) boost += 0.02;
+  } else if (hints?.openPaths?.includes(candidate.candidate.repoPath) === true) {
+    boost += 0.04;
+  }
+  if (workingContext !== undefined) {
+    const dirty = workingContext.stagedPaths.includes(candidate.candidate.repoPath)
+      || workingContext.unstagedPaths.includes(candidate.candidate.repoPath)
+      || workingContext.untrackedPaths.includes(candidate.candidate.repoPath);
+    if (dirty) boost += 0.02;
+  }
+  return boost;
+};
+
+export const applyWorkingContextPriors = (
+  candidates: readonly RankedCandidate[],
+  workingContext: WorkingContext | undefined,
+  hints: WorkingContextHints | undefined,
+  limit: number,
+): readonly RankedCandidate[] => [...candidates]
+  .map((candidate) => {
+    const boost = workingContextBoost(candidate, workingContext, hints);
+    return { ...candidate, score: candidate.score * (1 + boost) };
+  })
+  .sort((left, right) => right.score - left.score || left.candidate.repoPath.localeCompare(right.candidate.repoPath))
+  .slice(0, limit);
 
 export const resolveQdrantAlias = (
   http: HttpPort,
@@ -637,13 +680,16 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
       readonly includeDocs: boolean;
       readonly includeMemory: boolean;
       readonly sourceRequirements?: SourceRequirements;
+      readonly workingContextHints?: WorkingContextHints;
     }): Effect.Effect<Result<ContextBundle, DomainError>> => Effect.gen(function* () {
       if (input.workspaceId !== activeConfig.workspaceId) {
         return err(domainError('POLICY_DENIED', 'workspace_id', 'Qdrant provider belongs to another workspace'));
       }
+      let requestWorkingContext: WorkingContext | undefined;
       if (activeConfig.workspaceManifest !== undefined) {
         const currentSnapshot = yield* activeConfig.files.snapshot(activeConfig.rootPath, Date.now());
         if (currentSnapshot._tag === 'Err') return currentSnapshot;
+        requestWorkingContext = workingContextFromSnapshot(currentSnapshot.value);
         const currentManifest = workspaceManifestFromSnapshot(
           currentSnapshot.value,
           activeConfig.scopeFingerprint ?? activeConfig.workspaceManifest.scopeFingerprint,
@@ -701,16 +747,28 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
           if (vector === undefined) {
             codeProviderError = domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'empty query vector');
           } else {
+            const deliveryLimit = activeConfig.candidateLimit ?? 6;
+            const hasWorkingPrior = input.workingContextHints !== undefined
+              || (requestWorkingContext !== undefined
+                && (requestWorkingContext.stagedPaths.length > 0
+                  || requestWorkingContext.unstagedPaths.length > 0
+                  || requestWorkingContext.untrackedPaths.length > 0));
+            const retrievalLimit = hasWorkingPrior ? Math.min(20, deliveryLimit * 2) : deliveryLimit;
             const result = yield* activeConfig.qdrant.search({
               workspaceId: input.workspaceId,
               vector,
-              limit: activeConfig.candidateLimit ?? 6,
+              limit: retrievalLimit,
               ...(activeConfig.generation === undefined ? {} : { generation: activeConfig.generation }),
               ...(activeConfig.indexKey === undefined ? {} : { indexKey: activeConfig.indexKey }),
               requestId: requestId.value,
             });
             if (result._tag === 'Err') codeProviderError = result.error;
-            else rankedResults = result.value;
+            else rankedResults = applyWorkingContextPriors(
+              result.value,
+              requestWorkingContext,
+              input.workingContextHints,
+              deliveryLimit,
+            );
           }
         }
         if (codeProviderError !== undefined) {
