@@ -60,6 +60,8 @@
     "test:real-qdrant-timeout": "npm run build && node scripts/qdrant-embedding-timeout-e2e.mjs",
     "test:real-qdrant-stale-count": "npm run build && node scripts/qdrant-stale-count-e2e.mjs",
     "test:real-qdrant-crash": "npm run build && node scripts/qdrant-snapshot-crash-e2e.mjs",
+    "test:real-qdrant-hybrid-wire": "tsx scripts/qdrant-hybrid-wire-e2e.ts",
+    "probe:qdrant-hybrid-ranks": "tsx scripts/qdrant-hybrid-rank-probe.ts",
     "test:real-graphiti-crash": "npm run build && node scripts/graphiti-crash-recovery-e2e.mjs",
     "compare:semantic-serena": "node scripts/serena-semantic-comparison.mjs",
     "test:fast": "npm test",
