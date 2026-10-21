@@ -26,6 +26,7 @@ import type {
   RerankerPort,
   SemanticAnalysisPort,
   SparseEmbeddingPort,
+  type SparseVector,
   VectorEmbeddingPort,
   WorkspaceFilePort,
 } from '../application/ports.js';
@@ -204,7 +205,7 @@ export const populateQdrantFromStructuralIndex = (
     }
     const generated = new Map(missing.map((candidate, vectorIndex) => [candidate.candidateId, embedded.value[vectorIndex] ?? []] as const));
     const sparse = sparseEmbeddings === undefined
-      ? ok<readonly import('../application/ports.js').SparseVector[], DomainError>([])
+      ? ok<readonly SparseVector[], DomainError>([])
       : yield* sparseEmbeddings.embedDocuments(candidates.map(qdrantLexicalTextForCandidate));
     if (sparse._tag === 'Err') return sparse;
     if (sparseEmbeddings !== undefined && sparse.value.length !== candidates.length) {
@@ -818,7 +819,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
       if (includeCode) {
         const retrievalStrategy = activeConfig.retrievalStrategy ?? 'hybrid_rrf';
         let vector: readonly number[] | undefined;
-        let sparseVector: import('../application/ports.js').SparseVector | undefined;
+        let sparseVector: SparseVector | undefined;
         if (retrievalStrategy !== 'sparse') {
           const vectors = yield* activeConfig.embeddings.embedMany([input.query], requestId.value);
           if (vectors._tag === 'Err') {
