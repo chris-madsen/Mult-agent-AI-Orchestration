@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "status": "development_fixture_not_release_holdout",
+  "description": "Small RU/EN/mixed code-like reranker fixture. Never use as production selection evidence.",
+  "cases": [
+    {
+      "id": "behavior-payment-retry",
+      "query": "which code retries a payment after a provider timeout",
+      "documents": [
+        "export function retryConnection() { return reconnectTransport(); }",
+        "export async function retryPayment() { return chargeGatewayWithBackoff(); }",
+        "export function parsePaymentId(value) { return String(value); }",
+        "export function retryEmail() { return sendMailAgain(); }"
+      ],
+      "relevantDocumentIndexes": [
+        1
+      ],
+      "critical": true
+    },
+    {
+      "id": "exact-config-key",
+      "query": "ACE_QDRANT_URL configuration",
+      "documents": [
+        "const port = process.env.PORT ?? '3000';",
+        "const qdrantUrl = process.env.ACE_QDRANT_URL ?? 'http://127.0.0.1:6333';",
+        "const api = process.env.API_URL;"
+      ],
+      "relevantDocumentIndexes": [
+        1
+      ],
+      "critical": true
+    },
+    {
+      "id": "ru-current-bytes",
+      "query": "где читаются точные текущие байты файла рабочего дерева",
+      "documents": [
+        "readExact(rootPath, repoPath) returns bytes and a SHA-256 digest after a race-safe file read.",
+        "saveWorkspace persists workspace metadata only.",
+        "searchMemory returns historical derived project facts.",
+        "createAlias changes the current Qdrant collection."
+      ],
+      "relevantDocumentIndexes": [
+        0
+      ],
+      "critical": true
+    },
+    {
+      "id": "mixed-semantic",
+      "query": "найди definition resolution для same-name TypeScript symbols",
+      "documents": [
+        "The LSP adapter asks textDocument/definition and verifies the exact selected symbol range.",
+        "The embedding worker returns dense vectors.",
+        "The memory archive stores immutable session originals."
+      ],
+      "relevantDocumentIndexes": [
+        0
+      ],
+      "critical": false
+    },
+    {
+      "id": "distractor-same-verb",
+      "query": "remove the derived memory episode before deleting the immutable original",
+      "documents": [
+        "deleteWorkspace removes workspace registration.",
+        "purgeGraphEpisode removes the derived Graphiti projection before archive deletion.",
+        "deleteQdrantCollection removes an old vector snapshot.",
+        "removeTempFile deletes a temporary file."
+      ],
+      "relevantDocumentIndexes": [
+        1
+      ],
+      "critical": true
+    }
+  ]
+}
