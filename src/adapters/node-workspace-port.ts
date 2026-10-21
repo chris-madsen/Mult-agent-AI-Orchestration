@@ -166,13 +166,45 @@ export const makeNodeWorkspacePort = (options: NodeWorkspacePortOptions): Worksp
             return ok({ headRevision: 'unavailable', files, removedPaths: [], gitStatus: 'not_repository' });
           }
           try {
-            const trackedPaths = await gitList(rootPath, ['ls-files', '-z']);
-            const deletedPaths = await gitList(rootPath, ['ls-files', '--deleted', '-z']);
+            const [
+              trackedPaths,
+              deletedWorktreePaths,
+              deletedIndexPaths,
+              stagedValues,
+              unstagedValues,
+              untrackedValues,
+              branchResult,
+            ] = await Promise.all([
+              gitList(rootPath, ['ls-files', '-z']),
+              gitList(rootPath, ['diff', '--name-only', '-z', '--diff-filter=D']),
+              gitList(rootPath, ['diff', '--cached', '--name-only', '-z', '--diff-filter=D']),
+              gitList(rootPath, ['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMRT']),
+              gitList(rootPath, ['diff', '--name-only', '-z', '--diff-filter=ACMRT']),
+              gitList(rootPath, ['ls-files', '--others', '--exclude-standard', '-z']),
+              execFileAsync('git', ['branch', '--show-current'], { cwd: rootPath, encoding: 'utf8' }),
+            ]);
             const files = await walkFiles(rootPath, rootPath, observedAtMs, excluded, trackedPaths);
-            const removedPaths = gitPaths(deletedPaths);
-            return removedPaths._tag === 'Ok'
-              ? ok({ headRevision, files, removedPaths: removedPaths.value, gitStatus: 'available' })
-              : removedPaths;
+            const deletedValues = new Set([...deletedWorktreePaths, ...deletedIndexPaths]);
+            const removedPaths = gitPaths(deletedValues);
+            const stagedPaths = gitPaths(stagedValues);
+            const unstagedPaths = gitPaths(unstagedValues);
+            const untrackedPaths = gitPaths(untrackedValues);
+            if (removedPaths._tag === 'Err') return removedPaths;
+            if (stagedPaths._tag === 'Err') return stagedPaths;
+            if (unstagedPaths._tag === 'Err') return unstagedPaths;
+            if (untrackedPaths._tag === 'Err') return untrackedPaths;
+            const branch = branchResult.stdout.trim();
+            return ok({
+              headRevision,
+              files,
+              removedPaths: removedPaths.value,
+              gitStatus: 'available',
+              ...(branch.length === 0 ? {} : { branch }),
+              stagedPaths: stagedPaths.value,
+              unstagedPaths: unstagedPaths.value,
+              untrackedPaths: untrackedPaths.value,
+              deletedPaths: removedPaths.value,
+            });
           } catch {
             return errorResult('SNAPSHOT_FAILED', 'git', 'Git file state could not be observed completely');
           }
