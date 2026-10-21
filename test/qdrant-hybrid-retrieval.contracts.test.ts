@@ -146,6 +146,73 @@ test('Qdrant search uses dense and BM25 prefetch branches with root RRF fusion',
   assert.equal(requestBody?.limit, 6);
 });
 
+
+test('Qdrant search can issue a sparse-only BM25 query for ablation', async () => {
+  let requestBody: Readonly<Record<string, unknown>> | undefined;
+  const http: HttpPort = {
+    request: (request) => {
+      requestBody = request.body;
+      return Effect.succeed(ok({ status: 200, body: { result: { points: [] } } }));
+    },
+  };
+  const qdrant = makeQdrantCodeCandidatePort({
+    baseUrl: 'http://127.0.0.1:6333',
+    collection: 'ace-hybrid-current',
+    http,
+  });
+  const result = await Effect.runPromise(qdrant.search({
+    workspaceId,
+    vector: [0.2, 0.8],
+    queryText: 'ACE_QDRANT_URL',
+    mode: 'sparse',
+    limit: 4,
+  }));
+  assert.equal(result._tag, 'Ok');
+  assert.deepEqual(requestBody, {
+    query: {
+      text: 'ACE_QDRANT_URL',
+      model: 'qdrant/bm25',
+      options: {
+        stemmer: { type: 'none' },
+        stopwords: {},
+        tokenizer: 'multilingual',
+        ascii_folding: true,
+      },
+    },
+    using: 'sparse',
+    limit: 4,
+    with_payload: true,
+    with_vector: false,
+    filter: { must: [{ key: 'workspace_id', match: { value: workspaceId } }] },
+  });
+});
+
+test('sparse and hybrid ablation modes reject missing query text before network I/O', async () => {
+  let calls = 0;
+  const http: HttpPort = {
+    request: () => {
+      calls += 1;
+      return Effect.succeed(ok({ status: 200, body: { result: { points: [] } } }));
+    },
+  };
+  const qdrant = makeQdrantCodeCandidatePort({
+    baseUrl: 'http://127.0.0.1:6333',
+    collection: 'ace-hybrid-current',
+    http,
+  });
+  for (const mode of ['sparse', 'hybrid'] as const) {
+    const result = await Effect.runPromise(qdrant.search({
+      workspaceId,
+      vector: [0.2, 0.8],
+      mode,
+      limit: 4,
+    }));
+    assert.equal(result._tag, 'Err');
+    if (result._tag === 'Err') assert.equal(result.error.path, 'query_text');
+  }
+  assert.equal(calls, 0);
+});
+
 test('Qdrant search can still issue a named dense-only query for explicit ablation paths', async () => {
   let requestBody: Readonly<Record<string, unknown>> | undefined;
   const http: HttpPort = {
