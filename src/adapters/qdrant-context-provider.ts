@@ -826,7 +826,8 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
       let rankedResults: readonly RankedCandidate[] = [];
       let lspConfirmedCount = 0;
       if (includeCode) {
-        const retrievalStrategy = activeConfig.retrievalStrategy ?? 'hybrid_rrf';
+        const retrievalStrategy = activeConfig.retrievalStrategy
+          ?? (activeConfig.sparseEmbeddings === undefined ? 'dense' : 'hybrid_rrf');
         let vector: readonly number[] | undefined;
         let sparseVector: SparseVector | undefined;
         if (retrievalStrategy !== 'sparse') {
