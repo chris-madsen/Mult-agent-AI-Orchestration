@@ -119,6 +119,7 @@ test('Qdrant search uses dense and BM25 prefetch branches with root RRF fusion',
     workspaceId,
     vector: [0.2, 0.8],
     queryText: 'где проверяется JWT token',
+    strategy: 'hybrid_rrf',
     limit: 6,
     indexKey: 'index-key',
     requestId: 'hybrid-request',
@@ -162,6 +163,7 @@ test('Qdrant search can still issue a named dense-only query for explicit ablati
   const result = await Effect.runPromise(qdrant.search({
     workspaceId,
     vector: [0.2, 0.8],
+    strategy: 'dense',
     limit: 4,
   }));
   assert.equal(result._tag, 'Ok');
@@ -174,3 +176,79 @@ test('Qdrant search can still issue a named dense-only query for explicit ablati
     filter: { must: [{ key: 'workspace_id', match: { value: workspaceId } }] },
   });
 });
+
+test('Qdrant sparse-only strategy sends BM25 query without a dense vector', async () => {
+  let requestBody: Readonly<Record<string, unknown>> | undefined;
+  const http: HttpPort = {
+    request: (request) => {
+      requestBody = request.body;
+      return Effect.succeed(ok({ status: 200, body: { result: { points: [] } } }));
+    },
+  };
+  const qdrant = makeQdrantCodeCandidatePort({
+    baseUrl: 'http://127.0.0.1:6333',
+    collection: 'ace-hybrid-current',
+    http,
+  });
+  const result = await Effect.runPromise(qdrant.search({
+    workspaceId,
+    queryText: 'ACE_QDRANT_COLLECTION',
+    strategy: 'sparse',
+    limit: 5,
+  }));
+  assert.equal(result._tag, 'Ok');
+  assert.deepEqual(requestBody, {
+    query: {
+      text: 'ACE_QDRANT_COLLECTION',
+      model: 'qdrant/bm25',
+      options: {
+        stemmer: { type: 'none' },
+        stopwords: {},
+        tokenizer: 'multilingual',
+        ascii_folding: true,
+      },
+    },
+    using: 'sparse',
+    limit: 5,
+    with_payload: true,
+    with_vector: false,
+    filter: { must: [{ key: 'workspace_id', match: { value: workspaceId } }] },
+  });
+});
+
+test('Qdrant explicit strategies fail before HTTP when required query inputs are absent', async () => {
+  let requests = 0;
+  const http: HttpPort = {
+    request: () => {
+      requests += 1;
+      return Effect.succeed(ok({ status: 200, body: { result: { points: [] } } }));
+    },
+  };
+  const qdrant = makeQdrantCodeCandidatePort({
+    baseUrl: 'http://127.0.0.1:6333',
+    collection: 'ace-hybrid-current',
+    http,
+  });
+  const dense = await Effect.runPromise(qdrant.search({
+    workspaceId,
+    strategy: 'dense',
+    limit: 3,
+  }));
+  const sparse = await Effect.runPromise(qdrant.search({
+    workspaceId,
+    vector: [0.1, 0.9],
+    strategy: 'sparse',
+    limit: 3,
+  }));
+  const hybrid = await Effect.runPromise(qdrant.search({
+    workspaceId,
+    queryText: 'reconnect',
+    strategy: 'hybrid_rrf',
+    limit: 3,
+  }));
+  assert.equal(dense._tag, 'Err');
+  assert.equal(sparse._tag, 'Err');
+  assert.equal(hybrid._tag, 'Err');
+  assert.equal(requests, 0);
+});
+
