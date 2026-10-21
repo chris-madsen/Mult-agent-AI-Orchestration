@@ -33,6 +33,7 @@ const output = {
   schemaVersion: 1,
   sourceCommit: process.env.ACE_EVIDENCE_SOURCE_COMMIT?.trim()
     || execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+  policyPath: policyArg,
   policySha256: sha256(policyBytes),
   reports: reportEvidence,
   providerIds: reports.map((report) => report.provider).sort(),

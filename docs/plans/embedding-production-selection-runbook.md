@@ -60,6 +60,8 @@ npm run gate:embedding-selection -- \
 
 The gate fails measurement when any required identity, holdout, metric, threshold or license condition is missing.
 
+The retained verdict includes the comparison `reportPath` and policy `policyPath` together with their SHA-256 digests. Release preflight re-reads both repository-contained files and re-runs the selection evaluator; editing the source report or forging only the verdict artifact therefore cannot satisfy the release gate.
+
 A measurement can return `MEASUREMENT_PASS_APPROVAL_PENDING`; this is expected before owner review.
 
 ## 4. Owner approval is a separate event

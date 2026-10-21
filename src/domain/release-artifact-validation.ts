@@ -40,6 +40,7 @@ export const validateReleaseAcceptanceArtifacts = (
   const embedding = record(input.embeddingSelection);
   if (embedding === undefined || embedding.schemaVersion !== 1 || embedding.sourceCommit !== currentCommit
     || !sha256(embedding.reportSha256) || !sha256(embedding.policySha256)
+    || !nonEmpty(embedding.reportPath) || !nonEmpty(embedding.policyPath)
     || embedding.evidenceStage !== 'frozen_holdout' || !sha256(embedding.datasetSha256) || !nonEmpty(embedding.dataset)) {
     failures.push('embedding_evidence_identity_invalid');
   } else {
@@ -51,6 +52,7 @@ export const validateReleaseAcceptanceArtifacts = (
   const semanticReports = semantic?.reports;
   if (semantic === undefined || semantic.schemaVersion !== 1 || semantic.sourceCommit !== currentCommit
     || !sha256(semantic.policySha256) || !sha256(semantic.fixtureSha256) || !sha256(semantic.oracleSha256)
+    || !nonEmpty(semantic.policyPath)
     || !Array.isArray(semanticReports) || semanticReports.length < 2
     || !semanticReports.every((item) => {
       const report = record(item);

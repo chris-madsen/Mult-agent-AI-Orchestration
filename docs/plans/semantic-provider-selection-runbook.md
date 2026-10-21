@@ -90,6 +90,8 @@ The gate rejects:
 - threshold regressions;
 - missing license evidence.
 
+The retained verdict includes the policy `policyPath` and each comparison report path with SHA-256 identity. Release preflight re-reads those files and re-runs the semantic selection evaluator, so the verdict cannot be promoted after its source reports or policy have changed.
+
 A clean measurement produces `MEASUREMENT_PASS_APPROVAL_PENDING` until the owner separately approves that exact provider. For release enforcement:
 
 ```bash
