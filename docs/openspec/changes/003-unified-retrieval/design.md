@@ -55,3 +55,12 @@ Refer to `docs/architecture/05-contracts-and-deployment.md` §11. Do not silentl
 - **Vertex auth**: on the owner's development host the `gcloud` CLI is already authenticated. Start with `gcloud config get-value project`, `gcloud auth print-access-token` and `npm run probe:vertex`. Do not demand re-login merely to call REST. For container/CI runtimes provide explicitly authorized short-lived credentials or ADC without persisting tokens. A CLI sign-in does NOT itself grant private-content upload permission or guarantee access to a RAG corpus.
 - **Empty corpus**: report not-ready for document retrieval, not 'Vertex configured'. Inspect actual IAM and list of corpora first. Creation/import of synthetic/public fixture corpus requires explicit resource/cost approval; after authorization test real `retrieveContexts`, versioned citations, denial and timeout.
 - **No testing freeze**: Codex is authorized to install candidates and conduct real exploratory Qdrant/AST/LSP/Harbor tests before sign-off of a *production* provider; never label those experiments production-ready.
+
+
+## Accepted extension — 2026-10-21
+
+ADR-014 and change `007-hybrid-context-engine` refine the code-discovery portion of this design without invalidating its source-truth rules.
+
+Current main already implements ast-grep structure, generic LSP, Qdrant atomic publication, content-addressed dense reuse and request-time source reconciliation. The next retrieval stage is **Qdrant dense + sparse/BM25 fusion (RRF candidate), optional evidence-gated reranking, working-state ranking priors and context receipt/delta delivery**.
+
+Do not implement a second lexical database, custom Merkle tree, custom reranker model or agent-specific context core unless change 007 benchmarks expose a concrete gap.
