@@ -8,6 +8,7 @@ import {
   makeRequestId,
   mergeEvidence,
   type CodeIndex,
+  type CodeRetrievalStrategy,
   type ContextBundle,
   type IndexCoverageSummary,
   type IndexFileIdentity,
@@ -24,6 +25,8 @@ import type {
   ProviderTraceSink,
   RerankerPort,
   SemanticAnalysisPort,
+  SparseEmbeddingPort,
+  SparseVector,
   VectorEmbeddingPort,
   WorkspaceFilePort,
 } from '../application/ports.js';
@@ -44,7 +47,10 @@ import {
   sourceIsRequested,
   type SourceRequirements,
 } from '../domain/source-coverage.js';
-import { validateLocalQdrantBaseUrl } from './http-provider-boundaries.js';
+import {
+  qdrantLexicalTextForCandidate,
+  validateLocalQdrantBaseUrl,
+} from './http-provider-boundaries.js';
 import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
 import {
   diffWorkspaceManifests,
@@ -60,6 +66,8 @@ export interface QdrantContextConfig {
   readonly files: WorkspaceFilePort;
   readonly qdrant: CodeCandidatePort;
   readonly embeddings: VectorEmbeddingPort;
+  /** Client-side sparse embeddings are mandatory for sparse/hybrid self-hosted Qdrant queries. */
+  readonly sparseEmbeddings?: SparseEmbeddingPort;
   readonly artifacts: ArtifactStore;
   readonly semantics: SemanticAnalysisPort;
   readonly newRequestId: () => string;
@@ -68,6 +76,8 @@ export interface QdrantContextConfig {
   readonly documentation?: DocumentationPort;
   readonly memory?: MemorySearchPort;
   readonly candidateLimit?: number;
+  /** Same production adapter supports controlled dense/sparse/hybrid ablation arms. */
+  readonly retrievalStrategy?: CodeRetrievalStrategy;
   /** Optional evidence-gated cross-encoder stage after Qdrant RRF fusion. */
   readonly reranker?: RerankerPort;
   /** Optional falls back to fused ranking on outage; required fails the code branch closed. */
@@ -174,6 +184,7 @@ export const populateQdrantFromStructuralIndex = (
   indexKey?: string,
   seedVectors: ReadonlyMap<string, readonly number[]> = new Map(),
   embeddingProviderIdentity?: string,
+  sparseEmbeddings?: SparseEmbeddingPort,
 ): Effect.Effect<Result<number, DomainError>> => Effect.gen(function* () {
   if (index.candidates.length === 0) {
     return err(domainError('UNSUPPORTED_PROVIDER', 'index', 'no verified structural candidates available for Qdrant'));
@@ -193,14 +204,31 @@ export const populateQdrantFromStructuralIndex = (
       return err(domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'embedding batch size mismatch'));
     }
     const generated = new Map(missing.map((candidate, vectorIndex) => [candidate.candidateId, embedded.value[vectorIndex] ?? []] as const));
+    const sparse = sparseEmbeddings === undefined
+      ? ok<readonly SparseVector[]>([])
+      : yield* sparseEmbeddings.embedDocuments(candidates.map(qdrantLexicalTextForCandidate));
+    if (sparse._tag === 'Err') return sparse;
+    if (sparseEmbeddings !== undefined && sparse.value.length !== candidates.length) {
+      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'sparse_embedding', 'sparse embedding batch size mismatch'));
+    }
     const points: CodePoint[] = [];
-    for (const candidate of candidates) {
+    for (const [candidateIndex, candidate] of candidates.entries()) {
       const embeddingKey = keyFor(candidate);
       const vector = seedVectors.get(embeddingKey) ?? generated.get(candidate.candidateId);
       if (vector === undefined || vector.length === 0 || !vector.every((value) => Number.isFinite(value))) {
         return err(domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'candidate is missing a valid vector'));
       }
-      points.push({ candidate, vector, ...(indexKey === undefined ? {} : { indexKey }), embeddingKey });
+      const sparseVector = sparseEmbeddings === undefined ? undefined : sparse.value[candidateIndex];
+      if (sparseEmbeddings !== undefined && sparseVector === undefined) {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'sparse_embedding', 'candidate is missing a sparse vector'));
+      }
+      points.push({
+        candidate,
+        vector,
+        ...(sparseVector === undefined ? {} : { sparseVector }),
+        ...(indexKey === undefined ? {} : { indexKey }),
+        embeddingKey,
+      });
     }
     const result = yield* qdrant.upsert(points);
     if (result._tag === 'Err') return result;
@@ -609,6 +637,7 @@ export const reuseOrPopulateQdrantSnapshot = (
   priorIndexKey?: string,
   embeddingProviderIdentity?: string,
   priorCollection?: string,
+  sparseEmbeddings?: SparseEmbeddingPort,
 ): Effect.Effect<Result<{ readonly count: number; readonly reused: boolean; readonly reusedVectorCount: number }, DomainError>> => Effect.gen(function* () {
   const expectedCandidateIds = index.candidates.map((candidate) => candidate.candidateId);
   if (reuseAllowed) {
@@ -643,7 +672,15 @@ export const reuseOrPopulateQdrantSnapshot = (
       : embeddingContentKey(embeddingProviderIdentity, candidate.text)));
     seedVectors = new Map([...prior.value].filter(([key]) => currentKeys.has(key)));
   }
-  const indexed = yield* populateQdrantFromStructuralIndex(index, qdrant, embeddings, indexKey, seedVectors, embeddingProviderIdentity);
+  const indexed = yield* populateQdrantFromStructuralIndex(
+    index,
+    qdrant,
+    embeddings,
+    indexKey,
+    seedVectors,
+    embeddingProviderIdentity,
+    sparseEmbeddings,
+  );
   if (indexed._tag === 'Err') return indexed;
   const verified = yield* verifyQdrantSnapshotMembership(
     http, baseUrl, collection, workspaceId, indexKey, expectedCandidateIds, allowedHosts,
@@ -789,91 +826,119 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
       let rankedResults: readonly RankedCandidate[] = [];
       let lspConfirmedCount = 0;
       if (includeCode) {
-        const vectors = yield* activeConfig.embeddings.embedMany([input.query], requestId.value);
-        if (vectors._tag === 'Err') {
-          codeProviderError = vectors.error;
-        } else {
-          const vector = vectors.value[0];
-          if (vector === undefined) {
-            codeProviderError = domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'empty query vector');
+        const retrievalStrategy = activeConfig.retrievalStrategy
+          ?? (activeConfig.sparseEmbeddings === undefined ? 'dense' : 'hybrid_rrf');
+        let vector: readonly number[] | undefined;
+        let sparseVector: SparseVector | undefined;
+        if (retrievalStrategy !== 'sparse') {
+          const vectors = yield* activeConfig.embeddings.embedMany([input.query], requestId.value);
+          if (vectors._tag === 'Err') {
+            codeProviderError = vectors.error;
           } else {
-            const deliveryLimit = activeConfig.candidateLimit ?? 6;
-            const hasWorkingPrior = input.workingContextHints !== undefined
-              || (requestWorkingContext !== undefined
-                && (requestWorkingContext.stagedPaths.length > 0
-                  || requestWorkingContext.unstagedPaths.length > 0
-                  || requestWorkingContext.untrackedPaths.length > 0));
-            const rerankerEnabled = activeConfig.reranker !== undefined;
-            const rerankerCandidateLimit = activeConfig.rerankerCandidateLimit
-              ?? Math.min(50, Math.max(deliveryLimit, deliveryLimit * 4));
-            const retrievalLimit = rerankerEnabled
-              ? rerankerCandidateLimit
-              : hasWorkingPrior ? Math.min(20, deliveryLimit * 2) : deliveryLimit;
-            const result = yield* activeConfig.qdrant.search({
-              workspaceId: input.workspaceId,
-              vector,
-              queryText: input.query,
-              limit: retrievalLimit,
-              ...(activeConfig.generation === undefined ? {} : { generation: activeConfig.generation }),
-              ...(activeConfig.indexKey === undefined ? {} : { indexKey: activeConfig.indexKey }),
-              requestId: requestId.value,
-            });
-            if (result._tag === 'Err') {
-              codeProviderError = result.error;
+            vector = vectors.value[0];
+            if (vector === undefined) {
+              codeProviderError = domainError('INVALID_EXTERNAL_RESPONSE', 'embedding', 'empty query vector');
+            }
+          }
+        }
+        if (codeProviderError === undefined && retrievalStrategy !== 'dense') {
+          if (activeConfig.sparseEmbeddings === undefined) {
+            codeProviderError = domainError(
+              'NOT_READY',
+              'sparse_embedding',
+              `${retrievalStrategy} retrieval requires the verified local sparse embedding provider`,
+            );
+          } else {
+            const sparse = yield* activeConfig.sparseEmbeddings.embedQueries([input.query], requestId.value);
+            if (sparse._tag === 'Err') {
+              codeProviderError = sparse.error;
             } else {
-              const prioritized = applyWorkingContextPriors(
-                result.value,
-                requestWorkingContext,
-                input.workingContextHints,
-                retrievalLimit,
-              );
-              if (activeConfig.reranker === undefined) {
+              sparseVector = sparse.value[0];
+              if (sparseVector === undefined) {
+                codeProviderError = domainError('INVALID_EXTERNAL_RESPONSE', 'sparse_embedding', 'empty sparse query vector');
+              }
+            }
+          }
+        }
+        if (codeProviderError === undefined) {
+          const deliveryLimit = activeConfig.candidateLimit ?? 6;
+          const hasWorkingPrior = input.workingContextHints !== undefined
+            || (requestWorkingContext !== undefined
+              && (requestWorkingContext.stagedPaths.length > 0
+                || requestWorkingContext.unstagedPaths.length > 0
+                || requestWorkingContext.untrackedPaths.length > 0));
+          const rerankerEnabled = activeConfig.reranker !== undefined;
+          const rerankerCandidateLimit = activeConfig.rerankerCandidateLimit
+            ?? Math.min(50, Math.max(deliveryLimit, deliveryLimit * 4));
+          const retrievalLimit = rerankerEnabled
+            ? rerankerCandidateLimit
+            : hasWorkingPrior ? Math.min(20, deliveryLimit * 2) : deliveryLimit;
+          const result = yield* activeConfig.qdrant.search({
+            workspaceId: input.workspaceId,
+            ...(vector === undefined ? {} : { vector }),
+            ...(sparseVector === undefined ? {} : { sparseVector }),
+            queryText: input.query,
+            strategy: retrievalStrategy,
+            limit: retrievalLimit,
+            ...(activeConfig.generation === undefined ? {} : { generation: activeConfig.generation }),
+            ...(activeConfig.indexKey === undefined ? {} : { indexKey: activeConfig.indexKey }),
+            requestId: requestId.value,
+          });
+          if (result._tag === 'Err') {
+            codeProviderError = result.error;
+          } else {
+            const prioritized = applyWorkingContextPriors(
+              result.value,
+              requestWorkingContext,
+              input.workingContextHints,
+              retrievalLimit,
+            );
+            if (activeConfig.reranker === undefined) {
+              if (activeConfig.rerankerMode === 'required') {
+                codeProviderError = domainError(
+                  'NOT_READY',
+                  'reranker',
+                  'reranking is required by runtime policy but no verified reranker is available',
+                );
+              } else {
+                if (activeConfig.rerankerMode === 'optional') {
+                  warnings.push('reranker configured but unavailable; using configured retrieval ranking');
+                }
+                rankedResults = prioritized.slice(0, deliveryLimit);
+              }
+            } else if (prioritized.length === 0) {
+              rankedResults = [];
+            } else {
+              const reranked = yield* activeConfig.reranker.rerank({
+                query: input.query,
+                documents: prioritized.map((item) => [
+                  item.candidate.repoPath,
+                  item.candidate.symbolName ?? '',
+                  item.candidate.text,
+                ].filter((value) => value.length > 0).join('\n')),
+                requestId: requestId.value,
+              });
+              if (reranked._tag === 'Err') {
                 if (activeConfig.rerankerMode === 'required') {
-                  codeProviderError = domainError(
-                    'NOT_READY',
-                    'reranker',
-                    'reranking is required by runtime policy but no verified reranker is available',
-                  );
+                  codeProviderError = reranked.error;
                 } else {
-                  if (activeConfig.rerankerMode === 'optional') {
-                    warnings.push('reranker configured but unavailable; using fused RRF ranking');
-                  }
+                  warnings.push('reranker unavailable: ' + reranked.error.code + '; using configured retrieval ranking');
                   rankedResults = prioritized.slice(0, deliveryLimit);
                 }
-              } else if (prioritized.length === 0) {
-                rankedResults = [];
               } else {
-                const reranked = yield* activeConfig.reranker.rerank({
-                  query: input.query,
-                  documents: prioritized.map((item) => [
-                    item.candidate.repoPath,
-                    item.candidate.symbolName ?? '',
-                    item.candidate.text,
-                  ].filter((value) => value.length > 0).join('\n')),
-                  requestId: requestId.value,
-                });
-                if (reranked._tag === 'Err') {
-                  if (activeConfig.rerankerMode === 'required') {
-                    codeProviderError = reranked.error;
-                  } else {
-                    warnings.push('reranker unavailable: ' + reranked.error.code + '; using fused RRF ranking');
-                    rankedResults = prioritized.slice(0, deliveryLimit);
-                  }
-                } else {
-                  const reordered: RankedCandidate[] = [];
-                  for (const score of reranked.value) {
-                    const original = prioritized[score.index];
-                    if (original === undefined) continue;
-                    reordered.push({
-                      ...original,
-                      score: score.score,
-                      warning: original.warning === undefined
-                        ? 'ranked by configured cross-encoder after Qdrant RRF'
-                        : original.warning + '; ranked by configured cross-encoder after Qdrant RRF',
-                    });
-                  }
-                  rankedResults = reordered.slice(0, deliveryLimit);
+                const reordered: RankedCandidate[] = [];
+                for (const score of reranked.value) {
+                  const original = prioritized[score.index];
+                  if (original === undefined) continue;
+                  reordered.push({
+                    ...original,
+                    score: score.score,
+                    warning: original.warning === undefined
+                      ? `ranked by configured cross-encoder after ${retrievalStrategy}`
+                      : original.warning + `; ranked by configured cross-encoder after ${retrievalStrategy}`,
+                  });
                 }
+                rankedResults = reordered.slice(0, deliveryLimit);
               }
             }
           }

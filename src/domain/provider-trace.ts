@@ -2,6 +2,7 @@ export type ProviderTraceStatus = 'success' | 'failure';
 
 export type ProviderTraceName =
   | 'embedding'
+  | 'sparse_embedding'
   | 'reranker'
   | 'qdrant'
   | 'ast_grep'

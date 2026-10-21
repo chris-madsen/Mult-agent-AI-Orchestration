@@ -10,7 +10,7 @@ import type {
   WorkspaceSnapshot,
 } from '../domain/workspace.js';
 import type { Result } from '../domain/result.js';
-import type { ContextBundle, CodeCandidate, RankedCandidate } from '../domain/retrieval.js';
+import type { CodeRetrievalStrategy, ContextBundle, CodeCandidate, RankedCandidate } from '../domain/retrieval.js';
 import type { DecisionRecord, EpisodeId, MemorySearchResult, ProjectionKey, ProjectionReceipt, SessionEpisode } from '../domain/memory.js';
 import type {
   SemanticDefinition,
@@ -46,6 +46,22 @@ export interface VectorEmbeddingPort {
   readonly embedMany: (input: readonly string[], requestId?: string) => Effect.Effect<Result<readonly (readonly number[])[], DomainError>>;
 }
 
+export interface SparseVector {
+  readonly indices: readonly number[];
+  readonly values: readonly number[];
+}
+
+export interface SparseEmbeddingPort {
+  readonly embedDocuments: (
+    input: readonly string[],
+    requestId?: string,
+  ) => Effect.Effect<Result<readonly SparseVector[], DomainError>>;
+  readonly embedQueries: (
+    input: readonly string[],
+    requestId?: string,
+  ) => Effect.Effect<Result<readonly SparseVector[], DomainError>>;
+}
+
 export interface RerankScore {
   readonly index: number;
   readonly score: number;
@@ -66,6 +82,8 @@ export interface ProviderTraceSink {
 export interface CodePoint {
   readonly candidate: CodeCandidate;
   readonly vector: readonly number[];
+  /** Client-side maintained sparse embedding for self-hosted Qdrant. */
+  readonly sparseVector?: SparseVector;
   /** Opaque source-snapshot key used to isolate equal observation epochs. */
   readonly indexKey?: string;
   /** Content-addressed embedding identity, independent from source citation identity. */
@@ -75,9 +93,14 @@ export interface CodePoint {
 export interface CodeCandidatePort {
   readonly search: (input: {
     readonly workspaceId: WorkspaceId;
-    readonly vector: readonly number[];
-    /** Original query text for sparse/BM25 retrieval. When present, the Qdrant adapter performs hybrid fusion. */
+    /** Dense query vector; required by dense/hybrid strategies and intentionally absent for sparse-only ablations. */
+    readonly vector?: readonly number[];
+    /** Original query text retained for trace/benchmark correlation. */
     readonly queryText?: string;
+    /** Client-side sparse query vector; required by sparse/hybrid strategies. */
+    readonly sparseVector?: SparseVector;
+    /** Explicit strategy keeps benchmark arms on the same production adapter. */
+    readonly strategy?: CodeRetrievalStrategy;
     readonly limit: number;
     /** Per-branch candidate depth before fusion; defaults to a bounded multiple of limit. */
     readonly prefetchLimit?: number;
