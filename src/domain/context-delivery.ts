@@ -1,4 +1,12 @@
-import type { BundleId, ContextBundle, ContextDeliveryMetrics, EvidenceId, RetrievalEvidence } from './retrieval.js';
+import { createHash } from 'node:crypto';
+import type {
+  BundleId,
+  ContextBundle,
+  ContextDeliveryMetrics,
+  EvidenceId,
+  EvidenceReceiptId,
+  RetrievalEvidence,
+} from './retrieval.js';
 
 /**
  * User-visible retrieval intent is a delivery choice, not a different trust
@@ -121,6 +129,8 @@ const bundleIdentity = (bundle: ContextBundle): BundleId => stableReceiptDigest(
 export interface ContextReceiptInput {
   readonly knownEvidenceIds?: readonly string[];
   readonly knownBundleId?: string;
+  /** Internal workspace scope; never serialized into the MCP response. */
+  readonly receiptScope?: string;
 }
 
 const freshnessWeight = (value: RetrievalEvidence['freshness']): number => {
@@ -172,6 +182,34 @@ const withEvidenceAliases = (
     : { ...item, equivalentEvidenceIds: [...aliases].map((id) => id as EvidenceId) };
 };
 
+const deliveryProjectionFor = (item: RetrievalEvidence, intent: ContextDeliveryIntent): string => [
+  intent,
+  item.contentDelivery ?? 'inline',
+  item.originalSpanLines ?? '',
+].join(':');
+
+const receiptIdFor = (
+  item: RetrievalEvidence,
+  intent: ContextDeliveryIntent,
+  scope: string | undefined,
+): EvidenceReceiptId | undefined => {
+  if (scope === undefined || scope.trim().length === 0) return undefined;
+  const bodyDigest = createHash('sha256').update(item.content, 'utf8').digest('hex');
+  const identity = [
+    'ace-receipt-v1',
+    scope.trim(),
+    item.source,
+    item.citation,
+    item.sourceDigest ?? '',
+    item.sourceRevision ?? '',
+    bodyDigest,
+    deliveryProjectionFor(item, intent),
+    item.freshness,
+    item.proofClass,
+  ].join('\0');
+  return `receipt-v1-${createHash('sha256').update(identity, 'utf8').digest('hex')}` as EvidenceReceiptId;
+};
+
 /**
  * Only collapse duplicate digest-verified code representations of the same
  * exact span/body. This is intentionally an exact-span rule: nested ranges
@@ -219,11 +257,19 @@ const suppressKnownEvidence = (
   evidence: readonly RetrievalEvidence[],
   knownEvidenceIds: readonly string[],
   receiptMatchesBundle: boolean,
+  receiptScope: string | undefined,
 ): readonly RetrievalEvidence[] => {
-  if (!receiptMatchesBundle || knownEvidenceIds.length === 0) return evidence;
+  if (!receiptMatchesBundle && (knownEvidenceIds.length === 0 || receiptScope === undefined)) return evidence;
   const known = new Set(knownEvidenceIds);
   return evidence.map((item) => {
-    if (!known.has(item.evidenceId) || item.content.length === 0) return item;
+    const exactReceiptKnown = receiptScope !== undefined
+      && item.receiptId !== undefined
+      && known.has(item.receiptId);
+    const legacyEvidenceKnown = receiptMatchesBundle
+      && knownEvidenceIds.length > 0
+      && known.has(item.evidenceId);
+    const wholeBundleKnown = receiptMatchesBundle && knownEvidenceIds.length === 0;
+    if ((!exactReceiptKnown && !legacyEvidenceKnown && !wholeBundleKnown) || item.content.length === 0) return item;
     return {
       ...item,
       reusedContentBytes: utf8Bytes(item.content),
@@ -272,10 +318,18 @@ export const projectContextForDelivery = (
   // or delivery projection changed.
   const bundleId = bundleIdentity(projected);
   const knownEvidenceIds = receipts.knownEvidenceIds ?? [];
+  const receiptEvidence = projected.evidence.map((item) => {
+    const receiptId = receiptIdFor(item, intent, receipts.receiptScope);
+    return {
+      ...item,
+      ...(receiptId === undefined ? {} : { receiptId }),
+    };
+  });
   const evidence = suppressKnownEvidence(
-    projected.evidence,
+    receiptEvidence,
     knownEvidenceIds,
     receipts.knownBundleId !== undefined && receipts.knownBundleId === bundleId,
+    receipts.receiptScope,
   );
   const delivered: ContextBundle = {
     ...projected,
