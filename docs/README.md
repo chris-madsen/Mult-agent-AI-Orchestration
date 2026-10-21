@@ -1,6 +1,6 @@
 # Adaptive Context Engine (ACE) — DDD Architecture + OpenSpec SDD Blueprint
 
-**Version:** evolving implementation · **Updated:** 2026-10-20 · **Status:** active TypeScript + Effect implementation with real local retrieval, memory, provider and acceptance slices; full unified production approval is still evidence-gated.
+**Version:** evolving implementation · **Updated:** 2026-10-21 · **Status:** active TypeScript + Effect implementation with real local retrieval, memory, provider and acceptance slices; full unified production approval is still evidence-gated.
 
 ## Runtime status
 
@@ -8,7 +8,7 @@ The statement that this repository contains only a blueprint is obsolete. The cu
 
 Use [`operations/ace-configuration-and-readiness-matrix.md`](operations/ace-configuration-and-readiness-matrix.md) for the authoritative runtime/configuration meanings. A provider flag enables a code path; it does not by itself constitute production approval.
 
-Use [`plans/2026-10-19-unified-ace-correctness-and-production-plan.md`](plans/2026-10-19-unified-ace-correctness-and-production-plan.md) for remaining work and [`plans/unified-production-release-preflight.md`](plans/unified-production-release-preflight.md) for the full release evidence contract.
+Use [`plans/2026-10-21-cursor-like-hybrid-context-completion-plan.md`](plans/2026-10-21-cursor-like-hybrid-context-completion-plan.md) for the current retrieval/context architecture work, [`docs/references/ADR-014-hybrid-context-engine.md`](docs/references/ADR-014-hybrid-context-engine.md) for the accepted target architecture, and [`plans/unified-production-release-preflight.md`](plans/unified-production-release-preflight.md) for the full release evidence contract.
 
 ## Deliverables
 
@@ -25,9 +25,9 @@ Use [`plans/2026-10-19-unified-ace-correctness-and-production-plan.md`](plans/20
 
 - [`openspec/README.md`](openspec/README.md) — execution order and OpenSpec CLI guidance.
 - [`openspec/config.yaml`](openspec/config.yaml) — project context for coding agent.
-- [`openspec/changes/`](openspec/changes) — five changes with `proposal.md`, `specs/*/spec.md`, `design.md`, `tasks.md`.
+- [`openspec/changes/`](openspec/changes) — active spec-driven changes, including `007-hybrid-context-engine`, with `proposal.md`, `specs/*/spec.md`, `design.md`, `tasks.md`.
 - [`AGENTS.md`](AGENTS.md) — agent safety, scope and implementation policy.
-- [`docs/references/`](docs/references) — exact copies of the source PRD v1.0 and ADR-000…010, included for portability.
+- [`docs/references/`](docs/references) — source PRD and ADR decision record, including Accepted ADR-014 for the hybrid context target.
 
 ## DDD modular monolith, not microservices
 
@@ -40,7 +40,7 @@ FSM is deliberately used for `ContextRequest`, `IndexGeneration`, `SessionArchiv
 ## Decision hierarchy
 
 1. Explicit later user decisions / newly accepted ADR.
-2. Existing signed-off ADR-000…010 (especially ADR-006 no arbitrary truncation).
+2. Existing accepted ADRs, including ADR-006 (no arbitrary truncation) and ADR-014 (hybrid context target).
 3. PRD v1.0 for product intent, interpreted through later ADR clarifications.
 4. Proposed DDD architecture and OpenSpec implementation blueprints (revisable).
 
