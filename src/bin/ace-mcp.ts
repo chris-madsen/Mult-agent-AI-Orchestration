@@ -527,13 +527,14 @@ const main = async (): Promise<void> => {
               .digest('hex');
           const retrievalFingerprint = createHash('sha256')
             .update(JSON.stringify({
-              schema: 'hybrid-qdrant-v1',
+              schema: 'hybrid-qdrant-local-sparse-v2',
               embedding: embeddingFingerprint,
+              sparseEmbedding: sparseEmbeddingFingerprint,
               structural: structuralFingerprint,
               denseVector: 'dense',
               sparseVector: 'sparse',
-              sparseModel: 'qdrant/bm25',
-              sparsePreprocessing: 'language-neutral-multilingual-v1',
+              sparseModel: effectiveSparseEmbedding.model,
+              sparsePreprocessing: effectiveSparseEmbedding.preprocessing,
               fusion: 'rrf',
             }), 'utf8')
             .digest('hex');
@@ -574,6 +575,7 @@ const main = async (): Promise<void> => {
               build.index, buildQdrant, embeddings, http, qdrantUrl, collection,
               registered.value.workspaceId, sourceKey, qdrantAllowedHosts, true, undefined,
               embeddingFingerprint, previousAlias._tag === 'Ok' ? previousAlias.value : undefined,
+              sparseEmbeddings,
             ));
             if (indexed._tag === 'Err') return indexed;
             process.stderr.write(`ace-mcp qdrant candidate verified workspace_id=${registered.value.workspaceId} index_key=${sourceKey} collection=${collection} alias=${currentAlias} reused_vectors=${indexed.value.reusedVectorCount}\n`);
@@ -687,13 +689,14 @@ const main = async (): Promise<void> => {
               : build.coverage.failedPaths === 0
                 ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
                 : { state: 'degraded', reason: 'index_coverage_partial' };
-            process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${buildGeneration} indexed_paths=${build.indexedPaths.length} candidates=${build.index.candidates.length} coverage_failed=${build.coverage.failedPaths} source_snapshot_digest=${build.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} retrieval_mode=hybrid_rrf query_strategy=${retrievalStrategy} sparse_model=qdrant/bm25 structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
+            process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${buildGeneration} indexed_paths=${build.indexedPaths.length} candidates=${build.index.candidates.length} coverage_failed=${build.coverage.failedPaths} source_snapshot_digest=${build.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} sparse_identity=${sparseEmbeddingFingerprint.slice(0, 12)} retrieval_mode=hybrid_rrf query_strategy=${retrievalStrategy} sparse_model=${effectiveSparseEmbedding.model} structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
             return ok({
               workspaceId: registered.value.workspaceId,
               rootPath: registered.value.rootPath,
               files,
               qdrant,
               embeddings,
+              sparseEmbeddings,
               artifacts,
               semantics,
               newRequestId: () => randomUUID(),
