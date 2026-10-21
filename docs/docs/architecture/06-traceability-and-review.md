@@ -133,3 +133,28 @@ Implementer MAY mock unresolved provider integration for isolated tests, but MUS
 | DBC-12 Harbor attribution | FR-29/30/35, ADR-009 | 002 + 006 | trivial forced smoke and zero-call natural smoke cannot prove gains |
 
 **Implementation-status vocabulary:** `contract-designed` → `adapter-implemented` → `provider-tested` → `agent-E2E-tested` → `benchmarked` → `owner-approved/production-ready`. A prior checkbox means only its **narrowly worded task** was attempted; it must not be used to promote an entire capability. The quality gates in `07-architecture-fitness-contracts.md` and proposed ADR-012 supersede any informal inference of readiness; accepted ADRs remain authoritative until the owner approves changes.
+
+
+## 7. Current-state correction and ADR-014 traceability — 2026-10-21
+
+The original “Planned” statuses above are historical blueprint state and must not be used as current implementation status. By current main after PR #94:
+
+- ast-grep structural extraction is implemented in the production path;
+- generic LSP provider wiring is implemented;
+- Qdrant immutable collection + atomic alias publication is implemented;
+- content-addressed dense vector reuse is implemented;
+- request-time dirty-worktree reconciliation is implemented;
+- explicit source obligations and progressive exact expansion are implemented.
+
+ADR-014 / OpenSpec 007 add the remaining target capabilities:
+
+| Target | Capability | Change | Current status |
+|---|---|---|---|
+| Dense + sparse code retrieval | hybrid-context | 007 | **Open** — dense exists, sparse/BM25+RRF missing |
+| Reranking | hybrid-context | 007 | **Open** — provider/model not selected |
+| Dynamic working-state priors | hybrid-context | 007 | **Partial** — freshness exists; ranking priors/focus hints missing |
+| Context receipts/delta delivery | hybrid-context | 007 | **Open** |
+| Compact structural outlines in locate mode | hybrid-context | 007 | **Partial** — ast-grep outline exists internally; delivery policy open |
+| Natural agent token/quality proof | agent-benchmarking + hybrid-context | 002,007 | **Open** |
+
+This table is the current bridge from the historical blueprint to the accepted Cursor-like hybrid architecture. See `plans/2026-10-21-cursor-like-hybrid-context-completion-plan.md`.
