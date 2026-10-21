@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { domainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import type { CommandPort } from './harbor-runner.js';
@@ -44,7 +44,12 @@ export interface HarborArtifactManifest {
 
 const nonEmpty = (value: string): boolean => value.trim().length > 0;
 
-const safeRelative = (value: string): boolean => !isAbsolute(value) && relative('.', value) !== '..' && !relative('.', value).startsWith('../');
+const normalizedRelative = (value: string): string => relative('.', value).split(sep).join('/');
+const escapesRoot = (value: string): boolean => {
+  const normalized = value.split(sep).join('/');
+  return normalized === '..' || normalized.startsWith('../');
+};
+const safeRelative = (value: string): boolean => !isAbsolute(value) && !escapesRoot(normalizedRelative(value));
 
 const validateTask = (task: HarborTaskDefinition): Result<HarborTaskDefinition, ReturnType<typeof domainError>> => {
   if (!nonEmpty(task.taskPath) || !safeRelative(task.taskPath)) return err(domainError('INVALID_BENCHMARK', 'task_path', 'Harbor task path must be relative and contained'));
@@ -88,7 +93,7 @@ export const resetHarborWorktree = async (
   const worktree = resolve(worktreePath);
   const parent = resolve(allowedWorktreeParent);
   const containment = relative(parent, worktree);
-  if (containment === '' || containment === '..' || containment.startsWith('../') || isAbsolute(containment)) {
+  if (containment === '' || escapesRoot(containment) || isAbsolute(containment)) {
     return err(domainError('PATH_ESCAPE', 'worktree_path', 'Harbor reset requires a dedicated child worktree'));
   }
   if (!nonEmpty(repoBaseCommit)) return err(domainError('INVALID_BENCHMARK', 'repo_base_commit', 'base commit is required'));
@@ -115,7 +120,7 @@ export const retainHarborArtifacts = async (
       if (!safeRelative(path)) return err(domainError('PATH_ESCAPE', 'artifact_path', 'artifact path must remain within trial root'));
       const absolute = resolve(trialRoot, path);
       const containment = relative(resolve(trialRoot), absolute);
-      if (containment === '..' || containment.startsWith('../') || isAbsolute(containment)) return err(domainError('PATH_ESCAPE', 'artifact_path', 'artifact path escapes trial root'));
+      if (escapesRoot(containment) || isAbsolute(containment)) return err(domainError('PATH_ESCAPE', 'artifact_path', 'artifact path escapes trial root'));
       const bytes = await readFile(absolute);
       const metadata = await stat(absolute);
       retained.push({ path, sizeBytes: metadata.size, sha256: createHash('sha256').update(bytes).digest('hex') });
