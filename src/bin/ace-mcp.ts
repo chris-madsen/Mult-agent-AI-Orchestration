@@ -248,7 +248,7 @@ const main = async (): Promise<void> => {
   const lspLanguageIds = configuredLanguageIds('ACE_LSP_LANGUAGE_IDS');
   const artifacts = makeFileArtifactStore(artifactDirectory);
   const providerTrace = makeFileProviderTrace(process.env.ACE_PROVIDER_TRACE_FILE);
-  const history = makeGitHistoryPort();
+  const history = makeGitHistoryPort({ trace: providerTrace, providerVersion: 'git/cli' });
   let memory: MemorySearchPort | undefined;
   let closeMemory: (() => Promise<void>) | undefined;
   let closeSemantics: (() => void) | undefined;
