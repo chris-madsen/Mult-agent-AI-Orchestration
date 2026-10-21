@@ -857,21 +857,19 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
                     rankedResults = prioritized.slice(0, deliveryLimit);
                   }
                 } else {
-                  rankedResults = reranked.value
-                    .map((score) => {
-                      const original = prioritized[score.index];
-                      return original === undefined
-                        ? undefined
-                        : {
-                          ...original,
-                          score: score.score,
-                          warning: original.warning === undefined
-                            ? 'ranked by configured cross-encoder after Qdrant RRF'
-                            : original.warning + '; ranked by configured cross-encoder after Qdrant RRF',
-                        };
-                    })
-                    .filter((item): item is RankedCandidate => item !== undefined)
-                    .slice(0, deliveryLimit);
+                  const reordered: RankedCandidate[] = [];
+                  for (const score of reranked.value) {
+                    const original = prioritized[score.index];
+                    if (original === undefined) continue;
+                    reordered.push({
+                      ...original,
+                      score: score.score,
+                      warning: original.warning === undefined
+                        ? 'ranked by configured cross-encoder after Qdrant RRF'
+                        : original.warning + '; ranked by configured cross-encoder after Qdrant RRF',
+                    });
+                  }
+                  rankedResults = reordered.slice(0, deliveryLimit);
                 }
               }
             }
