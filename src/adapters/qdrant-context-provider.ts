@@ -772,6 +772,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
         const evidenceId = makeEvidenceId('code-' + createHash('sha256')
           .update([
             candidate.workspaceId,
+            candidate.candidateId,
             candidate.repoPath,
             candidate.sourceDigest,
             candidate.symbolName ?? '',
