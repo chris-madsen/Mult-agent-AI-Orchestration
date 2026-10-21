@@ -63,7 +63,11 @@ export interface CodeCandidatePort {
   readonly search: (input: {
     readonly workspaceId: WorkspaceId;
     readonly vector: readonly number[];
+    /** Original query text for sparse/BM25 retrieval. When present, the Qdrant adapter performs hybrid fusion. */
+    readonly queryText?: string;
     readonly limit: number;
+    /** Per-branch candidate depth before fusion; defaults to a bounded multiple of limit. */
+    readonly prefetchLimit?: number;
     /** Current build epoch, preventing deleted/renamed sources from reappearing. */
     readonly generation?: number;
     /** Current source snapshot key, preventing equal epochs from mixing. */

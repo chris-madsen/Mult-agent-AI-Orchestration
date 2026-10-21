@@ -157,34 +157,67 @@ const candidateFromPayload = (point: Record<string, unknown>, workspaceId: Works
   });
 };
 
-const qdrantPoint = (point: CodePoint): Readonly<Record<string, unknown>> => ({
-  id: qdrantPointId(point),
-  vector: point.vector,
-  payload: {
-    candidate_id: point.candidate.candidateId,
-    workspace_id: point.candidate.workspaceId,
-    repo_path: point.candidate.repoPath,
-    start_line: point.candidate.range.startLine,
-    end_line: point.candidate.range.endLine,
-    ...(point.candidate.range.startColumn === undefined ? {} : { start_column: point.candidate.range.startColumn }),
-    ...(point.candidate.range.endColumn === undefined ? {} : { end_column: point.candidate.range.endColumn }),
-    ...(point.candidate.symbolName === undefined ? {} : { symbol_name: point.candidate.symbolName }),
-    ...(point.candidate.semanticAnchor === undefined ? {} : {
-      semantic_line: point.candidate.semanticAnchor.line,
-      semantic_byte_column: point.candidate.semanticAnchor.byteColumn,
-      semantic_end_line: point.candidate.semanticAnchor.endLine,
-      semantic_end_byte_column: point.candidate.semanticAnchor.endByteColumn,
-    }),
-    ...(point.candidate.conflictKey === undefined ? {} : { conflict_key: point.candidate.conflictKey }),
-    ...(point.candidate.conflictValue === undefined ? {} : { conflict_value: point.candidate.conflictValue }),
-    text: point.candidate.text,
-    source_digest: point.candidate.sourceDigest,
-    generation: point.candidate.generation,
-    ...(point.indexKey === undefined ? {} : { index_key: point.indexKey }),
-    ...(point.embeddingKey === undefined ? {} : { embedding_key: point.embeddingKey }),
-    indexed_at_ms: point.candidate.indexedAtMs,
-  },
+const QDRANT_DENSE_VECTOR = 'dense';
+const QDRANT_SPARSE_VECTOR = 'sparse';
+const QDRANT_BM25_MODEL = 'qdrant/bm25';
+
+/**
+ * Language-neutral BM25 keeps code identifiers and mixed RU/EN queries from
+ * being distorted by an English-only stemmer/stopword list. Qdrant 1.19+
+ * applies these options identically at ingest and query time.
+ */
+const qdrantBm25Options = (): Readonly<Record<string, unknown>> => ({
+  stemmer: { type: 'none' },
+  stopwords: {},
+  tokenizer: 'multilingual',
+  ascii_folding: true,
 });
+
+const lexicalTextFor = (candidate: CodeCandidate): string => [
+  candidate.repoPath,
+  candidate.symbolName ?? '',
+  candidate.text,
+].filter((value) => value.length > 0).join('\n');
+
+const qdrantPoint = (point: CodePoint): Readonly<Record<string, unknown>> => {
+  const lexicalText = lexicalTextFor(point.candidate);
+  return {
+    id: qdrantPointId(point),
+    vector: {
+      [QDRANT_DENSE_VECTOR]: point.vector,
+      [QDRANT_SPARSE_VECTOR]: {
+        text: lexicalText,
+        model: QDRANT_BM25_MODEL,
+        options: qdrantBm25Options(),
+      },
+    },
+    payload: {
+      candidate_id: point.candidate.candidateId,
+      workspace_id: point.candidate.workspaceId,
+      repo_path: point.candidate.repoPath,
+      start_line: point.candidate.range.startLine,
+      end_line: point.candidate.range.endLine,
+      ...(point.candidate.range.startColumn === undefined ? {} : { start_column: point.candidate.range.startColumn }),
+      ...(point.candidate.range.endColumn === undefined ? {} : { end_column: point.candidate.range.endColumn }),
+      ...(point.candidate.symbolName === undefined ? {} : { symbol_name: point.candidate.symbolName }),
+      ...(point.candidate.semanticAnchor === undefined ? {} : {
+        semantic_line: point.candidate.semanticAnchor.line,
+        semantic_byte_column: point.candidate.semanticAnchor.byteColumn,
+        semantic_end_line: point.candidate.semanticAnchor.endLine,
+        semantic_end_byte_column: point.candidate.semanticAnchor.endByteColumn,
+      }),
+      ...(point.candidate.conflictKey === undefined ? {} : { conflict_key: point.candidate.conflictKey }),
+      ...(point.candidate.conflictValue === undefined ? {} : { conflict_value: point.candidate.conflictValue }),
+      text: point.candidate.text,
+      source_digest: point.candidate.sourceDigest,
+      generation: point.candidate.generation,
+      ...(point.indexKey === undefined ? {} : { index_key: point.indexKey }),
+      ...(point.embeddingKey === undefined ? {} : { embedding_key: point.embeddingKey }),
+      lexical_text: lexicalText,
+      indexed_at_ms: point.candidate.indexedAtMs,
+    },
+  };
+};
 
 const qdrantPointId = (point: CodePoint): string => {
   const hex = createHash('sha256')
@@ -207,12 +240,50 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
         method: 'POST',
         url: `${endpoint.value}/collections/${encodeURIComponent(config.collection)}/points/query`,
         ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
-        body: { query: input.vector, limit: input.limit, with_payload: true, with_vector: false,
-          filter: { must: [
+        body: (() => {
+          const filter = { must: [
             { key: 'workspace_id', match: { value: input.workspaceId } },
             ...(input.generation === undefined ? [] : [{ key: 'generation', match: { value: input.generation } }]),
             ...(input.indexKey === undefined ? [] : [{ key: 'index_key', match: { value: input.indexKey } }]),
-          ] } },
+          ] };
+          const queryText = input.queryText?.trim();
+          if (queryText === undefined || queryText.length === 0) {
+            return {
+              query: input.vector,
+              using: QDRANT_DENSE_VECTOR,
+              limit: input.limit,
+              with_payload: true,
+              with_vector: false,
+              filter,
+            };
+          }
+          const prefetchLimit = input.prefetchLimit
+            ?? Math.min(1000, Math.max(input.limit, input.limit * 4));
+          return {
+            prefetch: [
+              {
+                query: input.vector,
+                using: QDRANT_DENSE_VECTOR,
+                limit: prefetchLimit,
+                filter,
+              },
+              {
+                query: {
+                  text: queryText,
+                  model: QDRANT_BM25_MODEL,
+                  options: qdrantBm25Options(),
+                },
+                using: QDRANT_SPARSE_VECTOR,
+                limit: prefetchLimit,
+                filter,
+              },
+            ],
+            query: { rrf: {} },
+            limit: input.limit,
+            with_payload: true,
+            with_vector: false,
+          };
+        })(),
       });
       if (responseResult._tag === 'Err') return responseResult;
       const response = responseResult.value;
@@ -235,7 +306,7 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
       providerTraceEvent(config.trace ?? noopProviderTrace, {
         provider: 'qdrant',
         providerVersion: config.providerVersion ?? 'qdrant/unknown',
-        operation: 'query_points',
+        operation: input.queryText === undefined ? 'query_points_dense' : 'query_points_hybrid_rrf',
         status: result._tag === 'Ok' ? 'success' : 'failure',
         durationMs: Math.max(0, Date.now() - startedAtMs),
         collection: config.collection,

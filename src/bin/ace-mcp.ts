@@ -409,8 +409,14 @@ const main = async (): Promise<void> => {
               .digest('hex');
           const retrievalFingerprint = createHash('sha256')
             .update(JSON.stringify({
+              schema: 'hybrid-qdrant-v1',
               embedding: embeddingFingerprint,
               structural: structuralFingerprint,
+              denseVector: 'dense',
+              sparseVector: 'sparse',
+              sparseModel: 'qdrant/bm25',
+              sparsePreprocessing: 'language-neutral-multilingual-v1',
+              fusion: 'rrf',
             }), 'utf8')
             .digest('hex');
           if (structuralIdentity._tag === 'Err') {
@@ -558,7 +564,7 @@ const main = async (): Promise<void> => {
             readiness.unified_context = build.coverage.failedPaths === 0
               ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
               : { state: 'degraded', reason: 'index_coverage_partial' };
-            process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${buildGeneration} indexed_paths=${build.indexedPaths.length} candidates=${build.index.candidates.length} coverage_failed=${build.coverage.failedPaths} source_snapshot_digest=${build.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
+            process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${buildGeneration} indexed_paths=${build.indexedPaths.length} candidates=${build.index.candidates.length} coverage_failed=${build.coverage.failedPaths} source_snapshot_digest=${build.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} retrieval_mode=hybrid_rrf sparse_model=qdrant/bm25 structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
             return ok({
               workspaceId: registered.value.workspaceId,
               rootPath: registered.value.rootPath,
