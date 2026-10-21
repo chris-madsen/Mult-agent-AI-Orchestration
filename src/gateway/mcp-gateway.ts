@@ -239,6 +239,7 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
                 ...(input.value.known_evidence_ids === undefined
                   ? {}
                   : { knownEvidenceIds: input.value.known_evidence_ids }),
+                receiptScope: String(workspaceId.value),
               },
             );
             return { status: 'ok', result: { ...delivered } };
