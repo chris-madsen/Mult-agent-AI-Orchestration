@@ -55,6 +55,9 @@ export interface LocalCodeIndexerOptions {
 
 interface Span {
   readonly name: string;
+  readonly kind: StructuralSymbol['kind'];
+  readonly language?: string;
+  readonly isExported?: boolean;
   readonly range: SourceRange;
   readonly semanticAnchor?: SemanticAnchorRange;
   readonly content: string;
@@ -114,6 +117,9 @@ const structuralSpans = (
     if (start < 0 || end <= start || end > bytes.length) return [];
     return [{
       name: symbol.name,
+      kind: symbol.kind,
+      ...(symbol.language === undefined ? {} : { language: symbol.language }),
+      ...(symbol.isExported === undefined ? {} : { isExported: symbol.isExported }),
       range: { startLine: symbol.startLine, startColumn: symbol.startColumn, endLine: symbol.endLine, endColumn: symbol.endColumn },
       ...(symbol.nameStartLine === undefined || symbol.nameStartColumn === undefined
         || symbol.nameEndLine === undefined || symbol.nameEndColumn === undefined
@@ -300,6 +306,9 @@ export const buildLocalCodeIndex = (
           repoPath: observation.repoPath,
           range: span.range,
           symbolName: span.name,
+          structuralKind: span.kind,
+          ...(span.language === undefined ? {} : { structuralLanguage: span.language }),
+          ...(span.isExported === undefined ? {} : { structuralExported: span.isExported }),
           ...(span.semanticAnchor === undefined ? {} : { semanticAnchor: span.semanticAnchor }),
           text: span.content,
           sourceDigest: exact.value.digest,
