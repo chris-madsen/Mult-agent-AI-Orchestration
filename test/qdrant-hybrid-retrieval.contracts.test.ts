@@ -23,6 +23,9 @@ const candidate = mustOk(makeCodeCandidate({
   repoPath: 'src/auth/verify-jwt.ts' as never,
   range: { startLine: 1, endLine: 1, startColumn: 1, endColumn: text.length + 1 },
   symbolName: 'verifyJwtToken',
+  structuralKind: 'function',
+  structuralLanguage: 'typescript',
+  structuralExported: true,
   text,
   sourceDigest: digest as never,
   generation: 7 as never,
@@ -54,7 +57,7 @@ test('Qdrant upsert stores dense vector plus language-neutral BM25 document on t
   const point = points[0] as { vector?: Record<string, unknown>; payload?: Record<string, unknown> };
   assert.deepEqual(point.vector?.dense, [0.1, 0.2, 0.3]);
   assert.deepEqual(point.vector?.sparse, {
-    text: 'src/auth/verify-jwt.ts\nverifyJwtToken\n' + text,
+    text: 'src/auth/verify-jwt.ts\nverifyJwtToken\nfunction\ntypescript\nexported\n' + text,
     model: 'qdrant/bm25',
     options: {
       stemmer: { type: 'none' },
@@ -63,7 +66,13 @@ test('Qdrant upsert stores dense vector plus language-neutral BM25 document on t
       ascii_folding: true,
     },
   });
-  assert.equal(point.payload?.lexical_text, 'src/auth/verify-jwt.ts\nverifyJwtToken\n' + text);
+  assert.equal(point.payload?.structural_kind, 'function');
+  assert.equal(point.payload?.structural_language, 'typescript');
+  assert.equal(point.payload?.structural_exported, true);
+  assert.equal(
+    point.payload?.lexical_text,
+    'src/auth/verify-jwt.ts\nverifyJwtToken\nfunction\ntypescript\nexported\n' + text,
+  );
 });
 
 test('Qdrant search uses dense and BM25 prefetch branches with root RRF fusion', async () => {
@@ -86,6 +95,9 @@ test('Qdrant search uses dense and BM25 prefetch branches with root RRF fusion',
                 start_column: candidate.range.startColumn,
                 end_column: candidate.range.endColumn,
                 symbol_name: candidate.symbolName,
+                structural_kind: candidate.structuralKind,
+                structural_language: candidate.structuralLanguage,
+                structural_exported: candidate.structuralExported,
                 text: candidate.text,
                 source_digest: candidate.sourceDigest,
                 generation: candidate.generation,
@@ -113,6 +125,9 @@ test('Qdrant search uses dense and BM25 prefetch branches with root RRF fusion',
   }));
   assert.equal(result._tag, 'Ok');
   assert.equal(result._tag === 'Ok' ? result.value[0]?.candidate.candidateId : undefined, candidate.candidateId);
+  assert.equal(result._tag === 'Ok' ? result.value[0]?.candidate.structuralKind : undefined, 'function');
+  assert.equal(result._tag === 'Ok' ? result.value[0]?.candidate.structuralLanguage : undefined, 'typescript');
+  assert.equal(result._tag === 'Ok' ? result.value[0]?.candidate.structuralExported : undefined, true);
   const prefetch = requestBody?.prefetch;
   assert.ok(Array.isArray(prefetch));
   assert.deepEqual((prefetch[0] as { using?: unknown }).using, 'dense');
