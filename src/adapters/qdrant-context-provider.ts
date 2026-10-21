@@ -769,7 +769,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
       }>();
 
       const initialFailures = new Map<RepoPath, string>();
-      for (const [i, ranked] of rankedResults.entries()) {
+      for (const ranked of rankedResults) {
         const candidate = ranked.candidate;
         // One authoritative exact read and one immutable artifact per source,
         // not one read per Qdrant symbol. All selected sources are revalidated
@@ -810,7 +810,19 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
           warnings.push(candidate.repoPath + ': stale index or AST slice disagrees with current original bytes');
           failed.push('code');
         }
-        const evidenceId = makeEvidenceId('qdrant-code-' + (i + 1));
+        const evidenceId = makeEvidenceId('code-' + createHash('sha256')
+          .update([
+            candidate.workspaceId,
+            candidate.candidateId,
+            candidate.repoPath,
+            candidate.sourceDigest,
+            candidate.symbolName ?? '',
+            String(candidate.range.startLine),
+            String(candidate.range.startColumn ?? ''),
+            String(candidate.range.endLine),
+            String(candidate.range.endColumn ?? ''),
+          ].join('\0'), 'utf8')
+          .digest('hex'));
         if (evidenceId._tag === 'Err') return evidenceId;
         // Even a partial response must never present an unverified indexed snippet as direct evidence.
         if (!verified || verifiedText === undefined) continue;
@@ -948,8 +960,15 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
                 boundedMemoryEvidence ? 'provider_bounded_top_k' : undefined,
               );
             }
-            for (const [index, hit] of memories.value.hits.entries()) {
-              const evidenceId = makeEvidenceId('memory-' + (index + 1));
+            for (const hit of memories.value.hits) {
+              const evidenceId = makeEvidenceId('memory-' + createHash('sha256')
+                .update([
+                  hit.episode.episodeId,
+                  hit.episode.contentDigest,
+                  hit.episode.sourcePointer,
+                  hit.matchingExcerpt,
+                ].join('\0'), 'utf8')
+                .digest('hex'));
               if (evidenceId._tag === 'Err') return evidenceId;
               evidence.push({
                 evidenceId: evidenceId.value,

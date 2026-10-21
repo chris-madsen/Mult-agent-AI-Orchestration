@@ -198,3 +198,43 @@ test('ace_expand format=utf8 returns exact readable source instead of expensive 
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('stable evidence receipts suppress unchanged bodies without hidden server state', () => {
+  const first = projectContextForDelivery(bundle, 'inspect');
+  assert.match(first.bundleId ?? '', /^[a-f0-9]{64}$/u);
+  const repeated = projectContextForDelivery(
+    { ...bundle, requestId: 'another-request' as ContextBundle['requestId'] },
+    'inspect',
+    {
+      knownBundleId: first.bundleId,
+      knownEvidenceIds: [String(first.evidence[0]?.evidenceId), String(first.evidence[3]?.evidenceId)],
+    },
+  );
+  assert.equal(repeated.bundleId, first.bundleId, 'bundle identity must not depend on request id');
+  assert.equal(repeated.supersedesBundleId, first.bundleId);
+  assert.equal(repeated.evidence[0]?.content, '');
+  assert.equal(repeated.evidence[0]?.contentDelivery, 'known_reference');
+  assert.equal(repeated.evidence[3]?.content, '');
+  assert.equal(repeated.evidence[3]?.contentDelivery, 'known_reference');
+  assert.equal(repeated.evidence[1]?.content, bodies[1]);
+  const expectedReused = Buffer.byteLength(bodies[0] ?? '') + Buffer.byteLength(bodies[3] ?? '');
+  assert.equal(repeated.deliveryMetrics?.reusedContextBytes, expectedReused);
+  assert.equal(repeated.deliveryMetrics?.duplicateContextBytesAvoided, expectedReused);
+  assert.equal(repeated.deliveryMetrics?.newContextBytes,
+    bodies.reduce((total, body, index) => total + ([0, 3].includes(index) ? 0 : Buffer.byteLength(body)), 0));
+  assert.equal(repeated.deliveryMetrics?.uniqueEvidenceCount, evidence.length);
+  assert.equal(repeated.deliveryMetrics?.initialEvidenceBytes,
+    bodies.reduce((total, body) => total + Buffer.byteLength(body), 0));
+  assert.match(
+    contextTransportText(repeated as unknown as Readonly<Record<string, unknown>>),
+    /caller supplied stable evidence receipt/u,
+  );
+});
+
+test('unknown evidence receipts do not suppress any verified body', () => {
+  const delivered = projectContextForDelivery(bundle, 'inspect', {
+    knownEvidenceIds: ['not-present'],
+  });
+  assert.deepEqual(delivered.evidence.map((item) => item.content), bodies);
+  assert.equal(delivered.deliveryMetrics?.reusedContextBytes, 0);
+});
