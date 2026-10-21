@@ -33,6 +33,8 @@ const main = async (): Promise<void> => {
     schemaVersion: 1,
     sourceCommit: process.env.ACE_EVIDENCE_SOURCE_COMMIT?.trim()
       || execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+    reportPath: reportArg,
+    policyPath: policyArg,
     reportSha256: sha256(reportBytes),
     policySha256: sha256(policyBytes),
     evidenceStage: report.evidence_stage,

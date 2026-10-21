@@ -298,6 +298,8 @@ const baseInput = () => ({
   embeddingSelection: {
     schemaVersion: 1,
     sourceCommit: commit,
+    reportPath: 'artifacts/embedding-comparison.json',
+    policyPath: 'benchmarks/policies/embedding-selection.json',
     reportSha256: digest,
     policySha256: digest,
     evidenceStage: 'frozen_holdout',
@@ -314,6 +316,7 @@ const baseInput = () => ({
   semanticSelection: {
     schemaVersion: 1,
     sourceCommit: commit,
+    policyPath: 'benchmarks/policies/semantic-provider-selection.json',
     policySha256: digest,
     fixtureSha256: digest,
     oracleSha256: digest,

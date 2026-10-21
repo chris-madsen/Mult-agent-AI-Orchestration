@@ -9,6 +9,7 @@ import {
 } from '../src/domain/code-release-preflight.js';
 import { ownerApprovalPayload, type ReleaseOwnerApproval, type ReleaseOwnerApprovalTrustRoot } from '../src/domain/release-preflight.js';
 import { validateReleaseExternalEvidenceDocument } from '../src/domain/release-external-evidence.js';
+import { validateReleaseSelectionSources } from './release-selection-source-validation.js';
 
 interface CodeReleasePolicy {
   readonly schemaVersion: 1;
@@ -60,7 +61,7 @@ const readEvidenceJson = async (path: string): Promise<{
   readonly sha256: string;
 }> => {
   const evidence = await readEvidenceBytes(path);
-  return { ...evidence, value: JSON.parse(evidence.bytes.toString('utf8')) as unknown };
+  return { ...evidence, value: JSON.parse(Buffer.from(evidence.bytes).toString('utf8')) as unknown };
 };
 
 const [policyArg, outputArg] = process.argv.slice(2);
@@ -95,6 +96,11 @@ const [dbc, embedding, semantic, retrieval, harbor, resourceBudget, runtimeConfi
   readEvidenceJson(artifacts.resourceBudget),
   readEvidenceJson(artifacts.runtimeConfig),
 ]);
+const selectionSources = await validateReleaseSelectionSources(
+  embedding.value,
+  semantic.value,
+  readEvidenceJson,
+);
 
 const dbcRoot = typeof dbc.value === 'object' && dbc.value !== null && !Array.isArray(dbc.value)
   ? dbc.value as Record<string, unknown>
@@ -196,6 +202,7 @@ const output = {
     harborThreeArm: { path: harbor.path, sha256: harbor.sha256 },
     resourceBudget: { path: resourceBudget.path, sha256: resourceBudget.sha256 },
     runtimeConfig: { path: runtimeConfig.path, sha256: runtimeConfig.sha256 },
+    selectionSources,
     external: externalArtifacts,
   },
   verdict: verdict.value,
