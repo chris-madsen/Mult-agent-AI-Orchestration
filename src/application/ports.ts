@@ -124,6 +124,15 @@ export interface SemanticQuery {
   readonly snapshotIdentity?: string;
 }
 
+export interface GitHistoryPort {
+  readonly search: (input: {
+    readonly rootPath: string;
+    readonly query: string;
+    readonly limit: number;
+    readonly requestId?: string;
+  }) => Effect.Effect<Result<readonly ContextBundle['evidence'][number][], DomainError>>;
+}
+
 export interface MemorySearchPort {
   readonly search: (input: {
     readonly workspaceId: WorkspaceId;
