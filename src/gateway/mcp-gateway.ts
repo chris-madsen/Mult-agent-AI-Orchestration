@@ -94,7 +94,7 @@ export interface ContextProvider {
     readonly includeCode?: boolean;
     readonly includeDocs: boolean;
     readonly includeMemory: boolean;
-    readonly includeHistory: boolean;
+    readonly includeHistory?: boolean;
     readonly sourceRequirements?: SourceRequirements;
     readonly workingContextHints?: WorkingContextHints;
   }) => Effect.Effect<Result<ContextBundle, DomainError>>;
