@@ -46,6 +46,19 @@ export interface VectorEmbeddingPort {
   readonly embedMany: (input: readonly string[], requestId?: string) => Effect.Effect<Result<readonly (readonly number[])[], DomainError>>;
 }
 
+export interface RerankScore {
+  readonly index: number;
+  readonly score: number;
+}
+
+export interface RerankerPort {
+  readonly rerank: (input: {
+    readonly query: string;
+    readonly documents: readonly string[];
+    readonly requestId?: string;
+  }) => Effect.Effect<Result<readonly RerankScore[], DomainError>>;
+}
+
 export interface ProviderTraceSink {
   readonly record: (event: ProviderTraceEvent) => void;
 }
