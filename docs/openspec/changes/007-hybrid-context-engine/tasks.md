@@ -4,6 +4,8 @@
 
 **Evidence update 2026-10-21:** H3 history, H4 portability and H5 source-aware delivery are backed by the current contract suite and evidence commit `4c1d6aa218bccf5dcd7ed33e32599aa79030c880`. H6 retrieval/agent measurements and production-provider evidence remain open.
 
+**Static review update (2026-10-21, `main@2aa9804c4ce1287318f7b8dbc6dc9623ded16405`):** PR #122 is merged. [Review findings](../../../reviews/2026-10-21-hybrid-context-static-code-review.md) identify gaps in changed-bundle delta reuse and duplicate-byte accounting plus a benchmark trace durability risk. Current checked items retain their narrower implemented/tested meaning; they do not claim these additional cases or real Harbor acceptance pass.
+
 ## Already present on main
 
 - [x] Agent-neutral MCP facade.
@@ -66,6 +68,13 @@
 - [ ] Run the separate frozen CPU reranker holdout and approve or reject a concrete model identity.
 - [ ] Require task-quality non-inferiority before token-savings acceptance.
 - [ ] Publish duplicate context avoided separately from embedding/index reuse in benchmark reports.
+
+## Review-driven regression and instrumentation work (still open)
+
+- [ ] ACE-CR-02: add same-source-digest/different-span RED tests and correct delivery duplicate-byte accounting; separate measured body dedupe, receipt reuse and locate projection.
+- [ ] ACE-CR-01: add mixed changed/unchanged evidence and evidence-only receipt official-MCP contract cases; fix per-item delta reuse without breaking stale/unauthorized receipt safety or exact expansion.
+- [ ] ACE-CR-03: make benchmark trace append/flush failures observable, and require a durable complete stage/request receipt set for scored H6 runs.
+- [ ] Re-run applicable contract, real-MCP/provider and benchmark evidence before changing H6 acceptance claims; **this static review did not execute tests**.
 
 ## Production track remains separate
 
