@@ -56,6 +56,18 @@ const declarationLine = (content: string): string =>
     return firstLine.length <= 512 ? firstLine : '';
   })();
 
+const structuralOutline = (item: RetrievalEvidence): string | undefined => {
+  const name = item.structuralName?.trim();
+  const kind = item.structuralKind;
+  if ((name === undefined || name.length === 0) && kind === undefined) return undefined;
+  return [
+    item.structuralExported === true ? 'exported' : undefined,
+    kind ?? 'symbol',
+    name,
+    item.structuralLanguage === undefined ? undefined : `[${item.structuralLanguage}]`,
+  ].filter((value): value is string => value !== undefined && value.length > 0).join(' ');
+};
+
 const fnv1a64 = (value: string, seed: bigint): string => {
   let hash = seed;
   for (const byte of new TextEncoder().encode(value)) {
@@ -128,7 +140,7 @@ export const projectContextForDelivery = (
         if (fullInline) return item;
         return {
           ...item,
-          content: declarationLine(item.content),
+          content: structuralOutline(item) ?? declarationLine(item.content),
           contentDelivery: 'expand' as const,
           originalSpanLines: lines.length,
         };
