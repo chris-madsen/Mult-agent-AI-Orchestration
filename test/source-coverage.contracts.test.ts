@@ -490,3 +490,26 @@ test('documentation policy denial remains denied rather than technical unavailab
   assert.deepEqual(result.partialSources, ['documentation']);
   assert.equal(result.sourceCoverage?.find((item) => item.source === 'documentation')?.status, 'denied');
 });
+
+
+test('Git history affects completeness only when explicitly requested', () => {
+  const explicit = resolveExplicitSourceRequirements({
+    required: ['history'],
+    optional: ['code'],
+  });
+  assert.equal(explicit._tag, 'Ok');
+  if (explicit._tag === 'Err') return;
+  assert.deepEqual(explicit.value.history, { requirement: 'required', allowed: true });
+  let coverage = initialSourceCoverage(explicit.value);
+  assert.equal(sourceCoverageComplete(coverage), false);
+  assert.deepEqual(requiredIncompleteSources(coverage), ['history']);
+  coverage = setSourceCoverage(coverage, 'history', 'satisfied');
+  assert.equal(sourceCoverageComplete(coverage), true);
+
+  const routed = resolveSourceRequirements(['code']);
+  assert.equal(routed.history, undefined);
+  assert.equal(initialSourceCoverage(routed).some((entry) => entry.source === 'history'), false);
+
+  const optional = resolveSourceRequirements(['code'], { includeHistory: true });
+  assert.deepEqual(optional.history, { requirement: 'optional', allowed: true });
+});
