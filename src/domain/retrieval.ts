@@ -310,6 +310,63 @@ export const searchCode = (
     .sort((left, right) => right.score - left.score || left.candidate.repoPath.localeCompare(right.candidate.repoPath));
 };
 
+interface CodeCitationRange {
+  readonly path: string;
+  readonly startLine: number;
+  readonly endLine: number;
+}
+
+const codeCitationRange = (citation: string): CodeCitationRange | undefined => {
+  const match = /^(.*):(\d+)-(\d+)$/u.exec(citation);
+  if (match === null) return undefined;
+  const startLine = Number(match[2]);
+  const endLine = Number(match[3]);
+  if (!Number.isSafeInteger(startLine) || !Number.isSafeInteger(endLine)
+    || startLine < 1 || endLine < startLine) return undefined;
+  return { path: match[1] ?? '', startLine, endLine };
+};
+
+const sameEvidenceSemantics = (left: RetrievalEvidence, right: RetrievalEvidence): boolean =>
+  left.source === right.source
+  && left.sourceDigest === right.sourceDigest
+  && left.proofClass === right.proofClass
+  && left.freshness === right.freshness
+  && left.conflictKey === right.conflictKey
+  && left.conflictValue === right.conflictValue;
+
+const redundantWithinSource = (kept: RetrievalEvidence, candidate: RetrievalEvidence): boolean => {
+  if (!sameEvidenceSemantics(kept, candidate)) return false;
+
+  // Same verified source span/body under the same source class is one piece of
+  // evidence even if two retrieval branches assigned different evidence IDs.
+  if (kept.citation === candidate.citation && kept.content === candidate.content) return true;
+
+  // Be conservative for code containment: only suppress a later nested span
+  // when both records describe the same structural symbol (or neither names
+  // one). Distinct methods/classes remain separate navigation evidence.
+  if (kept.source !== 'code' || candidate.source !== 'code') return false;
+  if (kept.structuralName !== candidate.structuralName) return false;
+  const outer = codeCitationRange(kept.citation);
+  const inner = codeCitationRange(candidate.citation);
+  if (outer === undefined || inner === undefined || outer.path !== inner.path) return false;
+  return inner.startLine >= outer.startLine && inner.endLine <= outer.endLine;
+};
+
+export const deduplicateEvidenceForDelivery = (
+  evidence: readonly RetrievalEvidence[],
+): { readonly evidence: readonly RetrievalEvidence[]; readonly suppressed: number } => {
+  const selected: RetrievalEvidence[] = [];
+  let suppressed = 0;
+  for (const item of evidence) {
+    if (selected.some((kept) => redundantWithinSource(kept, item))) {
+      suppressed += 1;
+      continue;
+    }
+    selected.push(item);
+  }
+  return { evidence: selected, suppressed };
+};
+
 export const mergeEvidence = (
   requestId: RequestId,
   query: string,
@@ -317,15 +374,9 @@ export const mergeEvidence = (
   warnings: readonly string[] = [],
   failedRequiredSources: readonly string[] = [],
 ): ContextBundle => {
-  // Deduplicate only genuinely identical evidence records; distinct proof,
-  // handles, claims and freshness must not be silently discarded.
-  const byIdentity = new Map<string, RetrievalEvidence>();
-  for (const item of evidence) {
-    const key = JSON.stringify(item);
-    if (!byIdentity.has(key)) byIdentity.set(key, item);
-  }
+  const deduplicated = deduplicateEvidenceForDelivery(evidence);
   const conflictGroups = new Map<string, RetrievalEvidence[]>();
-  for (const item of byIdentity.values()) {
+  for (const item of deduplicated.evidence) {
     if (item.conflictKey === undefined) continue;
     const group = conflictGroups.get(item.conflictKey) ?? [];
     group.push(item);
@@ -347,11 +398,20 @@ export const mergeEvidence = (
   }
   const conflictWarnings = conflicts.map((conflict) => `conflict: ${conflict.message}`);
   const partialSources = [...new Set([...evidence.filter((item) => item.freshness !== 'current').map((item) => item.source), ...failedRequiredSources])];
-  const allWarnings = [...new Set([...warnings, ...conflictWarnings, ...evidence.flatMap((item) => item.freshness === 'current' ? [] : [`${item.source}: ${item.freshness}`])])];
+  const dedupeWarnings = deduplicated.suppressed === 0
+    ? []
+    : [`evidence dedupe: suppressed ${deduplicated.suppressed} redundant item(s)`];
+  const allWarnings = [...new Set([
+    ...warnings,
+    ...conflictWarnings,
+    ...dedupeWarnings,
+    ...deduplicated.evidence.flatMap((item) =>
+      item.freshness === 'current' ? [] : [`${item.source}: ${item.freshness}`]),
+  ])];
   return {
     requestId,
     query,
-    evidence: [...byIdentity.values()],
+    evidence: deduplicated.evidence,
     warnings: allWarnings,
     partialSources,
     // A warning or contradiction is informative; missing/failed required sources
