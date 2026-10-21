@@ -236,7 +236,20 @@ export const makeCodeCandidate = (input: CodeCandidateInput): Result<CodeCandida
   if (!Number.isSafeInteger(input.generation) || input.generation < 1) {
     return err(domainError('INVALID_RETRIEVAL', 'generation', 'index generation must be positive'));
   }
-  return ok({ ...input, invalidated: input.invalidated ?? false });
+  const {
+    structuralKind,
+    structuralLanguage,
+    structuralExported,
+    invalidated,
+    ...base
+  } = input;
+  return ok({
+    ...base,
+    ...(structuralKind === undefined ? {} : { structuralKind }),
+    ...(structuralLanguage === undefined ? {} : { structuralLanguage }),
+    ...(structuralExported === undefined ? {} : { structuralExported }),
+    invalidated: invalidated ?? false,
+  });
 };
 
 export const createCodeIndex = (generation: number, candidates: readonly CodeCandidate[] = []): Result<CodeIndex, DomainError> => {
