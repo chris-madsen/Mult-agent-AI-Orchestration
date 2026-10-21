@@ -1,8 +1,8 @@
 # Tasks — Hybrid Context Engine completion
 
-**Implementation baseline for this ledger:** code `main@acb2630e9c49d56b5c8a224e900fd4999fd91358` after merged Hybrid follow-up PRs #124–#126. The later docs-only ledger PR is not part of the measured code baseline.
+**Implementation baseline for this ledger:** source repositories for the current H6 evidence are pinned to ACE `main@b20646c966575e8280ea792e4f851ab1e28ec867` and Chess `23a7bb6b27023e8520941841d69745dd623d0933`. H6 tooling changes are delivered as separate reviewable PRs #130–#133; this task file records evidence status and does not imply that those PRs are already merged.
 
-**Evidence update 2026-10-21:** H4/H5 correctness, per-evidence receipts, durable benchmark traces and the external holdout freeze are backed by current contract/evidence artifacts. H6 retrieval/agent measurements and production-provider evidence remain open or blocked by unavailable external runtimes.
+**Evidence update 2026-10-21:** H4/H5 correctness, per-evidence receipts, durable benchmark traces, the current external holdout freeze, the reranker rejection and the external Harbor job bundle are backed by current artifacts. The five-strategy H6 retrieval gate and agent measurements remain open; Harbor execution is blocked by unavailable external runtimes.
 
 ## Already present on main
 
@@ -21,7 +21,7 @@
 - [x] Store dense + sparse representations for structural chunks.
 - [x] Add native Qdrant dense+sparse prefetch + RRF fusion.
 - [x] Retain dense/sparse/hybrid rank + latency telemetry in the evaluation path without triple-querying production ace_context.
-- [ ] Freeze the final exact-symbol/config-key/behavior/multilingual **multi-repository holdout** before final tuning.
+- [x] Freeze the final exact-symbol/config-key/behavior/multilingual **multi-repository holdout** before final tuning in the external v3 evidence workspace.
 
 **Implemented evidence boundary:** runtime and controlled ablation plumbing exist. This does **not** mean the hybrid strategy has won the final holdout.
 
@@ -30,7 +30,7 @@
 - [x] Add generic RerankerPort and maintained FastEmbed cross-encoder process boundary.
 - [x] Compose reranking after configured retrieval with explicit disabled/optional/required failure semantics.
 - [x] Add reproducible RU/EN/mixed reranker evaluation harness with quality, latency, provider identity and license-reference evidence.
-- [ ] Run maintained CPU cross-encoder candidates on the separately frozen final holdout.
+- [x] Run maintained CPU cross-encoder candidates on the separately frozen reranker holdout; all tested candidates regressed against the hybrid baseline.
 - [ ] Select/approve a reranker only if measured quality/context-size benefit is material.
 
 **Current production policy:** no reranker model is approved merely because the port exists.
@@ -60,10 +60,9 @@
 
 - [x] Freeze the multi-repository retrieval holdout and exact source manifests in an external evidence workspace before scored tuning; do not vendor source repositories or generated holdout fixtures into ACE.
 - [x] Add benchmark-only stage-rank/provider trace boundary, canonical candidate IDs, durable JSONL/terminal receipts and frozen-run identity validation without adding MCP tools.
-- [ ] Run lexical-only vs dense-only vs hybrid vs hybrid+rerank ablation on the frozen holdout.
-- [ ] Run sparse/BM25-only vs dense-only vs hybrid RRF vs hybrid+reranker vs hybrid+reranker+Working Context on the frozen holdout.
+- [ ] Run sparse/BM25-only vs dense-only vs hybrid RRF vs hybrid+reranker vs hybrid+reranker+Working Context ablation on the frozen holdout.
 - [ ] Run Native Codex vs dense ACE vs hybrid ACE vs hybrid+receipt/delta Harbor arms.
-- [ ] Run the separate frozen CPU reranker holdout and approve or reject a concrete model identity.
+- [x] Run the separate frozen CPU reranker holdout and record a rejection verdict for the current candidate set; no concrete model identity is approved.
 - [ ] Require task-quality non-inferiority before token-savings acceptance.
 - [ ] Publish duplicate context avoided separately from receipt reuse, projection savings and embedding/index reuse in benchmark reports.
 

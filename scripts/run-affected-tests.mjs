@@ -201,8 +201,14 @@ const main = () => {
   if (selection.tests.length > 0) console.log(selection.tests.map((file) => `  test: ${file}`).join('\n'));
 
   if (dryRun || selection.mode === 'none') return;
-  const result = spawnSync('npm', ['exec', '--', 'tsx', '--test', ...selection.tests], { stdio: 'inherit' });
-  process.exitCode = result.status ?? 1;
+  const command = selection.mode === 'full'
+    ? ['test']
+    : ['exec', '--', 'tsx', '--test', ...selection.tests];
+  const npmInvocation = process.platform === 'win32'
+    ? ['cmd.exe', ['/d', '/s', '/c', ['npm.cmd', ...command].join(' ')]]
+    : ['npm', command];
+  const result = spawnSync(npmInvocation[0], npmInvocation[1], { stdio: 'inherit' });
+  process.exitCode = result.error === undefined ? (result.status ?? 1) : 1;
 };
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();
