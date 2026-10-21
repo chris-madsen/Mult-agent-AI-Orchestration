@@ -824,8 +824,21 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
                 input.workingContextHints,
                 retrievalLimit,
               );
-              if (activeConfig.reranker === undefined || prioritized.length === 0) {
-                rankedResults = prioritized.slice(0, deliveryLimit);
+              if (activeConfig.reranker === undefined) {
+                if (activeConfig.rerankerMode === 'required') {
+                  codeProviderError = domainError(
+                    'NOT_READY',
+                    'reranker',
+                    'reranking is required by runtime policy but no verified reranker is available',
+                  );
+                } else {
+                  if (activeConfig.rerankerMode === 'optional') {
+                    warnings.push('reranker configured but unavailable; using fused RRF ranking');
+                  }
+                  rankedResults = prioritized.slice(0, deliveryLimit);
+                }
+              } else if (prioritized.length === 0) {
+                rankedResults = [];
               } else {
                 const reranked = yield* activeConfig.reranker.rerank({
                   query: input.query,
