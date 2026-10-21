@@ -249,6 +249,14 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
       if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 1000) {
         return err(domainError('INVALID_INPUT', 'limit', 'Qdrant limit must be between 1 and 1000'));
       }
+      if ((input.mode === 'sparse' || input.mode === 'hybrid')
+        && (input.queryText === undefined || input.queryText.trim().length === 0)) {
+        return err(domainError(
+          'INVALID_INPUT',
+          'query_text',
+          'sparse and hybrid Qdrant retrieval require non-empty query text',
+        ));
+      }
       const responseResult = yield* config.http.request({
         method: 'POST',
         url: `${endpoint.value}/collections/${encodeURIComponent(config.collection)}/points/query`,
@@ -260,10 +268,31 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
             ...(input.indexKey === undefined ? [] : [{ key: 'index_key', match: { value: input.indexKey } }]),
           ] };
           const queryText = input.queryText?.trim();
-          if (queryText === undefined || queryText.length === 0) {
+          const mode = input.mode ?? (queryText === undefined || queryText.length === 0 ? 'dense' : 'hybrid');
+          if (mode === 'dense') {
             return {
               query: input.vector,
               using: QDRANT_DENSE_VECTOR,
+              limit: input.limit,
+              with_payload: true,
+              with_vector: false,
+              filter,
+            };
+          }
+          if (queryText === undefined || queryText.length === 0) {
+            return {
+              __invalid: 'sparse_or_hybrid_requires_query_text',
+            };
+          }
+          const sparseQuery = {
+            text: queryText,
+            model: QDRANT_BM25_MODEL,
+            options: qdrantBm25Options(),
+          };
+          if (mode === 'sparse') {
+            return {
+              query: sparseQuery,
+              using: QDRANT_SPARSE_VECTOR,
               limit: input.limit,
               with_payload: true,
               with_vector: false,
@@ -281,11 +310,7 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
                 filter,
               },
               {
-                query: {
-                  text: queryText,
-                  model: QDRANT_BM25_MODEL,
-                  options: qdrantBm25Options(),
-                },
+                query: sparseQuery,
                 using: QDRANT_SPARSE_VECTOR,
                 limit: prefetchLimit,
                 filter,
@@ -319,7 +344,11 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
       providerTraceEvent(config.trace ?? noopProviderTrace, {
         provider: 'qdrant',
         providerVersion: config.providerVersion ?? 'qdrant/unknown',
-        operation: input.queryText === undefined ? 'query_points_dense' : 'query_points_hybrid_rrf',
+        operation: input.mode === 'sparse'
+          ? 'query_points_sparse'
+          : input.mode === 'dense' || input.queryText === undefined
+            ? 'query_points_dense'
+            : 'query_points_hybrid_rrf',
         status: result._tag === 'Ok' ? 'success' : 'failure',
         durationMs: Math.max(0, Date.now() - startedAtMs),
         collection: config.collection,
