@@ -200,7 +200,18 @@ const validRange = (range: SourceRange): boolean =>
   range.startLine >= 1 &&
   range.endLine >= range.startLine;
 
-export const makeCodeCandidate = (input: Omit<CodeCandidate, 'invalidated'> & { readonly invalidated?: boolean }): Result<CodeCandidate, DomainError> => {
+type CodeCandidateInput = Omit<
+  CodeCandidate,
+  'invalidated' | 'structuralKind' | 'structuralLanguage' | 'structuralExported'
+> & {
+  /** External payload decoders may surface an absent optional field as undefined. */
+  readonly structuralKind?: StructuralKind | undefined;
+  readonly structuralLanguage?: string | undefined;
+  readonly structuralExported?: boolean | undefined;
+  readonly invalidated?: boolean;
+};
+
+export const makeCodeCandidate = (input: CodeCandidateInput): Result<CodeCandidate, DomainError> => {
   if (input.text.length === 0) return err(domainError('INVALID_RETRIEVAL', 'text', 'candidate text must not be empty'));
   if (!validRange(input.range)) return err(domainError('INVALID_RETRIEVAL', 'range', 'source range is invalid'));
   if (input.semanticAnchor !== undefined) {
