@@ -22,6 +22,8 @@ const ContextInput = Schema.Struct({
   include_code: Schema.optional(Schema.Boolean),
   include_docs: Schema.optional(Schema.Boolean),
   include_memory: Schema.optional(Schema.Boolean),
+  known_bundle_id: Schema.optional(Schema.String),
+  known_evidence_ids: Schema.optional(Schema.Array(Schema.String)),
   source_obligations: Schema.optional(Schema.Struct({
     required: Schema.optional(Schema.Array(Schema.Literal('code', 'structural', 'lsp', 'documentation', 'memory'))),
     optional: Schema.optional(Schema.Array(Schema.Literal('code', 'structural', 'lsp', 'documentation', 'memory'))),
@@ -118,6 +120,17 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
         case 'ace_context': {
           const input = decode(ContextInput, call.arguments);
           if (isErr(input)) return responseError(input);
+          if (input.value.known_bundle_id !== undefined && input.value.known_bundle_id.trim().length === 0) {
+            return responseError(err(domainError('INVALID_INPUT', 'known_bundle_id', 'known bundle id must be non-empty')));
+          }
+          if ((input.value.known_evidence_ids?.length ?? 0) > 1000
+            || input.value.known_evidence_ids?.some((id) => id.trim().length === 0) === true) {
+            return responseError(err(domainError(
+              'INVALID_INPUT',
+              'known_evidence_ids',
+              'known evidence ids must be non-empty and contain at most 1000 receipts',
+            )));
+          }
           const workspaceId = workspaceIdFrom(input.value.workspace_id);
           if (isErr(workspaceId)) return responseError(workspaceId);
           const workspace = yield* ports.store.get(workspaceId.value);
@@ -162,7 +175,18 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
               sourceRequirements,
             });
             if (isErr(result)) return responseError(result);
-            const delivered = projectContextForDelivery(result.value, resolveDeliveryIntent(input.value.intent));
+            const delivered = projectContextForDelivery(
+              result.value,
+              resolveDeliveryIntent(input.value.intent),
+              {
+                ...(input.value.known_bundle_id === undefined
+                  ? {}
+                  : { knownBundleId: input.value.known_bundle_id }),
+                ...(input.value.known_evidence_ids === undefined
+                  ? {}
+                  : { knownEvidenceIds: input.value.known_evidence_ids }),
+              },
+            );
             return { status: 'ok', result: { ...delivered } };
           }
           return notReady('unified_context');
