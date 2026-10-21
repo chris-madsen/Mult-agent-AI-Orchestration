@@ -11,6 +11,7 @@ import { makeFileArtifactStore } from '../adapters/file-artifact-store.js';
 import { makeAsyncFileMemoryArchive } from '../adapters/file-memory-archive.js';
 import { makeFileDecisionHistory } from '../adapters/file-decision-history.js';
 import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
+import { makeGitHistoryPort } from '../adapters/git-history.js';
 import { makeHostWorkspacePort, makeMtlsHostHelperTransport } from '../adapters/host-worktree-helper.js';
 import { makeFetchHttpPort, makeQdrantCodeCandidatePort } from '../adapters/http-provider-boundaries.js';
 import { buildLocalCodeIndex, type LocalCodeIndexBuild } from '../adapters/local-code-index.js';
@@ -247,6 +248,7 @@ const main = async (): Promise<void> => {
   const lspLanguageIds = configuredLanguageIds('ACE_LSP_LANGUAGE_IDS');
   const artifacts = makeFileArtifactStore(artifactDirectory);
   const providerTrace = makeFileProviderTrace(process.env.ACE_PROVIDER_TRACE_FILE);
+  const history = makeGitHistoryPort();
   let memory: MemorySearchPort | undefined;
   let closeMemory: (() => Promise<void>) | undefined;
   let closeSemantics: (() => void) | undefined;
@@ -712,6 +714,7 @@ const main = async (): Promise<void> => {
               scopeFingerprint,
               semanticSnapshotIdentity: semanticIdentity,
               trace: providerTrace,
+              history,
               ...(documentation === undefined ? {} : { documentation }),
               ...(memory === undefined ? {} : { memory }),
             });
