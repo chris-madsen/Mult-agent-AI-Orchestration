@@ -56,3 +56,16 @@ RAG отвечает за discovery, но не доказывает, что ко
 ## Owner instruction — 2026-10-19
 
 **Do not preselect an LSP or write a new ADR simply to choose one.** Codex must execute the existing ADR-004 experimental comparison: **Serena versus direct TypeScript Language Service**. Install both on comparable TS/JS fixtures; verify same-name definitions/references, writes vs definitions, types, diagnostics, source freshness, unsupported/dynamic cases, version/licensing and runtime overhead. Compare full agent task success, tool calls, latency and total token/cost. Retain failing cases and submit a reasoned selection to the owner; neither candidate becomes production-approved solely by being implemented. Experiments themselves are approved before final provider selection.
+
+
+## Implementation clarification — 2026-10-21
+
+PR #94 materially completed the de-bespoke direction:
+
+- production structural discovery now uses pinned **ast-grep** rather than an ACE-maintained Tree-sitter node table;
+- production semantic verification uses a generic JSON-RPC **LSP** adapter with an external maintained language server;
+- request-time workspace reconciliation prevents stale indexed state from being called complete.
+
+Therefore future work SHALL NOT rebuild a custom AST extractor or language-server project lifecycle. New languages are added by registering maintained ast-grep language support and a maintained LSP server/configuration.
+
+LSP remains an enrichment/verification layer. Hybrid retrieval candidate discovery is defined by ADR-014/OpenSpec 007 and is not replaced by LSP.
