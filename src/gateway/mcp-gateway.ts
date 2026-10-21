@@ -5,7 +5,7 @@ import { workspaceIdFrom, type WorkspaceServicePorts } from '../application/work
 import type { ArtifactStore, MemorySearchPort } from '../application/ports.js';
 import type { ContextBundle } from '../domain/retrieval.js';
 import { projectContextForDelivery, resolveDeliveryIntent } from '../domain/context-delivery.js';
-import { ingestRepoPath, type WorkingContextHints, type WorkspaceId } from '../domain/workspace.js';
+import { ingestRepoPath, type RepoPath, type WorkingContextHints, type WorkspaceId } from '../domain/workspace.js';
 import { deterministicRoute } from '../domain/routing.js';
 import {
   resolveExplicitSourceRequirements,
@@ -161,7 +161,7 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
                 ? undefined
                 : ingestRepoPath(input.value.working_context.focused_path);
               if (focusedPath?._tag === 'Err') return responseError(focusedPath);
-              const openPaths = [];
+              const openPaths: RepoPath[] = [];
               if ((input.value.working_context.open_paths?.length ?? 0) > 100) {
                 return responseError(err(domainError('INVALID_INPUT', 'working_context.open_paths', 'at most 100 open paths are allowed')));
               }
