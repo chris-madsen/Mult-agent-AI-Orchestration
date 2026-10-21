@@ -22,6 +22,7 @@ const ContextInput = Schema.Struct({
   include_code: Schema.optional(Schema.Boolean),
   include_docs: Schema.optional(Schema.Boolean),
   include_memory: Schema.optional(Schema.Boolean),
+  include_history: Schema.optional(Schema.Boolean),
   known_bundle_id: Schema.optional(Schema.String),
   known_evidence_ids: Schema.optional(Schema.Array(Schema.String)),
   working_context: Schema.optional(Schema.Struct({
@@ -33,8 +34,8 @@ const ContextInput = Schema.Struct({
     })),
   })),
   source_obligations: Schema.optional(Schema.Struct({
-    required: Schema.optional(Schema.Array(Schema.Literal('code', 'structural', 'lsp', 'documentation', 'memory'))),
-    optional: Schema.optional(Schema.Array(Schema.Literal('code', 'structural', 'lsp', 'documentation', 'memory'))),
+    required: Schema.optional(Schema.Array(Schema.Literal('code', 'structural', 'lsp', 'documentation', 'memory', 'history'))),
+    optional: Schema.optional(Schema.Array(Schema.Literal('code', 'structural', 'lsp', 'documentation', 'memory', 'history'))),
   })),
 });
 
@@ -93,6 +94,7 @@ export interface ContextProvider {
     readonly includeCode?: boolean;
     readonly includeDocs: boolean;
     readonly includeMemory: boolean;
+    readonly includeHistory: boolean;
     readonly sourceRequirements?: SourceRequirements;
     readonly workingContextHints?: WorkingContextHints;
   }) => Effect.Effect<Result<ContextBundle, DomainError>>;
@@ -149,6 +151,7 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
               ...(input.value.include_code === undefined ? {} : { includeCode: input.value.include_code }),
               ...(input.value.include_docs === undefined ? {} : { includeDocs: input.value.include_docs }),
               ...(input.value.include_memory === undefined ? {} : { includeMemory: input.value.include_memory }),
+              ...(input.value.include_history === undefined ? {} : { includeHistory: input.value.include_history }),
             };
             const sourceRequirementsResult = input.value.source_obligations === undefined
               ? (() => {
@@ -220,6 +223,8 @@ export const makeMcpGateway = (ports: McpGatewayPorts) => ({
                 || sourceIsRequested(sourceRequirements.lsp ?? { requirement: 'not_requested', allowed: true }),
               includeDocs: sourceIsRequested(sourceRequirements.documentation),
               includeMemory: sourceIsRequested(sourceRequirements.memory),
+              includeHistory: sourceIsRequested(sourceRequirements.history
+                ?? { requirement: 'not_requested', allowed: true }),
               sourceRequirements,
               ...(workingContextHints === undefined ? {} : { workingContextHints }),
             });
