@@ -174,3 +174,37 @@ CPU/memory-heavy code-intelligence операций; Python остаётся в�
 4. **Relevance vs losslessness:** first response provides accurate minimal relevant spans without arbitrary mandatory token ceilings; exact full file/2000-line artifact remains retrievable with an authorized handle. Returning every entire file per lexical symbol is a retrieval-quality failure, not compliance with ADR-006.
 5. **Failure isolation:** technical outage can use labelled local fallback with partial provenance; security denial is fail-closed and audited. Preserve cancellation, concurrency, SDK protocol compliance and immutable user worktree.
 6. **Stage gates:** component tests → real-provider integration → Codex/MCP E2E → Harbor attribution/quality/cost tests → owner acceptance. Unpassed gates are **not ready**; do not mark them `[x]` via a controlled exception. See `07-architecture-fitness-contracts.md` and OpenSpec `006-production-retrieval-vertical-slice`.
+
+
+## 12. Accepted hybrid-context contract update — 2026-10-21
+
+ADR-014 supersedes the earlier “dense candidate store + optional extra tools” interpretation with an explicit **multi-layer hybrid Context Engine** while preserving the same MCP facade and trust boundaries.
+
+### Code retrieval
+
+The target code path is:
+
+```text
+ast-grep structural chunks
+  -> dense embedding + sparse/BM25 representation
+  -> Qdrant dense+sparse prefetch
+  -> provider-native RRF fusion
+  -> optional evidence-approved local reranker
+  -> exact current-source verification
+  -> maintained LSP enrichment
+  -> ContextBundle
+```
+
+A separate lexical database is not required by the architecture. Qdrant is the default dense+sparse data plane until benchmark evidence justifies another service.
+
+### Working Context
+
+`ace_context` MAY accept optional host hints such as focused/open paths and ranges. ACE independently observes authoritative Git/worktree state. Host hints influence ranking only and never override source digest verification or policy.
+
+### Repeated-context suppression
+
+ContextBundle evolves to carry stable bundle/evidence receipts. A caller MAY present already-known bundle/evidence identities; unchanged evidence bodies SHOULD be represented compactly instead of retransmitted. Exact content remains available through `ace_expand`.
+
+### Agent independence
+
+No editor-specific state is mandatory. IDE-aware clients may provide richer hints; CLI agents can use the same MCP contract with only workspace/query/source obligations. See ADR-014 and OpenSpec change 007.

@@ -55,3 +55,14 @@
 ## Owner clarification — 2026-10-19: Ollama is not required
 
 The selected code retrieval engine is **Qdrant**, not a model-serving wrapper. **Ollama is explicitly not selected or required.** Genuine code embeddings can be produced by a ready-made *local* inference library such as **Qdrant FastEmbed / ONNX Runtime**, with model and inference backend evaluated separately. These are candidates, not a silently approved production model. Codex may run real local candidate E2E and benchmark now; decide production model after measured recall, latency, multi-language behavior, throughput, resource usage, licensing and full agent quality/cost. Keep a distinct Qdrant collection/generation when models, dimensions or preprocessing change. See proposed ADR-013 and ADR-007.
+
+
+## Owner clarification — 2026-10-21: Qdrant stays, hybrid retrieval becomes first-class
+
+The local code store remains **Qdrant**. The next production retrieval architecture SHALL evaluate and, if quality gates pass, use Qdrant as a **single hybrid data plane** for both dense semantic and sparse/BM25 retrieval with provider-native fusion (initial candidate: RRF). A separate Tantivy/Elasticsearch-style service is not added by default.
+
+**Turbopuffer is not selected for the current ACE runtime.** It is a strong object-storage-native cloud search platform, but ACE currently requires local-first private-code retrieval, offline/local development and already has working Qdrant lifecycle/evidence. Revisit Turbopuffer only if ACE becomes a cloud multi-tenant service or Qdrant becomes a measured scalability/operational bottleneck.
+
+Exact literal retrieval that BM25 cannot cover MAY use a maintained exact-search tool such as ripgrep after benchmark evidence; do not create a custom lexical database.
+
+See ADR-014 and OpenSpec change 007.

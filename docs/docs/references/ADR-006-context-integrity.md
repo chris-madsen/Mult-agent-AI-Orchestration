@@ -42,3 +42,14 @@
 ## Ссылки
 
 - ADR-001, ADR-004, ADR-009
+
+
+## Owner clarification — 2026-10-21: repeated-context suppression
+
+Progressive disclosure must reduce not only initial payload size but also **repeated transmission of unchanged evidence**.
+
+ACE SHALL evolve ContextBundle delivery so that stable bundle/evidence identities can be acknowledged by an MCP client. When unchanged evidence is already known, ACE SHOULD return a compact reference instead of resending the same body. Changed/new evidence is delivered normally; exact original bytes remain available through `ace_expand`.
+
+This is distinct from embedding cache reuse: embedding reuse saves indexing compute, while context receipts/delta delivery save MCP/model-input bytes. No hidden mandatory token cap is introduced.
+
+See ADR-014 and OpenSpec change 007.

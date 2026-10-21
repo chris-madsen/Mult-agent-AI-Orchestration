@@ -30,3 +30,16 @@ Existing implementation is **partially implemented**. This change specifies gate
 3. Replace regex whole-file symbol selection with AST spans, preserve lexical fallback for offline use with explicit partial label.
 4. Add integration/agent E2E and Harbor tasks; record run fingerprints.
 5. Review; switch default only when all gates pass and owner approves.
+
+
+## Current provider-composition update — 2026-10-21
+
+The production runtime has moved beyond the historical migration sketch above: PR #94 replaced custom structural/Qdrant-lifecycle/semantic project machinery with ast-grep, provider-native Qdrant alias publication and generic LSP wiring.
+
+For future production promotion, the code-retrieval portion of the vertical contract is extended by Accepted ADR-014 and OpenSpec 007:
+
+```text
+Qdrant dense + sparse/BM25 -> RRF fusion -> optional approved reranker -> exact source verification -> LSP enrichment
+```
+
+The existing DBC requirements remain applicable. Hybrid/reranker layers are not considered production evidence until their own frozen quality/latency/agent ablations pass.

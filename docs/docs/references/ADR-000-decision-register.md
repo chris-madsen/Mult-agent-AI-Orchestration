@@ -34,7 +34,7 @@
 | 20 | E — уже установленный локальный Kubernetes; модульный монолит; без искусственных микросервисов | ADR-008 |
 | 21 | Пока только учёт токенов и обязательные security/failure logs; остальная observability отдельно | ADR-009, ADR-010 |
 | 22 | D — baseline + Serena на раннем этапе, Augment и графовые системы в итоговом сравнении | ADR-009 |
-| 23 | **Harbor** как выбранный framework; token usage из Codex, benchmarks с качественным gating | ADR-009 |
+| 23 | **Harbor** как выбранный framework; token usage из Codex, benchmarks с качественным gating | ADR-009 |\n| 24 | Cursor-like **hybrid context architecture principles**, но собственные maintained компоненты; универсальная MCP-граница; Qdrant остаётся local code store | ADR-014 |
 
 ## Открытые исследования (не путать с несогласованными требованиями)
 
@@ -56,3 +56,11 @@
 - **Graphiti + FalkorDB local-first** confirmed; no automatic cloud processing of raw dialogue or extraction payloads. Concrete local inference remains to be verified under ADR-005/007.
 - **Vertex RAG** continues as selected docs engine; use already-signed-in host `gcloud CLI` for REST/IAM/corpus read-only probes. No automatic private document import or billable corpus creation. Sign-in is not the same as approved data policy.
 - **ADR-012 still Proposed** pending express owner approval of six acceptance rules. Spikes/E2E/Harbor may proceed immediately; 5× remains a target to test rather than a precondition to running tests.
+
+
+## Owner clarification — 2026-10-21: Hybrid Context Engine
+
+- **ADR-014 Accepted.** ACE строится как agent-neutral многоуровневый Context Engine через MCP: structural chunks + dense semantic + sparse lexical + optional reranking + LSP enrichment + working-state priors + docs + temporal memory + progressive/delta delivery.
+- Мы **не копируем private implementation Cursor**. Берём архитектурные принципы, а maintained компоненты выбираем свои.
+- **Qdrant retained.** Turbopuffer не выбран для текущего local-first developer runtime; пересмотр только при измеренном cloud/multi-tenant scale bottleneck.
+- После PR #94 de-bespoke migration structural/Qdrant/LSP в основном выполнена; следующий retrieval gap — hybrid sparse/BM25 + fusion, reranking, working-state context и repeated-context suppression.
