@@ -20,6 +20,10 @@ import {
   verifiedEmbeddingIdentityFingerprint,
   type ResolvedEmbeddingConfig,
 } from '../adapters/process-embedding.js';
+import {
+  makeProcessSparseEmbeddingPort,
+  sparseEmbeddingIdentityFingerprint,
+} from '../adapters/process-sparse-embedding.js';
 import { makeFileProviderTrace } from '../adapters/provider-trace.js';
 import { makeProcessRerankerPort } from '../adapters/process-reranker.js';
 import {
@@ -219,6 +223,7 @@ const main = async (): Promise<void> => {
     code_retrieval: { state: 'not_ready', reason: 'provider_not_initialized' },
     unified_context: { state: 'not_ready', reason: 'provider_not_initialized' },
     semantic_lsp: { state: 'not_ready', reason: 'provider_not_initialized' },
+    sparse_embedding: { state: 'not_ready', reason: 'provider_not_initialized' },
     reranker: rerankerMode === 'disabled'
       ? { state: 'disabled', reason: 'reranker_disabled' }
       : { state: 'not_ready', reason: 'provider_not_initialized' },
@@ -246,6 +251,7 @@ const main = async (): Promise<void> => {
   let closeMemory: (() => Promise<void>) | undefined;
   let closeSemantics: (() => void) | undefined;
   let closeReranker: (() => void) | undefined;
+  let closeSparseEmbeddings: (() => void) | undefined;
   if (process.env.ACE_ENABLE_GRAPHITI === 'true') {
     const archiveRoot = resolve(required('ACE_MEMORY_ARCHIVE_ROOT'));
     const command = required('ACE_GRAPHITI_COMMAND');
@@ -355,6 +361,15 @@ const main = async (): Promise<void> => {
       throw new Error('ACE_RETRIEVAL_STRATEGY must be dense, sparse, or hybrid_rrf');
     }
     const retrievalStrategy = retrievalStrategyRaw as 'dense' | 'sparse' | 'hybrid_rrf';
+    const sparseEmbeddingModel = process.env.ACE_SPARSE_EMBEDDING_MODEL?.trim() || 'Qdrant/bm25';
+    const sparseEmbeddingWorker = process.env.ACE_SPARSE_EMBEDDING_WORKER?.trim()
+      || resolve('scripts/fastembed-sparse-worker.sh');
+    const sparseEmbeddingTimeoutMs = Number(process.env.ACE_SPARSE_EMBEDDING_TIMEOUT_MS ?? '120000');
+    if (!Number.isSafeInteger(sparseEmbeddingTimeoutMs)
+      || sparseEmbeddingTimeoutMs < 100
+      || sparseEmbeddingTimeoutMs > 3_600_000) {
+      throw new Error('ACE_SPARSE_EMBEDDING_TIMEOUT_MS must be an integer between 100 and 3600000');
+    }
     const candidateLimit = Number(process.env.ACE_CONTEXT_CANDIDATE_LIMIT ?? '6');
     if (!Number.isSafeInteger(candidateLimit) || candidateLimit < 1 || candidateLimit > 20) throw new Error('ACE_CONTEXT_CANDIDATE_LIMIT must be an integer between 1 and 20');
     const rerankerCandidateLimit = Number(process.env.ACE_RERANKER_CANDIDATE_LIMIT ?? String(Math.min(50, candidateLimit * 4)));
@@ -415,7 +430,10 @@ const main = async (): Promise<void> => {
     ));
     if (qdrantReachable._tag === 'Err') {
       handleQdrantUnavailable(qdrantReachable.error.code);
-    } else if (!existsSync(embeddingWorker) || !existsSync(astGrepCommand) || !commandBoundaryExists(astGrepCommand)) {
+    } else if (!existsSync(embeddingWorker)
+      || !existsSync(sparseEmbeddingWorker)
+      || !existsSync(astGrepCommand)
+      || !commandBoundaryExists(astGrepCommand)) {
       readiness.code_retrieval = { state: 'not_ready', reason: 'provider_runtime_missing' };
       readiness.unified_context = { state: 'not_ready', reason: 'provider_runtime_missing' };
       process.stderr.write('ace-mcp context NOT_READY: configured embedding/ast-grep runtime files are missing\n');
@@ -727,6 +745,7 @@ const main = async (): Promise<void> => {
   } finally {
     if (closeSemantics !== undefined) closeSemantics();
     if (closeReranker !== undefined) closeReranker();
+    if (closeSparseEmbeddings !== undefined) closeSparseEmbeddings();
     if (closeMemory !== undefined) await closeMemory();
   }
 };
