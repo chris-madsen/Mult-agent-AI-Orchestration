@@ -29,7 +29,7 @@ const ownerTrustRoot: ReleaseOwnerApprovalTrustRoot = {
 };
 const signedApproval = (
   approvedCapabilities: readonly ('code' | 'documentation' | 'memory')[],
-  approvedProviderIdentities: readonly string[] = ['fastembed/onnx', 'typescript-language-service'],
+  approvedProviderIdentities: readonly string[] = ['embedding-fixture-identity', 'semantic-fixture-identity'],
 ): ReleaseOwnerApproval => {
   const unsigned: ReleaseOwnerApproval = {
     schemaVersion: 1,
@@ -213,6 +213,7 @@ const baseInput = () => ({
       productionApproved: true,
       measurementAccepted: true,
       selectedProvider: 'fastembed/onnx',
+      selectedProviderIdentity: 'embedding-fixture-identity',
       failures: [],
     },
   },
@@ -231,6 +232,7 @@ const baseInput = () => ({
       measurementAccepted: true,
       matchedComparison: true,
       selectedProvider: 'typescript-language-service',
+      selectedProviderIdentity: 'semantic-fixture-identity',
       failures: [],
     },
   },
@@ -363,7 +365,7 @@ test('code-only owner approval binds the selected provider identities', () => {
   const input = baseInput();
   const result = evaluateCodeReleasePreflight({
     ...input,
-    ownerApproval: signedApproval(['code'], ['fastembed/onnx', 'serena']),
+    ownerApproval: signedApproval(['code'], ['embedding-fixture-identity', 'serena-identity']),
   });
   assert.equal(result._tag, 'Ok');
   if (result._tag === 'Ok') {

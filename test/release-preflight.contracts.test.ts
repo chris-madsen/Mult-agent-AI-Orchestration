@@ -27,7 +27,7 @@ const ownerTrustRoot: ReleaseOwnerApprovalTrustRoot = {
 const signedApproval = (
   approvedCapabilities: readonly ('code' | 'documentation' | 'memory')[],
   reference: string,
-  approvedProviderIdentities: readonly string[] = ['fastembed/onnx', 'typescript-language-service'],
+  approvedProviderIdentities: readonly string[] = ['embedding-fixture-identity', 'semantic-fixture-identity'],
 ): ReleaseOwnerApproval => {
   const unsigned: ReleaseOwnerApproval = {
     schemaVersion: 1,
@@ -310,6 +310,7 @@ const baseInput = () => ({
       productionApproved: true,
       measurementAccepted: true,
       selectedProvider: 'fastembed/onnx',
+      selectedProviderIdentity: 'embedding-fixture-identity',
       failures: [],
     },
   },
@@ -328,6 +329,7 @@ const baseInput = () => ({
       measurementAccepted: true,
       matchedComparison: true,
       selectedProvider: 'typescript-language-service',
+      selectedProviderIdentity: 'semantic-fixture-identity',
       failures: [],
     },
   },
@@ -417,7 +419,7 @@ test('owner approval binds the selected provider identities into the signed rele
     ownerApproval: signedApproval(
       ['code', 'documentation', 'memory'],
       'owner-signoff-2026-10-20',
-      ['fastembed/onnx', 'serena'],
+      ['embedding-fixture-identity', 'serena-identity'],
     ),
   });
   assert.equal(mismatched._tag, 'Ok');

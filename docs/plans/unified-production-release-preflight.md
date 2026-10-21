@@ -21,7 +21,7 @@ The release policy points to repository-contained JSON artifacts for:
 11. Real k3s live-worktree evidence (`evidence = real-k3s-live-worktree`).
 12. Backup/restore evidence (`evidence = operations-backup-restore`).
 13. Supply-chain evidence covering license/SBOM/image provenance (`evidence = supply-chain-provenance`).
-14. Explicit owner approval for the **exact release commit**, all three capabilities: code, documentation, memory, and the exact selected provider identities.
+14. Explicit owner approval for the **exact release commit**, all three capabilities: code, documentation, memory, and the exact canonical provider/model/runtime identities derived from the selected reports.
 
 The preflight re-validates the DBC manifest and re-hashes every artifact referenced by every DBC record. A retained artifact changed after the acceptance run blocks the release.
 

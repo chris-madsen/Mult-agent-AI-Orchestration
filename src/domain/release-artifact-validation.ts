@@ -13,6 +13,7 @@ const stringArray = (value: unknown): value is readonly string[] =>
 const verdictFailures = (root: Record<string, unknown>, path: string, failures: string[]): void => {
   const verdict = record(root.verdict);
   if (verdict === undefined || typeof verdict.selectedProvider !== 'string'
+    || !nonEmpty(verdict.selectedProviderIdentity)
     || !boolean(verdict.measurementAccepted) || !boolean(verdict.productionApproved)
     || !nonEmpty(verdict.status) || !stringArray(verdict.failures)) {
     failures.push(`${path}_verdict_invalid`);
