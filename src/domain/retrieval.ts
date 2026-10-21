@@ -201,8 +201,8 @@ const validRange = (range: SourceRange): boolean =>
   range.endLine >= range.startLine;
 
 type CodeCandidateInput = Omit<
-  CodeCandidate,
-  'invalidated' | 'structuralKind' | 'structuralLanguage' | 'structuralExported'
+CodeCandidate,
+'invalidated' | 'structuralKind' | 'structuralLanguage' | 'structuralExported'
 > & {
   /** External payload decoders may surface an absent optional field as undefined. */
   readonly structuralKind?: StructuralKind | undefined;
