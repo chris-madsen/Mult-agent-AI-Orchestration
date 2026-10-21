@@ -68,7 +68,8 @@ export interface RerankerEvaluationMetrics {
   readonly ndcgAt5: number;
   readonly latencyP50Ms: number;
   readonly latencyP95Ms: number;
-  readonly deliveredPayloadCharactersMean: number;
+  /** Null means at least one case did not report the common delivery metric. */
+  readonly deliveredPayloadCharactersMean: number | null;
   readonly missedCriticalCaseIds: readonly string[];
 }
 
@@ -112,6 +113,9 @@ const percentile = (values: readonly number[], p: number): number => {
 };
 const mean = (values: readonly number[]): number =>
   values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+
+const measuredMean = (values: readonly (number | undefined)[]): number | null =>
+  values.every((value): value is number => value !== undefined) ? mean(values) : null;
 
 const recallWithin = (
   ranked: readonly number[],
@@ -282,7 +286,7 @@ export const evaluateRerankerRun = (
     ndcgAt5: mean(scored.map((item) => item.ndcg5)),
     latencyP50Ms: percentile(scored.map((item) => item.observed.latencyMs), 0.5),
     latencyP95Ms: percentile(scored.map((item) => item.observed.latencyMs), 0.95),
-    deliveredPayloadCharactersMean: mean(scored.map((item) => item.observed.deliveredPayloadCharacters ?? 0)),
+    deliveredPayloadCharactersMean: measuredMean(scored.map((item) => item.observed.deliveredPayloadCharacters)),
     missedCriticalCaseIds: critical
       .filter((item) => item.r3 === 0)
       .map((item) => item.item.id),
@@ -298,8 +302,18 @@ export const selectRerankerCandidate = (
   baseline: RerankerEvaluationMetrics,
   candidates: readonly RerankerSelectionCandidate[],
 ): RerankerSelectionVerdict => {
+  const baselinePayload = baseline.deliveredPayloadCharactersMean;
+  if (baselinePayload === null) {
+    return {
+      selectedIdentity: null,
+      accepted: false,
+      rejectedIdentities: candidates.map((candidate) => candidate.identity),
+      reason: 'baseline delivery payload telemetry is unknown; no compactness comparison is permitted',
+    };
+  }
   const eligible = candidates.filter((candidate) => candidate.metrics.fixtureStatus === baseline.fixtureStatus
     && candidate.metrics.cases === baseline.cases
+    && candidate.metrics.deliveredPayloadCharactersMean !== null
     && candidate.metrics.criticalRecallAt3 >= baseline.criticalRecallAt3
     && candidate.metrics.mrr >= baseline.mrr
     && candidate.metrics.ndcgAt5 >= baseline.ndcgAt5
@@ -307,12 +321,13 @@ export const selectRerankerCandidate = (
     && (candidate.metrics.criticalRecallAt3 > baseline.criticalRecallAt3
       || candidate.metrics.mrr > baseline.mrr
       || candidate.metrics.ndcgAt5 > baseline.ndcgAt5
-      || candidate.metrics.deliveredPayloadCharactersMean < baseline.deliveredPayloadCharactersMean));
+      || (candidate.metrics.deliveredPayloadCharactersMean as number) < baselinePayload));
   const ranked = [...eligible].sort((left, right) =>
     right.metrics.criticalRecallAt3 - left.metrics.criticalRecallAt3
       || right.metrics.mrr - left.metrics.mrr
       || right.metrics.ndcgAt5 - left.metrics.ndcgAt5
-      || left.metrics.deliveredPayloadCharactersMean - right.metrics.deliveredPayloadCharactersMean
+      || (left.metrics.deliveredPayloadCharactersMean as number)
+        - (right.metrics.deliveredPayloadCharactersMean as number)
       || left.metrics.latencyP95Ms - right.metrics.latencyP95Ms
       || left.identity.localeCompare(right.identity));
   return {
