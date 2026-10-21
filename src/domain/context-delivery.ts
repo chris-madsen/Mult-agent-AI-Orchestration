@@ -15,18 +15,36 @@ export const resolveDeliveryIntent = (intent: string | undefined): ContextDelive
 
 const utf8Bytes = (value: string): number => new TextEncoder().encode(value).byteLength;
 
+const evidenceContentBytes = (evidence: readonly RetrievalEvidence[]): number =>
+  evidence.reduce((total, item) => total + utf8Bytes(item.content), 0);
+
+const uniqueEvidenceContentBytes = (evidence: readonly RetrievalEvidence[]): number => {
+  const uniqueContent = new Set<string>();
+  let total = 0;
+  for (const item of evidence) {
+    if (item.content.length === 0 || uniqueContent.has(item.content)) continue;
+    uniqueContent.add(item.content);
+    total += utf8Bytes(item.content);
+  }
+  return total;
+};
+
+interface DeliveryMetricStages {
+  readonly initialEvidence?: readonly RetrievalEvidence[];
+  readonly projectedEvidence?: readonly RetrievalEvidence[];
+}
+
 export const deliveryMetricsFor = (
   bundle: Omit<ContextBundle, 'deliveryMetrics'>,
+  stages: DeliveryMetricStages = {},
 ): ContextDeliveryMetrics => {
-  const newContextBytes = bundle.evidence.reduce((total, item) => total + utf8Bytes(item.content), 0);
+  const initialEvidence = stages.initialEvidence ?? bundle.evidence;
+  const projectedEvidence = stages.projectedEvidence ?? bundle.evidence;
+  const initialEvidenceBytes = evidenceContentBytes(initialEvidence);
+  const projectedEvidenceBytes = evidenceContentBytes(projectedEvidence);
+  const newContextBytes = evidenceContentBytes(bundle.evidence);
   const reusedContextBytes = bundle.evidence.reduce((total, item) => total + (item.reusedContentBytes ?? 0), 0);
-  const initialEvidenceBytes = newContextBytes + reusedContextBytes;
-  const uniqueContent = new Map<string, number>();
-  for (const item of bundle.evidence) {
-    const key = item.sourceDigest ?? item.content;
-    uniqueContent.set(key, Math.max(uniqueContent.get(key) ?? 0, utf8Bytes(item.content)));
-  }
-  const uniqueContentBytes = [...uniqueContent.values()].reduce((total, bytes) => total + bytes, 0);
+  const uniqueContentBytes = uniqueEvidenceContentBytes(projectedEvidence);
   const expansionBytesAvailable = bundle.evidence.reduce(
     (total, item) => total + (item.expansionTotalBytes ?? 0),
     0,
@@ -37,7 +55,8 @@ export const deliveryMetricsFor = (
     initialEvidenceBytes,
     structuredContentBytes,
     uniqueContentBytes,
-    duplicateContentBytes: Math.max(0, newContextBytes - uniqueContentBytes),
+    duplicateContentBytes: Math.max(0, projectedEvidenceBytes - uniqueContentBytes),
+    projectionBytesAvoided: Math.max(0, initialEvidenceBytes - projectedEvidenceBytes),
     newContextBytes,
     reusedContextBytes,
     duplicateContextBytesAvoided: reusedContextBytes,
@@ -223,6 +242,7 @@ export const projectContextForDelivery = (
     ...bundle,
     evidence: dedupeEvidenceForDelivery(bundle.evidence),
   };
+  const initialEvidence = sourceAwareBundle.evidence;
   const projected = intent === 'inspect'
     ? sourceAwareBundle
     : (() => {
@@ -265,7 +285,13 @@ export const projectContextForDelivery = (
       ? {}
       : { supersedesBundleId: receipts.knownBundleId.trim() as BundleId }),
   };
-  return { ...delivered, deliveryMetrics: deliveryMetricsFor(delivered) };
+  return {
+    ...delivered,
+    deliveryMetrics: deliveryMetricsFor(delivered, {
+      initialEvidence,
+      projectedEvidence: projected.evidence,
+    }),
+  };
 };
 
 type ContextCarrier = Readonly<Record<string, unknown>>;
