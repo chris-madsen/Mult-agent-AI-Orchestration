@@ -9,6 +9,7 @@ export type ProviderTraceName =
   | 'lsp'
   | 'vertex_rag'
   | 'graphiti'
+  | 'git_history'
   | 'source_verification';
 
 /**
