@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { Effect } from 'effect';
 import { makeFetchHttpPort, makeQdrantCodeCandidatePort } from '../src/adapters/http-provider-boundaries.js';
 import { makeProcessEmbeddingPort } from '../src/adapters/process-embedding.js';
+import { makeProcessSparseEmbeddingPort } from '../src/adapters/process-sparse-embedding.js';
 import type { CodeRetrievalStrategy } from '../src/domain/retrieval.js';
 import type { RetrievalHoldout } from '../src/domain/retrieval-quality-evaluation.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
@@ -71,6 +72,28 @@ const embeddings = makeProcessEmbeddingPort({
   timeoutMs: Number(process.env.ACE_EMBEDDING_TIMEOUT_MS ?? '120000'),
   env: embeddingEnvironment,
 });
+const sparseEmbeddingModel = process.env.ACE_SPARSE_EMBEDDING_MODEL?.trim() || 'Qdrant/bm25';
+const sparseEmbeddingWorker = process.env.ACE_SPARSE_EMBEDDING_WORKER?.trim()
+  || resolve('scripts/fastembed-sparse-worker.sh');
+const sparseEnvironment: Record<string, string> = {
+  ACE_SPARSE_EMBEDDING_MODEL: sparseEmbeddingModel,
+};
+for (const name of [
+  'ACE_SPARSE_EMBEDDING_PYTHON',
+  'ACE_SPARSE_EMBEDDING_THREADS',
+  'FASTEMBED_CACHE_PATH',
+  'HF_HOME',
+  'HF_HUB_CACHE',
+]) {
+  const value = process.env[name]?.trim();
+  if (value !== undefined && value.length > 0) sparseEnvironment[name] = value;
+}
+const sparseEmbeddings = makeProcessSparseEmbeddingPort({
+  command: sparseEmbeddingWorker,
+  timeoutMs: Number(process.env.ACE_SPARSE_EMBEDDING_TIMEOUT_MS ?? '120000'),
+  expectedModel: sparseEmbeddingModel,
+  env: sparseEnvironment,
+});
 const qdrant = makeQdrantCodeCandidatePort({
   baseUrl: qdrantUrl,
   collection,
@@ -84,6 +107,10 @@ try {
   const probe = await Effect.runPromise(embeddings.probe());
   if (probe._tag === 'Err') {
     throw new Error(`${probe.error.code}: ${probe.error.path}: ${probe.error.message}`);
+  }
+  const sparseProbe = await Effect.runPromise(sparseEmbeddings.probe());
+  if (sparseProbe._tag === 'Err') {
+    throw new Error(`${sparseProbe.error.code}: ${sparseProbe.error.path}: ${sparseProbe.error.message}`);
   }
 
   const observations = [];
@@ -99,6 +126,17 @@ try {
     }
     const vector = vectorResult.value[0];
     if (vector === undefined) throw new Error(`${item.id}: embedding worker returned no vector`);
+    const sparseStarted = performance.now();
+    const sparseResult = await Effect.runPromise(sparseEmbeddings.embedQueries(
+      [item.query],
+      `rank-probe-${item.id}-sparse`,
+    ));
+    const sparseEmbeddingLatencyMs = Math.max(0, performance.now() - sparseStarted);
+    if (sparseResult._tag === 'Err') {
+      throw new Error(`${item.id}: ${sparseResult.error.code}: ${sparseResult.error.message}`);
+    }
+    const sparseVector = sparseResult.value[0];
+    if (sparseVector === undefined) throw new Error(`${item.id}: sparse embedding worker returned no vector`);
 
     const branches: Record<string, unknown> = {};
     for (const strategy of strategies) {
@@ -106,6 +144,7 @@ try {
       const result = await Effect.runPromise(qdrant.search({
         workspaceId: workspaceId.value,
         ...(strategy === 'sparse' ? {} : { vector }),
+        ...(strategy === 'dense' ? {} : { sparseVector }),
         queryText: item.query,
         strategy,
         limit: queryLimit,
@@ -115,13 +154,15 @@ try {
       if (result._tag === 'Err') {
         throw new Error(`${item.id}/${strategy}: ${result.error.code}: ${result.error.message}`);
       }
-      const appliedEmbeddingLatencyMs = strategy === 'sparse' ? 0 : embeddingLatencyMs;
+      const denseEmbeddingLatencyMs = strategy === 'sparse' ? 0 : embeddingLatencyMs;
+      const appliedSparseEmbeddingLatencyMs = strategy === 'dense' ? 0 : sparseEmbeddingLatencyMs;
       branches[strategy] = {
         candidateIds: result.value.map((ranked) => ranked.candidate.candidateId),
         scores: result.value.map((ranked) => ranked.score),
-        embeddingLatencyMs: appliedEmbeddingLatencyMs,
+        denseEmbeddingLatencyMs,
+        sparseEmbeddingLatencyMs: appliedSparseEmbeddingLatencyMs,
         queryLatencyMs,
-        totalMeasuredLatencyMs: appliedEmbeddingLatencyMs + queryLatencyMs,
+        totalMeasuredLatencyMs: denseEmbeddingLatencyMs + appliedSparseEmbeddingLatencyMs + queryLatencyMs,
       };
     }
     observations.push({ caseId: item.id, branches });
@@ -139,9 +180,10 @@ try {
     collection,
     queryLimit,
     embeddingIdentity: embeddings.identity() ?? null,
+    sparseEmbeddingIdentity: sparseEmbeddings.identity() ?? null,
     strategies,
     observations,
-    note: 'Evaluation-only rank telemetry. Sparse records zero dense-embedding work; production ace_context issues one configured strategy.',
+    note: 'Evaluation-only rank telemetry. Dense and sparse inference costs are attributed only to the arms that use them; production ace_context issues one configured strategy.',
   }, null, 2) + '\n', 'utf8');
   process.stdout.write(JSON.stringify({
     output: outputArg,
@@ -151,4 +193,5 @@ try {
   }) + '\n');
 } finally {
   embeddings.close();
+  sparseEmbeddings.close();
 }
