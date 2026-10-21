@@ -40,6 +40,16 @@
 
 **Gate:** No root migration, skill initialization, `apply`, `sync` or `archive` until the current-code-to-001–007 coverage matrix and all expected file operations have been approved. A docs-only, read-only gap report may proceed immediately. A generic "OpenSpec validate passed" is **not proof** that its specs enumerate every implemented behavior.
 
+### Incremental brownfield spec recovery from implemented ACE code
+
+OpenSpec is brownfield-first, but its official skills do not automatically reverse-engineer a complete codebase into trusted requirements. Treat Codex code archaeology as a small, **docs-only task**, supported by `$openspec-explore` for source inspection, `$openspec-update-change` for existing artifacts, and `$openspec-verify-change` for consistency review. Do not ask `apply` to rewrite existing implementation during the recovery step.
+
+For each affected capability, start with H4 receipts, H5 exact-span dedupe and H6 traces/benchmark/Harbor provenance; later cover MCP security and external providers as touched. Make a table: `observed behavior | source | test | existing requirement | confidence | discrepancy`. Draft focused SHALL requirements and WHEN/THEN scenarios only for verified, approved behavior. Classify separately **as-built**, **as-required** and **not-yet-proven**. An observed bug is not automatically a desired requirement, and an older spec is not automatically grounds to change code. Surface conflicts to the owner/ADR process.
+
+Publish the resulting targeted spec revisions as a documentation-only PR with no runtime changes; require source/test links and a diff review. Continue incrementally rather than generating a giant speculative baseline. The optional community [spec-gen](https://github.com/clay-good/spec-gen) is third-party draft assistance, not an official trusted sync or authorization for automatic rewrites. Only then run an approved implementation PR against the affected specification.
+
+**Tooling setup gate versus implementation gate:** a reversible Git tree inventory and inspection of anticipated OpenSpec-generated files suffice before relocating the spec root and installing Codex skills. Full all-code coverage is **not** a prerequisite to installation. Before `apply`, `sync` or `archive`, require the *affected capability's* audited code/spec/test map, approved deltas and an explicit review of file changes. Never remove code merely because it is absent from the specs.
+
 ### First choose one canonical OpenSpec root — no duplicate projects
 
 **Observed repo state on 2026-10-21:** ACE keeps `config.yaml`, `README.md` and unarchived changes `001`–`007` under `docs/openspec/`; there is **no** root `openspec/` and **no** `.agents/skills/`. The upstream CLI expects `openspec/` at the project root, and Codex discovers generated skills at `.agents/skills/openspec-*/SKILL.md`. Therefore **DO NOT** run `openspec init --tools codex` at the ACE root before reconciling the existing directory: it would create a competing empty `openspec/` project while the actual accepted work remains under `docs/openspec/`.
