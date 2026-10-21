@@ -269,7 +269,6 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
             ...(input.indexKey === undefined ? [] : [{ key: 'index_key', match: { value: input.indexKey } }]),
           ] };
           const queryText = input.queryText?.trim();
-          const strategy = input.strategy ?? (queryText === undefined || queryText.length === 0 ? 'dense' : 'hybrid_rrf');
           const vector = input.vector;
           if (strategy === 'dense') {
             return {
