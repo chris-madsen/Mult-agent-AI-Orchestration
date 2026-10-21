@@ -112,7 +112,10 @@ test('Qdrant collection bootstrap accepts a concurrent create winner only after 
       verificationReads += 1;
       if (verificationReads === 1) return Effect.succeed(ok({ status: 500, body: {} }));
       return Effect.succeed(ok({ status: 200, body: {
-        result: { config: { params: { vectors: { size: 2, distance: 'Cosine' } } } },
+        result: { config: { params: {
+          vectors: { dense: { size: 2, distance: 'Cosine' } },
+          sparse_vectors: { sparse: { modifier: 'Idf' } },
+        } } },
       } }));
     },
   };
@@ -440,9 +443,12 @@ test('DBC-14 documentation conflict preserves code and ADR provenance explicitly
 });
 
 test('Qdrant existing collection must use cosine distance even with matching vector dimensions', async () => {
-  const check = (distance: string): HttpPort => ({
+  const check = (distance: string, sparseModifier = 'Idf'): HttpPort => ({
     request: () => Effect.succeed(ok({ status: 200, body: {
-      result: { config: { params: { vectors: { size: 384, distance } } } },
+      result: { config: { params: {
+        vectors: { dense: { size: 384, distance } },
+        sparse_vectors: { sparse: { modifier: sparseModifier } },
+      } } },
     } })),
   });
   const ready = (distance: string) => Effect.runPromise(ensureQdrantCollection(
@@ -451,6 +457,9 @@ test('Qdrant existing collection must use cosine distance even with matching vec
   assert.equal((await ready('Cosine'))._tag, 'Ok');
   assert.equal((await ready('Dot'))._tag, 'Err');
   assert.equal((await ready('Euclid'))._tag, 'Err');
+  assert.equal((await Effect.runPromise(ensureQdrantCollection(
+    check('Cosine', 'None'), 'http://127.0.0.1:6333', 'ace-test', 384,
+  )))._tag, 'Err');
 });
 
 test('Qdrant byte-range verification rejects cross-line columns and split UTF-8 sequences', () => {
