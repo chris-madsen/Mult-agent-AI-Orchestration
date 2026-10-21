@@ -637,6 +637,7 @@ export const reuseOrPopulateQdrantSnapshot = (
   priorIndexKey?: string,
   embeddingProviderIdentity?: string,
   priorCollection?: string,
+  sparseEmbeddings?: SparseEmbeddingPort,
 ): Effect.Effect<Result<{ readonly count: number; readonly reused: boolean; readonly reusedVectorCount: number }, DomainError>> => Effect.gen(function* () {
   const expectedCandidateIds = index.candidates.map((candidate) => candidate.candidateId);
   if (reuseAllowed) {
@@ -671,7 +672,15 @@ export const reuseOrPopulateQdrantSnapshot = (
       : embeddingContentKey(embeddingProviderIdentity, candidate.text)));
     seedVectors = new Map([...prior.value].filter(([key]) => currentKeys.has(key)));
   }
-  const indexed = yield* populateQdrantFromStructuralIndex(index, qdrant, embeddings, indexKey, seedVectors, embeddingProviderIdentity);
+  const indexed = yield* populateQdrantFromStructuralIndex(
+    index,
+    qdrant,
+    embeddings,
+    indexKey,
+    seedVectors,
+    embeddingProviderIdentity,
+    sparseEmbeddings,
+  );
   if (indexed._tag === 'Err') return indexed;
   const verified = yield* verifyQdrantSnapshotMembership(
     http, baseUrl, collection, workspaceId, indexKey, expectedCandidateIds, allowedHosts,
