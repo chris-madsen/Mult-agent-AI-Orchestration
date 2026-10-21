@@ -16,7 +16,7 @@ The code-only gate requires:
 6. Exact-commit code-only resource-budget evidence (`evidence = resource-budget-accepted`) using an owner-approved budget policy.
 7. Exact-commit runtime configuration evidence (`evidence = runtime-config-accepted`) proving docs/memory/cloud scope are disabled, semantic retrieval is pinned and fallback is off.
 8. Supply-chain provenance evidence.
-9. Exact-commit owner approval whose approved capability set is **exactly** `["code"]`.
+9. Exact-commit owner approval whose approved capability set is **exactly** `["code"]` and whose signed provider scope exactly matches the selected embedding and semantic providers.
 10. For `deployment: "k3s"`, real k3s live-worktree evidence is also mandatory.
 
 DBC-10/11 belong to memory. DBC-14 requires documentation conflict evidence. They are not silently marked PASS by this profile; they are simply outside this narrower release claim.
@@ -34,7 +34,8 @@ Example:
     "status": "pending",
     "releaseCommit": "<exact git sha>",
     "reference": "<approval record>",
-    "approvedCapabilities": ["code"]
+    "approvedCapabilities": ["code"],
+    "approvedProviderIdentities": ["<embedding-provider>", "<semantic-provider>"]
   },
   "artifacts": {
     "dbc": "artifacts/release/dbc-evidence.json",

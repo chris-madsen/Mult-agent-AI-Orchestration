@@ -27,6 +27,7 @@ const ownerTrustRoot: ReleaseOwnerApprovalTrustRoot = {
 const signedApproval = (
   approvedCapabilities: readonly ('code' | 'documentation' | 'memory')[],
   reference: string,
+  approvedProviderIdentities: readonly string[] = ['fastembed/onnx', 'typescript-language-service'],
 ): ReleaseOwnerApproval => {
   const unsigned: ReleaseOwnerApproval = {
     schemaVersion: 1,
@@ -34,6 +35,7 @@ const signedApproval = (
     releaseCommit: commit,
     reference,
     approvedCapabilities,
+    approvedProviderIdentities,
     signingKeyId: ownerTrustRoot.signingKeyId,
   };
   const payload = ownerApprovalPayload(unsigned);
@@ -403,6 +405,33 @@ test('release preflight rejects an unbound verdict or a tampered owner approval'
   });
   assert.equal(tampered._tag, 'Ok');
   if (tampered._tag === 'Ok') assert.ok(tampered.value.failures.includes('owner_approval_signature_invalid'));
+});
+
+test('owner approval binds the selected provider identities into the signed release scope', () => {
+  const input = baseInput();
+  const mismatched = evaluateReleasePreflight({
+    ...input,
+    ownerApproval: signedApproval(
+      ['code', 'documentation', 'memory'],
+      'owner-signoff-2026-10-20',
+      ['fastembed/onnx', 'serena'],
+    ),
+  });
+  assert.equal(mismatched._tag, 'Ok');
+  if (mismatched._tag === 'Ok') {
+    assert.equal(mismatched.value.status, 'BLOCKED');
+    assert.ok(mismatched.value.failures.includes('owner_approval_provider_scope_mismatch'));
+  }
+
+  const missing = evaluateReleasePreflight({
+    ...input,
+    ownerApproval: { ...input.ownerApproval, approvedProviderIdentities: [] },
+  });
+  assert.equal(missing._tag, 'Ok');
+  if (missing._tag === 'Ok') {
+    assert.equal(missing.value.status, 'BLOCKED');
+    assert.ok(missing.value.failures.includes('owner_approval_provider_scope_invalid'));
+  }
 });
 
 test('provider approval, current-commit DBC, external evidence and owner scope fail independently', () => {

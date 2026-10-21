@@ -27,13 +27,17 @@ const ownerTrustRoot: ReleaseOwnerApprovalTrustRoot = {
   publicKeyIdentityVerified: true,
   signatureVerified: true,
 };
-const signedApproval = (approvedCapabilities: readonly ('code' | 'documentation' | 'memory')[]): ReleaseOwnerApproval => {
+const signedApproval = (
+  approvedCapabilities: readonly ('code' | 'documentation' | 'memory')[],
+  approvedProviderIdentities: readonly string[] = ['fastembed/onnx', 'typescript-language-service'],
+): ReleaseOwnerApproval => {
   const unsigned: ReleaseOwnerApproval = {
     schemaVersion: 1,
     status: 'approved',
     releaseCommit: commit,
     reference: 'owner-code-only-signoff',
     approvedCapabilities,
+    approvedProviderIdentities,
     signingKeyId: ownerTrustRoot.signingKeyId,
   };
   const payload = ownerApprovalPayload(unsigned);
@@ -350,6 +354,19 @@ test('code-only gate cannot be reused to claim broader capability approval', () 
   if (result._tag === 'Err') throw new Error(result.error.message);
   assert.equal(result.value.status, 'BLOCKED');
   assert.ok(result.value.failures.includes('owner_scope_must_be_code_only'));
+});
+
+test('code-only owner approval binds the selected provider identities', () => {
+  const input = baseInput();
+  const result = evaluateCodeReleasePreflight({
+    ...input,
+    ownerApproval: signedApproval(['code'], ['fastembed/onnx', 'serena']),
+  });
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Ok') {
+    assert.equal(result.value.status, 'BLOCKED');
+    assert.ok(result.value.failures.includes('owner_approval_provider_scope_mismatch'));
+  }
 });
 
 test('k3s code-only deployment requires real k3s worktree evidence while host deployment does not', () => {
