@@ -166,21 +166,7 @@ const candidateFromPayload = (point: Record<string, unknown>, workspaceId: Works
 
 const QDRANT_DENSE_VECTOR = 'dense';
 const QDRANT_SPARSE_VECTOR = 'sparse';
-const QDRANT_BM25_MODEL = 'qdrant/bm25';
-
-/**
- * Language-neutral BM25 keeps code identifiers and mixed RU/EN queries from
- * being distorted by an English-only stemmer/stopword list. Qdrant 1.19+
- * applies these options identically at ingest and query time.
- */
-const qdrantBm25Options = (): Readonly<Record<string, unknown>> => ({
-  stemmer: { type: 'none' },
-  stopwords: {},
-  tokenizer: 'multilingual',
-  ascii_folding: true,
-});
-
-const lexicalTextFor = (candidate: CodeCandidate): string => [
+export const qdrantLexicalTextForCandidate = (candidate: CodeCandidate): string => [
   candidate.repoPath,
   candidate.symbolName ?? '',
   candidate.structuralKind ?? '',
@@ -190,16 +176,17 @@ const lexicalTextFor = (candidate: CodeCandidate): string => [
 ].filter((value) => value.length > 0).join('\n');
 
 const qdrantPoint = (point: CodePoint): Readonly<Record<string, unknown>> => {
-  const lexicalText = lexicalTextFor(point.candidate);
+  const lexicalText = qdrantLexicalTextForCandidate(point.candidate);
   return {
     id: qdrantPointId(point),
     vector: {
       [QDRANT_DENSE_VECTOR]: point.vector,
-      [QDRANT_SPARSE_VECTOR]: {
-        text: lexicalText,
-        model: QDRANT_BM25_MODEL,
-        options: qdrantBm25Options(),
-      },
+      ...(point.sparseVector === undefined ? {} : {
+        [QDRANT_SPARSE_VECTOR]: {
+          indices: point.sparseVector.indices,
+          values: point.sparseVector.values,
+        },
+      }),
     },
     payload: {
       candidate_id: point.candidate.candidateId,
@@ -255,8 +242,16 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
         return err(domainError('INVALID_INPUT', 'query_vector', `${strategy} retrieval requires a finite non-empty dense vector`));
       }
       if ((strategy === 'sparse' || strategy === 'hybrid_rrf')
-        && (input.queryText === undefined || input.queryText.trim().length === 0)) {
-        return err(domainError('INVALID_INPUT', 'query_text', `${strategy} retrieval requires non-empty query text`));
+        && (input.sparseVector === undefined
+          || input.sparseVector.indices.length === 0
+          || input.sparseVector.indices.length !== input.sparseVector.values.length
+          || !input.sparseVector.indices.every((index) => Number.isSafeInteger(index) && index >= 0)
+          || !input.sparseVector.values.every((value) => Number.isFinite(value) && value >= 0))) {
+        return err(domainError(
+          'INVALID_INPUT',
+          'sparse_query_vector',
+          `${strategy} retrieval requires a valid client-side sparse query vector`,
+        ));
       }
       const responseResult = yield* config.http.request({
         method: 'POST',
@@ -268,7 +263,6 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
             ...(input.generation === undefined ? [] : [{ key: 'generation', match: { value: input.generation } }]),
             ...(input.indexKey === undefined ? [] : [{ key: 'index_key', match: { value: input.indexKey } }]),
           ] };
-          const queryText = input.queryText?.trim();
           const vector = input.vector;
           if (strategy === 'dense') {
             return {
@@ -281,9 +275,8 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
             };
           }
           const sparseQuery = {
-            text: queryText as string,
-            model: QDRANT_BM25_MODEL,
-            options: qdrantBm25Options(),
+            indices: input.sparseVector?.indices ?? [],
+            values: input.sparseVector?.values ?? [],
           };
           if (strategy === 'sparse') {
             return {
