@@ -18,6 +18,7 @@ import { createCodeIndex, makeCandidateId, makeCodeCandidate } from '../src/doma
 import { makeWorkspaceId } from '../src/domain/workspace.js';
 import { err, ok, type Result } from '../src/domain/result.js';
 import { domainError } from '../src/domain/errors.js';
+import { exactUtf8Span, utf16ColumnAtUtf8Byte } from '../src/domain/utf8-range.js';
 import type { ProviderTraceEvent } from '../src/domain/provider-trace.js';
 import type {
   ArtifactStore,
@@ -470,6 +471,46 @@ test('Qdrant byte-range verification rejects cross-line columns and split UTF-8 
   assert.equal(exactUtf8ByteRange(bytes, { startLine: 2, startColumn: 1, endLine: 1, endColumn: 4 }), undefined);
   const unicode = Buffer.from('éclair\n');
   assert.equal(exactUtf8ByteRange(unicode, { startLine: 1, startColumn: 2, endLine: 1, endColumn: 3 }), undefined);
+});
+
+test('shared UTF-8 ranges preserve Cyrillic, combining marks, emoji, CRLF and multiline spans', () => {
+  const first = 'тест 😀 e\u0301';
+  const second = 'вторая строка';
+  const bytes = Buffer.from(`${first}\r\n${second}\r\n`, 'utf8');
+  const emojiStart = Buffer.byteLength('тест ', 'utf8') + 1;
+  const emojiEnd = emojiStart + Buffer.byteLength('😀', 'utf8');
+  const combiningStart = Buffer.byteLength('тест 😀 ', 'utf8') + 1;
+  const combiningEnd = combiningStart + Buffer.byteLength('e\u0301', 'utf8');
+
+  assert.equal(exactUtf8Span(bytes, {
+    startLine: 1,
+    startColumn: emojiStart,
+    endLine: 1,
+    endColumn: emojiEnd,
+  }), '😀');
+  assert.equal(exactUtf8Span(bytes, {
+    startLine: 1,
+    startColumn: combiningStart,
+    endLine: 1,
+    endColumn: combiningEnd,
+  }), 'e\u0301');
+  assert.equal(exactUtf8Span(bytes, {
+    startLine: 1,
+    startColumn: 1,
+    endLine: 1,
+    endColumn: Buffer.byteLength(first, 'utf8') + 1,
+  }), first);
+  assert.equal(exactUtf8Span(bytes, {
+    startLine: 1,
+    startColumn: 1,
+    endLine: 2,
+    endColumn: Buffer.byteLength(second, 'utf8') + 1,
+  }), `${first}\r\n${second}`);
+
+  const emojiLine = Buffer.from('😀X', 'utf8');
+  assert.equal(utf16ColumnAtUtf8Byte(emojiLine, 1, 1), 1);
+  assert.equal(utf16ColumnAtUtf8Byte(emojiLine, 1, 5), 3);
+  assert.equal(utf16ColumnAtUtf8Byte(emojiLine, 1, 6), 4);
 });
 
 // A slow optional provider must not open a post-verification edit window.

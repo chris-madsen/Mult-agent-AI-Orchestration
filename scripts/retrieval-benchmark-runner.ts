@@ -363,15 +363,17 @@ const runRepositoryStrategy = async (
       const deliveredPaths = candidatePaths(events, 'delivered');
       const duplicateSourceHits = Math.max(0, deliveredPaths.length - new Set(deliveredPaths).size);
       const evidence = bundle.evidence ?? [];
-      const sourceVerificationReads = events.length === 0 ? 0 : 0;
       const observation: RetrievalObservation = {
         caseId: item.id,
         retrievedCandidateIds: stageRanks.delivered,
         rawRetrievedCandidateIds: rawStageRanks.delivered,
         payloadCharacters: evidence.reduce((total, entry) => total + (typeof entry.content === 'string' ? entry.content.length : 0), 0),
         duplicateSourceHits,
-        expansionCalls: 0,
-        nativeReadDuplicates: sourceVerificationReads,
+        // The current trace contract does not expose provider-native read or
+        // expansion counters. Keep these unknown until the actual delivery
+        // path emits them; zero would be fabricated evidence.
+        expansionCalls: null,
+        nativeReadDuplicates: null,
         latencyMs: Math.max(0, performance.now() - startedAt),
         payloadBytes: textBytes(bundle),
         ...(numberMetric(metrics, 'initialEvidenceBytes') === undefined ? {} : { initialEvidenceBytes: numberMetric(metrics, 'initialEvidenceBytes') }),
