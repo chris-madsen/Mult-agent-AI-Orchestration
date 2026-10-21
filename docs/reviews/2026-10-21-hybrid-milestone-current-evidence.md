@@ -5,7 +5,7 @@ historical review documents and does not rewrite their observations.
 
 ## Baseline and delivered PRs
 
-- Current merged `main`: `acb2630e9c49d56b5c8a224e900fd4999fd91358`.
+- Code baseline used for this evidence: `acb2630e9c49d56b5c8a224e900fd4999fd91358`; the ledger itself is a later docs-only change.
 - PR A #124 merge `b02aa9aaa3058cec921716bbde68e144bfee1e2`: delivery metrics now separate initial, new, reused, projection-avoided, exact in-bundle duplicate and unique content bytes.
 - PR B #125 merge `8917b2461ebf967f8e6d30e9a2bfba3a7fe8a17f`: versioned workspace-scoped per-evidence receipts are portable without server memory; legacy evidence IDs remain exact-bundle-only.
 - PR C #126 merge `acb2630e9c49d56b5c8a224e900fd4999fd91358`: durable JSONL benchmark traces, flush/close failure propagation, terminal sidecars and explicit stage statuses.

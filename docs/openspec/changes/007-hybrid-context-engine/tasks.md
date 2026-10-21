@@ -1,6 +1,6 @@
 # Tasks — Hybrid Context Engine completion
 
-**Current implementation baseline:** `main@acb2630e9c49d56b5c8a224e900fd4999fd91358` after merged Hybrid follow-up PRs #124–#126.
+**Implementation baseline for this ledger:** code `main@acb2630e9c49d56b5c8a224e900fd4999fd91358` after merged Hybrid follow-up PRs #124–#126. The later docs-only ledger PR is not part of the measured code baseline.
 
 **Evidence update 2026-10-21:** H4/H5 correctness, per-evidence receipts, durable benchmark traces and the external holdout freeze are backed by current contract/evidence artifacts. H6 retrieval/agent measurements and production-provider evidence remain open or blocked by unavailable external runtimes.
 
