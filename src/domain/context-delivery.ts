@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type { BundleId, ContextBundle, ContextDeliveryMetrics, RetrievalEvidence } from './retrieval.js';
 
 /**
@@ -57,20 +56,34 @@ const declarationLine = (content: string): string =>
     return firstLine.length <= 512 ? firstLine : '';
   })();
 
-const bundleIdentity = (bundle: ContextBundle): BundleId => createHash('sha256')
-  .update(JSON.stringify({
-    query: bundle.query,
-    evidence: bundle.evidence.map((item) => [
-      item.evidenceId,
-      item.source,
-      item.citation,
-      item.sourceRevision ?? item.sourceDigest ?? null,
-      item.freshness,
-    ]),
-    partialSources: [...bundle.partialSources].sort(),
-    complete: bundle.complete,
-  }), 'utf8')
-  .digest('hex') as BundleId;
+const fnv1a64 = (value: string, seed: bigint): string => {
+  let hash = seed;
+  for (const byte of new TextEncoder().encode(value)) {
+    hash ^= BigInt(byte);
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return hash.toString(16).padStart(16, '0');
+};
+
+const stableReceiptDigest = (value: string): string => [
+  0xcbf29ce484222325n,
+  0x84222325cbf29ce4n,
+  0x9e3779b185ebca87n,
+  0xd6e8feb86659fd93n,
+].map((seed) => fnv1a64(value, seed)).join('');
+
+const bundleIdentity = (bundle: ContextBundle): BundleId => stableReceiptDigest(JSON.stringify({
+  query: bundle.query,
+  evidence: bundle.evidence.map((item) => [
+    item.evidenceId,
+    item.source,
+    item.citation,
+    item.sourceRevision ?? item.sourceDigest ?? null,
+    item.freshness,
+  ]),
+  partialSources: [...bundle.partialSources].sort(),
+  complete: bundle.complete,
+})) as BundleId;
 
 export interface ContextReceiptInput {
   readonly knownEvidenceIds?: readonly string[];
