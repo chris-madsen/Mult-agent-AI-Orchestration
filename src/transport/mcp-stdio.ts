@@ -36,11 +36,12 @@ const tools = [
         include_code: { type: 'boolean' },
         include_docs: { type: 'boolean' },
         include_memory: { type: 'boolean' },
+        include_history: { type: 'boolean' },
         source_obligations: {
           type: 'object',
           properties: {
-            required: { type: 'array', items: { enum: ['code', 'structural', 'lsp', 'documentation', 'memory'] } },
-            optional: { type: 'array', items: { enum: ['code', 'structural', 'lsp', 'documentation', 'memory'] } },
+            required: { type: 'array', items: { enum: ['code', 'structural', 'lsp', 'documentation', 'memory', 'history'] } },
+            optional: { type: 'array', items: { enum: ['code', 'structural', 'lsp', 'documentation', 'memory', 'history'] } },
           },
           additionalProperties: false,
         },
