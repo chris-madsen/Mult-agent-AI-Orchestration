@@ -35,6 +35,7 @@
     "memory:reconcile": "npm run build && node dist/bin/ace-memory.js reconcile",
     "worktree-helper": "npm run build && node dist/bin/ace-worktree-helper.js",
     "eval:memory-admission": "tsx scripts/memory-admission-eval.ts",
+    "eval:reranker": "tsx scripts/reranker-evaluation.ts",
     "gate:harbor-three-arm": "tsx scripts/harbor-three-arm-gate.ts",
     "test:real-graphiti-lifecycle": "tsx scripts/graphiti-real-lifecycle-e2e.ts",
     "vertex:import-synthetic": "bash scripts/vertex-synthetic-fixture-import.sh",
