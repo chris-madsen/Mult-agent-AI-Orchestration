@@ -1,6 +1,6 @@
 # Tasks — Hybrid Context Engine completion
 
-**Implementation baseline for this ledger:** source repositories for the current H6 evidence are pinned to ACE `main@b20646c966575e8280ea792e4f851ab1e28ec867` and Chess `23a7bb6b27023e8520941841d69745dd623d0933`. H6 tooling changes are delivered as separate reviewable PRs #130–#133; this task file records evidence status and does not imply that those PRs are already merged.
+**Implementation/current main (reviewed 2026-10-21):** `main@2fe96a88968fb393dd57cf3771d08efbcfa251fa`; PRs #123–#134 are merged. **Separate pinned external H6 evidence sources:** ACE `b20646c966575e8280ea792e4f851ab1e28ec867` and Chess `23a7bb6b27023e8520941841d69745dd623d0933`. These are not interchangeable commits; merged code and external evidence do not imply a completed scored five-strategy/Harbor gate. See the [new post-merge review](../../../reviews/2026-10-21-h6-postmerge-source-review.md).
 
 **Evidence update 2026-10-21:** H4/H5 correctness, per-evidence receipts, durable benchmark traces, the current external holdout freeze, the reranker rejection and the external Harbor job bundle are backed by current artifacts. The five-strategy H6 retrieval gate and agent measurements remain open; Harbor execution is blocked by unavailable external runtimes.
 
@@ -65,6 +65,17 @@
 - [x] Run the separate frozen CPU reranker holdout and record a rejection verdict for the current candidate set; no concrete model identity is approved.
 - [ ] Require task-quality non-inferiority before token-savings acceptance.
 - [ ] Publish duplicate context avoided separately from receipt reuse, projection savings and embedding/index reuse in benchmark reports.
+
+## Post-merge H6 correctness/evidence contracts (static findings; open)
+
+These are new cases in the existing H6 acceptance track, not a rollback of implementation-complete H1–H5 functionality. Details and exact code citations: [post-merge code review](../../../reviews/2026-10-21-h6-postmerge-source-review.md).
+
+- [ ] H6-CR-01: ensure a frozen-repository run rejects dirty/untracked changed source and an executable compiled from a different commit; bind actual executable digest and source manifest to the run.
+- [ ] H6-CR-02: reranker selection must not treat absent delivered-payload measurements as zero or award a compactness win from missing data; reject tied-quality unmeasured candidates.
+- [ ] H6-CR-03: frozen four-arm Harbor jobs must verify the actual SHA-256 of task bytes, config bytes, repository/runtime identities and per-trial evidence at execution/report verification.
+- [ ] H6-CR-04: native-file-read duplication is measured from real instrumentation or explicitly `unknown`; invented zero cannot satisfy release/quality criteria.
+- [ ] H6-CR-05: Unicode-aware exact source byte extraction for newly frozen reranker cases preserves UTF-8 ranges and original digests.
+- [ ] Re-run applicable deterministic RED/contract tests, source/runtime E2E and H6 scored gates after fixes; preserve the existing external v3 and reranker holdouts unchanged.
 
 ## Production track remains separate
 
