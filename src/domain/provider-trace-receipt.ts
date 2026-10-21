@@ -25,11 +25,14 @@ export interface ProviderTraceReceipt {
 
 const providerNames: readonly ProviderTraceName[] = [
   'embedding',
+  'sparse_embedding',
+  'reranker',
   'qdrant',
   'ast_grep',
   'lsp',
   'vertex_rag',
   'graphiti',
+  'git_history',
   'source_verification',
 ];
 
@@ -97,6 +100,8 @@ const queryProvidersFor = (source: ContextSource): readonly ProviderTraceName[] 
       return ['vertex_rag'];
     case 'memory':
       return ['graphiti'];
+    case 'history':
+      return ['git_history'];
   }
 };
 
