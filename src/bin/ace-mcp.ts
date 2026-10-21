@@ -447,28 +447,73 @@ const main = async (): Promise<void> => {
         env: embeddingEnvironment,
         expectedIdentity: embeddingConfig,
       });
+      const sparseEnvironment: Record<string, string> = {
+        ACE_SPARSE_EMBEDDING_MODEL: sparseEmbeddingModel,
+      };
+      for (const name of [
+        'ACE_SPARSE_EMBEDDING_PYTHON',
+        'ACE_SPARSE_EMBEDDING_THREADS',
+        'FASTEMBED_CACHE_PATH',
+        'HF_HOME',
+        'HF_HUB_CACHE',
+      ]) {
+        const value = process.env[name]?.trim();
+        if (value !== undefined && value.length > 0) sparseEnvironment[name] = value;
+      }
+      const sparseEmbeddings = makeProcessSparseEmbeddingPort({
+        command: sparseEmbeddingWorker,
+        timeoutMs: sparseEmbeddingTimeoutMs,
+        expectedModel: sparseEmbeddingModel,
+        providerVersion: `fastembed/sparse|model=${sparseEmbeddingModel}`,
+        trace: providerTrace,
+        env: sparseEnvironment,
+      });
       const closeEmbeddingWorker = (): void => embeddings.close();
+      const closeSparseWorker = (): void => sparseEmbeddings.close();
+      closeSparseEmbeddings = closeSparseWorker;
       process.once('SIGTERM', closeEmbeddingWorker);
+      process.once('SIGTERM', closeSparseWorker);
       process.once('SIGINT', closeEmbeddingWorker);
+      process.once('SIGINT', closeSparseWorker);
       process.stdin.once('end', () => setTimeout(closeEmbeddingWorker, 5_000));
+      process.stdin.once('end', () => setTimeout(closeSparseWorker, 5_000));
       const embeddingReady = await Effect.runPromise(embeddings.probe());
+      const sparseReady = embeddingReady._tag === 'Ok'
+        ? await Effect.runPromise(sparseEmbeddings.probe())
+        : undefined;
       if (embeddingReady._tag === 'Err') {
         embeddings.close();
+        sparseEmbeddings.close();
         if (embeddingReady.error.path === 'embedding.identity') {
           throw new Error(`embedding provider identity/configuration trust boundary failed (${embeddingReady.error.code}: ${embeddingReady.error.message})`);
         }
         readiness.code_retrieval = { state: 'not_ready', reason: 'embedding_provider_unavailable' };
         readiness.unified_context = { state: 'not_ready', reason: 'embedding_provider_unavailable' };
         process.stderr.write(`ace-mcp context NOT_READY: embedding provider preflight failed (${embeddingReady.error.code})\n`);
+      } else if (sparseReady?._tag === 'Err') {
+        embeddings.close();
+        sparseEmbeddings.close();
+        if (sparseReady.error.path === 'sparse_embedding.identity') {
+          throw new Error(`sparse embedding identity/configuration trust boundary failed (${sparseReady.error.code}: ${sparseReady.error.message})`);
+        }
+        readiness.sparse_embedding = { state: 'not_ready', reason: 'sparse_embedding_provider_unavailable' };
+        readiness.code_retrieval = { state: 'not_ready', reason: 'sparse_embedding_provider_unavailable' };
+        readiness.unified_context = { state: 'not_ready', reason: 'sparse_embedding_provider_unavailable' };
+        process.stderr.write(`ace-mcp context NOT_READY: sparse embedding provider preflight failed (${sparseReady.error.code})\n`);
       } else {
         const effectiveEmbedding = embeddings.identity();
-        if (effectiveEmbedding === undefined) {
+        const effectiveSparseEmbedding = sparseEmbeddings.identity();
+        if (effectiveEmbedding === undefined || effectiveSparseEmbedding === undefined) {
           embeddings.close();
-          readiness.code_retrieval = { state: 'not_ready', reason: 'embedding_identity_unavailable' };
-          readiness.unified_context = { state: 'not_ready', reason: 'embedding_identity_unavailable' };
-          process.stderr.write('ace-mcp context NOT_READY: embedding provider preflight returned no verified effective identity\n');
+          sparseEmbeddings.close();
+          readiness.sparse_embedding = { state: 'not_ready', reason: 'sparse_embedding_identity_unavailable' };
+          readiness.code_retrieval = { state: 'not_ready', reason: 'retrieval_identity_unavailable' };
+          readiness.unified_context = { state: 'not_ready', reason: 'retrieval_identity_unavailable' };
+          process.stderr.write('ace-mcp context NOT_READY: dense/sparse embedding provider returned no verified effective identity\n');
         } else {
+          readiness.sparse_embedding = { state: 'ready', reason: 'real_sparse_embedding_preflight_passed' };
           const embeddingFingerprint = verifiedEmbeddingIdentityFingerprint(effectiveEmbedding);
+          const sparseEmbeddingFingerprint = sparseEmbeddingIdentityFingerprint(effectiveSparseEmbedding);
           const structuralOptions = {
             command: astGrepCommand,
             providerVersion: process.env.ACE_AST_GREP_VERSION?.trim() || 'ast-grep/0.51.0',
