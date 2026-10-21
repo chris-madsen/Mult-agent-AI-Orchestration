@@ -103,7 +103,7 @@ export interface IndexCoverageSummary {
 
 export interface RetrievalEvidence {
   readonly evidenceId: EvidenceId;
-  readonly source: 'code' | 'structural' | 'lsp' | 'documentation' | 'memory';
+  readonly source: 'code' | 'structural' | 'lsp' | 'documentation' | 'memory' | 'history';
   readonly citation: string;
   readonly content: string;
   readonly sourceDigest?: ContentDigest;
