@@ -20,6 +20,53 @@
 
 **Workflow and evidence policy:** obtain deterministic RED evidence first (or label `static-unconfirmed`), run `npm run test:affected` for iteration and `npm run verify:pr` once for handoff; perform real-provider/MCP/Harbor suites when their changed acceptance contract requires it. Do not rewrite historical review/holdout artifacts; if a new frozen cohort is genuinely necessary, give it a new version with a separate independent holdout. `NOT_RUN`, `BLOCKED` and `unknown` must never be relabeled `PASS`.
 
+## Codex OpenSpec OPSX Skills integration and use — dedicated tooling/docs PR
+
+**Purpose:** install and actually use the [official Fission-AI/OpenSpec OPSX Codex skills](https://github.com/Fission-AI/OpenSpec) for the *existing* ACE spec-driven workflow, not invent a second spec framework or a new ACE agent orchestration layer. This is an **implementation task for Codex**, not evidence that skills are already installed. Run it as one narrow tooling/migration PR **before** using the workflow for the H6 follow-up PR E–H above. Do not mix an OpenSpec migration with retrieval/benchmark changes.
+
+### First choose one canonical OpenSpec root — no duplicate projects
+
+**Observed repo state on 2026-10-21:** ACE keeps `config.yaml`, `README.md` and unarchived changes `001`–`007` under `docs/openspec/`; there is **no** root `openspec/` and **no** `.agents/skills/`. The upstream CLI expects `openspec/` at the project root, and Codex discovers generated skills at `.agents/skills/openspec-*/SKILL.md`. Therefore **DO NOT** run `openspec init --tools codex` at the ACE root before reconciling the existing directory: it would create a competing empty `openspec/` project while the actual accepted work remains under `docs/openspec/`.
+
+1. **Preflight / reversible snapshot:** use a clean, separate Git branch based on current `main`; inventory `docs/openspec/config.yaml`, `changes/001`–`007`, their `proposal.md`/`design.md`/`tasks.md`/`specs/`, references in docs/scripts/CI and any local `.agents`, `.codex`, `~/.codex/prompts/opsx-*` or legacy OpenSpec-managed files. Check `node --version` (OpenSpec currently requires Node.js >= 20.19.0), `openspec --version` (if installed), `git status --short`, `openspec init --help`, `openspec config --help`. Do not overwrite user files or use `--force`; stop for explicit owner approval if setup would clean up existing custom/legacy prompts or global files.
+2. **Preferred migration (one-time, dedicated PR):** after an exact tree audit, `git mv docs/openspec openspec` to make the existing specs the **only** authoritative root. Preserve all seven change identities, content, unchecked tasks, source/commit evidence, delta specs and `config.yaml`. Review/update paths and relative Markdown references in `README.md`, `AGENTS.md`, docs, scripts and CI; keep an optional `docs/openspec/README.md` **pointer only**, never a second `config.yaml` or `changes/` tree. Check that relative references from moved specs still resolve, and that commands/scripts run from the repo root. If a complete migration is unsafe, **do not partially initialize**; document the blocker and propose an explicit alternative rather than silently using two roots or Windows-hostile symlinks.
+3. **Reconcile current project context:** review the moved `openspec/config.yaml` against *current accepted* ADRs and runtime (TypeScript/Effect, official MCP SDK, local ast-grep + Qdrant dense/sparse/RRF, optional reranker/LSP, opt-in Vertex docs, Graphiti + immutable source archive, Harbor quality gates). Update only demonstrably stale context/path strings; never silently change ADR decisions, H6 benchmark verdicts, or checked task status.
+4. **Install official CLI and Codex integration** *from the repository root, after the canonical migration*. Use the installed CLI's current help before executing version-sensitive commands:
+
+   ```bash
+   node --version
+   npm install -g @fission-ai/openspec@latest
+   openspec --version
+   # FIRST complete the audited migration: git mv docs/openspec openspec
+   openspec init --tools codex
+   openspec config profile
+   # In the interactive profile, keep core explore/propose/apply/update/sync/archive
+   # AND enable the additional "verify" workflow.
+   openspec update
+   openspec list
+   openspec status --change 007-hybrid-context-engine
+   openspec validate 007-hybrid-context-engine --strict
+   ```
+
+   The **default `core` profile does not include `verify`**: selecting a custom/expanded workflow with `verify` and running `openspec update` is required. The profile setting can affect other projects on the developer's machine; inspect the current profile and avoid silently altering unrelated projects. If the installed CLI changes flags or needs interactive config, follow `--help` rather than guessing. `openspec init` and `update` can reconcile generated legacy prompt files; first inspect any cleanup candidates. The Codex integration is **skills-only**, not slash-command prompt files. Keep generated skills versioned/reviewable in the PR when consistent with repository policy. Restart/reload Codex after generation so it discovers the skills.
+
+5. **Verify actual integration before declaring done:** from the ACE repo root, confirm **one** `openspec/config.yaml`, one `openspec/changes/` with all seven historical IDs and intact source specs, no duplicate former active tree; `.agents/skills/openspec-propose/SKILL.md`, `openspec-apply-change/SKILL.md`, `openspec-update-change/SKILL.md`, `openspec-verify-change/SKILL.md`, `openspec-archive-change/SKILL.md` exist; the *installed* `openspec list/status/validate` commands resolve `007`. Inspect Git diff for unexpected deletions, user/global file changes and broken paths. If a historical change fails strict validation, record the **pre-existing vs new** cause; do not rewrite or archive it just to make bootstrap green. Submit only the migration/generated skills/doc-link corrections in the tooling PR.
+
+### How Codex should use the skills on every ACE change
+
+The following **`$openspec-...` names are Codex chat skill invocations**, **not terminal commands**. Terminal commands are `openspec ...`. Use only the skills that setup actually generated.
+
+1. **Before coding:** read root `AGENTS.md`, the applicable accepted ADRs and `openspec/changes/007-hybrid-context-engine/{proposal,design,tasks}.md` plus its delta specs and current code/tests. Keep the priority rule `owner decision > accepted ADR > spec contract > AGENTS.md > observed code/evidence > plans`. Use `$openspec-explore` for genuinely unclear requirements; `$openspec-update-change` for a scoped correction to the existing `007` specification. **Do not** automatically start `$openspec-propose` for PR E/F/G/H if it merely duplicates already-approved `007`; use `$openspec-propose` only for a genuinely new, separately bounded capability or newly approved architectural change.
+2. **Implement one observable task per small PR:** in Codex chat use `$openspec-apply-change 007-hybrid-context-engine` with an explicit instruction to implement **only one named unchecked H6-CR task/PR slice**, not to complete all of 001–007. Derive RED/failure scenarios from the requirement, add the contract/integration test first, make the minimal TypeScript fix, keep adapter/provider boundaries, rerun `npm run test:affected` and `npm run verify:pr` locally where available, and run required real-provider/agent/Harbor checks only in a suitable environment. Preserve the frozen external v3 and reranker holdouts.
+3. **Verify before claiming a task complete:** use `$openspec-verify-change 007-hybrid-context-engine` against the exact changed requirement and its tests. The skill's consistency review **does not replace** `openspec validate`, typecheck/lint/tests, exact-runtime evidence, coverage/quality gates or owner approval. Require traceable links `requirement + Scenario -> RED test -> implementation -> PASS evidence or explicit BLOCKED/NOT_RUN`. Run verification on the PR's effective revision and record unsupported steps. Missing provider/Harbor proof stays unchecked, not marked complete.
+4. **Update evidence/status responsibly:** use `$openspec-update-change` when approved requirements or task text need to change and include why; mark only proven bounded tasks `[x]` with a PR/test/trace receipt. Never transform implemented into `agent-E2E-passed` or `owner-approved` without its corresponding evidence. Preserve authoritative original/source citations and opt-in data policies.
+5. **Sync/archive only after complete gates:** `$openspec-sync-specs` may be used for approved delta specs when needed, with a reviewed diff. Use `$openspec-archive-change` **only** when that entire change (e.g. `007`, not just PR E) has fulfilled all required tasks, real-provider/agent/benchmark gates, and owner acceptance. Open partial milestones remain active and unarchived. Keep source-of-truth specs single and readable; do not archive unfinished H6 or auto-approve model choices.
+6. **PR handoff:** report the exact spec/change ID, chosen skill invocations, files edited, acceptance scenarios, passing/blocked tests, provider/runtime hashes, benchmark evidence links, and residual unchecked work. If Codex cannot access local execution tools or the user's installed global CLI, state `NOT_RUN` instead of implying the skill was installed or checks executed.
+
+**Acceptance for this setup PR:** an isolated checkout can run the installed OpenSpec CLI against **the migrated existing ACE 007**, Codex can load the five required skill files including `verify`, no duplicate spec root or evidence rewrite exists, the OpenSpec usage contract above is documented, all 001–007 content survives the move, and the ordinary docs/path/CLI smoke checks are recorded. The migration itself does **not** close H6 correctness, external provider readiness or the 5× goal.
+
+**Upstream references:** [installation](https://github.com/Fission-AI/OpenSpec/blob/main/docs/installation.md), [supported tools / Codex skill paths](https://github.com/Fission-AI/OpenSpec/blob/main/docs/supported-tools.md), [profile configuration](https://github.com/Fission-AI/OpenSpec/blob/main/docs-lab/customize/profiles.md), [workflow commands](https://github.com/Fission-AI/OpenSpec/blob/main/docs/commands.md), [existing projects](https://github.com/Fission-AI/OpenSpec/blob/main/docs/existing-projects.md).
+
 ## 1. Product target
 
 ACE is not "a vector search MCP". It is an **agent-neutral persistent hybrid context engine**.
