@@ -1,3 +1,5 @@
+> **Implementation status — 2026-10-21 (current main 5ad3649dc969):** the plan has moved past the original dense-first baseline. Hybrid dense+sparse Qdrant retrieval, local FastEmbed BM25, controlled dense/sparse/hybrid ablation modes, RRF, reranker boundary/composition/evaluator, Git working-state priors, context receipts/delta body suppression, and locate-mode ast-grep outlines are implemented. The remaining architecture work is now primarily: explicit Git-history source (#116 in progress), source-aware evidence dedupe, cross-client receipt portability proof, frozen multi-repository holdout/ablations/Harbor runs, and the separate Graphiti/Vertex/k3s/release production track.
+
 # ACE Cursor-like hybrid context completion plan
 
 **Date:** 2026-10-21
@@ -66,13 +68,7 @@ PR #94 already completed most of the de-bespoke foundation:
 
 Therefore this plan does **not** restart those migrations.
 
-The main architectural gap is that code retrieval is still effectively:
-
-```text
-query -> dense embedding -> Qdrant dense candidates -> exact source check -> LSP check
-```
-
-The target is:
+The original architectural gap was a dense-only path. That gap is now implemented at runtime; the target pipeline below is the current architecture and still requires final holdout/agent evidence:
 
 ```text
                          +-> dense semantic --------+
