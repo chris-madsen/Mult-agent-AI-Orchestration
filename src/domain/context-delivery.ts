@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type {
   BundleId,
   ContextBundle,
@@ -7,6 +6,7 @@ import type {
   EvidenceReceiptId,
   RetrievalEvidence,
 } from './retrieval.js';
+import { sha256 } from './retrieval-benchmark.js';
 
 /**
  * User-visible retrieval intent is a delivery choice, not a different trust
@@ -194,7 +194,7 @@ const receiptIdFor = (
   scope: string | undefined,
 ): EvidenceReceiptId | undefined => {
   if (scope === undefined || scope.trim().length === 0) return undefined;
-  const bodyDigest = createHash('sha256').update(item.content, 'utf8').digest('hex');
+  const bodyDigest = sha256(item.content);
   const identity = [
     'ace-receipt-v1',
     scope.trim(),
@@ -207,7 +207,7 @@ const receiptIdFor = (
     item.freshness,
     item.proofClass,
   ].join('\0');
-  return `receipt-v1-${createHash('sha256').update(identity, 'utf8').digest('hex')}` as EvidenceReceiptId;
+  return `receipt-v1-${sha256(identity)}` as EvidenceReceiptId;
 };
 
 /**
