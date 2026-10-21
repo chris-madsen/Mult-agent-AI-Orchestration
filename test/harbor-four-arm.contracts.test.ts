@@ -78,6 +78,31 @@ test('four-arm design rejects forced ACE prompts and non-repeatable workloads', 
   assert.equal(tooFew._tag, 'Err');
 });
 
+test('external four-arm design requires one task manifest and immutable revisions', () => {
+  const options = { repositoryIds: ['ace', 'external'], requireExternalEvidence: true } as const;
+  assert.equal(validateHarborFourArmDesign(
+    job(),
+    job('four-arm-dense-codex-config.toml'),
+    job('four-arm-hybrid-codex-config.toml'),
+    job('four-arm-hybrid-delta-codex-config.toml'),
+    options,
+  )._tag, 'Err');
+  const evidence = {
+    external_evidence: {
+      task_manifest_sha256: 'a'.repeat(64),
+      repository_revisions: { ace: '1'.repeat(40), external: '2'.repeat(40) },
+    },
+  };
+  const result = validateHarborFourArmDesign(
+    { ...job(), ...evidence },
+    { ...job('four-arm-dense-codex-config.toml'), ...evidence },
+    { ...job('four-arm-hybrid-codex-config.toml'), ...evidence },
+    { ...job('four-arm-hybrid-delta-codex-config.toml'), ...evidence },
+    options,
+  );
+  assert.equal(result._tag, 'Ok');
+});
+
 test('four-arm Harbor report rejects savings without real ACE calls or observed receipts', () => {
   const base = {
     schemaVersion: 1 as const,

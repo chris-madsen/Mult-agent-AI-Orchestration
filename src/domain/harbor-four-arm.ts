@@ -16,6 +16,8 @@ export interface HarborFourArmDesign {
 export interface HarborFourArmValidationOptions {
   /** Repository IDs must be supplied by the external benchmark composition. */
   readonly repositoryIds: readonly string[];
+  /** Final external jobs must bind the task manifest and exact source revisions. */
+  readonly requireExternalEvidence?: boolean;
 }
 
 const repositoryForTask = (task: string, repositoryIds: readonly string[]): string | undefined => {
@@ -61,6 +63,27 @@ export const validateHarborFourArmDesign = (
   }
   if (jobs.some((job) => job.extraInstructions.length > 0)) {
     return err(domainError('INVALID_BENCHMARK', 'harbor_job.extra_instructions', 'four-arm natural benchmark must not force an ACE call'));
+  }
+  if (options.requireExternalEvidence === true) {
+    const evidence = jobs.map((job) => job.externalEvidence);
+    if (evidence.some((item) => item === undefined)
+      || new Set(evidence.map((item) => item?.taskManifestSha256)).size !== 1
+      || repositoryIds.some((repositoryId) => jobs.some((job) => job.externalEvidence?.repositoryRevisions[repositoryId] === undefined))) {
+      return err(domainError(
+        'INVALID_BENCHMARK',
+        'harbor_job.external_evidence',
+        'external four-arm jobs must bind one task manifest and every configured repository revision',
+      ));
+    }
+    const referenceRevisions = evidence[0]?.repositoryRevisions;
+    if (referenceRevisions === undefined || repositoryIds.some((repositoryId) => jobs.some((job) =>
+      job.externalEvidence?.repositoryRevisions[repositoryId] !== referenceRevisions[repositoryId]))) {
+      return err(domainError(
+        'INVALID_BENCHMARK',
+        'harbor_job.external_evidence.repository_revisions',
+        'all external four-arm jobs must bind identical repository revisions',
+      ));
+    }
   }
   if (native.value.codexConfig !== undefined
     || !configHas(dense.value, /dense/iu)

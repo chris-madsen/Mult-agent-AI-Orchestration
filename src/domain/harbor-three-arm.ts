@@ -11,6 +11,10 @@ export interface NormalizedHarborJob {
   readonly authMode: 'auth-json';
   readonly codexConfig?: string;
   readonly extraInstructions: readonly string[];
+  readonly externalEvidence?: {
+    readonly taskManifestSha256: string;
+    readonly repositoryRevisions: Readonly<Record<string, string>>;
+  };
 }
 
 const object = (value: unknown): Record<string, unknown> | undefined =>
@@ -21,6 +25,9 @@ const object = (value: unknown): Record<string, unknown> | undefined =>
 const forcedAceInstruction = (instructions: readonly string[]): boolean =>
   instructions.some((instruction) =>
     /(?:before editing|must|require|mandatory).*?(?:ace_context|call.*?ace)/iu.test(instruction));
+
+const validSha256 = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value);
+const validRevision = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{40,64}$/iu.test(value);
 
 export const normalizeHarborJob = (
   arm: HarborArm,
@@ -65,6 +72,21 @@ export const normalizeHarborJob = (
   const codexConfig = typeof kwargs.config === 'string' && kwargs.config.trim().length > 0
     ? kwargs.config.trim()
     : undefined;
+  const externalRoot = object(root?.external_evidence);
+  const externalRevisions = object(externalRoot?.repository_revisions);
+  const externalEvidence = externalRoot === undefined
+    ? undefined
+    : externalRevisions !== undefined
+      && validSha256(externalRoot.task_manifest_sha256)
+      && Object.values(externalRevisions).every(validRevision)
+      ? {
+        taskManifestSha256: externalRoot.task_manifest_sha256,
+        repositoryRevisions: Object.fromEntries(Object.entries(externalRevisions).map(([id, revision]) => [id, revision as string])),
+      }
+      : null;
+  if (externalEvidence === null) {
+    return err(domainError('INVALID_BENCHMARK', 'harbor_job.external_evidence', 'external evidence requires a task manifest SHA-256 and immutable repository revisions'));
+  }
   return ok({
     arm,
     tasks,
@@ -73,6 +95,7 @@ export const normalizeHarborJob = (
     authMode: 'auth-json',
     ...(codexConfig === undefined ? {} : { codexConfig }),
     extraInstructions: extraRaw.map((entry) => entry.trim()).filter((entry) => entry.length > 0),
+    ...(externalEvidence === undefined ? {} : { externalEvidence }),
   });
 };
 
