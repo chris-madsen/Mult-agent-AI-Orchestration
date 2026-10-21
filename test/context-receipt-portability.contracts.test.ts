@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import test from 'node:test';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 import { Effect } from 'effect';
 import { createAceServer } from '../src/transport/mcp-sdk-stdio.js';
@@ -212,4 +217,57 @@ test('receipt identity includes source class even when citation and body match',
   assert.equal(code.evidence[0]?.content, body);
   assert.notEqual(code.evidence[0]?.contentDelivery, 'known_reference');
   assert.notEqual(code.evidence[0]?.receiptId, documentation.evidence[0]?.receiptId);
+});
+
+test('portable receipts remain stable across an actual process restart', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ace-receipt-process-'));
+  const scriptPath = join(directory, 'receipt-child.mjs');
+  const contextModule = pathToFileURL(resolve('src/domain/context-delivery.ts')).href;
+  await writeFile(scriptPath, `
+    import { projectContextForDelivery } from ${JSON.stringify(contextModule)};
+    const [body, knownReceipt] = process.argv.slice(2);
+    const evidence = {
+      evidenceId: 'process-evidence-1',
+      source: 'code',
+      citation: 'src/stable.ts:1-1',
+      content: body,
+      proofClass: 'direct',
+      freshness: 'current',
+    };
+    const result = projectContextForDelivery({
+      requestId: 'process-request',
+      query: 'find stable evidence',
+      evidence: [evidence],
+      warnings: [],
+      partialSources: [],
+      complete: true,
+    }, 'inspect', {
+      receiptScope: 'portable-workspace',
+      ...(knownReceipt === undefined ? {} : { knownEvidenceIds: [knownReceipt] }),
+    });
+    process.stdout.write(JSON.stringify({
+      bundleId: result.bundleId,
+      receiptId: result.evidence[0]?.receiptId,
+      content: result.evidence[0]?.content,
+    }));
+  `, 'utf8');
+  const runChild = (knownReceipt?: string): { readonly bundleId?: string; readonly receiptId?: string; readonly content?: string } => {
+    const output = execFileSync(process.execPath, [
+      '--import',
+      'tsx',
+      scriptPath,
+      body,
+      ...(knownReceipt === undefined ? [] : [knownReceipt]),
+    ], { cwd: resolve('.'), encoding: 'utf8' });
+    return JSON.parse(output) as { readonly bundleId?: string; readonly receiptId?: string; readonly content?: string };
+  };
+  try {
+    const first = runChild();
+    const second = runChild(first.receiptId);
+    assert.equal(second.bundleId, first.bundleId);
+    assert.equal(second.receiptId, first.receiptId);
+    assert.equal(second.content, '');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
