@@ -13,6 +13,7 @@ import {
 import { makeContentDigest, ingestRepoPath, type WorkspaceId } from '../domain/workspace.js';
 import { projectionKey, type ProjectionReceipt } from '../domain/memory.js';
 import { containsLikelySecret } from '../domain/sensitive-text.js';
+import type { StructuralKind } from '../domain/semantic.js';
 import type {
   CodeCandidatePort,
   CodePoint,
@@ -138,7 +139,7 @@ const candidateFromPayload = (point: Record<string, unknown>, workspaceId: Works
     },
     ...(typeof payload.symbol_name === 'string' ? { symbolName: payload.symbol_name } : {}),
     ...(typeof payload.structural_kind === 'string'
-      ? { structuralKind: payload.structural_kind as CodeCandidate['structuralKind'] } : {}),
+      ? { structuralKind: payload.structural_kind as StructuralKind } : {}),
     ...(typeof payload.structural_language === 'string'
       ? { structuralLanguage: payload.structural_language } : {}),
     ...(typeof payload.structural_exported === 'boolean'
