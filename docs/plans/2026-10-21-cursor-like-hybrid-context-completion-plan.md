@@ -1,7 +1,7 @@
 # ACE Cursor-like hybrid context completion plan
 
-**Date:** 2026-10-21  
-**Baseline:** `main@d366f4a19a413cb934da9278ee8315bfbe73677a`  
+**Date:** 2026-10-21
+**Baseline:** `main@d366f4a19a413cb934da9278ee8315bfbe73677a`
 **Owner goal:** adopt the **architectural principles** of Cursor's multi-layer code context system while choosing ACE's own maintained components and keeping the product agent-neutral behind MCP.
 
 ## 1. Product target
