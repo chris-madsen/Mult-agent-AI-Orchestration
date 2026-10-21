@@ -20,7 +20,10 @@ const [nativeJob, denseJob, hybridJob, deltaJob, report] = await Promise.all([
   readJson(deltaJobPath as string),
   readJson(reportPath as string),
 ]);
-const design = validateHarborFourArmDesign(nativeJob, denseJob, hybridJob, deltaJob, { repositoryIds });
+const design = validateHarborFourArmDesign(nativeJob, denseJob, hybridJob, deltaJob, {
+  repositoryIds,
+  requireExternalEvidence: process.env.ACE_HARBOR_REQUIRE_EXTERNAL_EVIDENCE === 'true',
+});
 if (design._tag === 'Err') throw new Error(`${design.error.code}: ${design.error.path}: ${design.error.message}`);
 const checkedReport = validateHarborFourArmReport(report);
 if (checkedReport._tag === 'Err') throw new Error(`${checkedReport.error.code}: ${checkedReport.error.path}: ${checkedReport.error.message}`);

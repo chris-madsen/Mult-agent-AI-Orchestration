@@ -42,6 +42,7 @@
     "gate:reranker-selection": "tsx scripts/reranker-selection-gate.ts",
     "gate:harbor-three-arm": "tsx scripts/harbor-three-arm-gate.ts",
     "gate:harbor-four-arm": "tsx scripts/harbor-four-arm-gate.ts",
+    "freeze:harbor-four-arm": "tsx scripts/freeze-harbor-four-arm-jobs.ts",
     "test:real-graphiti-lifecycle": "tsx scripts/graphiti-real-lifecycle-e2e.ts",
     "vertex:import-synthetic": "bash scripts/vertex-synthetic-fixture-import.sh",
     "test:real-vertex-conflict": "tsx scripts/vertex-synthetic-conflict-e2e.ts",
