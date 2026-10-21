@@ -33,6 +33,7 @@ if (holdout.status !== 'frozen_multi_repository_holdout') {
 
 const metrics: RetrievalQualityMetrics[] = [];
 const runDigests: Record<string, string> = {};
+let baselineRun: RetrievalStrategyRun | undefined;
 for (const [index, expectedStrategy] of expectedStrategies.entries()) {
   const runPath = runArgs[index] as string;
   const runBytes = await readFile(resolve(runPath));
@@ -42,6 +43,16 @@ for (const [index, expectedStrategy] of expectedStrategies.entries()) {
   }
   if (run.holdoutSha256 !== holdoutSha256) {
     throw new Error(`run ${runPath} does not match the frozen holdout SHA-256`);
+  }
+  if (baselineRun === undefined) baselineRun = run;
+  else if (run.sourceCommit !== baselineRun.sourceCommit) {
+    throw new Error(`run ${runPath} does not match the dense baseline source commit`);
+  }
+  for (const [key, identity] of Object.entries(baselineRun.providerIdentities ?? {})) {
+    if (key.toLocaleLowerCase().includes('reranker')) continue;
+    if (run.providerIdentities?.[key] !== identity) {
+      throw new Error(`run ${runPath} has provider/runtime mismatch for ${key}`);
+    }
   }
   const evaluated = evaluateRetrievalStrategy(holdout, run);
   if (evaluated._tag === 'Err') {

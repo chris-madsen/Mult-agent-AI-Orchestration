@@ -20,6 +20,7 @@ import type {
   SemanticReference,
 } from '../domain/semantic.js';
 import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
+import { providerUsesWindowsShell, resolveProviderCommand } from './provider-command.js';
 
 export interface LspSemanticOptions {
   readonly command: string;
@@ -184,7 +185,11 @@ const diagnosticCategory = (severity: unknown): SemanticDiagnostic['category'] =
 const serverArgs = (options: Pick<LspSemanticOptions, 'args'>): readonly string[] => options.args ?? ['--stdio'];
 
 const runVersion = (command: string): Promise<string> => new Promise((resolve, reject) => {
-  const child = spawn(command, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const resolvedCommand = resolveProviderCommand(command);
+  const child = spawn(resolvedCommand, ['--version'], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    shell: providerUsesWindowsShell(resolvedCommand),
+  });
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
   child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
@@ -201,13 +206,14 @@ export const resolveLspProviderIdentity = (options: Pick<LspSemanticOptions, 'co
   recoverResult(Effect.tryPromise({
     try: async () => {
       try {
-        const version = await runVersion(options.command);
+        const command = resolveProviderCommand(options.command);
+        const version = await runVersion(command);
         const stable = {
           provider: 'lsp' as const,
           server: options.serverName ?? 'typescript-language-server',
           protocol: 'lsp' as const,
           protocolVersion: 1 as const,
-          command: options.command,
+          command,
           args: [...serverArgs(options)],
           version,
           snapshotIdentity: options.snapshotIdentity ?? 'unbound',
@@ -222,9 +228,11 @@ export const resolveLspProviderIdentity = (options: Pick<LspSemanticOptions, 'co
 
 const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRuntime, DomainError>> => {
   try {
-    const child = spawn(options.command, serverArgs(options), {
+    const command = resolveProviderCommand(options.command);
+    const child = spawn(command, serverArgs(options), {
       cwd: options.rootPath,
       stdio: ['pipe', 'pipe', 'pipe'],
+      shell: providerUsesWindowsShell(command),
     });
     child.unref();
     const refProcess = (): void => {

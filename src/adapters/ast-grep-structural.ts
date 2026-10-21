@@ -9,6 +9,7 @@ import type { ProviderTraceSink, StructuralAnalysisPort } from '../application/p
 import { recoverResult } from '../application/effect-result.js';
 import { structuralLanguageForPath } from '../domain/structural-language.js';
 import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
+import { providerUsesWindowsShell, resolveProviderCommand } from './provider-command.js';
 
 export interface AstGrepStructuralOptions {
   readonly command: string;
@@ -146,7 +147,11 @@ const run = (
   input: Uint8Array | undefined,
   timeoutMs: number,
 ): Promise<{ readonly stdout: string; readonly stderr: string }> => new Promise((resolve, reject) => {
-  const child = spawn(command, [...args], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const resolvedCommand = resolveProviderCommand(command);
+  const child = spawn(resolvedCommand, [...args], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    shell: providerUsesWindowsShell(resolvedCommand),
+  });
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
   let settled = false;
@@ -193,12 +198,13 @@ const commandVersion = (command: string): Effect.Effect<Result<string, DomainErr
 export const resolveAstGrepProviderIdentity = (
   options: AstGrepStructuralOptions,
 ): Effect.Effect<Result<AstGrepProviderIdentity, DomainError>> => Effect.gen(function* () {
-  const version = yield* commandVersion(options.command);
+  const command = resolveProviderCommand(options.command);
+  const version = yield* commandVersion(command);
   if (version._tag === 'Err') return version;
   const stable = {
     provider: 'ast-grep' as const,
     protocolSchema: 1 as const,
-    command: options.command,
+    command,
     version: version.value,
   };
   return ok({
@@ -218,7 +224,7 @@ export const makeAstGrepStructuralPort = (options: AstGrepStructuralOptions): St
         }
         let result: { readonly stdout: string };
         try {
-          result = await run(options.command, [
+          result = await run(resolveProviderCommand(options.command), [
             'outline', '--stdin', '--lang', language.language,
             '--json=stream', '--items', 'all', '--view', 'expanded',
           ], input.source, options.timeoutMs ?? 10_000);

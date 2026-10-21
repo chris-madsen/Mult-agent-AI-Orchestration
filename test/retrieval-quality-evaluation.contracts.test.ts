@@ -31,6 +31,15 @@ const frozenStageRanks = (candidateId: string) => ({
   delivered: [candidateId],
 });
 
+const frozenStageStatuses = () => ({
+  dense: 'executed' as const,
+  sparse: 'executed' as const,
+  fused: 'executed' as const,
+  working_context: 'executed' as const,
+  reranked: 'executed' as const,
+  delivered: 'executed' as const,
+});
+
 const run: RetrievalStrategyRun = {
   strategy: 'hybrid-v1',
   holdoutSha256: holdoutSha,
@@ -302,6 +311,7 @@ test('release-grade multi-repository holdout binds exact repositories and case o
         nativeReadDuplicates: 0,
         latencyMs: 10,
         stageRanks: frozenStageRanks('a'),
+        stageStatuses: frozenStageStatuses(),
       },
       {
         caseId: 'repo-b-case',
@@ -312,6 +322,7 @@ test('release-grade multi-repository holdout binds exact repositories and case o
         nativeReadDuplicates: 0,
         latencyMs: 12,
         stageRanks: frozenStageRanks('b'),
+        stageStatuses: frozenStageStatuses(),
       },
     ],
   };
@@ -319,6 +330,25 @@ test('release-grade multi-repository holdout binds exact repositories and case o
   assert.equal(metrics._tag, 'Ok');
   if (metrics._tag === 'Err') throw new Error(metrics.error.message);
   assert.equal(metrics.value.repositoryCount, 2);
+
+  const sparseUnavailable = evaluateRetrievalStrategy(multi, {
+    ...multiRun,
+    observations: multiRun.observations.map((item) => ({
+      ...item,
+      stageRanks: { ...item.stageRanks, sparse: [] },
+      stageStatuses: { ...item.stageStatuses, sparse: 'unavailable' as const },
+    })),
+  });
+  assert.equal(sparseUnavailable._tag, 'Ok');
+  const missingStageStatus = evaluateRetrievalStrategy(multi, {
+    ...multiRun,
+    observations: multiRun.observations.map((item) => {
+      const copy = { ...item };
+      delete copy.stageStatuses;
+      return copy;
+    }),
+  });
+  assert.equal(missingStageStatus._tag, 'Err');
 
   const multiPolicy: RetrievalQualityPolicy = {
     selectedStrategy: 'hybrid_rrf',

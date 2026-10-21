@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
@@ -104,7 +104,10 @@ const configuredLanguageIds = (name: string): Readonly<Record<string, string>> |
   return Object.fromEntries(entries) as Record<string, string>;
 };
 
-const commandBoundaryExists = (value: string): boolean => value.includes('/') ? existsSync(value) : true;
+const commandBoundaryExists = (value: string): boolean => {
+  if (value.includes('/') || value.includes('\\') || /^[A-Za-z]:/u.test(value)) return existsSync(value);
+  return value.trim().length > 0;
+};
 
 const defaultEmbeddingModel = 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2';
 const defaultEmbeddingRevision = 'e8f8c211226b894fcb81acc59f3b34ba3efd5f42';
@@ -171,7 +174,7 @@ const main = async (): Promise<void> => {
   const runtimeTestFailpoint = configuredRuntimeTestFailpoint();
   const rootPath = resolve(required('ACE_WORKSPACE_ROOT'));
   const allowedRoots = (process.env.ACE_ALLOWED_ROOTS ?? rootPath)
-    .split(':')
+    .split(delimiter)
     .map((value) => value.trim())
     .filter((value) => value.length > 0)
     .map((value) => resolve(value));
@@ -248,6 +251,9 @@ const main = async (): Promise<void> => {
   const lspArgs = configuredStringArray('ACE_LSP_ARGS', ['--stdio']);
   const lspServerName = optionalCommand(process.env.ACE_LSP_SERVER, 'typescript-language-server');
   const lspLanguageIds = configuredLanguageIds('ACE_LSP_LANGUAGE_IDS');
+  const embeddingWorkerArgs = configuredStringArray('ACE_EMBEDDING_WORKER_ARGS_JSON', []);
+  const sparseEmbeddingWorkerArgs = configuredStringArray('ACE_SPARSE_EMBEDDING_WORKER_ARGS_JSON', []);
+  const rerankerWorkerArgs = configuredStringArray('ACE_RERANKER_WORKER_ARGS_JSON', []);
   const artifacts = makeFileArtifactStore(artifactDirectory);
   const providerTrace = makeFileProviderTrace(process.env.ACE_PROVIDER_TRACE_FILE);
   const benchmarkTracePath = process.env.ACE_BENCHMARK_TRACE_FILE?.trim();
@@ -406,7 +412,7 @@ const main = async (): Promise<void> => {
     const rerankerWorker = process.env.ACE_RERANKER_WORKER?.trim() || resolve('scripts/fastembed-reranker-worker.sh');
     let reranker: ReturnType<typeof makeProcessRerankerPort> | undefined;
     if (rerankerMode !== 'disabled') {
-      if (rerankerModel === undefined || rerankerModel.length === 0 || !existsSync(rerankerWorker)) {
+      if (rerankerModel === undefined || rerankerModel.length === 0 || !commandBoundaryExists(rerankerWorker)) {
         readiness.reranker = { state: 'not_ready', reason: 'reranker_configuration_missing' };
       } else {
         const rerankerEnvironment: Record<string, string> = { ACE_RERANKER_MODEL: rerankerModel };
@@ -416,6 +422,7 @@ const main = async (): Promise<void> => {
         }
         const candidate = makeProcessRerankerPort({
           command: rerankerWorker,
+          args: rerankerWorkerArgs,
           expectedModel: rerankerModel,
           timeoutMs: rerankerTimeoutMs,
           providerVersion: `fastembed/cross-encoder|model=${rerankerModel}`,
@@ -452,8 +459,8 @@ const main = async (): Promise<void> => {
     ));
     if (qdrantReachable._tag === 'Err') {
       handleQdrantUnavailable(qdrantReachable.error.code);
-    } else if (!existsSync(embeddingWorker)
-      || !existsSync(sparseEmbeddingWorker)
+    } else if (!commandBoundaryExists(embeddingWorker)
+      || !commandBoundaryExists(sparseEmbeddingWorker)
       || !existsSync(astGrepCommand)
       || !commandBoundaryExists(astGrepCommand)) {
       readiness.code_retrieval = { state: 'not_ready', reason: 'provider_runtime_missing' };
@@ -462,6 +469,7 @@ const main = async (): Promise<void> => {
     } else {
       const embeddings = makeProcessEmbeddingPort({
         command: embeddingWorker,
+        args: embeddingWorkerArgs,
         dimension: embeddingDimension,
         timeoutMs: embeddingTimeoutMs,
         providerVersion: `${embeddingProvider}|model=${embeddingModel}@${embeddingRevision}|artifact=${embeddingArtifactModel}@${embeddingArtifactRevision}#${embeddingArtifactDigest}`,
@@ -484,6 +492,7 @@ const main = async (): Promise<void> => {
       }
       const sparseEmbeddings = makeProcessSparseEmbeddingPort({
         command: sparseEmbeddingWorker,
+        args: sparseEmbeddingWorkerArgs,
         timeoutMs: sparseEmbeddingTimeoutMs,
         expectedModel: sparseEmbeddingModel,
         providerVersion: `fastembed/sparse|model=${sparseEmbeddingModel}`,

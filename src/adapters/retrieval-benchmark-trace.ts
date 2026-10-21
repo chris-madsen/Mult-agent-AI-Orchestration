@@ -133,6 +133,7 @@ export const makeFileRetrievalBenchmarkTrace = async (
         line = JSON.stringify(normalized) + '\n';
       } catch {
         markFailed();
+        process.stderr.write('ace benchmark trace serialization failed\n');
         throw safeTraceFailure();
       }
       recordedEvents += 1;
@@ -147,6 +148,7 @@ export const makeFileRetrievalBenchmarkTrace = async (
       });
       queue = write.catch(() => {
         markFailed();
+        process.stderr.write('ace benchmark trace append failed\n');
       });
     },
     flush,

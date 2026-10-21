@@ -51,6 +51,7 @@
     "freeze:retrieval-holdout": "tsx scripts/freeze-retrieval-holdout.ts",
     "validate:retrieval-holdout": "tsx scripts/validate-retrieval-holdout.ts",
     "probe:retrieval-rank": "tsx scripts/qdrant-hybrid-rank-probe.ts",
+    "run:retrieval-benchmark": "tsx scripts/retrieval-benchmark-runner.ts",
     "merge:retrieval-runs": "tsx scripts/merge-retrieval-runs.ts",
     "gate:retrieval-ablation": "tsx scripts/retrieval-ablation-gate.ts",
     "release:preflight": "tsx scripts/release-preflight.ts",
