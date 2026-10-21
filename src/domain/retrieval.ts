@@ -167,6 +167,8 @@ export interface ContextDeliveryMetrics {
   readonly structuredContentBytes: number;
   readonly uniqueContentBytes: number;
   readonly duplicateContentBytes: number;
+  /** Bytes replaced by a compact locate projection before receipt suppression. */
+  readonly projectionBytesAvoided: number;
   /** Bytes actually sent as evidence bodies after known-evidence suppression. */
   readonly newContextBytes: number;
   /** Bytes intentionally omitted because the client supplied stable evidence receipts. */
