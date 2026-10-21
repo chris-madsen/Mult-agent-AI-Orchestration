@@ -1,8 +1,43 @@
 # Adaptive Context Engine (ACE) Harness
 
-ACE is an external, agent-neutral context harness for Codex. The repository
-contains the project documentation under `docs/` and the first implementation
-slice under `src/`.
+ACE is an **agent-neutral, MCP-exposed, Cursor-inspired multi-layer hybrid
+context/RAG engine for agentic software development**. Codex is the first
+client, not an architectural dependency. ACE is **not** a multi-agent task
+scheduler: it retrieves, verifies, and progressively supplies the project
+context that coding agents need, without repeatedly sending unchanged content.
+
+## Architecture at a glance
+
+```text
+Codex / Claude Code / Gemini CLI / any compatible MCP agent
+                         |
+                    ACE MCP facade
+                         |
+       current worktree + optional client focus hints
+                         |
+       code: ast-grep structural units
+             + dense embedding + sparse/BM25
+             + Qdrant native RRF fusion
+             + optional evidence-gated reranking + LSP
+       docs: authorized Vertex AI RAG
+       memory: immutable session archive + Graphiti/FalkorDB
+       history: explicit, provenance-backed Git source
+                         |
+            verified source-aware ContextBundle
+                         |
+           compact initial delivery + receipt/delta
+                         |
+                 ace_expand exact bytes
+```
+
+Private source and conversations remain local by default; Vertex is a
+**separately authorized documentation source**, never an implicit destination
+for private code. Current verified source bytes outrank stale index data,
+derived memory and documentation when determining actual program behavior.
+The 5× accepted-task token reduction is a benchmark hypothesis, not a reported
+achievement. See [Accepted ADR-014](docs/docs/references/ADR-014-hybrid-context-engine.md),
+[OpenSpec 007](docs/openspec/changes/007-hybrid-context-engine/),
+and the [2026-10-21 targeted code review](docs/reviews/2026-10-21-hybrid-context-static-code-review.md).
 
 ## Current implementation
 
@@ -20,19 +55,21 @@ The TypeScript + Effect modular monolith now implements substantial slices acros
   counter semantics;
 - explicit unknown usage and unsupported external-provider cost records until
   Harbor/third-party contracts are verified;
-- local lexical code-candidate retrieval with generation, range, source digest,
-  stale detection, a filesystem-backed exact-read indexer and evidence-preserving
-  `ContextBundle`;
-- an experimental real-provider `ace_context` composition using local FastEmbed
-  / ONNX Runtime, Qdrant, Tree-sitter structural spans and TypeScript Language
-  Service verification; see `docs/reviews/2026-10-19-real-provider-e2e.md`;
+- local lexical candidate retrieval retained for controlled experiments, not
+  a substitute for production hybrid context;
+- an experimental real-provider `ace_context` path using local FastEmbed/ONNX
+  dense + sparse/BM25, Qdrant native RRF fusion, maintained ast-grep structural
+  spans, optional reranking, and generic LSP (TypeScript Language Server is the
+  default); exact source rechecks and receipt/delta delivery are implemented;
+  see `docs/reviews/2026-10-19-real-provider-e2e.md` for earlier exploratory
+  evidence, not an approval of the latest code;
 - immutable content-addressed session archive with idempotent replay, tombstones,
   temporal memory search and confirmation-gated decision FSM;
 - deterministic multi-source routing with an explicit, opt-in Jev boundary and
   required-source quality comparison;
-- one ACE gateway with a standards-shaped JSON-RPC MCP stdio transport and
-  `ace_context`, `ace_expand`, `ace_workspace_status` and `ace_memory_search`
-  tool contracts;
+- one ACE gateway using the maintained official MCP TypeScript SDK over stdio,
+  with `ace_context`, `ace_expand`, `ace_workspace_status` and
+  `ace_memory_search` tool contracts;
 - typed local context/memory provider wiring; `not_ready` is returned only when
   no provider is injected, while unverified external providers remain blocked.
 - deterministic comparison report artifacts in Markdown, JSONL and CSV with
@@ -40,14 +77,34 @@ The TypeScript + Effect modular monolith now implements substantial slices acros
 - typed Qdrant/Vertex/Graphiti/Jev HTTP boundaries and a Harbor CLI runner with
   policy-gated requests, response validation and retained failed-run evidence.
 
-Run the degraded local transport with `ACE_WORKSPACE_ROOT=/path/to/repo npm run mcp:stdio`.
-For the real local retrieval experiment, first forward the k3s service and set
-`ACE_ENABLE_EXPERIMENTAL_QDRANT=true`, `ACE_QDRANT_URL=http://127.0.0.1:6333`,
-`ACE_EMBEDDING_WORKER=$PWD/scripts/fastembed-worker.sh`,
-`ACE_TREE_SITTER_HELPER=$PWD/scripts/tree-sitter-structural.py` and
-`ACE_TREE_SITTER_PYTHON=$PWD/.venv-system/bin/python`. The bootstrap is read-only,
-indexes only allowlisted source extensions and excludes dependency/build
-directories. Vertex documentation requires both provider configuration and an explicit outbound data opt-in: `ACE_ENABLE_VERTEX=true`, `ACE_CLOUD_DOCS_OPT_IN=true`, `ACE_VERTEX_PROJECT`, `ACE_VERTEX_CORPUS_ID`, with Europe default `ACE_VERTEX_LOCATION=europe-west4`. Secret-like queries are denied before HTTP.
+Run the MCP stdio process with `ACE_WORKSPACE_ROOT=/path/to/repo npm run mcp:stdio`.
+Without the real retrieval provider it exposes an honest `not_ready` status,
+not a simulated production search. For the **experimental** local retrieval
+path, forward the local k3s Qdrant port and configure:
+
+```bash
+ACE_WORKSPACE_ROOT=/absolute/path/to/repo
+ACE_ENABLE_EXPERIMENTAL_QDRANT=true
+ACE_QDRANT_URL=http://127.0.0.1:6333
+ACE_EMBEDDING_WORKER=$PWD/scripts/fastembed-worker.sh
+ACE_SPARSE_EMBEDDING_WORKER=$PWD/scripts/fastembed-sparse-worker.sh
+ACE_AST_GREP_COMMAND=$PWD/node_modules/.bin/ast-grep
+# Optional LSP override; defaults to typescript-language-server --stdio.
+ACE_LSP_COMMAND=$PWD/node_modules/.bin/typescript-language-server
+ACE_RETRIEVAL_STRATEGY=hybrid_rrf
+```
+
+These are runtime entry points, not a complete installation recipe or model
+approval. The bootstrap is read-only and indexes only allowlisted source types
+outside dependency/build directories. See the
+[configuration/readiness matrix](docs/operations/ace-configuration-and-readiness-matrix.md)
+for exact modes, worker dependencies, pinned identity and diagnostics.
+
+Vertex documentation requires `ACE_ENABLE_VERTEX=true` **and**
+`ACE_CLOUD_DOCS_OPT_IN=true`, plus `ACE_VERTEX_PROJECT`,
+`ACE_VERTEX_CORPUS_ID`, with default `ACE_VERTEX_LOCATION=europe-west4`.
+Permission covers the `project_document` class only; secret-like queries are
+denied before HTTP.
 
 With k3s Qdrant forwarded to localhost, the real gates are reproducible with
 `npm run test:real-provider` (2000-line precision, current digest, exact
@@ -75,7 +132,7 @@ claim.
 
 ## Configuration and readiness
 
-See [`docs/operations/ace-configuration-and-readiness-matrix.md`](docs/operations/ace-configuration-and-readiness-matrix.md) before enabling providers. In particular, `ACE_ENABLE_EXPERIMENTAL_QDRANT=true` selects the real local Qdrant composition but does **not** constitute production approval, and `ACE_ALLOW_LOCAL_FALLBACK=true` is an explicitly degraded fallback.
+See [`docs/operations/ace-configuration-and-readiness-matrix.md`](docs/operations/ace-configuration-and-readiness-matrix.md) before enabling providers. In particular, `ACE_ENABLE_EXPERIMENTAL_QDRANT=true` selects the real local Qdrant composition but does **not** constitute production approval. The current production MCP bootstrap does not silently replace unavailable Qdrant with a lexical provider; lexical fallback is a separate test/degraded capability, not a production readiness signal.
 
 Full code + documentation + memory release readiness is evaluated by `npm run release:preflight -- ...`; there is no environment flag that turns an unverified provider set into a production-approved system.
 
@@ -109,13 +166,16 @@ The test suite includes Bertrand Meyer-style contract tests in
 `test/bertrand-contracts.test.ts`. They make preconditions, postconditions,
 invariants, fail-closed behavior, losslessness, and layer boundaries executable.
 
-The implementation sequence is defined by `docs/openspec/README.md`:
+The active OpenSpec implementation sequence is defined by
+[`docs/openspec/README.md`](docs/openspec/README.md) and includes
+`001-foundation` through `007-hybrid-context-engine`, including
+`006-production-retrieval-vertical-slice`. The checked implementation tasks
+do **not** replace frozen real-provider/agent-E2E/Harbor quality gates.
 
-1. `001-foundation`
-2. `002-harbor-evaluation`
-3. `003-unified-retrieval`
-4. `004-temporal-memory`
-5. `005-adaptive-routing-spike`
+The [current H1–H6 completion plan](docs/plans/2026-10-21-cursor-like-hybrid-context-completion-plan.md)
+prioritizes the [reviewed delivery/benchmark gaps](docs/reviews/2026-10-21-hybrid-context-static-code-review.md),
+then reproducible multi-repository ablations, natural-use Harbor comparisons,
+and separate Graphiti/Vertex/k3s/release evidence.
 
 The parent `Consilium` repository is outside this project boundary and is not
 modified by ACE implementation work.
