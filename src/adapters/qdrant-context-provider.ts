@@ -19,6 +19,7 @@ import type {
   CodeCandidatePort,
   CodePoint,
   DocumentationPort,
+  GitHistoryPort,
   HttpPort,
   MemorySearchPort,
   ProviderTraceSink,
@@ -67,6 +68,7 @@ export interface QdrantContextConfig {
   readonly indexKey?: string;
   readonly documentation?: DocumentationPort;
   readonly memory?: MemorySearchPort;
+  readonly history?: GitHistoryPort;
   readonly candidateLimit?: number;
   /** Optional evidence-gated cross-encoder stage after Qdrant RRF fusion. */
   readonly reranker?: RerankerPort;
@@ -729,6 +731,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
       readonly includeCode?: boolean;
       readonly includeDocs: boolean;
       readonly includeMemory: boolean;
+      readonly includeHistory: boolean;
       readonly sourceRequirements?: SourceRequirements;
       readonly workingContextHints?: WorkingContextHints;
     }): Effect.Effect<Result<ContextBundle, DomainError>> => Effect.gen(function* () {
@@ -1045,6 +1048,43 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
           }
         }
       }
+      if (input.includeHistory) {
+        const historyRequirement = requirements.history
+          ?? { requirement: 'not_requested' as const, allowed: true };
+        if (activeConfig.history === undefined) {
+          warnings.push('Git history provider not configured');
+          failed.push('history');
+          if (sourceIsRequested(historyRequirement)) {
+            sourceCoverage = setSourceCoverage(sourceCoverage, 'history', 'unavailable', 'provider_not_configured');
+          }
+        } else {
+          const history = yield* activeConfig.history.search({
+            rootPath: activeConfig.rootPath,
+            query: input.query,
+            limit: 5,
+            requestId: requestId.value,
+          });
+          if (history._tag === 'Err') {
+            warnings.push('Git history unavailable: ' + history.error.code);
+            failed.push('history');
+            if (sourceIsRequested(historyRequirement)) {
+              sourceCoverage = setSourceCoverage(sourceCoverage, 'history', 'unavailable', history.error.code);
+            }
+          } else {
+            evidence.push(...history.value);
+            if (sourceIsRequested(historyRequirement)) {
+              sourceCoverage = setSourceCoverage(
+                sourceCoverage,
+                'history',
+                history.value.length === 0 ? 'empty' : 'satisfied',
+                history.value.length === 0 ? 'no_matching_commits' : undefined,
+              );
+            }
+            if (history.value.length === 0) failed.push('history');
+          }
+        }
+      }
+
       if (input.includeMemory) {
         if (activeConfig.memory === undefined) {
           warnings.push('memory provider not configured');
