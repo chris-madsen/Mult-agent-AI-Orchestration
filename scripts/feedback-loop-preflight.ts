@@ -232,6 +232,11 @@ const main = async (): Promise<void> => {
     ...(process.env.LD_PRELOAD?.trim() === undefined ? {} : { LD_PRELOAD: process.env.LD_PRELOAD.trim() }),
     ...(process.env.ACE_EMBEDDING_LD_PRELOAD?.trim() === undefined ? {} : { LD_PRELOAD: process.env.ACE_EMBEDDING_LD_PRELOAD.trim() }),
   };
+  const sparseEmbeddingEnvironment = {
+    ACE_SPARSE_EMBEDDING_PYTHON: process.env.ACE_SPARSE_EMBEDDING_PYTHON?.trim() || args.embeddingPython,
+    ...(args.embeddingLibraryPath === undefined ? {} : { ACE_SPARSE_EMBEDDING_LD_LIBRARY_PATH: args.embeddingLibraryPath }),
+    ...(process.env.ACE_SPARSE_EMBEDDING_LD_PRELOAD?.trim() === undefined ? {} : { LD_PRELOAD: process.env.ACE_SPARSE_EMBEDDING_LD_PRELOAD.trim() }),
+  };
   const checks: Record<string, PreflightCheck> = {
     node: command('node', ['--version']),
     npm: command('npm', ['--version']),
@@ -241,7 +246,7 @@ const main = async (): Promise<void> => {
       ? command('bash', ['scripts/fastembed-worker.sh'], embeddingEnvironment)
       : command(args.embeddingPython, ['-c', 'import fastembed, onnxruntime; print(fastembed.__version__)'], embeddingEnvironment),
     sparseEmbedding: existsSync('scripts/fastembed-sparse-worker.sh')
-      ? command('bash', ['scripts/fastembed-sparse-worker.sh'])
+      ? command('bash', ['scripts/fastembed-sparse-worker.sh'], sparseEmbeddingEnvironment)
       : { status: 'not_ready', reason: 'sparse FastEmbed worker launcher is missing' },
     harbor: command('harbor', ['--version']),
     harborRun: command('harbor', ['run', '--help']),

@@ -38,6 +38,7 @@ test('feedback jobs use the Codex OAuth route and do not require the legacy API-
   const jobs = await readFile('scripts/prepare-harbor-feedback-jobs.ts', 'utf8');
   assert.doesNotMatch(preflight, /OPENAI_API_KEY|OPENAI_API_BASE/u);
   assert.match(preflight, /authenticationRoute: codexAuthenticationRoute/u);
+  assert.match(preflight, /fastembed-sparse-worker\.sh'\], sparseEmbeddingEnvironment/u);
   assert.match(jobs, /CODEX_FORCE_AUTH_JSON:\s*'1'/u);
   assert.doesNotMatch(jobs, /OPENAI_API_KEY|OPENAI_API_BASE/u);
 });
