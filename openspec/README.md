@@ -1,6 +1,6 @@
 # OpenSpec SDD implementation plan for ACE
 
-This is the active OpenSpec implementation plan. The five changes are partially
+This is the active OpenSpec implementation plan. The seven changes are partially
 implemented and remain unarchived; each active change contains `proposal.md`,
 `design.md`, `tasks.md`, and delta capability specs with
 `## ADDED Requirements / #### Scenario:`. `openspec/specs/` starts empty because
@@ -13,31 +13,38 @@ evidence-backed only; do not infer completion from the proposal text.
 2. `002-harbor-evaluation` — strong Codex baseline and actual usage metrics (early enough to guide retrieval design).
 3. `003-unified-retrieval` — Qdrant code retrieval, Tree-sitter AST, selectable LSP, Vertex docs, unified evidence bundle.
 4. `004-temporal-memory` — Codex raw session archive + Graphiti extraction + temporal recall.
-5. `005-adaptive-routing-spike` — experiment: deterministic route policy vs Jev; **not** automatic inclusion in production.\n6. `006-production-retrieval-vertical-slice` — real-provider/DBC acceptance closure.\n7. `007-hybrid-context-engine` — accepted next architecture: dense+sparse fusion, evidence-gated reranking, working-state priors and delta context delivery.
+5. `005-adaptive-routing-spike` — experiment: deterministic route policy vs Jev; **not** automatic inclusion in production.
+6. `006-production-retrieval-vertical-slice` — real-provider/DBC acceptance closure.
+7. `007-hybrid-context-engine` — accepted next architecture: dense+sparse fusion, evidence-gated reranking, working-state priors and delta context delivery.
 
 After each change: tests, design/ADR review, benchmark where meaningful, archive/sync OpenSpec specs only after implementation passes. Upstream capabilities are specified by earlier changes; sequential application avoids ambiguity.
 
 ## Live CLI verification (on user's machine)
 
 ```bash
-npm install -g @fission-ai/openspec@latest
-openspec --version
-openspec list
-openspec status --change 001-foundation
-openspec validate 001-foundation --strict
-openspec instructions apply --change 001-foundation
+# Use an exact CLI version selected for the environment; do not use @latest
+# for retained evidence or reproducible validation.
+OPENSPEC_VERSION=<PINNED_VERSION>
+openspec_pinned() {
+  npm exec --yes --package="@fission-ai/openspec@${OPENSPEC_VERSION}" -- openspec "$@"
+}
+openspec_pinned --version
+openspec_pinned list
+openspec_pinned status --change 001-foundation
+openspec_pinned validate --all --strict --no-interactive --report full
+openspec_pinned instructions apply --change 001-foundation
 ```
 
-The exact CLI version and options must be checked against `openspec --help`/`openspec validate --help` in the target environment. Validate all active changes with the installed OpenSpec CLI from the `docs/` OpenSpec root; do not reuse an old count as evidence after adding change 007.
+The exact CLI version and options must be checked against `openspec --help`/`openspec validate --help` in the target environment. Run these commands from the repository root, where `openspec/config.yaml` is now the sole canonical project root. Validate all seven active changes; do not reuse an old count as evidence after adding change 007.
 
 ## Architecture and source documents
 
-- `../docs/architecture/01-strategic-ddd.md` — Bounded Contexts and Context Map
-- `../docs/architecture/02-event-storming.md` — events, commands and policies
-- `../docs/architecture/03-tactical-ddd.md` — entities, value objects, aggregates
-- `../docs/architecture/04-fsm-workflows.md` — state machines and use cases
-- `../docs/architecture/05-contracts-and-deployment.md` — MCP contracts, ports and local K8s boundary
-- `../docs/references/` — copies of PRD & all signed-off ADRs
+- `../docs/docs/architecture/01-strategic-ddd.md` — Bounded Contexts and Context Map
+- `../docs/docs/architecture/02-event-storming.md` — events, commands and policies
+- `../docs/docs/architecture/03-tactical-ddd.md` — entities, value objects, aggregates
+- `../docs/docs/architecture/04-fsm-workflows.md` — state machines and use cases
+- `../docs/docs/architecture/05-contracts-and-deployment.md` — MCP contracts, ports and local K8s boundary
+- `../docs/docs/references/` — copies of PRD & all signed-off ADRs
 
 ## Exclusions
 

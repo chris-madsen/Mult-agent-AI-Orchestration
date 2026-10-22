@@ -46,7 +46,7 @@ production release.
 - `npm run lint`
 - `npm run build`
 - `npm test` — 306 passed
-- `(cd docs/openspec && openspec validate --all --strict --no-interactive --report full)` — 6 passed
+- Historical pre-root-migration invocation: `(cd docs/openspec && openspec validate --all --strict --no-interactive --report full)` — 6 passed
 - `pytest -q scripts/test_embedding_artifact_verifier.py scripts/test_embedding_provider_comparison_metrics.py` — 7 passed
 - `git diff --check`
 
@@ -59,4 +59,3 @@ production release.
    provider prerequisites are supplied.
 4. Run k3s, natural Harbor, exact-commit DBC, resource-budget,
    supply-chain and owner-approval gates on one final release commit.
-
