@@ -32,6 +32,7 @@ interface RepositoryBinding {
   readonly id: string;
   readonly root: string;
   readonly revision: string;
+  readonly sourceManifestSha256: string;
 }
 
 interface TraceCandidate {
@@ -110,7 +111,9 @@ const parseBindings = (mappings: readonly string[], holdout: RetrievalHoldout): 
   for (const mapping of mappings) {
     const separator = mapping.indexOf('=');
     if (separator < 1 || separator === mapping.length - 1) throw new Error(`invalid repository mapping: ${mapping}`);
-    roots.set(mapping.slice(0, separator), resolve(mapping.slice(separator + 1)));
+    const id = mapping.slice(0, separator);
+    if (roots.has(id)) throw new Error(`duplicate repository mapping: ${id}`);
+    roots.set(id, resolve(mapping.slice(separator + 1)));
   }
   return (holdout.repositories ?? []).map((repository) => {
     const root = roots.get(repository.id);
@@ -119,12 +122,23 @@ const parseBindings = (mappings: readonly string[], holdout: RetrievalHoldout): 
     if (actual !== repository.revision) {
       throw new Error(`repository ${repository.id} revision mismatch: expected ${repository.revision}, got ${actual}`);
     }
-    return { id: repository.id, root, revision: repository.revision };
+    return {
+      id: repository.id,
+      root,
+      revision: repository.revision,
+      sourceManifestSha256: repository.sourceManifestSha256,
+    };
   });
 };
 
 const holdoutCaseFor = (holdout: RetrievalHoldout, repositoryId: string) =>
   holdout.cases.filter((item) => item.repositoryId === repositoryId);
+
+const sourceSetRevision = (bindings: readonly RepositoryBinding[]): string => sha256(new TextEncoder().encode(JSON.stringify(
+  [...bindings]
+    .map(({ id, revision, sourceManifestSha256 }) => ({ id, revision, sourceManifestSha256 }))
+    .sort((left, right) => left.id.localeCompare(right.id)),
+)));
 
 const windowsToWsl = (value: string): string => {
   const match = /^([A-Za-z]):[\\/](.*)$/u.exec(value);
@@ -420,6 +434,7 @@ const main = async (): Promise<void> => {
   const bindings = parseBindings(parsed.mappings, holdout);
   await mkdir(parsed.outputDirectory, { recursive: true });
   const runtimeCommit = gitRevision(parsed.runtimeRoot);
+  const boundSourceSetRevision = sourceSetRevision(bindings);
   for (const strategy of parsed.selectedStrategies) {
     const observations: RetrievalObservation[] = [];
     const tracePaths: string[] = [];
@@ -428,6 +443,7 @@ const main = async (): Promise<void> => {
       runner: 'ace-generic-retrieval-runner/v1',
       runtimeCommit,
       holdoutSha256,
+      sourceSetRevision: boundSourceSetRevision,
     };
     for (const binding of bindings) {
       const result = await runRepositoryStrategy(
@@ -446,7 +462,9 @@ const main = async (): Promise<void> => {
       strategy,
       holdoutSha256,
       observations,
-      sourceCommit: holdout.repositories?.find((repository) => repository.id === 'ace')?.revision ?? runtimeCommit,
+      // Multi-repository runs cannot truthfully identify their source with the
+      // ACE runtime commit. Bind the complete repository set instead.
+      sourceCommit: boundSourceSetRevision,
       runnerVersion: 'ace-generic-retrieval-runner/v1',
       providerIdentities,
       tracePaths,
@@ -458,7 +476,12 @@ const main = async (): Promise<void> => {
     status: 'retrieval_runs_written',
     holdoutSha256,
     cases: holdout.cases.length,
-    repositories: bindings.map((binding) => ({ id: binding.id, revision: binding.revision })),
+    repositories: bindings.map((binding) => ({
+      id: binding.id,
+      revision: binding.revision,
+      sourceManifestSha256: binding.sourceManifestSha256,
+    })),
+    sourceSetRevision: boundSourceSetRevision,
     strategies: parsed.selectedStrategies,
     outputDirectory: parsed.outputDirectory,
   }) + '\n');
