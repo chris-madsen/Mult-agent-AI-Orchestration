@@ -19,13 +19,20 @@ outside this evidence worktree.
 This follow-up branch adds the independent Harbor trial reader/reconciler and
 its fail-closed contract coverage. The exact post-merge commit above remains
 the baseline identity; the final implementation commit is recorded in the
-machine-readable report after this branch is committed.
+machine-readable report:
+
+```text
+implementation evidence commit: 419da19183fb0f62f46e00e03cc6b41c1ab30463
+source manifest: ccb7925b492d98f45748d7b7ac88e51e9964112a99b3d87ed3fc0fbd47ce1c66
+executable digest: dd8696e2dc73b2d7661f8755a707ea52eae12e030f635bb8645ef3e5ef9f00ab
+sourceClean: true
+```
 
 ## Requirement-to-evidence matrix
 
 | Requirement | Evidence | Verification | Status |
 |---|---|---|---|
-| Exact post-merge source/runtime identity | baseline `main@4161c96`; follow-up runtime provenance is recorded in the machine artifact | `tsc -p tsconfig.json && node scripts/generate-runtime-provenance.mjs` | verified for baseline; follow-up commit recorded below |
+| Exact post-merge source/runtime identity | baseline `main@4161c96`; implementation evidence commit `419da19` has source manifest `ccb792...ce1c66` and executable digest `dd8696...f00ab` | `tsc -p tsconfig.json && node scripts/generate-runtime-provenance.mjs` | verified; source clean |
 | Deterministic regression portfolio | 423 tests, including provenance, reranker, Harbor binding, trial reconciliation, instrumentation and UTF-8 cases | `./node_modules/.bin/tsx --test --test-concurrency=1 test/*.test.ts` | verified: 423/423 |
 | Typecheck/lint/build | Exact post-merge worktree | direct locked binaries; see machine-readable report | verified |
 | H6-CR-01 provenance | PR #137 implementation and `test/runtime-provenance.contracts.test.ts` | full serial suite | verified |
