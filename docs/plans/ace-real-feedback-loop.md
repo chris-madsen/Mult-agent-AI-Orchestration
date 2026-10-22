@@ -31,13 +31,25 @@
 | Area | Current status | Limitation |
 |---|---|---|
 | Provider implementation | **IMPLEMENTED/CONTRACT-TESTED** | MCP, ast-grep, LSP, FastEmbed, Qdrant, receipts, and fail-closed reporting exist. This is not agent-E2E evidence. |
-| CST to LSP | **PROVIDER-PATH PASS / NATURAL COVERAGE OPEN** | Existing stage-0 evidence uses a synthetic TypeScript fixture. A real repository trace and coverage matrix are still required. |
-| Codex authentication | **OAUTH ROUTE IMPLEMENTED** | Preflight uses `CODEX_HOME/auth.json` and `CODEX_FORCE_AUTH_JSON=1`; absence of an API key is not a blocker. Exact current runtime still needs a fresh preflight. |
-| Local provider stack | **NOT_READY UNTIL FRESH PREFLIGHT** | Node/npm, Harbor, Docker, Qdrant, FastEmbed, sparse worker, LSP, image identities, and current source digest must be checked together. |
-| Harbor natural-use feedback | **NOT ACCEPTED** | Historical local smoke and forced/zero-call runs do not prove retrieval benefit on SWE-Atlas QnA. |
-| RepoBench-R | **BLOCKED UNTIL SOURCE MAPPING** | Existing acquisition/adapter tooling must prove exact repository revisions and unique gold spans. No synthetic source is allowed. |
-| Failure-driven fix | **NOT STARTED** | Requires a correlated natural-use failure or an explicit `NO_ACTIONABLE_FAILURE`. |
+| CST to LSP | **REAL STAGE-0 PASS / LIMITED COVERAGE** | A real source checkout produced one current/direct LSP-confirmed class symbol through MCP. Three optional arrow-function cases remain unconfirmed because the provider did not expose an exact name anchor; they are not counted as direct evidence. |
+| Codex authentication | **OAUTH ROUTE READY** | Exact-current preflight accepts `CODEX_HOME/auth.json` with `CODEX_FORCE_AUTH_JSON=1` and no manually supplied API key. Credentials are not retained in manifests or logs. |
+| Local provider stack | **LOCAL PROVIDERS READY / HARBOR BLOCKED** | Node/npm, ast-grep, TypeScript LSP, dense/sparse FastEmbed, Qdrant, Harbor, Docker and Codex CLI passed their local checks. The exact preflight is still `BLOCKED` because generated jobs require local inspection of two missing task images and a task-specific verifier route was not proven ready. |
+| Harbor natural-use feedback | **NOT RUN — INPUTS FROZEN** | Twenty source-bound SWE-Atlas task identities and main/holdout selection are frozen, but job generation/smoke cannot pass the local image/verifier gate. No natural, forced, zero-call, paired, repeat, or holdout result is accepted. |
+| RepoBench-R | **BLOCKED — NO SOURCE COMMIT MAPPING** | The pinned official records expose repository/file/context data but no exact source commits. Acquisition stopped before download or synthetic checkout creation. |
+| Failure-driven fix | **NOT STARTED** | No natural-use Harbor trial exists from which to select a correlated failure; no production code change was made for this slice. |
 | Production/5x/owner approval | **NOT CLAIMED** | These remain separate evidence gates. |
+
+### Current evidence snapshot
+
+The following evidence is retained outside the checkout under `/tmp/ace-feedback/` and is bound to implementation commit `bd7d2a62f3ad45cedf454b4803b0ce1d3dd671d2`:
+
+- OAuth-first preflight: `/tmp/ace-feedback/20261022T180000Z/preflight/manifest.json`, SHA-256 `da400ee50dfbe0459102e48c24367f481cedc84e326031b05ecd3d703ae8c63f`; status `BLOCKED` only for Harbor jobs and local image inspection, with all local provider/auth checks ready.
+- Real CST→LSP stage: `/tmp/ace-feedback/20261022T180000Z/stage0/manifest.json`, status `PASS`; raw MCP SHA-256 `7366acb41687677298ecc25fa19bbe3146df395e9f25862645825aabe4b6a010`, provider trace SHA-256 `bb0931a67878be2b76751bad5207904552482a06f0ca9d765b0b2b257da6b697`, receipt SHA-256 `2bf6e5b251bfb871f2820b5f663b8a721cca49b64571546df8766b5cc503f242`.
+- Frozen SWE-Atlas registry: registry SHA-256 `da1446bce05eabbd72a25eb9eef5a2f5db94645ce88c28e2497581433b3d2e60`; source checkout commit `b0611b05a9f4f09b25aafad96617f9ec64ad722b`; source digest `f378424588b7b6eb3ed001fcd0450a63909bbd5af1d1eb10957cd9c27d1664f3`; task manifest SHA-256 `65bdefdc29f9fb42ff8db1b6a0809c20d745512024cd17a3a6bd170eaebc4e38`.
+- Registry image digests were observed remotely but are not local runtime evidence: wp-calypso `sha256:b2fb707a7ce2f6f6c1f500d1ec7ed3f5143f72fb0bbc8fe3bf1ab6691400c105`; simple-login `sha256:b82cb15631e92ade58b8cf10493550f03a54dc5a8f25d3f31ef41afc186ee2c1`.
+- RepoBench-R blocker: `/tmp/ace-feedback/20261022T181000Z/repobench-r/manifest.json`, SHA-256 `dba797e7d11d10582a369fd5ba240a3dc01b5b646eb8aec81658f213bbbb6733`; no source-bound retrieval metrics were produced.
+
+These artifacts prove preparation and diagnostic gates only. They do not prove Harbor quality, token/cost savings, 5x improvement, production readiness, or owner approval.
 
 ## Execution graph
 
