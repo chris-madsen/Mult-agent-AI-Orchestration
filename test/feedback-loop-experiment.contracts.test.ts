@@ -366,7 +366,14 @@ const harborJob = (overrides: Record<string, unknown> = {}): Record<string, unkn
 });
 
 test('feedback Harbor identity comes from frozen jobs, not CODEX environment variables', () => {
-  const checked = validateMatchingFeedbackHarborJobs(harborJob(), harborJob({ environment: { type: 'docker' } }));
+  const checked = validateMatchingFeedbackHarborJobs(harborJob(), harborJob({
+    environment: { type: 'docker' },
+    agents: [{
+      name: 'codex',
+      model_name: 'gpt-5.6-luna',
+      kwargs: { reasoning_effort: 'high', config: '/ace/benchmarks/harbor/ace-retrieval-codex-config.toml' },
+    }],
+  }));
   assert.equal(checked._tag, 'Ok');
   if (checked._tag === 'Ok') {
     assert.equal(checked.value.model, 'gpt-5.6-luna');

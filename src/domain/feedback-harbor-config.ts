@@ -8,6 +8,8 @@ export interface FeedbackHarborJobIdentity {
   readonly reasoningEffort: FeedbackReasoningEffort;
   readonly nConcurrentTrials: 1;
   readonly nAttempts: 1;
+  readonly taskPaths: readonly string[];
+  readonly configPath?: string;
 }
 
 type JsonObject = Readonly<Record<string, unknown>>;
@@ -35,10 +37,22 @@ export const validateFeedbackHarborJob = (
   if (root === undefined) return invalid(path, 'Harbor job must be an object');
   const agents = root.agents;
   if (!Array.isArray(agents) || agents.length !== 1) return invalid(`${path}.agents`, 'exactly one Codex agent is required');
+  const tasks = root.tasks;
+  if (!Array.isArray(tasks) || tasks.length === 0) return invalid(`${path}.tasks`, 'at least one frozen task path is required');
+  const taskPaths: string[] = [];
+  for (const [index, item] of tasks.entries()) {
+    const task = object(item);
+    if (!nonEmpty(task?.path)) return invalid(`${path}.tasks[${index}].path`, 'task path must be explicit and non-empty');
+    const taskPath = task.path.trim();
+    if (taskPaths.includes(taskPath)) return invalid(`${path}.tasks[${index}].path`, 'task paths must be unique');
+    taskPaths.push(taskPath);
+  }
   const agent = object(agents[0]);
   const kwargs = object(agent?.kwargs);
   const model = agent?.model_name;
   const effort = kwargs?.reasoning_effort;
+  const configPath = kwargs?.config;
+  if (configPath !== undefined && !nonEmpty(configPath)) return invalid(`${path}.agents[0].kwargs.config`, 'Codex config path must be non-empty when present');
   if (agent?.name !== 'codex' || !nonEmpty(model)) return invalid(`${path}.agents[0]`, 'job must explicitly select a non-empty Codex model');
   if (!reasoningEffort(effort)) return invalid(`${path}.agents[0].kwargs.reasoning_effort`, 'reasoning effort must be low, medium or high');
   if (root.n_concurrent_trials !== 1) return invalid(`${path}.n_concurrent_trials`, 'feedback jobs must be serial');
@@ -48,6 +62,8 @@ export const validateFeedbackHarborJob = (
     reasoningEffort: effort,
     nConcurrentTrials: 1,
     nAttempts: 1,
+    taskPaths,
+    ...(configPath === undefined ? {} : { configPath: configPath.trim() }),
   });
 };
 
@@ -62,6 +78,15 @@ export const validateMatchingFeedbackHarborJobs = (
   if (nativeIdentity.value.model !== aceIdentity.value.model
     || nativeIdentity.value.reasoningEffort !== aceIdentity.value.reasoningEffort) {
     return invalid('harbor_jobs', 'native and ACE optional jobs must pin the same model and reasoning effort');
+  }
+  if (JSON.stringify(nativeIdentity.value.taskPaths) !== JSON.stringify(aceIdentity.value.taskPaths)) {
+    return invalid('harbor_jobs.tasks', 'native and ACE optional jobs must pin the same frozen task paths in the same order');
+  }
+  if (nativeIdentity.value.configPath !== undefined) {
+    return invalid('native_job.agents[0].kwargs.config', 'native baseline must not load an ACE Codex config');
+  }
+  if (aceIdentity.value.configPath === undefined) {
+    return invalid('ace_optional_job.agents[0].kwargs.config', 'ACE optional job must load an explicit Codex config');
   }
   return nativeIdentity;
 };
