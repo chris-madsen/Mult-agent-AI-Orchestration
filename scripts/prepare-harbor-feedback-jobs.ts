@@ -38,6 +38,8 @@ const frozenTreeEntries = (root: string, revision: string, prefix?: string): rea
 
 const frozenTreeDigest = (identity: string, revision: string, entries: ReturnType<typeof frozenTreeEntries>): string =>
   sha256(Buffer.from(`${JSON.stringify({ schemaVersion: 1, identity, revision, entries }, null, 2)}\n`, 'utf8'));
+const shellQuote = (value: string): string => "'" + value.replaceAll("'", "'\\''") + "'";
+
 const usage = (): never => {
   throw new Error('Usage: tsx scripts/prepare-harbor-feedback-jobs.ts --task-manifest <path> --source-root <checkout> --ace-root <checkout> --output <dir> --run-id <id> --model <model> --reasoning <low|medium|high> --image-digest sha256:<64hex> --ace-config <path>');
 };
@@ -137,7 +139,9 @@ const main = async (): Promise<void> => {
     const common = {
       tasks: taskPaths.map((path) => ({ path })),
       agents: [agent],
-      environment: { type: 'docker', delete: true },
+      // Docker is selected via the generated Harbor CLI invocation.
+      // "type", "delete" and "mounts" are NOT EnvironmentConfig fields.
+      environment: {},
       n_concurrent_trials: 1,
       n_attempts: 1,
       quiet: false,
@@ -151,19 +155,28 @@ const main = async (): Promise<void> => {
       ...common,
       job_name: `${runId}-ace-optional`,
       agents: [{ ...agent, kwargs: { reasoning_effort: reasoning, config: aceConfig } }],
-      environment: {
-        type: 'docker',
-        delete: true,
-        mounts: [{ type: 'bind', source: aceRoot, target: '/ace', read_only: true }],
-      },
+      environment: {},
       jobs_dir: `artifacts/feedback/${runId}/raw-agent-ace`,
     };
     await mkdir(output, { recursive: true });
-    await writeFile(resolve(output, 'native-job.json'), `${JSON.stringify(nativeJob, null, 2)}\n`, 'utf8');
-    await writeFile(resolve(output, 'ace-optional-job.json'), `${JSON.stringify(aceJob, null, 2)}\n`, 'utf8');
+    const nativeJobPath = resolve(output, 'native-job.json');
+    const aceJobPath = resolve(output, 'ace-optional-job.json');
+    await writeFile(nativeJobPath, `${JSON.stringify(nativeJob, null, 2)}\n`, 'utf8');
+    await writeFile(aceJobPath, `${JSON.stringify(aceJob, null, 2)}\n`, 'utf8');
+    // Harbor supplies mounts through the CLI --mounts option, not JobConfig.environment.
+    // Embed fully shell-quoted arguments so the checkout path cannot inject commands.
+    const mounts = JSON.stringify([{ type: 'bind', source: aceRoot, target: '/ace', read_only: true }]);
+    const nativeCommand = `exec harbor run --config ${shellQuote(nativeJobPath)} --env docker`;
+    const aceCommand = `exec harbor run --config ${shellQuote(aceJobPath)} --env docker --mounts ${shellQuote(mounts)}`;
+    await writeFile(resolve(output, 'run-native.sh'), `#!/usr/bin/env bash\nset -euo pipefail\n${nativeCommand}\n`, 'utf8');
+    await writeFile(resolve(output, 'run-ace-optional.sh'), `#!/usr/bin/env bash\nset -euo pipefail\n${aceCommand}\n`, 'utf8');
     await writeFile(resolve(output, 'job-manifest.json'), `${JSON.stringify({
       schemaVersion: 1,
-      status: 'READY',
+      // The Docker image digest is declared, not enforced by the job config.
+      // Real container image/agent identity must be checked after trial startup.
+      status: 'PREPARED',
+      runtimeImageVerification: 'NOT_VERIFIED',
+      requiredHarborInvocation: 'run-native.sh and run-ace-optional.sh',
       runId,
       sourceRoot,
       aceRoot,
@@ -183,7 +196,7 @@ const main = async (): Promise<void> => {
       taskIds: taskManifest.tasks.map((task) => task.id),
       taskPaths,
     }, null, 2)}\n`, 'utf8');
-    process.stdout.write(`${JSON.stringify({ status: 'READY', output, nativeJob: resolve(output, 'native-job.json'), aceJob: resolve(output, 'ace-optional-job.json') })}\n`);
+    process.stdout.write(`${JSON.stringify({ status: 'PREPARED', output, nativeJob: nativeJobPath, aceJob: aceJobPath, runtimeImageVerification: 'NOT_VERIFIED' })}\n`);
   } catch (error) {
     await blocked(output, error instanceof Error ? error.message : 'Harbor feedback job preparation failed');
   }
