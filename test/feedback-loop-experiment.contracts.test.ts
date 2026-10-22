@@ -389,6 +389,27 @@ test('Docker feedback image identity accepts a local image ID or matching reposi
   assert.equal(dockerImageMatchesDigest('not-a-digest', { Id: imageDigest }), false);
 });
 
+test('feedback experiment manifest rejects contradictory single-image and task-image digests', () => {
+  const checked = validateFeedbackExperimentManifest({
+    schemaVersion: 1,
+    runId: 'smoke-1',
+    sourceCommit: revision,
+    taskManifestSha256: digest('a'),
+    model: 'gpt-5.6-luna',
+    reasoningEffort: 'high',
+    harborVersion: '0.24.0',
+    imageDigest: `sha256:${digest('b')}`,
+    taskImages: [{ reference: 'registry.example/task:1', digest: `sha256:${digest('c')}` }],
+    aceConfigDigest: digest('d'),
+    seed: 'unknown',
+    mode: 'cold',
+    nConcurrentTrials: 1,
+    nAttempts: 1,
+    authenticationRoute: 'CODEX_FORCE_AUTH_JSON=1',
+  });
+  assert.equal(checked._tag, 'Err');
+});
+
 test('feedback experiment manifest accepts pinned per-task Docker images for multi-image datasets', () => {
   const checked = validateFeedbackExperimentManifest({
     schemaVersion: 1,
