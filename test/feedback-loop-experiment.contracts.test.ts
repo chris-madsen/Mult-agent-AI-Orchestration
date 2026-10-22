@@ -276,3 +276,29 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
   assert.equal(blocked.status, 'BLOCKED');
   assert.match(blocked.reason, /dirty/u);
 });
+
+
+test('untrusted RepoBench pickle is rejected before Python can deserialize it', async (t) => {
+  const python = spawnSync('python3', ['--version'], { encoding: 'utf8' });
+  if (python.status !== 0) return t.skip('Python3 is unavailable in this test runtime');
+  const root = await mkdtemp(join(tmpdir(), 'ace-untrusted-pickle-'));
+  const input = join(root, 'records.raw');
+  const output = join(root, 'records.jsonl');
+  const bytes = Buffer.from('not a trusted pickle');
+  await writeFile(input, bytes);
+  const argumentsPrefix = [
+    'scripts/repobench-r-pickle-to-json.py',
+    '--input', input, '--config', 'python_cff', '--split', 'test_easy', '--output', output,
+  ];
+  const mismatched = spawnSync('python3', [
+    ...argumentsPrefix, '--expected-sha256', 'a'.repeat(64), '--trust-pickle-source',
+  ], { cwd: resolve('.'), encoding: 'utf8' });
+  assert.equal(mismatched.status, 2);
+  assert.match(mismatched.stderr, /digest does not match/u);
+  const validDigest = createHash('sha256').update(bytes).digest('hex');
+  const noOptIn = spawnSync('python3', [
+    ...argumentsPrefix, '--expected-sha256', validDigest,
+  ], { cwd: resolve('.'), encoding: 'utf8' });
+  assert.equal(noOptIn.status, 2);
+  assert.match(noOptIn.stderr, /trust-pickle-source/u);
+});
