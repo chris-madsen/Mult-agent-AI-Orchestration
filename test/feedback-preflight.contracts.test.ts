@@ -154,3 +154,10 @@ test('explicit image digest cannot contradict experiment task-image provenance',
     { reference: 'task:2', digest: digestB },
   ]), ['imageDigest']);
 });
+
+
+test('OAuth preflight inspects the same default auth.json path Harbor uses for CODEX_FORCE_AUTH_JSON', async () => {
+  const preflight = await readFile('scripts/feedback-loop-preflight.ts', 'utf8');
+  assert.doesNotMatch(preflight, /process\.env\.CODEX_HOME/u);
+  assert.match(preflight, /process\.env\.HOME/u);
+});
