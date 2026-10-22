@@ -54,6 +54,11 @@ test('Codex auth preflight rejects missing or malformed OAuth state', () => {
   })).status, 'not_ready');
   assert.equal(inspectCodexAuthJson('/tmp/auth.json', JSON.stringify({
     auth_mode: 'chatgpt',
+    tokens: { access_token: 'access', refresh_token: 'refresh' },
+    last_refresh: '2026-10-22T16:00:00Z',
+  })).status, 'not_ready');
+  assert.equal(inspectCodexAuthJson('/tmp/auth.json', JSON.stringify({
+    auth_mode: 'chatgpt',
     tokens: { access_token: 'access', refresh_token: 'refresh', id_token: 'not-a-jwt' },
     last_refresh: '2026-10-22T16:00:00Z',
   })).status, 'not_ready');
