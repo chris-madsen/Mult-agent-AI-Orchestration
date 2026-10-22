@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { Effect } from 'effect';
 import { makeLspSemanticAnalysisPort, resolveLspProviderIdentity } from '../src/adapters/lsp-semantic.js';
+import { makeAstGrepStructuralPort } from '../src/adapters/ast-grep-structural.js';
+import { utf16ColumnAtUtf8Byte } from '../src/domain/utf8-range.js';
 
 const command = join(process.cwd(), 'node_modules/.bin/typescript-language-server');
 
@@ -92,4 +94,50 @@ test('LSP identity and unsupported language status are explicit', async () => {
   assert.equal(result._tag, 'Err');
   if (result._tag === 'Err') assert.equal(result.error.code, 'UNSUPPORTED_PROVIDER');
   provider.close();
+});
+
+test('actual ast-grep declarations resolve through real LSP without injected name anchors', async () => {
+  const rootPath = await mkdtemp(join(tmpdir(), 'ace-cst-lsp-'));
+  const snapshotIdentity = 'f'.repeat(64);
+  const source = [
+    'const emoji = "🧠";',
+    'export function привет(name: string): string { return name; }',
+    'class Service { save(): void {} }',
+    '',
+  ].join('\\n');
+  const bytes = Buffer.from(source, 'utf8');
+  const structural = makeAstGrepStructuralPort({ command: join(process.cwd(), 'node_modules/.bin/ast-grep') });
+  const outlined = await Effect.runPromise(structural.extract({ repoPath: 'main.ts', source: bytes }));
+  assert.equal(outlined._tag, 'Ok');
+  if (outlined._tag === 'Err') return;
+  const lsp = makeLspSemanticAnalysisPort({
+    command, rootPath, files: { 'main.ts': source }, snapshotIdentity, timeoutMs: 20_000,
+  });
+  try {
+    for (const name of ['привет', 'Service', 'save']) {
+      const candidate = outlined.value.symbols.find((item) => item.name === name);
+      assert.ok(candidate, 'missing declaration: ' + name);
+      assert.ok(candidate?.nameStartLine !== undefined && candidate?.nameStartColumn !== undefined
+        && candidate?.nameEndColumn !== undefined, 'missing semantic anchor: ' + name);
+      if (candidate?.nameStartLine === undefined || candidate.nameStartColumn === undefined
+        || candidate.nameEndColumn === undefined) continue;
+      const column = utf16ColumnAtUtf8Byte(bytes, candidate.nameStartLine, candidate.nameStartColumn);
+      const endColumn = utf16ColumnAtUtf8Byte(bytes, candidate.nameStartLine, candidate.nameEndColumn);
+      assert.ok(column !== undefined && endColumn !== undefined, 'UTF-8/UTF-16 conversion: ' + name);
+      if (column === undefined || endColumn === undefined) continue;
+      const definition = await Effect.runPromise(lsp.definition({
+        repoPath: 'main.ts', line: candidate.nameStartLine, column, snapshotIdentity,
+      }));
+      assert.equal(definition._tag, 'Ok', 'definition query for ' + name);
+      if (definition._tag === 'Err') continue;
+      assert.ok(definition.value.some((item) =>
+        item.location.repoPath === 'main.ts'
+        && item.location.startLine === candidate.nameStartLine
+        && item.location.startColumn === column
+        && item.location.endLine === candidate.nameStartLine
+        && item.location.endColumn === endColumn), 'LSP disagrees with structural declaration: ' + name);
+    }
+  } finally {
+    lsp.close();
+  }
 });
