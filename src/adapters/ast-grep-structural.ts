@@ -61,6 +61,57 @@ const normalizedKinds: ReadonlySet<string> = new Set([
 const normalizedKind = (value: string): StructuralKind =>
   normalizedKinds.has(value) ? value as StructuralKind : 'unknown';
 
+// ast-grep outline exposes the declaration *node* range but not the identifier
+// range required for LSP definition requests. Recover a name anchor only when
+// it is unambiguous in the node's declaration header; never guess from the
+// function body or treat arbitrary text matches as semantic proof.
+const anchorableKinds: ReadonlySet<StructuralKind> = new Set([
+  'class', 'function', 'interface', 'type', 'enum', 'method', 'struct', 'trait', 'impl', 'module',
+]);
+const identifierName = /^[\p{ID_Start}_$][\p{ID_Continue}$]*$/u;
+const identifierBoundaryEnd = /[\p{ID_Continue}$]$/u;
+const identifierBoundaryStart = /^[\p{ID_Continue}$]/u;
+
+const nameAnchorFromOutline = (
+  source: Uint8Array,
+  startOffset: number,
+  endOffset: number,
+  name: string,
+  kind: StructuralKind,
+  position: (offset: number) => { readonly line: number; readonly column: number },
+): Pick<StructuralSymbol, 'nameStartLine' | 'nameStartColumn' | 'nameEndLine' | 'nameEndColumn'> => {
+  if (!anchorableKinds.has(kind) || !identifierName.test(name)) return {};
+  const bytes = Buffer.from(source);
+  const preview = bytes.subarray(startOffset, Math.min(endOffset, startOffset + 1024)).toString('utf8');
+  // Stop before a body, type/value assignment or parameter list. A search in
+  // an entire symbol can accidentally select a recursive call or a namesake.
+  const terminators = ['(', '{', '=', ';'].map((item) => preview.indexOf(item)).filter((index) => index >= 0);
+  const header = preview.slice(0, terminators.length === 0 ? preview.length : Math.min(...terminators));
+  if (header.includes('//') || header.includes('/*') || /['"\x60]/u.test(header)) return {};
+  const matches: number[] = [];
+  for (let from = 0; from < header.length;) {
+    const index = header.indexOf(name, from);
+    if (index < 0) break;
+    const before = header.slice(0, index);
+    const after = header.slice(index + name.length);
+    if (!identifierBoundaryEnd.test(before) && !identifierBoundaryStart.test(after)) matches.push(index);
+    from = index + name.length;
+  }
+  if (matches.length !== 1) return {};
+  const offset = startOffset + Buffer.byteLength(header.slice(0, matches[0]), 'utf8');
+  const length = Buffer.byteLength(name, 'utf8');
+  if (offset < startOffset || offset + length > endOffset
+    || !bytes.subarray(offset, offset + length).equals(Buffer.from(name, 'utf8'))) return {};
+  const start = position(offset);
+  const end = position(offset + length);
+  return {
+    nameStartLine: start.line,
+    nameStartColumn: start.column,
+    nameEndLine: end.line,
+    nameEndColumn: end.column,
+  };
+};
+
 const invalidResponse = (path: string, message: string): Result<never, DomainError> =>
   err(domainError('INVALID_EXTERNAL_RESPONSE', path, message));
 
@@ -78,6 +129,23 @@ const parseOutline = (
   }
   const language = response.language;
   const symbols: StructuralSymbol[] = [];
+  const sourceBytes = Buffer.from(source);
+  const lineStarts = [0];
+  for (let i = 0; i < sourceBytes.length; i += 1) {
+    if (sourceBytes[i] === 10) lineStarts.push(i + 1);
+  }
+  const position = (offset: number): { readonly line: number; readonly column: number } => {
+    let low = 0;
+    let high = lineStarts.length;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if ((lineStarts[mid] ?? 0) <= offset) low = mid + 1;
+      else high = mid;
+    }
+    const lineStart = lineStarts[low - 1] ?? 0;
+    return { line: low, column: offset - lineStart + 1 };
+  };
+
   const visit = (raw: unknown, path: string): Result<void, DomainError> => {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
       return invalidResponse(path, 'outline item must be an object');
@@ -104,9 +172,12 @@ const parseOutline = (
       || byteOffset.end > source.byteLength) {
       return invalidResponse(`${path}.range`, 'outline item has an invalid byte range');
     }
+    const kind = normalizedKind(symbolType);
+    const nameAnchor = nameAnchorFromOutline(source, byteOffset.start, byteOffset.end, name, kind, position);
     symbols.push({
       name,
-      kind: normalizedKind(symbolType),
+      kind,
+      ...nameAnchor,
       providerKind: astKind,
       language,
       startLine: start.line + 1,
