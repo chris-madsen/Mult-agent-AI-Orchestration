@@ -233,7 +233,7 @@
 - [ ] Проверить raw state на текущем `main` и закончить **первый** Codex+Harbor feedback loop из уже существующего плана (это главный блокер любых ROI-выводов).
 - [ ] Собрать один report для просмотра actual `ace_context`: top-K, exact path/span, AST/LSP verdict, delivered bytes, warnings, known sources, latency.
 - [ ] Посчитать распределение размеров `CodeCandidate.text` и найти конкретные большие/мелкие узлы с ошибками retrieval.
-- [ ] Сформулировать измеримую, фиксируемую **до** запуска гипотезу для R1 или R2; выбрать **одну**, а не делать всё сразу.
+- [ ] Сформулировать измеримую, фиксируемую **до** запуска гипотезу для R2 (hierarchical chunking), R3 (path scope) или R4 (index scheduler); выбрать **одну**, а не делать всё сразу.
 
 ### P1 — только после baseline
 - [ ] Внести `structural_hierarchical` как opt-in индексную стратегию; отдельные IDs/collection/index-key, preserve exact source/range/provenance.
@@ -259,4 +259,4 @@
 
 **Definition of Done для этого документа:** проверяемые ссылки на pinned Roo/ACE исходники; матрица «в наличии / кандидат / не переносить»; обратимый PR backlog; конкретные измеримые условия; приоритет первого реального feedback. **Не** считается выполнением: PR без real benchmark, passing tests, неточное обещание `5×`, или переписанный indexer.
 
-**Первое решение после прочтения:** *не внедрять Roo-паттерны пачкой*. Довести первый F0 trial до raw results. По его реальным ошибкам выбирать между R1 (чанки), R2 (scope) и R4 (индексация), затем делать один контролируемый эксперимент.
+**Первое решение после прочтения:** *не внедрять Roo-паттерны пачкой*. Довести первый F0 trial до raw results. Сначала использовать R1 (diagnostics), а затем по реальным ошибкам выбирать один эксперимент: R2 (hierarchical chunking), R3 (path scope) или R4 (index scheduler).
