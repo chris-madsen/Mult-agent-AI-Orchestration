@@ -155,3 +155,10 @@ test('ACE MCP runtime forwards explicit sparse LD library path into the sparse w
   );
   assert.match(sparseEnvironmentBlock, /ACE_SPARSE_EMBEDDING_LD_LIBRARY_PATH/u);
 });
+
+
+test('feedback preflight probes the sparse provider required by hybrid retrieval', async () => {
+  const preflight = await readFile(resolve('scripts/feedback-loop-preflight.ts'), 'utf8');
+  assert.match(preflight, /fastembed-sparse-worker\.sh/u);
+  assert.match(preflight, /sparseEmbedding/u);
+});
