@@ -104,6 +104,40 @@ const compareDeclared = (
     : invalid(`harbor_trial_evidence.${field}`, `declared aggregate does not match raw trial sum (${declared} !== ${actual})`);
 };
 
+/**
+ * A Harbor result must correspond to the exact frozen job trial in the exact
+ * order, not merely agree with a user-supplied aggregate report. Harbor may
+ * emit the frozen task ID or the exact job path as the task_name.
+ */
+export const bindHarborTrialsToFrozenTasks = (
+  frozenTaskOrder: readonly string[],
+  frozenBindings: readonly { readonly id: string; readonly path: string }[],
+  observations: readonly HarborFourArmTrialObservation[],
+): Result<readonly HarborFourArmTrialObservation[], DomainError> => {
+  if (observations.length !== frozenTaskOrder.length || frozenBindings.length === 0) {
+    return invalid('harbor_trial_evidence.frozen_tasks', 'raw trials must match the number of frozen job tasks');
+  }
+  const idToPath = new Map(frozenBindings.map((binding) => [binding.id, binding.path]));
+  if (idToPath.size !== frozenBindings.length
+    || new Set(frozenBindings.map((binding) => binding.path)).size !== frozenBindings.length
+    || frozenTaskOrder.some((task) => !frozenBindings.some((binding) => binding.path === task))) {
+    return invalid('harbor_trial_evidence.frozen_tasks', 'frozen task identity mapping is ambiguous or incomplete');
+  }
+  const normalized: HarborFourArmTrialObservation[] = [];
+  for (const [index, trial] of observations.entries()) {
+    const expected = frozenTaskOrder[index];
+    const actual = idToPath.get(trial.taskName) ?? trial.taskName;
+    if (expected === undefined || actual !== expected) {
+      return invalid(
+        `harbor_trial_evidence.frozen_tasks[${index}]`,
+        'raw Harbor trial task identity/order is not bound to the frozen job',
+      );
+    }
+    normalized.push({ ...trial, taskName: expected });
+  }
+  return ok(normalized);
+};
+
 const reconcileArm = (
   arm: HarborFourArmName,
   expected: HarborFourArmReportArm,
@@ -228,6 +262,29 @@ export const reconcileHarborFourArmTrials = (
     const arm = byArm.get(observation.arm);
     if (arm === undefined) return invalid('harbor_trial_evidence.arm', 'unknown Harbor arm in raw observations');
     arm.push(observation);
+  }
+  // Request IDs identify individual MCP calls. Replaying the same successful
+  // transcript in another trial/arm must never count as independent evidence.
+  const globalRequestIds = new Set<string>();
+  for (const observation of observations) {
+    for (const requestId of observation.successfulRequestIds) {
+      if (globalRequestIds.has(requestId)) {
+        return invalid('harbor_trial_evidence.successfulRequestIds', 'a successful MCP request ID is repeated across trials/arms');
+      }
+      globalRequestIds.add(requestId);
+    }
+  }
+  // Aggregate qualityNonInferior is only a declaration. Require at minimum
+  // that a successful native trial does not fail under any ACE strategy for
+  // the identical frozen task/attempt; no aggregate can override that loss.
+  const nativeTrials = byArm.get('native') ?? [];
+  for (const name of armNames) {
+    if (name === 'native') continue;
+    const candidateTrials = byArm.get(name) ?? [];
+    if (candidateTrials.some((trial, index) => nativeTrials[index]?.success === true && !trial.success)) {
+      return invalid(`harbor_trial_evidence.${name}.paired_quality`,
+        'a task/attempt that succeeded natively failed with ACE; quality non-inferiority is not established');
+    }
   }
   const reconciled = new Map<HarborFourArmName, HarborFourArmArmEvidence>();
   for (const name of armNames) {
