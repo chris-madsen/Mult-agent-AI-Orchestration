@@ -183,7 +183,7 @@ const main = async (): Promise<void> => {
     }
     process.stderr.write('ace-mcp source runtime explicitly allowed for development/test; compiled provenance was not used\n');
   } else {
-    const provenance = await verifyCompiledRuntimeProvenance(runtimeRoot);
+    const provenance = await verifyCompiledRuntimeProvenance(runtimeRoot, fileURLToPath(import.meta.url));
     if (provenance._tag === 'Err') throw new Error(`${provenance.error.code}: ${provenance.error.message}`);
     process.stderr.write(`ace-mcp runtime provenance source_commit=${provenance.value.sourceCommit} source_manifest_sha256=${provenance.value.sourceManifestSha256} executable_sha256=${provenance.value.executableSha256} runtime_root=${provenance.value.runtimeRoot} node=${provenance.value.runtime.node} mcp_client=${provenance.value.runtime.mcpClientSdk} mcp_server=${provenance.value.runtime.mcpServerSdk}\n`);
     process.stderr.write(`ace-mcp provider identities embedding=${process.env.ACE_EMBEDDING_PROVIDER?.trim() || 'fastembed/onnx'}|model=${process.env.ACE_EMBEDDING_MODEL?.trim() || defaultEmbeddingModel} sparse=${process.env.ACE_SPARSE_EMBEDDING_MODEL?.trim() || 'Qdrant/bm25'} qdrant=${process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2'} lsp=${process.env.ACE_LSP_SERVER?.trim() || 'typescript-language-server'} reranker=${process.env.ACE_RERANKER_MODEL?.trim() || 'disabled'}\n`);
