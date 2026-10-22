@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "reportId": "ace-h6-postmerge-audit-2026-10-22",
+  "baselineSourceCommit": "4161c96c77705ecbc7d9145c5e1238d1adcbc9fc",
+  "sourceCommit": "419da19183fb0f62f46e00e03cc6b41c1ab30463",
+  "status": "partial",
+  "runtime": {
+    "node": "v24.15.0",
+    "typescript": "5.9.3",
+    "tsx": "4.23.15",
+    "eslint": "8.57.1",
+    "sourceManifestSha256": "ccb7925b492d98f45748d7b7ac88e51e9964112a99b3d87ed3fc0fbd47ce1c66",
+    "executableSha256": "dd8696e2dc73b2d7661f8755a707ea52eae12e030f635bb8645ef3e5ef9f00ab",
+    "sourceClean": true,
+    "dirtyRelevantPaths": []
+  },
+  "deterministicVerification": {
+    "serialFullSuite": {
+      "command": "./node_modules/.bin/tsx --test --test-concurrency=1 test/*.test.ts",
+      "tests": 423,
+      "passed": 423,
+      "failed": 0,
+      "status": "PASS"
+    },
+    "parallelFullSuite": {
+      "command": "./node_modules/.bin/tsx --test test/*.test.ts",
+      "tests": 416,
+      "passed": 415,
+      "failed": 1,
+      "failure": "TypeScript language-service diagnostics test returned Err during concurrent execution; isolated and serial reruns passed",
+      "status": "DIAGNOSTIC_LIMITATION"
+    },
+    "typecheck": { "command": "./node_modules/.bin/tsc -p tsconfig.json --noEmit", "status": "PASS" },
+    "lint": { "command": "./node_modules/.bin/eslint src test --ext .ts --max-warnings=0", "status": "PASS" },
+    "build": { "command": "./node_modules/.bin/tsc -p tsconfig.json && node scripts/generate-runtime-provenance.mjs", "status": "PASS" },
+    "affectedSelectorSelfTest": { "command": "node scripts/run-affected-tests.mjs --self-test", "status": "PASS" },
+    "harborTrialEvidenceContracts": {
+      "command": "./node_modules/.bin/tsx --test --test-concurrency=1 test/harbor-four-arm-trial-evidence-adapter.contracts.test.ts test/harbor-four-arm-evidence.contracts.test.ts test/harbor-four-arm.contracts.test.ts",
+      "tests": 12,
+      "passed": 12,
+      "failed": 0,
+      "status": "PASS"
+    },
+    "npmGates": { "status": "NOT_RUN", "reason": "npm executable is unavailable in the execution environment; direct locked binaries were used" }
+  },
+  "openSpec": {
+    "cli": "1.14.0",
+    "rootCount": 1,
+    "activeChanges": 7,
+    "validateAllStrict": "PASS: 7 passed, 0 failed",
+    "doctor": "PASS: healthy",
+    "apply": "NOT_RUN",
+    "sync": "NOT_RUN",
+    "archive": "NOT_RUN"
+  },
+  "providerPreflight": {
+    "codex": "available: codex-cli 0.148.0-alpha.9; login status authenticated",
+    "docker": "available: 24.0.6",
+    "harbor": "available: 0.24.0",
+    "k3s": "available: v1.35.5+k3s1",
+    "qdrant": "BLOCKED: local health endpoint unavailable",
+    "graphitiFalkorDb": "BLOCKED: required Python/provider modules unavailable",
+    "externalV3Holdout": "BLOCKED: historical external checkout is not mounted",
+    "harborTaskRuntimeBundle": "BLOCKED: frozen external task/runtime bundle is not mounted"
+  },
+    "acceptance": {
+    "h6Cr01": "VERIFIED: provenance contract and deterministic tests",
+    "h6Cr02": "VERIFIED: unknown-safe reranker metering and deterministic tests",
+    "h6Cr03": "PARTIAL: byte binding and independent trial reconciler implemented; exact external per-trial Harbor evidence remains unavailable",
+    "h6Cr04": "VERIFIED: unmeasured native-read metric is unknown and fails release limits",
+    "h6Cr05": "VERIFIED: UTF-8 range contract and Unicode fixtures",
+    "frozenV3FiveStrategyAblation": "BLOCKED",
+    "naturalUseHarbor": "BLOCKED",
+    "productionReadiness": "NOT_APPROVED",
+    "fiveXClaim": "UNPROVEN"
+  }
+}

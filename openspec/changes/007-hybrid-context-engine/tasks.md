@@ -1,8 +1,8 @@
 # Tasks — Hybrid Context Engine completion
 
-**Implementation/current main (reviewed 2026-10-21):** `main@2fe96a88968fb393dd57cf3771d08efbcfa251fa`; PRs #123–#134 are merged. **Separate pinned external H6 evidence sources:** ACE `b20646c966575e8280ea792e4f851ab1e28ec867` and Chess `23a7bb6b27023e8520941841d69745dd623d0933`. These are not interchangeable commits; merged code and external evidence do not imply a completed scored five-strategy/Harbor gate. See the [new post-merge review](../../../reviews/2026-10-21-h6-postmerge-source-review.md).
+**Implementation/current main (reviewed 2026-10-22):** `main@4161c96c77705ecbc7d9145c5e1238d1adcbc9fc`; PRs #123–#143 are merged. **Separate pinned external H6 evidence sources:** ACE `b20646c966575e8280ea792e4f851ab1e28ec867` and Chess `23a7bb6b27023e8520941841d69745dd623d0933`. These are not interchangeable commits; merged code and external evidence do not imply a completed scored five-strategy/Harbor gate. See the [post-merge evidence audit](../../../docs/reviews/2026-10-22-h6-postmerge-evidence.md).
 
-**Evidence update 2026-10-21:** H4/H5 correctness, per-evidence receipts, durable benchmark traces, the current external holdout freeze, the reranker rejection and the external Harbor job bundle are backed by current artifacts. The five-strategy H6 retrieval gate and agent measurements remain open; Harbor execution is blocked by unavailable external runtimes.
+**Evidence update 2026-10-22:** H4/H5 correctness, per-evidence receipts, durable benchmark traces, the current external holdout freeze, the reranker rejection and the external Harbor job bundle remain backed by current artifacts. Post-merge deterministic verification is green on the exact commit. The five-strategy H6 retrieval gate and agent measurements remain open; the external v3/Harbor artifacts are not mounted in this Linux environment, while Qdrant and Graphiti/FalkorDB are unavailable. See the [post-merge evidence audit](../../../docs/reviews/2026-10-22-h6-postmerge-evidence.md).
 
 ## Already present on main
 
@@ -66,16 +66,17 @@
 - [ ] Require task-quality non-inferiority before token-savings acceptance.
 - [ ] Publish duplicate context avoided separately from receipt reuse, projection savings and embedding/index reuse in benchmark reports.
 
-## Post-merge H6 correctness/evidence contracts (static findings; open)
+## Post-merge H6 correctness/evidence contracts (implementation verified; scored evidence open)
 
-These are new cases in the existing H6 acceptance track, not a rollback of implementation-complete H1–H5 functionality. Details and exact code citations: [post-merge code review](../../../reviews/2026-10-21-h6-postmerge-source-review.md).
+These are new cases in the existing H6 acceptance track, not a rollback of implementation-complete H1–H5 functionality. Details and exact code citations: [post-merge code review](../../../docs/reviews/2026-10-21-h6-postmerge-source-review.md).
 
-- [ ] H6-CR-01: ensure a frozen-repository run rejects dirty/untracked changed source and an executable compiled from a different commit; bind actual executable digest and source manifest to the run.
-- [ ] H6-CR-02: reranker selection must not treat absent delivered-payload measurements as zero or award a compactness win from missing data; reject tied-quality unmeasured candidates.
-- [ ] H6-CR-03: frozen four-arm Harbor jobs must verify the actual SHA-256 of task bytes, config bytes, repository/runtime identities and per-trial evidence at execution/report verification.
-- [ ] H6-CR-04: native-file-read duplication is measured from real instrumentation or explicitly `unknown`; invented zero cannot satisfy release/quality criteria.
-- [ ] H6-CR-05: Unicode-aware exact source byte extraction for newly frozen reranker cases preserves UTF-8 ranges and original digests.
-- [ ] Re-run applicable deterministic RED/contract tests, source/runtime E2E and H6 scored gates after fixes; preserve the existing external v3 and reranker holdouts unchanged.
+- [x] H6-CR-01: ensure a frozen-repository run rejects dirty/untracked changed source and an executable compiled from a different commit; bind actual executable digest and source manifest to the run. Verified by merged PR #137 and `test/runtime-provenance.contracts.test.ts` on `main@4161c96`.
+- [x] H6-CR-02: reranker selection must not treat absent delivered-payload measurements as zero or award a compactness win from missing data; reject tied-quality unmeasured candidates. Verified by merged PR #138 and `test/reranker-evaluation.contracts.test.ts` on `main@4161c96`.
+- [ ] H6-CR-03: frozen four-arm Harbor jobs must verify the actual SHA-256 of task bytes, config bytes, repository/runtime identities and per-trial evidence at execution/report verification. The raw trial reader/reconciler is implemented in `src/adapters/harbor-four-arm-trial-evidence.ts` and `src/domain/harbor-four-arm-evidence.ts`; exact external Harbor evidence is still unavailable, so this requirement remains unchecked.
+- [x] H6-CR-04: native-file-read duplication is measured from real instrumentation or explicitly `unknown`; invented zero cannot satisfy release/quality criteria. Verified by merged PR #140 and retrieval quality contract tests on `main@4161c96`; real native-read telemetry remains unknown.
+- [x] H6-CR-05: Unicode-aware exact source byte extraction for newly frozen reranker cases preserves UTF-8 ranges and original digests. Verified by merged PR #140 and Unicode range contract tests on `main@4161c96`.
+- [x] Re-run applicable deterministic RED/contract tests and source/runtime fail-closed tests after fixes; see the post-merge evidence audit.
+- [ ] Run the scored five-strategy retrieval and natural-use Harbor gates after the external holdouts and runtime artifacts are available; preserve the existing external v3 and reranker holdouts unchanged.
 
 ## Production track remains separate
 

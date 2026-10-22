@@ -2,7 +2,7 @@
 
 **Дата:** 2026-10-20  
 **Статическая база:** `main` @ [`560c49b043ef73b6ee08ceaf55b170ff780e4718`](https://github.com/chris-madsen/Mult-agent-AI-Orchestration/commit/560c49b043ef73b6ee08ceaf55b170ff780e4718). Последние commits после `7cfe49d` меняли review-документы; выводы о коде относятся к проверенным файлам этого snapshot.  
-**Предмет:** [единый W00–W16/C-A…C-E plan](2026-10-19-unified-ace-correctness-and-production-plan.md) и [full unified release preflight](unified-production-release-preflight.md). Для корректной оценки статусов сопоставлены [implementation evidence ledger](../reviews/2026-10-20-implementation-evidence-ledger.md), [OpenSpec 006 tasks](../openspec/changes/006-production-retrieval-vertical-slice/tasks.md), [code-only release profile](code-only-production-release-preflight.md), [follow-up evidence](../reviews/2026-10-20-unified-plan-progress-followup-2.md), [смысловое ревью](../reviews/2026-10-20-semantic-bugs-review.md) и затронутый код.  
+**Предмет:** [единый W00–W16/C-A…C-E plan](2026-10-19-unified-ace-correctness-and-production-plan.md) и [full unified release preflight](unified-production-release-preflight.md). Для корректной оценки статусов сопоставлены [implementation evidence ledger](../reviews/2026-10-20-implementation-evidence-ledger.md), [OpenSpec 006 tasks](../../openspec/changes/006-production-retrieval-vertical-slice/tasks.md), [code-only release profile](code-only-production-release-preflight.md), [follow-up evidence](../reviews/2026-10-20-unified-plan-progress-followup-2.md), [смысловое ревью](../reviews/2026-10-20-semantic-bugs-review.md) и затронутый код.
 **Метод:** чтение и сопоставление репозиторных исходников, контрактов и сохранённых описаний/артефактов. **Новые CI, k3s, Qdrant, Graphiti, Vertex, Harbor или Codex E2E здесь НЕ запускались.** Зафиксированные в репозитории PASS не считаются повторно выполненными этим ревью. `P1 static risk` не означает наблюдавшийся production incident.
 
 ## 1. Executive verdict
@@ -49,7 +49,7 @@
 
 ## 3. Нормативный DBC статус, не проценты готовности
 
-Сейчас в [OpenSpec 006](../openspec/changes/006-production-retrieval-vertical-slice/tasks.md) **семь отмеченных** DBC: **02, 05, 06, 07, 08, 09, 10**, и **семь открытых**: **01, 03, 04, 11, 12, 13, 14**. Первые семь — evidence на соответствующих предыдущих SHA/fixtures; это **не** 7/14 PASS на новом release SHA. Из последних семи:
+Сейчас в [OpenSpec 006](../../openspec/changes/006-production-retrieval-vertical-slice/tasks.md) **семь отмеченных** DBC: **02, 05, 06, 07, 08, 09, 10**, и **семь открытых**: **01, 03, 04, 11, 12, 13, 14**. Первые семь — evidence на соответствующих предыдущих SHA/fixtures; это **не** 7/14 PASS на новом release SHA. Из последних семи:
 
 | DBC | Обязательный остаток |
 |---|---|
@@ -87,7 +87,7 @@
 
 ### F-04 — P1 / Qdrant: lease acquire vs recursive cleanup
 
-**Статически выведено; не доказанный инцидент.** В [`file-qdrant-snapshot-state.ts`](../../src/adapters/file-qdrant-snapshot-state.ts) `close()` и `activeIndexKeys()` после пустого `readdir` выполняют recursive `rm`. Между проверкой и удалением другой процесс может создать успешный lease. `readdir(...).catch(()=>[])` смешивает отсутствие каталога с EACCES/EIO и не всегда fail-closed. Scope: **один state owner/root при разрешённом GC**; explicit shared collection без exclusive ownership пропускает GC и не является универсально уязвимой.
+**Статически выведено; не доказанный инцидент.** В [`file-qdrant-snapshot-state.ts`](https://github.com/chris-madsen/Mult-agent-AI-Orchestration/blob/560c49b043ef73b6ee08ceaf55b170ff780e4718/src/adapters/file-qdrant-snapshot-state.ts) `close()` и `activeIndexKeys()` после пустого `readdir` выполняют recursive `rm`. Между проверкой и удалением другой процесс может создать успешный lease. `readdir(...).catch(()=>[])` смешивает отсутствие каталога с EACCES/EIO и не всегда fail-closed. Scope: **один state owner/root при разрешённом GC**; explicit shared collection без exclusive ownership пропускает GC и не является универсально уязвимой.
 
 **Fix:** запретить recursive removal на устаревшей оценке пустоты; atomically coordinate lease acquisition with GC epoch/lock, fail-closed I/O handling, distinguish ENOENT. **RED:** acquire в окне readdir/rm, same-snapshot writers, reader между scan и Qdrant delete, EIO/EACCES/ENOTEMPTY; real concurrent storage test.
 
@@ -135,7 +135,7 @@
 
 ### F-12 — P2 / планы и runbooks: stale «сейчас» и неоднозначные требования
 
-Сводный [план](2026-10-19-unified-ace-correctness-and-production-plan.md) фиксирует исторические тезисы «W04 только warm reuse», «W08 не inject Graphiti», «W10 routing не подключён». В [новом ledger](../reviews/2026-10-20-implementation-evidence-ledger.md) и текущем коде это **уже не так**. Это **status drift**, а не доказательство ложной реализации. Также [OpenSpec 006 CODEX execution plan](../openspec/changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md) содержит устаревшие immediate wiring instructions. Не запускать повторную реализацию на основе этих абзацев.
+Сводный [план](2026-10-19-unified-ace-correctness-and-production-plan.md) фиксирует исторические тезисы «W04 только warm reuse», «W08 не inject Graphiti», «W10 routing не подключён». В [новом ledger](../reviews/2026-10-20-implementation-evidence-ledger.md) и текущем коде это **уже не так**. Это **status drift**, а не доказательство ложной реализации. Также [OpenSpec 006 CODEX execution plan](../../openspec/changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md) содержит устаревшие immediate wiring instructions. Не запускать повторную реализацию на основе этих абзацев.
 
 **Fix:** оставить старый historical baseline с датой, добавить краткое `current delta/status as-of SHA` и ссылки на ledger; чётко пометить какой документ — backlog, какой — normative contract, какой — generated evidence. Приоритет Accepted ADR/OpenSpec не менять.
 

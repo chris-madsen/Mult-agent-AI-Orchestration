@@ -36,15 +36,44 @@ writing its output. Missing or empty artifacts are `BLOCKED`. A report boolean
 or declared counter is not independent provider evidence, and a successful
 synthetic contract smoke is not an agent-E2E or benchmark result.
 
-**Release-gate limitation:** The current implementation verifies that referenced raw
-trace/usage/failure files exist and binds their bytes, but it does **not** parse
-and reconcile per-trial task outcomes, actual ACE MCP calls or provider token
-usage against the aggregate report. Consequently `fiveXAllowed=false` with
-`fiveXBlocker=raw_trial_evidence_not_independently_reconciled` even when the
-self-declared aggregate passes the quality/cost/ratio checks. A separate
-trial-level evidence reader/validator must be implemented, tested against
-forged aggregates and independently approved before this gate is eligible
-to assert a 5× result. Byte hashes alone cannot justify a release claim.
+When the four raw Harbor aggregate paths are available, pass them after the
+normal output path:
+
+```bash
+ACE_HARBOR_REPOSITORY_IDS='repo-a,repo-b' ACE_HARBOR_WORKSPACE_ROOT="$PWD" ACE_HARBOR_MODEL_IDENTITY='<same-pinned-model>' ACE_HARBOR_PROVIDER_IDENTITY='<same-provider-and-runtime-version>' ACE_HARBOR_RUNTIME_IMAGE_IDENTITY='<same-immutable-image-digest>' npm run gate:harbor-four-arm -- <native-job.json> <dense-job.json> <hybrid-job.json> <hybrid-delta-job.json> <report.json> <output.json> <native-result.json> <dense-result.json> <hybrid-result.json> <hybrid-delta-result.json>
+```
+
+The gate then parses each trial's `result.json` and `agent/codex.txt`, counts
+terminal ACE calls and correlated successful request IDs, reads per-trial
+usage/timestamps, and extracts returned evidence receipt/delivery metrics.
+It reconciles those observations against the declared aggregate. Forged
+success/token counters, missing verifier outcomes, missing request
+correlation, task-order drift, or unsupported receipt reuse are `BLOCKED`.
+The reconciler additionally requires every raw trial name to match the **exact
+frozen job task path or the task ID from the frozen manifest**, in serial
+execution order. The raw Harbor aggregate file itself must exist. Trial
+directories are ordered by their observed `started_at` timestamps (not
+lexical directory names); ambiguous timestamps and unexpected task identities
+are blocked. One successful MCP request ID cannot be counted again in another
+trial or arm. A failed ACE trial paired with a successful native trial blocks
+quality non-inferiority regardless of the report's `qualityNonInferior` flag.
+
+**Remaining proof limitations:** These checks do not authenticate arbitrary
+files supplied as Harbor logs, prove that an external runtime image was actually
+executed, or independently validate every cost/quality methodology. Complete
+native-read and timeout instrumentation is still needed before the existing
+release gate can pass; passing contract tests does not constitute a real
+Harbor result or permission to claim 5×.
+
+The parser deliberately leaves timeout and native-read telemetry `unknown`
+when the raw runtime did not emit those facts; absence of `ace_expand` is not
+evidence of zero native reads.
+
+Without all four raw result paths the output remains
+`rawTrialEvidenceVerified=false` and
+`fiveXBlocker=raw_trial_evidence_not_independently_reconciled`. Even with raw
+paths, unknown required telemetry keeps the release gate closed. Byte hashes
+alone cannot justify a release claim.
 
 The four-arm result remains `NOT_RUN`/`BLOCKED` until real Harbor, Codex/OAuth,
 Docker/Linux execution supplies correlated MCP calls, per-trial task success,
