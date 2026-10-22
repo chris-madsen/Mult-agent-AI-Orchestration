@@ -2,6 +2,11 @@ import { canonicalBenchmarkCandidateId, sha256 } from './retrieval-benchmark.js'
 import { domainError, type DomainError } from './errors.js';
 import { err, ok, type Result } from './result.js';
 import type { RetrievalHoldout, RetrievalHoldoutCase, RetrievalHoldoutRepository } from './retrieval-quality-evaluation.js';
+import {
+  retrievalSourceManifestExclusions,
+  retrievalSourceManifestSha256,
+  type RetrievalSourceManifestEntry,
+} from './retrieval-source-manifest.js';
 
 export interface RepoBenchContextSnippet {
   readonly identifier?: string;
@@ -40,35 +45,7 @@ export interface RepoBenchRepositoryIdentity {
   readonly sourceManifestSha256: string;
 }
 
-export interface RepoBenchSourceManifestEntry {
-  readonly path: string;
-  readonly sizeBytes: number;
-  readonly sha256: string;
-}
-
-export const retrievalSourceManifestExclusions = [
-  '.git', 'node_modules', 'dist', 'build', 'artifacts', '.cache', 'coverage', 'vendor', 'binary files',
-] as const;
-
-/**
- * Match the canonical external retrieval-holdout manifest format used by
- * scripts/freeze-retrieval-holdout.ts so RepoBench labels and generic frozen
- * holdouts share one source identity scheme.
- */
-export const retrievalSourceManifestSha256 = (
-  repositoryId: string,
-  revisionValue: string,
-  entries: readonly RepoBenchSourceManifestEntry[],
-): string => sha256(JSON.stringify({
-  schemaVersion: 1,
-  repositoryId,
-  revision: revisionValue,
-  exclusions: retrievalSourceManifestExclusions,
-  entries: [...entries].map((entry) => ({ ...entry })).sort((left, right) => left.path.localeCompare(right.path)),
-}, null, 2) + '\n');
-
-// Backward-compatible names inside the new RepoBench adapter; the format is
-// intentionally the generic frozen retrieval source-manifest format.
+export type RepoBenchSourceManifestEntry = RetrievalSourceManifestEntry;
 export const repoBenchSourceManifestExclusions = retrievalSourceManifestExclusions;
 export const repoBenchSourceManifestSha256 = retrievalSourceManifestSha256;
 
