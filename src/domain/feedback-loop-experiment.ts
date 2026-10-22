@@ -381,7 +381,7 @@ const correlationFor = (observation: FeedbackTrialObservation): 'correlated' | '
 const rowStatus = (native: FeedbackTrialObservation, ace: FeedbackTrialObservation, qualityDelta: FeedbackTaskRow['qualityDelta'], correlation: FeedbackTaskRow['aceCorrelation']): FeedbackStatus => {
   if (qualityDelta === 'regression') return 'QUALITY_REGRESSION';
   if (correlation === 'ACE_NOT_USED') return 'ACE_NOT_USED';
-  if (qualityDelta === 'unknown' || correlation === 'UNKNOWN' || native.quality === 'unknown' || ace.quality === 'unknown'
+  if (qualityDelta === 'unknown' || correlation === 'UNKNOWN' || native.quality !== 'pass' || ace.quality !== 'pass'
     || totalTokens(native.usage) === null || totalTokens(ace.usage) === null) return 'UNKNOWN';
   return 'PASS';
 };
@@ -393,7 +393,8 @@ const rowFor = (taskId: string, native: FeedbackTrialObservation, ace: FeedbackT
     : native.quality === 'unknown' || ace.quality === 'unknown' ? 'unknown' : 'no_regression';
   const nativeTotal = totalTokens(native.usage);
   const aceTotal = totalTokens(ace.usage);
-  const tokenRatio = qualityDelta === 'no_regression' && nativeTotal !== null && aceTotal !== null && nativeTotal > 0 && aceTotal > 0 && correlation === 'correlated'
+  const tokenRatio = qualityDelta === 'no_regression' && native.quality === 'pass' && ace.quality === 'pass'
+    && nativeTotal !== null && aceTotal !== null && nativeTotal > 0 && aceTotal > 0 && correlation === 'correlated'
     ? nativeTotal / aceTotal
     : null;
   return {
@@ -470,15 +471,18 @@ export const reconcileFeedbackTrials = (input: {
   const allCorrelated = rows.every((row) => row.aceCorrelation === 'correlated');
   const aceNotUsed = rows.every((row) => row.aceCorrelation === 'ACE_NOT_USED');
   const usageUnknown = rows.some((row) => row.nativeTotalTokens === null || row.aceTotalTokens === null);
+  // An equal number of failures is not an accepted-task token-saving result.
+  const nonAcceptedPairs = rows.some((row) => row.nativeQuality !== 'pass' || row.aceQuality !== 'pass');
   const nativeTotal = sumKnown(rows.map((row) => row.nativeTotalTokens));
   const aceTotal = sumKnown(rows.map((row) => row.aceTotalTokens));
-  const tokenRatio = qualityGate === 'pass' && allCorrelated && nativeTotal !== null && aceTotal !== null && nativeTotal > 0 && aceTotal > 0
+  const tokenRatio = qualityGate === 'pass' && !nonAcceptedPairs && allCorrelated
+    && nativeTotal !== null && aceTotal !== null && nativeTotal > 0 && aceTotal > 0
     ? nativeTotal / aceTotal
     : null;
   const status: FeedbackStatus = regressionIds.length > 0
     ? 'QUALITY_REGRESSION'
     : aceNotUsed ? 'ACE_NOT_USED'
-      : qualityGate === 'unknown' || !allCorrelated || usageUnknown ? 'UNKNOWN' : 'PASS';
+      : qualityGate === 'unknown' || nonAcceptedPairs || !allCorrelated || usageUnknown ? 'UNKNOWN' : 'PASS';
   return ok({
     schemaVersion: 1,
     status,
