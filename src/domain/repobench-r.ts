@@ -10,7 +10,8 @@ import {
 
 export interface RepoBenchContextSnippet {
   readonly identifier?: string;
-  readonly path: string;
+  /** Optional for non-gold context snippets; the selected gold snippet must resolve to a path. */
+  readonly path?: string;
   readonly snippet: string;
 }
 
@@ -228,20 +229,21 @@ export const mapRepoBenchRecords = (
       continue;
     }
     const goldContext = record.context[record.goldSnippetIndex];
-    if (goldContext === undefined || !safeRepoPath(goldContext.path)) {
+    if (goldContext === undefined || goldContext.path === undefined || !safeRepoPath(goldContext.path)) {
       invalidRows.push(invalid(record, 'gold_context_invalid'));
       continue;
     }
+    const goldPath = goldContext.path;
     const goldSnippet = goldContext.snippet;
     if (!nonEmpty(goldSnippet)) {
-      invalidRows.push(invalid(record, 'gold_snippet_empty', goldContext.path));
+      invalidRows.push(invalid(record, 'gold_snippet_empty', goldPath));
       continue;
     }
-    const source = sources.get(sourceKey(record.repoName, goldContext.path));
+    const source = sources.get(sourceKey(record.repoName, goldPath));
     if (source === undefined) {
       return err(domainError(
         'INVALID_BENCHMARK',
-        `repobench_r.sources.${record.repoName}.${goldContext.path}`,
+        `repobench_r.sources.${record.repoName}.${goldPath}`,
         'gold cross-file source snapshot is missing; benchmark must be blocked rather than synthesized',
       ));
     }
@@ -255,17 +257,17 @@ export const mapRepoBenchRecords = (
       && [candidate.range.startLine, candidate.range.endLine, candidate.range.startColumn, candidate.range.endColumn]
         .every((value) => Number.isSafeInteger(value) && value >= 1)
       && candidate.range.endLine >= candidate.range.startLine);
-    if (source.repositoryId !== repository.id || source.repoPath !== goldContext.path || !sha256Hex(source.sourceDigest)
+    if (source.repositoryId !== repository.id || source.repoPath !== goldPath || !sha256Hex(source.sourceDigest)
       || sha256(source.source) !== source.sourceDigest || !structuralIdentityValid) {
       return err(domainError('INVALID_BENCHMARK', `repobench_r.sources.${record.id}`, 'source identity is inconsistent'));
     }
     const offsets = exactOccurrences(source.source, goldSnippet);
     if (offsets.length === 0) {
-      invalidRows.push(invalid(record, 'gold_snippet_not_found', goldContext.path));
+      invalidRows.push(invalid(record, 'gold_snippet_not_found', goldPath));
       continue;
     }
     if (offsets.length !== 1) {
-      invalidRows.push(invalid(record, 'gold_snippet_ambiguous', goldContext.path));
+      invalidRows.push(invalid(record, 'gold_snippet_ambiguous', goldPath));
       continue;
     }
     const startOffset = offsets[0] as number;
@@ -284,7 +286,7 @@ export const mapRepoBenchRecords = (
     const containing = source.structuralCandidates.filter((candidate) =>
       candidate.startByteOffset <= goldStartByteOffset && candidate.endByteOffset >= goldEndByteOffset);
     if (containing.length === 0) {
-      invalidRows.push(invalid(record, 'gold_structural_candidate_not_found', goldContext.path));
+      invalidRows.push(invalid(record, 'gold_structural_candidate_not_found', goldPath));
       continue;
     }
     const smallestBytes = Math.min(...containing.map((candidate) => candidate.endByteOffset - candidate.startByteOffset));
@@ -292,7 +294,7 @@ export const mapRepoBenchRecords = (
       .filter((candidate) => candidate.endByteOffset - candidate.startByteOffset === smallestBytes)
       .map((candidate) => canonicalBenchmarkCandidateId(
         repository.id,
-        goldContext.path,
+        goldPath,
         source.sourceDigest,
         candidate.range,
       )))];
