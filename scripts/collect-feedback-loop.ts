@@ -175,6 +175,7 @@ const observationsFor = async (
       ...(trial.latencyMs === null ? {} : { durationMs: trial.latencyMs }),
       ...(trial.nativeFileReads === null ? {} : { nativeFileReads: trial.nativeFileReads }),
       observedAceCalls: arm === 'native' ? 0 : trial.observedAceCalls,
+      observedAceContextCalls: arm === 'native' ? 0 : trial.observedAceContextCalls,
       observedAceRequestIds: arm === 'native' ? [] : observedRequestIds,
       providerTraceRequestIds: arm === 'native' ? [] : await providerTraceRequestIds(directory),
       rawArtifactHashes: artifacts,

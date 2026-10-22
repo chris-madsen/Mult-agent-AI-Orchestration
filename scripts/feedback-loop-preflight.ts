@@ -239,6 +239,9 @@ const main = async (): Promise<void> => {
     embeddingPython: existsSync('scripts/fastembed-worker.sh')
       ? command('bash', ['scripts/fastembed-worker.sh'], embeddingEnvironment)
       : command(args.embeddingPython, ['-c', 'import fastembed, onnxruntime; print(fastembed.__version__)'], embeddingEnvironment),
+    sparseEmbedding: existsSync('scripts/fastembed-sparse-worker.sh')
+      ? command('bash', ['scripts/fastembed-sparse-worker.sh'])
+      : { status: 'not_ready', reason: 'sparse FastEmbed worker launcher is missing' },
     harbor: command('harbor', ['--version']),
     harborRun: command('harbor', ['run', '--help']),
     harborDatasets: command('harbor', ['datasets', 'list']),
@@ -253,7 +256,7 @@ const main = async (): Promise<void> => {
   checks.qdrant = await qdrant(args.qdrantUrl);
   checks.embeddingCache = await embeddingCache();
   const required = [
-    'node', 'npm', 'astGrep', 'typescriptLanguageServer', 'embeddingPython', 'harbor', 'harborRun',
+    'node', 'npm', 'astGrep', 'typescriptLanguageServer', 'embeddingPython', 'sparseEmbedding', 'harbor', 'harborRun',
     'harborDatasetPinned', 'harborVerifier', 'codex', 'codexAuth', 'docker', 'harborJobs',
     'harborImageDigest', 'embeddingCache', 'qdrant',
   ];

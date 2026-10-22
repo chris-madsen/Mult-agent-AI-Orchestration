@@ -1,6 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import {
+  isObservedAceContextJsonLine,
   isObservedAceToolJsonLine,
   isSuccessfulAceContextJsonLine,
   isSuccessfulAceToolJsonLine,
@@ -125,19 +126,20 @@ const readTrial = async (arm: HarborFourArmName, directory: string): Promise<Har
       return [];
     }
   });
-  const observedAceCalls = lines.filter(isObservedAceToolJsonLine).length;
-  const successfulContextCalls = lines.filter(isSuccessfulAceContextJsonLine).length;
-  const successfulAceCalls = lines.filter(isSuccessfulAceToolJsonLine).length;
+  const observedAceCalls = lines.filter(isObservedAceContextJsonLine).length;
+  const observedAceToolCalls = lines.filter(isObservedAceToolJsonLine).length;
+  const successfulAceCalls = lines.filter(isSuccessfulAceContextJsonLine).length;
+  const successfulAceToolCalls = lines.filter(isSuccessfulAceToolJsonLine).length;
   const successfulRequestIds = lines
     .map(successfulAceContextRequestIdJsonLine)
     .filter((value): value is string => value !== undefined);
   // ace_context carries the provider requestId. ace_expand is an exact local
   // artifact read and intentionally has no new provider requestId, so it is
   // counted but cannot silently establish provider correlation.
-  if (successfulRequestIds.length !== successfulContextCalls) {
+  if (successfulRequestIds.length !== successfulAceCalls) {
     throw new Error(`BLOCKED: successful ACE calls are missing request correlation: ${logPath}`);
   }
-  const successfulEvents = parsedEvents.filter((event) => isSuccessfulAceToolJsonLine(JSON.stringify(event)));
+  const successfulEvents = parsedEvents.filter((event) => isSuccessfulAceContextJsonLine(JSON.stringify(event)));
   const evidenceReceiptIds = [...new Set(successfulEvents.flatMap((event) => structuredEvidenceReceiptIds(event).all))];
   const reusedReceiptIds = [...new Set(successfulEvents.flatMap((event) => structuredEvidenceReceiptIds(event).reused))];
   const metrics = successfulEvents.map(deliveryMetrics);
@@ -157,6 +159,8 @@ const readTrial = async (arm: HarborFourArmName, directory: string): Promise<Har
     timedOut,
     observedAceCalls,
     successfulAceCalls,
+    observedAceToolCalls,
+    successfulAceToolCalls,
     rawInputTokens: integerOrNull(agentResult?.n_input_tokens),
     rawOutputTokens: integerOrNull(agentResult?.n_output_tokens),
     cachedInputTokens: integerOrNull(agentResult?.n_cache_tokens),

@@ -75,8 +75,11 @@ export interface FeedbackTrialObservation {
   readonly usage: FeedbackUsage;
   readonly durationMs?: number;
   readonly nativeFileReads?: number;
+  /** Total user-facing ACE calls, including exact ace_expand reads. */
   readonly observedAceCalls: number;
-  /** Request IDs observed in the Codex MCP tool events. */
+  /** ace_context calls only. Undefined preserves legacy observations where every ACE call was a context call. */
+  readonly observedAceContextCalls?: number;
+  /** Request IDs observed in successful ace_context MCP tool events. */
   readonly observedAceRequestIds: readonly string[];
   /** Request IDs found in the ACE provider trace for this trial. */
   readonly providerTraceRequestIds: readonly string[];
@@ -299,6 +302,10 @@ export const validateFeedbackExperimentManifest = (value: unknown): Result<Feedb
     }
   }
   const hasSingleImage = typeof imageDigest === 'string' && /^sha256:[a-f0-9]{64}$/u.test(imageDigest);
+  if (hasSingleImage && taskImages.length > 0
+    && (taskImages.length !== 1 || taskImages[0]?.digest !== imageDigest)) {
+    return invalid('experiment_manifest', 'single-image digest and task image provenance must describe the same Docker image');
+  }
   if (!hasSingleImage && taskImages.length === 0) {
     return invalid('experiment_manifest', 'experiment requires one image digest or task image provenance');
   }
@@ -365,8 +372,12 @@ const validateObservation = (observation: FeedbackTrialObservation, path: string
   if (usage._tag === 'Err') return usage;
   if (observation.durationMs !== undefined && !nonNegativeNumber(observation.durationMs)) return invalid(`${path}.durationMs`, 'duration must be non-negative');
   if (observation.nativeFileReads !== undefined && !nonNegativeInteger(observation.nativeFileReads)) return invalid(`${path}.nativeFileReads`, 'native file reads must be non-negative');
-  if (observation.observedAceRequestIds.length > observation.observedAceCalls) return invalid(`${path}.observedAceRequestIds`, 'request IDs cannot exceed observed ACE calls');
-  if (observation.arm === 'native' && (observation.observedAceCalls !== 0 || observation.observedAceRequestIds.length > 0 || observation.providerTraceRequestIds.length > 0)) {
+  const observedContextCalls = observation.observedAceContextCalls ?? observation.observedAceCalls;
+  if (!nonNegativeInteger(observedContextCalls) || observedContextCalls > observation.observedAceCalls) {
+    return invalid(`${path}.observedAceContextCalls`, 'context calls must be non-negative and cannot exceed total observed ACE calls');
+  }
+  if (observation.observedAceRequestIds.length > observedContextCalls) return invalid(`${path}.observedAceRequestIds`, 'request IDs cannot exceed observed ace_context calls');
+  if (observation.arm === 'native' && (observation.observedAceCalls !== 0 || observedContextCalls !== 0 || observation.observedAceRequestIds.length > 0 || observation.providerTraceRequestIds.length > 0)) {
     return invalid(path, 'native arm must not contain ACE calls or provider trace requests');
   }
   const artifacts = validateFeedbackArtifactHashes(observation.rawArtifactHashes, `${path}.rawArtifactHashes`);
@@ -407,7 +418,8 @@ const sumOptional = (values: readonly (number | undefined)[]): number | null => 
 
 const correlationFor = (observation: FeedbackTrialObservation): 'correlated' | 'ACE_NOT_USED' | 'UNKNOWN' => {
   if (observation.observedAceCalls === 0) return 'ACE_NOT_USED';
-  if (observation.observedAceRequestIds.length !== observation.observedAceCalls) return 'UNKNOWN';
+  const observedContextCalls = observation.observedAceContextCalls ?? observation.observedAceCalls;
+  if (observedContextCalls === 0 || observation.observedAceRequestIds.length !== observedContextCalls) return 'UNKNOWN';
   const providerIds = new Set(observation.providerTraceRequestIds);
   return observation.observedAceRequestIds.every((requestId) => providerIds.has(requestId)) ? 'correlated' : 'UNKNOWN';
 };
