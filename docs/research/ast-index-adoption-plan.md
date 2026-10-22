@@ -1,9 +1,9 @@
 # Что ACE может позаимствовать из ast-index: подробный research/adoption plan
 
-> **Статус:** research + план контролируемых экспериментов; **не утверждение, что перечисленные механизмы уже улучшают ACE**.  
-> **Дата:** 2026-10-22.  
-> **Зафиксированный ast-index:** [defendend/Claude-ast-index-search@`6ca99bde`](https://github.com/defendend/Claude-ast-index-search/tree/6ca99bde97627224f9217c7962e3dff9944c7a87), README v3.56.0.  
-> **Зафиксированный ACE:** [chris-madsen/Mult-agent-AI-Orchestration@`3180bd09`](https://github.com/chris-madsen/Mult-agent-AI-Orchestration/tree/3180bd09f07a055552aae98f3aa30633772b61bc).  
+> **Статус:** research + план контролируемых экспериментов; **не утверждение, что перечисленные механизмы уже улучшают ACE**.
+> **Дата:** 2026-10-22.
+> **Зафиксированный ast-index:** [defendend/Claude-ast-index-search@`6ca99bde`](https://github.com/defendend/Claude-ast-index-search/tree/6ca99bde97627224f9217c7962e3dff9944c7a87), README v3.56.0.
+> **Зафиксированный ACE:** [chris-madsen/Mult-agent-AI-Orchestration@`3180bd09`](https://github.com/chris-madsen/Mult-agent-AI-Orchestration/tree/3180bd09f07a055552aae98f3aa30633772b61bc).
 > **Основа исследования:** статическое чтение pinned-исходников ast-index и ACE. В рамках этого документа **не запускался** сравнительный benchmark ast-index vs ACE и не подтверждалась заявленная ast-index экономия токенов.
 >
 > ast-index распространяется под MIT License. Этот документ описывает идеи и эксперименты; **код ast-index здесь не копируется**. При буквальном переносе кода необходимо сохранить copyright/license notice согласно MIT.
