@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { validateFeedbackTaskManifest, type FeedbackTaskManifest } from '../src/domain/feedback-loop-experiment.js';
@@ -170,6 +170,8 @@ const main = async (): Promise<void> => {
     const aceCommand = `exec harbor run --config ${shellQuote(aceJobPath)} --env docker --mounts ${shellQuote(mounts)}`;
     await writeFile(resolve(output, 'run-native.sh'), `#!/usr/bin/env bash\nset -euo pipefail\n${nativeCommand}\n`, 'utf8');
     await writeFile(resolve(output, 'run-ace-optional.sh'), `#!/usr/bin/env bash\nset -euo pipefail\n${aceCommand}\n`, 'utf8');
+    await chmod(resolve(output, 'run-native.sh'), 0o755);
+    await chmod(resolve(output, 'run-ace-optional.sh'), 0o755);
     await writeFile(resolve(output, 'job-manifest.json'), `${JSON.stringify({
       schemaVersion: 1,
       // The Docker image digest is declared, not enforced by the job config.
