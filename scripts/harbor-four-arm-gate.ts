@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { verifyHarborJobByteBinding } from '../src/application/harbor-byte-binding.js';
-import { validateHarborFourArmDesign, validateHarborFourArmReport } from '../src/domain/harbor-four-arm.js';
+import { assessHarborFourArmFiveX, validateHarborFourArmDesign, validateHarborFourArmReport } from '../src/domain/harbor-four-arm.js';
 
 const [nativeJobPath, denseJobPath, hybridJobPath, deltaJobPath, reportPath, outputPath] = process.argv.slice(2);
 if ([nativeJobPath, denseJobPath, hybridJobPath, deltaJobPath, reportPath, outputPath].some((value) => value === undefined)) {
@@ -69,6 +69,15 @@ const delta = checkedReport.value.arms['hybrid-delta'];
 const tokenRatio = native.rawInputTokens === null || delta.rawInputTokens === null || native.rawInputTokens === 0
   ? null
   : delta.rawInputTokens / native.rawInputTokens;
+// We have verified the bytes of the artifact files, but we do not yet parse
+// and reconcile per-trial task success, actual ACE calls and raw provider usage.
+// A self-declared report cannot authorize the five-X release claim.
+const releaseGate = assessHarborFourArmFiveX({
+  qualityNonInferior: checkedReport.value.qualityNonInferior,
+  costTelemetryComplete: checkedReport.value.costTelemetryComplete,
+  tokenRatio,
+  rawTrialEvidenceVerified: false,
+});
 const reportOutput = {
   schemaVersion: 1,
   sourceCommit: process.env.ACE_EVIDENCE_SOURCE_COMMIT?.trim()
@@ -92,10 +101,9 @@ const reportOutput = {
     qualityNonInferior: checkedReport.value.qualityNonInferior,
     costTelemetryComplete: checkedReport.value.costTelemetryComplete,
     tokenRatioDeltaOverNative: tokenRatio,
-    fiveXAllowed: checkedReport.value.qualityNonInferior
-      && checkedReport.value.costTelemetryComplete
-      && tokenRatio !== null
-      && tokenRatio <= 0.2,
+    fiveXAllowed: releaseGate.allowed,
+    fiveXBlocker: releaseGate.allowed ? null : releaseGate.reason,
+    rawTrialEvidenceVerified: false,
   },
   source: {
     report: reportPath,
