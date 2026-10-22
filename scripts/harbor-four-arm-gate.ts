@@ -2,12 +2,19 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { readHarborFourArmTrialObservations } from '../src/adapters/harbor-four-arm-trial-evidence.js';
 import { verifyHarborJobByteBinding } from '../src/application/harbor-byte-binding.js';
 import { assessHarborFourArmFiveX, validateHarborFourArmDesign, validateHarborFourArmReport } from '../src/domain/harbor-four-arm.js';
+import { reconcileHarborFourArmTrials } from '../src/domain/harbor-four-arm-evidence.js';
 
-const [nativeJobPath, denseJobPath, hybridJobPath, deltaJobPath, reportPath, outputPath] = process.argv.slice(2);
+const [nativeJobPath, denseJobPath, hybridJobPath, deltaJobPath, reportPath, outputPath,
+  nativeTrialsPath, denseTrialsPath, hybridTrialsPath, deltaTrialsPath] = process.argv.slice(2);
 if ([nativeJobPath, denseJobPath, hybridJobPath, deltaJobPath, reportPath, outputPath].some((value) => value === undefined)) {
-  throw new Error('Usage: ACE_HARBOR_REPOSITORY_IDS=repo-a,repo-b tsx scripts/harbor-four-arm-gate.ts <native-job.json> <dense-job.json> <hybrid-job.json> <hybrid-delta-job.json> <report.json> <output.json>');
+  throw new Error('Usage: ACE_HARBOR_REPOSITORY_IDS=repo-a,repo-b tsx scripts/harbor-four-arm-gate.ts <native-job.json> <dense-job.json> <hybrid-job.json> <hybrid-delta-job.json> <report.json> <output.json> [<native-result.json> <dense-result.json> <hybrid-result.json> <hybrid-delta-result.json>]');
+}
+const trialPaths = [nativeTrialsPath, denseTrialsPath, hybridTrialsPath, deltaTrialsPath];
+if (trialPaths.some((path) => path !== undefined) && trialPaths.some((path) => path === undefined)) {
+  throw new Error('BLOCKED: all four raw Harbor result paths are required for trial-level reconciliation');
 }
 const repositoryIds = (process.env.ACE_HARBOR_REPOSITORY_IDS ?? 'ace')
   .split(',')
@@ -66,17 +73,37 @@ const failedRunArtifacts = await Promise.all(checkedReport.value.failedRunPaths.
 const designFingerprint = createHash('sha256').update(JSON.stringify(design.value), 'utf8').digest('hex');
 const native = checkedReport.value.arms.native;
 const delta = checkedReport.value.arms['hybrid-delta'];
-const tokenRatio = native.rawInputTokens === null || delta.rawInputTokens === null || native.rawInputTokens === 0
+const rawTrialEvidence = trialPaths.every((path): path is string => path !== undefined)
+  ? (() => {
+    const observations = Promise.all([
+      readHarborFourArmTrialObservations('native', trialPaths[0]),
+      readHarborFourArmTrialObservations('dense', trialPaths[1]),
+      readHarborFourArmTrialObservations('hybrid', trialPaths[2]),
+      readHarborFourArmTrialObservations('hybrid-delta', trialPaths[3]),
+    ]).then(async (groups) => {
+      const reconciled = reconcileHarborFourArmTrials(checkedReport.value.arms, groups.flat());
+      if (reconciled._tag === 'Err') {
+        throw new Error(`BLOCKED: raw Harbor trial evidence: ${reconciled.error.path}: ${reconciled.error.message}`);
+      }
+      return reconciled.value;
+    });
+    return observations;
+  })()
+  : undefined;
+const reconciledEvidence = rawTrialEvidence === undefined ? undefined : await rawTrialEvidence;
+const measuredNativeInputTokens = reconciledEvidence?.arms.native.rawInputTokens ?? native.rawInputTokens;
+const measuredDeltaInputTokens = reconciledEvidence?.arms['hybrid-delta'].rawInputTokens ?? delta.rawInputTokens;
+const tokenRatio = measuredNativeInputTokens === null || measuredDeltaInputTokens === null || measuredNativeInputTokens === 0
   ? null
-  : delta.rawInputTokens / native.rawInputTokens;
-// We have verified the bytes of the artifact files, but we do not yet parse
-// and reconcile per-trial task success, actual ACE calls and raw provider usage.
-// A self-declared report cannot authorize the five-X release claim.
+  : measuredDeltaInputTokens / measuredNativeInputTokens;
+// Without raw trial paths, or when their independently observed telemetry is
+// unknown, a self-declared aggregate cannot authorize the five-X claim.
+const rawTrialEvidenceVerified = reconciledEvidence?.releaseEligible === true;
 const releaseGate = assessHarborFourArmFiveX({
   qualityNonInferior: checkedReport.value.qualityNonInferior,
   costTelemetryComplete: checkedReport.value.costTelemetryComplete,
   tokenRatio,
-  rawTrialEvidenceVerified: false,
+  rawTrialEvidenceVerified,
 });
 const reportOutput = {
   schemaVersion: 1,
@@ -103,7 +130,18 @@ const reportOutput = {
     tokenRatioDeltaOverNative: tokenRatio,
     fiveXAllowed: releaseGate.allowed,
     fiveXBlocker: releaseGate.allowed ? null : releaseGate.reason,
-    rawTrialEvidenceVerified: false,
+    rawTrialEvidenceVerified,
+    rawTrialEvidence: reconciledEvidence === undefined
+      ? { status: 'not_supplied', releaseEligible: false }
+      : {
+        status: reconciledEvidence.status,
+        releaseEligible: reconciledEvidence.releaseEligible,
+        arms: Object.fromEntries(Object.entries(reconciledEvidence.arms).map(([arm, evidence]) => [arm, {
+          status: evidence.status,
+          releaseEligible: evidence.releaseEligible,
+          unknownFields: evidence.unknownFields,
+        }])),
+      },
   },
   source: {
     report: reportPath,

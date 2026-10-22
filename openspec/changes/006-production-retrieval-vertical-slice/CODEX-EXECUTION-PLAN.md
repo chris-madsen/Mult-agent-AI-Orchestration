@@ -59,7 +59,7 @@
 
 - Present measured embedding/runtime candidates and Serena-vs-TS-LS comparison for production selection; request explicit approval **only then**.
 - Keep model/provider status and OpenSpec mandatory checkboxes honest. Mark a DBC contract passing only with real trace, test fixture, source fingerprint, verdict and version. `not_ready` is acceptable while external permissions or services are missing.
-- Update `docs/openspec/changes/003-unified-retrieval/`, `004-temporal-memory/`, and `006-production-retrieval-vertical-slice/` as evidence arrives. Do not archive 006 or claim ACE production-ready without all applicable accepted gates.
+- Update `openspec/changes/003-unified-retrieval/`, `004-temporal-memory/`, and `006-production-retrieval-vertical-slice/` as evidence arrives. Do not archive 006 or claim ACE production-ready without all applicable accepted gates.
 
 ## Output artifacts required from Codex
 

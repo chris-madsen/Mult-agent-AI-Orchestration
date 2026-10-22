@@ -7,7 +7,7 @@
 
 > **Текущий implementation/evidence status:** см. [ACE implementation / evidence ledger — 2026-10-20](../reviews/2026-10-20-implementation-evidence-ledger.md). Ledger отделяет уже слитую реализацию от ещё не выполненных real-provider/Harbor/owner gates; открытые чекбоксы ниже не означают, что код отсутствует.
 
-> **Место в иерархии документов.** Этот файл — сводный координационный backlog с очередностью, зависимостями и Definition of Done. Он **не меняет** Accepted ADR, PRD и OpenSpec и не «закрывает» их чекбоксы. Авторитетный текущий подробный план исполнения: [OpenSpec 006 CODEX-EXECUTION-PLAN](../openspec/changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md). Normative acceptance: [DBC-01…14](../docs/architecture/07-architecture-fitness-contracts.md), [OpenSpec 006 tasks](../openspec/changes/006-production-retrieval-vertical-slice/tasks.md), [AGENTS.md](../../AGENTS.md). При конфликте актуальные прямые решения владельца и Accepted ADR имеют приоритет.
+> **Место в иерархии документов.** Этот файл — сводный координационный backlog с очередностью, зависимостями и Definition of Done. Он **не меняет** Accepted ADR, PRD и OpenSpec и не «закрывает» их чекбоксы. Авторитетный текущий подробный план исполнения: [OpenSpec 006 CODEX-EXECUTION-PLAN](../../openspec/changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md). Normative acceptance: [DBC-01…14](../docs/architecture/07-architecture-fitness-contracts.md), [OpenSpec 006 tasks](../../openspec/changes/006-production-retrieval-vertical-slice/tasks.md), [AGENTS.md](../../AGENTS.md). При конфликте актуальные прямые решения владельца и Accepted ADR имеют приоритет.
 
 ## 1. Что уже есть — **не переделывать ради галочки**
 
@@ -172,7 +172,7 @@
 - [ ] Сверить, что production checklist не отмечает `[x]` только потому, что mock/experimental sub-gate прошёл.
 
 **DoD:** воспроизводимый baseline report, однозначная матрица `implemented / tested-real / agent-e2e / benchmark / approved`, нет ложных `production-ready` меток.  
-**Артефакт:** новый `docs/reviews/*-baseline-verification.md` + актуальные `docs/openspec/changes/*/tasks.md` (только по подтверждённому evidence).
+**Артефакт:** новый `docs/reviews/*-baseline-verification.md` + актуальные `openspec/changes/*/tasks.md` (только по подтверждённому evidence).
 
 ### W01 — Production embedding: модель, runtime, качество и лицензия (P0)
 
@@ -432,9 +432,9 @@
 - [ADR-010 — deferred observability](../docs/references/ADR-010-observability-deferred.md)
 - [Accepted ADR-012 — production gates](../docs/references/ADR-012-production-capability-and-provider-gates.md)
 - [Accepted ADR-013 — embedding evaluation, not model selection](../docs/references/ADR-013-embedding-evaluation-without-ollama.md)
-- [OpenSpec 003](../openspec/changes/003-unified-retrieval/tasks.md) · [004](../openspec/changes/004-temporal-memory/tasks.md) · [005](../openspec/changes/005-adaptive-routing-spike/tasks.md) · [006](../openspec/changes/006-production-retrieval-vertical-slice/tasks.md)
+- [OpenSpec 003](../../openspec/changes/003-unified-retrieval/tasks.md) · [004](../../openspec/changes/004-temporal-memory/tasks.md) · [005](../../openspec/changes/005-adaptive-routing-spike/tasks.md) · [006](../../openspec/changes/006-production-retrieval-vertical-slice/tasks.md)
 - [Normative DBC-01…DBC-14](../docs/architecture/07-architecture-fitness-contracts.md)
-- [Current Codex execution plan](../openspec/changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md)
+- [Current Codex execution plan](../../openspec/changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md)
 - [Real provider E2E](../reviews/2026-10-19-real-provider-e2e.md)
 - [Efficiency/Harbor methodology audit](../reviews/2026-10-19-ace-efficiency-benchmark-audit.md)
 - [Local Graphiti status](../reviews/graphiti-archive-recovery.md)
