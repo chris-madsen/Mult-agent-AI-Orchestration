@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
@@ -45,10 +44,11 @@ interface Stage0Manifest {
   readonly generatedAt: string;
   readonly runtimeSourceCommit: string;
   readonly runtimeRoot: string;
-  readonly workspaceSourceKind: 'synthetic_fixture';
+  readonly workspaceSourceKind: 'real_git_checkout';
+  readonly workspaceSourceCommit: string;
   readonly workspaceSourceManifestSha256: string;
   readonly manualSemanticAnchorInjection: false;
-  readonly fixtureFiles: readonly Readonly<{ path: string; sha256: string }>[];
+  readonly sourceFiles: readonly Readonly<{ path: string; sizeBytes: number; sha256: string }>[];
   readonly preflightIndexedStructuralSymbols: number;
   readonly preflightAnchoredSymbols: number;
   readonly lspConfirmedRetrievedSymbols: number;
@@ -77,56 +77,55 @@ const object = (value: unknown): JsonObject => {
   return value as JsonObject;
 };
 
-const parseArgs = (): { readonly outputDirectory: string } => {
+const parseArgs = (): { readonly outputDirectory: string; readonly sourceRoot: string } => {
   const args = process.argv.slice(2);
   let outputDirectory = process.env.ACE_FEEDBACK_OUTPUT?.trim()
     || join('artifacts', 'feedback', `stage0-${new Date().toISOString().replaceAll(/[^0-9]/gu, '').slice(0, 14)}`);
+  let sourceRoot = process.env.ACE_FEEDBACK_SOURCE_ROOT?.trim();
   while (args.length > 0) {
     const current = args.shift();
     if (current === '--output') outputDirectory = args.shift() ?? outputDirectory;
+    else if (current === '--source-root') sourceRoot = args.shift() ?? sourceRoot;
     else throw new Error(`unknown argument: ${current}`);
   }
-  return { outputDirectory: resolve(outputDirectory) };
-};
-
-const sourceFixtures: Readonly<Record<string, string>> = {
-  'src/users.ts': [
-    'export interface User { id: string; }',
-    'export class UserRepository {',
-    '  save(value: User): User { return value; }',
-    '}',
-    'export class AuditRepository {',
-    '  save(value: User): User { return value; }',
-    '}',
-    'export function saveUser(value: User): User { return value; }',
-    'export function caféUser(value: User): User { return value; }',
-    'export function overloaded(value: string): string;',
-    'export function overloaded(value: number): number;',
-    'export function overloaded(value: string | number): string | number { return value; }',
-    'export function nested(): User {',
-    '  class NestedUser {',
-    '    value(): User { return { id: "nested" }; }',
-    '  }',
-    '  return new NestedUser().value();',
-    '}',
-    '',
-  ].join('\n'),
-  'src/reexports.ts': [
-    "import { saveUser } from './users.js';",
-    'export { saveUser };',
-    '',
-  ].join('\n'),
+  if (sourceRoot === undefined || sourceRoot.length === 0) {
+    throw new Error('BLOCKED: --source-root must point to a clean real Git checkout; synthetic fixtures are not accepted');
+  }
+  return { outputDirectory: resolve(outputDirectory), sourceRoot: resolve(sourceRoot) };
 };
 
 const cases: readonly SemanticCase[] = [
-  { id: 'function', query: 'saveUser', expectedPath: 'src/users.ts', expectedSymbol: 'saveUser', required: true },
-  { id: 'unicode-function', query: 'caféUser', expectedPath: 'src/users.ts', expectedSymbol: 'caféUser', required: true },
-  { id: 'class', query: 'UserRepository', expectedPath: 'src/users.ts', expectedSymbol: 'UserRepository', required: false },
-  { id: 'same-name-method', query: 'AuditRepository save', expectedPath: 'src/users.ts', expectedSymbol: 'save', required: false },
-  { id: 'overload', query: 'overloaded', expectedPath: 'src/users.ts', expectedSymbol: 'overloaded', required: false },
-  { id: 'nested', query: 'NestedUser value', expectedPath: 'src/users.ts', expectedSymbol: 'NestedUser', required: false },
-  { id: 'reexport', query: 're-export saveUser', expectedPath: 'src/reexports.ts', expectedSymbol: 'saveUser', required: false },
+  { id: 'function', query: 'makeWorkspaceId', expectedPath: 'src/domain/workspace.ts', expectedSymbol: 'makeWorkspaceId', required: true },
+  { id: 'function-2', query: 'validateFeedbackTaskManifest', expectedPath: 'src/domain/feedback-loop-experiment.ts', expectedSymbol: 'validateFeedbackTaskManifest', required: true },
+  { id: 'class', query: 'HarborBindingError', expectedPath: 'src/application/harbor-byte-binding.ts', expectedSymbol: 'HarborBindingError', required: false },
+  { id: 'reexport', query: 'exactUtf8ByteRange', expectedPath: 'src/adapters/qdrant-context-provider.ts', expectedSymbol: 'exactUtf8ByteRange', required: false },
 ];
+
+const gitText = (root: string, args: readonly string[]): string => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
+const gitBytes = (root: string, args: readonly string[]): Buffer => execFileSync('git', ['-C', root, ...args]);
+
+const realSourceIdentity = (root: string): {
+  readonly revision: string;
+  readonly files: readonly Readonly<{ path: string; sizeBytes: number; sha256: string }>[];
+  readonly manifestSha256: string;
+} => {
+  const revision = gitText(root, ['rev-parse', 'HEAD']);
+  if (!/^[a-f0-9]{40,64}$/iu.test(revision)) throw new Error('BLOCKED: real source checkout did not provide an exact Git commit');
+  if (gitText(root, ['status', '--porcelain=v1', '--untracked-files=all']).length > 0) {
+    throw new Error('BLOCKED: real source checkout is dirty; Stage-0 requires frozen source bytes');
+  }
+  const paths = gitBytes(root, ['ls-tree', '-r', '-z', '--name-only', revision]).toString('utf8')
+    .split('\0').filter((path) => path.length > 0).sort((left, right) => left.localeCompare(right));
+  const files = paths.map((path) => {
+    const bytes = gitBytes(root, ['show', `${revision}:${path}`]);
+    return { path, sizeBytes: bytes.byteLength, sha256: sha256(bytes) };
+  });
+  return {
+    revision,
+    files,
+    manifestSha256: sha256(new TextEncoder().encode(`${JSON.stringify({ schemaVersion: 1, revision, files }, null, 2)}\n`)),
+  };
+};
 
 const runtimeCommit = (): string => {
   try {
@@ -168,10 +167,10 @@ const lspCoverageFor = (bundle: JsonObject): string => {
 };
 
 const main = async (): Promise<void> => {
-  const { outputDirectory } = parseArgs();
+  const { outputDirectory, sourceRoot } = parseArgs();
   await mkdir(outputDirectory, { recursive: true });
-  const parent = await mkdtemp(join(tmpdir(), 'ace-feedback-stage0-'));
-  const workspace = join(parent, 'workspace');
+  const source = realSourceIdentity(sourceRoot);
+  const workspace = sourceRoot;
   const stateDirectory = join(outputDirectory, 'state');
   const providerTracePath = join(outputDirectory, 'provider-trace.jsonl');
   const retrievalTracePath = join(outputDirectory, 'retrieval-trace.jsonl');
@@ -187,14 +186,8 @@ const main = async (): Promise<void> => {
   let status: StageStatus = 'BLOCKED';
   let reason = 'stage did not complete';
   try {
-    await mkdir(workspace, { recursive: true });
-    for (const [path, source] of Object.entries(sourceFixtures)) {
-      const target = join(workspace, path);
-      await mkdir(join(target, '..'), { recursive: true });
-      await writeFile(target, source, 'utf8');
-    }
     const workspaceId = mustOk(makeWorkspaceId('feedback-stage0-ts-v1'));
-    const files = makeNodeWorkspacePort({ allowedRoots: [parent] });
+    const files = makeNodeWorkspacePort({ allowedRoots: [sourceRoot] });
     const structural = makeAstGrepStructuralPort({ command: resolve('node_modules/.bin/ast-grep') });
     const indexed = mustOk(await Effect.runPromise(buildLocalCodeIndex(files, workspaceId, workspace, {
       generation: 1,
@@ -215,7 +208,7 @@ const main = async (): Promise<void> => {
       env: {
         ...inheritedEnvironment,
         ACE_WORKSPACE_ROOT: workspace,
-        ACE_ALLOWED_ROOTS: parent,
+        ACE_ALLOWED_ROOTS: sourceRoot,
         ACE_STATE_DIR: stateDirectory,
         ACE_ARTIFACT_DIR: join(outputDirectory, 'artifacts'),
         ACE_WORKSPACE_ID: 'feedback-stage0-ts-v1',
@@ -324,20 +317,17 @@ const main = async (): Promise<void> => {
       const traceValidation = validateRetrievalBenchmarkTraceArtifact(retrievalText, retrievalReceipt, requestIds);
       if (!traceValidation.valid) throw new Error(`benchmark trace rejected: ${traceValidation.failures.join(', ')}`);
       const artifactSha256 = await artifactDigests([responsePath, stderrPath, providerTracePath, retrievalTracePath, retrievalReceiptPath]);
-      const fixtureFiles = Object.entries(sourceFixtures)
-        .map(([path, source]) => ({ path, sha256: sha256(new TextEncoder().encode(source)) }))
-        .sort((left, right) => left.path.localeCompare(right.path));
-      const workspaceSourceManifestSha256 = sha256(new TextEncoder().encode(JSON.stringify(fixtureFiles)));
       const manifest: Stage0Manifest = {
         schemaVersion: 1,
         status,
         generatedAt: new Date().toISOString(),
         runtimeSourceCommit: runtimeCommit(),
         runtimeRoot: resolve('.'),
-        workspaceSourceKind: 'synthetic_fixture',
-        workspaceSourceManifestSha256,
+        workspaceSourceKind: 'real_git_checkout',
+        workspaceSourceCommit: source.revision,
+        workspaceSourceManifestSha256: source.manifestSha256,
         manualSemanticAnchorInjection: false,
-        fixtureFiles,
+        sourceFiles: source.files,
         preflightIndexedStructuralSymbols: indexedStructuralSymbols,
         preflightAnchoredSymbols: anchoredSymbols,
         lspConfirmedRetrievedSymbols: confirmedSymbols.size,
@@ -361,19 +351,17 @@ const main = async (): Promise<void> => {
     reason = error instanceof Error ? error.message : 'unknown stage-0 provider failure';
     if (stderr.length > 0) await writeFile(stderrPath, Buffer.concat(stderr));
     const artifactSha256 = await artifactDigests([responsePath, stderrPath, providerTracePath, retrievalTracePath, retrievalReceiptPath]);
-    const fixtureFiles = Object.entries(sourceFixtures)
-      .map(([path, source]) => ({ path, sha256: sha256(new TextEncoder().encode(source)) }))
-      .sort((left, right) => left.path.localeCompare(right.path));
     const manifest: Stage0Manifest = {
       schemaVersion: 1,
       status,
       generatedAt: new Date().toISOString(),
       runtimeSourceCommit: runtimeCommit(),
       runtimeRoot: resolve('.'),
-      workspaceSourceKind: 'synthetic_fixture',
-      workspaceSourceManifestSha256: sha256(new TextEncoder().encode(JSON.stringify(fixtureFiles))),
+      workspaceSourceKind: 'real_git_checkout',
+      workspaceSourceCommit: source.revision,
+      workspaceSourceManifestSha256: source.manifestSha256,
       manualSemanticAnchorInjection: false,
-      fixtureFiles,
+      sourceFiles: source.files,
       preflightIndexedStructuralSymbols: indexedStructuralSymbols,
       preflightAnchoredSymbols: anchoredSymbols,
       lspConfirmedRetrievedSymbols: 0,
@@ -390,8 +378,6 @@ const main = async (): Promise<void> => {
     await writeFile(join(outputDirectory, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
     process.stderr.write(`feedback stage0 ${status}: ${reason}\n`);
     process.exitCode = 2;
-  } finally {
-    await rm(parent, { recursive: true, force: true });
   }
 };
 

@@ -9,6 +9,10 @@ import {
   validateMatchingFeedbackHarborJobs,
   type FeedbackHarborJobIdentity,
 } from '../src/domain/feedback-harbor-config.js';
+import {
+  codexAuthenticationRoute,
+  inspectCodexAuthJson,
+} from '../src/domain/feedback-preflight.js';
 import { validateFeedbackExperimentManifest } from '../src/domain/feedback-loop-experiment.js';
 
 type CheckStatus = 'ready' | 'not_ready' | 'unknown';
@@ -20,11 +24,12 @@ interface PreflightCheck {
 }
 
 interface PreflightManifest {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly status: 'READY' | 'BLOCKED';
   readonly generatedAt: string;
   readonly sourceCommit: string;
   readonly runtimeRoot: string;
+  readonly authenticationRoute: typeof codexAuthenticationRoute;
   readonly checks: Readonly<Record<string, PreflightCheck>>;
   readonly runtime?: {
     readonly model: string;
@@ -35,6 +40,7 @@ interface PreflightManifest {
     readonly mode: 'cold';
     readonly nConcurrentTrials: 1;
     readonly nAttempts: 1;
+    readonly authenticationRoute: typeof codexAuthenticationRoute;
     readonly embeddingLibraryPath?: string;
   };
 }
@@ -81,20 +87,15 @@ const harborDataset = (): PreflightCheck => {
     : { status: 'not_ready', reason: 'pinned scale-ai/swe-atlas-qna is not listed by the Harbor registry' };
 };
 
-const harborVerifier = (): PreflightCheck => {
-  const base = process.env.OPENAI_API_BASE?.trim();
-  const key = process.env.OPENAI_API_KEY?.trim();
-  if (base === undefined || base.length === 0) return { status: 'not_ready', reason: 'Harbor verifier requires OPENAI_API_BASE; no endpoint is guessed' };
-  if (key === undefined || key.length === 0) return { status: 'not_ready', reason: 'Harbor verifier requires OPENAI_API_KEY; token bytes are not retained' };
-  return { status: 'ready', reason: 'Harbor verifier endpoint and credential presence are configured', identity: base };
-};
-
-const codexAuth = (): PreflightCheck => {
+const codexAuth = async (): Promise<PreflightCheck> => {
   const codexHome = process.env.CODEX_HOME?.trim() || `${process.env.HOME ?? ''}/.codex`;
   const authPath = resolve(codexHome, 'auth.json');
-  return existsSync(authPath)
-    ? { status: 'ready', reason: 'Codex auth file is present; token bytes are not retained', identity: authPath }
-    : { status: 'not_ready', reason: 'Codex auth file is unavailable' };
+  if (!existsSync(authPath)) return { status: 'not_ready', reason: 'Codex auth file is unavailable' };
+  try {
+    return inspectCodexAuthJson(authPath, await readFile(authPath, 'utf8'));
+  } catch {
+    return { status: 'not_ready', reason: 'Codex auth file could not be read' };
+  }
 };
 
 const gitCommit = (): string => {
@@ -246,9 +247,8 @@ const main = async (): Promise<void> => {
     harborRun: command('harbor', ['run', '--help']),
     harborDatasets: command('harbor', ['datasets', 'list']),
     harborDatasetPinned: harborDataset(),
-    harborVerifier: harborVerifier(),
     codex: command('codex', ['--version']),
-    codexAuth: codexAuth(),
+    codexAuth: await codexAuth(),
     docker: command('docker', ['--version']),
     harborJobs: harborJobs.check,
     harborImageDigest: dockerImages(effectiveImageDigest, manifestTaskImages),
@@ -257,16 +257,17 @@ const main = async (): Promise<void> => {
   checks.embeddingCache = await embeddingCache();
   const required = [
     'node', 'npm', 'astGrep', 'typescriptLanguageServer', 'embeddingPython', 'sparseEmbedding', 'harbor', 'harborRun',
-    'harborDatasetPinned', 'harborVerifier', 'codex', 'codexAuth', 'docker', 'harborJobs',
+    'harborDatasetPinned', 'codex', 'codexAuth', 'docker', 'harborJobs',
     'harborImageDigest', 'embeddingCache', 'qdrant',
   ];
   const blocked = required.filter((name) => checks[name]?.status !== 'ready');
   const manifest: PreflightManifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     status: blocked.length === 0 ? 'READY' : 'BLOCKED',
     generatedAt: new Date().toISOString(),
     sourceCommit: gitCommit(),
     runtimeRoot: resolve('.'),
+    authenticationRoute: codexAuthenticationRoute,
     checks,
     ...(blocked.length === 0 && harborJobs.identity !== undefined && (effectiveImageDigest !== undefined || manifestTaskImages !== undefined)
       ? {
@@ -279,6 +280,7 @@ const main = async (): Promise<void> => {
           mode: 'cold' as const,
           nConcurrentTrials: 1 as const,
           nAttempts: 1 as const,
+          authenticationRoute: codexAuthenticationRoute,
           ...(args.embeddingLibraryPath === undefined ? {} : { embeddingLibraryPath: args.embeddingLibraryPath }),
         },
       }

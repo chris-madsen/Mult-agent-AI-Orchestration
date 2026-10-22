@@ -1,348 +1,228 @@
-# ACE Real Feedback Loop — One-Pass Execution Plan
+# ACE Real Feedback Loop — Full Completion Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: use Superpowers `subagent-driven-development` (recommended) or `executing-plans` to implement this plan task-by-task. Each slice is a separate review gate and should normally be a separate PR when it changes repository code.
+> **For agentic workers:** use Superpowers `subagent-driven-development` for independent implementation slices. Each code slice requires a spec review, a quality review, focused verification, and a pull request targeting `main`.
 >
-> **Source plan:** [the original feedback-loop plan](https://github.com/chris-madsen/Mult-agent-AI-Orchestration/blob/main/docs/plans/ace-real-feedback-loop.md)
+> **Source:** [the original ACE feedback-loop plan](https://github.com/chris-madsen/Mult-agent-AI-Orchestration/blob/main/docs/plans/ace-real-feedback-loop.md)
 >
-> **Status rule:** this document is an execution plan with an evidence ledger. It is not a benchmark result and does not promote a capability to production.
+> **Status rule:** this is an execution plan and evidence ledger. It is not a benchmark result, a production approval, or a 5x claim.
 
-**Goal:** obtain a reproducible answer to whether ACE improves verified code retrieval and agent task economics without reducing task quality.
+**Goal:** obtain a reproducible quality-first answer about verified code retrieval and agent economics using the real ACE MCP path, a native Codex baseline, and an ACE-optional natural-use arm.
 
-**Architecture:** preserve the current MCP facade, exact-source reread, provider receipts, source coverage and fail-closed status semantics. Compare native and ACE-optional Harbor trials on frozen inputs; use ACE-forced runs only to diagnose retrieval behavior, never as the natural-use result.
+**Architecture:** preserve the existing MCP facade, exact-source reread, provider receipts, source-coverage semantics, OAuth auth-file route, and fail-closed statuses. Do not replace an unavailable provider with a mock or lexical success.
 
-**Tech Stack:** TypeScript/Node.js, Effect, ast-grep, TypeScript Language Server, FastEmbed, Qdrant, MCP SDK, Harbor and Codex.
+**Auth decision:** Harbor Codex jobs use the existing ChatGPT/Codex OAuth route through `CODEX_FORCE_AUTH_JSON=1` and the host `CODEX_HOME/auth.json`. A manually supplied `OPENAI_API_KEY` or `OPENAI_API_BASE` is not required for Codex subscription execution. A task-specific remote verifier may declare its own requirement; that is separate from agent authentication.
 
 ---
 
-## Authority and non-negotiable constraints
+## Non-negotiable constraints
 
-- Current owner decisions, Accepted ADRs, applicable OpenSpec contracts and `AGENTS.md` override this plan.
+- Current owner decisions, Accepted ADRs, OpenSpec contracts, and `AGENTS.md` override this plan.
 - Current verified source bytes outrank index payloads and derived documentation.
-- Missing or failed required providers produce `BLOCKED`, `NOT_READY`, `PARTIAL` or `UNKNOWN`; they never become an empty success or a zero cost.
-- A real provider trace is required for provider claims. A contract test, mock, synthetic metric or configured MCP entry is not agent-E2E evidence.
-- Pin source revision, task/dataset revision, runtime/model identity, image digest, configuration digest and artifact SHA-256 before comparing trials.
-- Keep raw evidence outside the ACE checkout when it contains external repositories or agent transcripts. Store only a versioned summary and hashes in the repository.
-- Do not run Harbor scale/repeat/holdout jobs while the one-task smoke is unavailable or the required endpoint/image provenance is missing.
-- Use `npm run test:affected` during code changes and `npm run verify:pr` once before handoff for source changes. Documentation-only edits still require `git diff --check` and plan validation.
-- Do not claim a 5× improvement, production readiness or owner approval from this plan.
+- Pin source, task/dataset, runtime/model, image, configuration, and artifact SHA-256 identities before comparison.
+- Raw external repositories, agent transcripts, and provider payloads stay outside the ACE checkout. Commit only English summaries and hashes.
+- Missing or failed required providers produce `BLOCKED`, `NOT_READY`, `PARTIAL`, `UNKNOWN`, or `INVALID`; never an empty success or fabricated zero.
+- Native and ACE-optional are the primary comparison. ACE-forced runs are diagnostic only.
+- Do not run Harbor scale/repeats/holdout before the one-task smoke and provenance gates are ready.
+- Do not reuse synthetic CST/LSP fixtures, old forced-Harbor reports, old 3x3/5x reports, or zero-call natural runs as new feedback.
+- No 5x, production-readiness, provider-approval, or owner-approval claim is allowed from this plan alone.
 
 ## Current evidence ledger
 
-Status snapshot: local branch `e371927712a7789f9f0b743eceb5eb7464d4f9a1` (PR #154), compared with current `origin/main` `79c5b71215148a93c19b14c511c20cc061c85306`. The PR is open; its evidence is not a merge or production approval.
-
-| Area | Current status | Evidence and exact limitation |
+| Area | Current status | Limitation |
 |---|---|---|
-| ast-grep name anchors and CST→LSP runtime path | **PROVIDER-PATH PASS** | `artifacts/feedback/stage0-20261022143741/manifest.json`: current runtime commit `e371927...`, no manual anchor injection, 12 indexed symbols, 9 anchored symbols, 6 LSP-confirmed symbols, 0 unconfirmed required cases. The fixture is synthetic TypeScript; this is not a claim about every language or a natural agent task. |
-| Local provider preflight | **PARTIAL** | `artifacts/feedback/preflight/manifest.json` is `READY` at commit `a413e6...`; later follow-up manifests record missing explicit model/image/verifier configuration. Re-run at the exact trial commit with frozen Harbor jobs before Harbor evidence. |
-| Real MCP retrieval traces | **AVAILABLE FOR DIAGNOSTICS** | Stage-0 raw MCP, provider and retrieval traces are retained under `artifacts/feedback/stage0-20261022143741/`; they prove the provider path, not agent benefit. |
-| Harbor one-task native vs ACE-optional smoke | **NOT RUN / BLOCKED** | PR #154 records that the verifier endpoint and exact SWE-Atlas task images are unavailable in the current environment. No agent-quality or token-economics result exists. |
-| Harbor 10-task paired run and independent repeats | **NOT RUN** | Depends on the smoke gate and exact frozen job provenance. |
-| RepoBench-R acquisition and source-span mapping | **BLOCKED** | Acquisition/adapter scripts exist, but the official records do not provide enough exact source-revision mapping for a truthful source-bound evaluation. No synthetic repository or placeholder score is allowed. |
-| Failure-driven ACE fix and untouched re-run | **NOT STARTED** | There is no accepted natural-use Harbor failure with complete correlation from which to select one causal ACE change. |
-| 5×, production readiness and owner approval | **NOT CLAIMED** | No evidence stage has changed these gates. |
-
-The following slices are the remaining work. Completed provider-path work is recorded above and is not duplicated as a new implementation task.
+| Provider implementation | **IMPLEMENTED/CONTRACT-TESTED** | MCP, ast-grep, LSP, FastEmbed, Qdrant, receipts, and fail-closed reporting exist. This is not agent-E2E evidence. |
+| CST to LSP | **PROVIDER-PATH PASS / NATURAL COVERAGE OPEN** | Existing stage-0 evidence uses a synthetic TypeScript fixture. A real repository trace and coverage matrix are still required. |
+| Codex authentication | **OAUTH ROUTE IMPLEMENTED** | Preflight uses `CODEX_HOME/auth.json` and `CODEX_FORCE_AUTH_JSON=1`; absence of an API key is not a blocker. Exact current runtime still needs a fresh preflight. |
+| Local provider stack | **NOT_READY UNTIL FRESH PREFLIGHT** | Node/npm, Harbor, Docker, Qdrant, FastEmbed, sparse worker, LSP, image identities, and current source digest must be checked together. |
+| Harbor natural-use feedback | **NOT ACCEPTED** | Historical local smoke and forced/zero-call runs do not prove retrieval benefit on SWE-Atlas QnA. |
+| RepoBench-R | **BLOCKED UNTIL SOURCE MAPPING** | Existing acquisition/adapter tooling must prove exact repository revisions and unique gold spans. No synthetic source is allowed. |
+| Failure-driven fix | **NOT STARTED** | Requires a correlated natural-use failure or an explicit `NO_ACTIONABLE_FAILURE`. |
+| Production/5x/owner approval | **NOT CLAIMED** | These remain separate evidence gates. |
 
 ## Execution graph
 
 ```text
-FB-01 exact-current preflight
-  ├─> FB-02 freeze Harbor task/image provenance
-  │     └─> FB-03 one-task native + ACE-optional smoke
-  │           └─> FB-04 reconcile smoke evidence
-  │                 ├─> FB-05 freeze and run 10-task paired set
-  │                 │     └─> FB-06 repeat on independent trials/holdout
-  │                 └─> FB-07 create one failure card and one targeted fix
-  │                       └─> FB-08 rerun diagnostic + untouched case
-  └─> RB-01 RepoBench-R source mapping
-        └─> RB-02 retrieval ranking/grounding evaluation
+AUTH-01 OAuth-first preflight
+  └─> STACK-01 exact-current local provider stack
+       ├─> STAGE0-01 real CST→LSP evidence
+       ├─> RB-01 source-bound RepoBench-R mapping ─> RB-02 retrieval diagnostics
+       └─> HARBOR-01 freeze tasks/jobs
+            └─> HARBOR-02 smoke ─> HARBOR-03 reconcile
+                 └─> HARBOR-04 ten-task paired run
+                      └─> HARBOR-05 repeats and untouched holdout
+                           └─> FIX-01 failure card/one fix ─> FIX-02 diagnostic/untouched rerun
 ```
 
-FB-01/FB-02 are admission checks and should be cheap. FB-03 is the first heavy workflow and must not run until its prerequisites are `READY`. RB-01/RB-02 are independent and may remain blocked without blocking the first Harbor smoke.
-
 ---
 
-## Harbor slices
+## AUTH-01 — OAuth-first preflight
 
-### FB-01 — Re-run exact-current provider admission
+**Files:** `scripts/feedback-loop-preflight.ts`, `src/domain/feedback-preflight.ts`, and the existing preflight contract owner.
 
-**Purpose:** establish a fresh, source-bound readiness manifest before any agent trial.
+- Validate `CODEX_HOME/auth.json` metadata and OAuth token presence without logging token bytes.
+- Record `authenticationRoute = CODEX_FORCE_AUTH_JSON=1 with the host Codex auth route; credentials are not retained`.
+- Do not require `OPENAI_API_KEY` or `OPENAI_API_BASE`.
+- Remove the global API verifier from the required base checks.
+- Check a remote verifier only when the selected Harbor task explicitly requires one.
+- Emit preflight manifest schema version 2 and reject stale schema-1 manifests for current trials.
 
-**Files/artifacts:**
-- Read: `scripts/feedback-loop-preflight.ts`
-- Read: `benchmarks/harbor/ace-retrieval-codex-config.toml`
-- Create outside the repository: `/tmp/ace-feedback/${RUN_ID}/preflight/manifest.json`
+**Tests:** valid ChatGPT auth with no API key is ready; missing/malformed auth is blocked; generated jobs carry `CODEX_FORCE_AUTH_JSON=1`; manifests contain no credentials.
 
-- [ ] Create a clean disposable checkout at the exact commit under test; do not use a checkout containing `docs/plans/plan.md` or `docs/plans/plan2.md` as the frozen source.
-- [ ] Run:
+**Done:** focused tests and typecheck pass, and the preflight distinguishes OAuth agent authentication from task-specific verifier readiness.
 
-```bash
-RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
-EVIDENCE="/tmp/ace-feedback/$RUN_ID"
-mkdir -p "$EVIDENCE"
-npm run preflight:feedback-loop -- \
-  --output "$EVIDENCE/preflight" \
-  --qdrant-url http://127.0.0.1:6333
-```
+## STACK-01 — Exact-current local provider stack
 
-- [ ] Require `node`, `npm`, ast-grep, TypeScript Language Server, FastEmbed, Qdrant, Harbor and Codex authentication to be `ready`.
-- [ ] Treat missing `OPENAI_API_BASE`, `OPENAI_API_KEY`, explicit model/reasoning identity or task image digest as `BLOCKED`; do not infer them from the host or from a dashboard.
-- [ ] Retain the manifest and its SHA-256. If blocked, stop this graph and record the exact missing provider; do not start Harbor.
+Prepare a clean disposable checkout at the exact commit under test and verify:
 
-**Done when:** the manifest is `READY` at the exact source commit, or an honest `BLOCKED` manifest identifies the external dependency preventing the next slice.
+- Node/npm and locked dependencies;
+- ast-grep and TypeScript LSP;
+- FastEmbed dense and sparse/BM25 workers;
+- Qdrant reachable from both host and Harbor container;
+- Harbor version, `harbor run --help`, and dataset registry;
+- Docker and task image inspection;
+- Codex CLI and OAuth auth file;
+- built runtime/source manifest identity.
 
-**Out:** Harbor execution, benchmark claims and source changes.
-
----
-
-### FB-02 — Freeze the Harbor task, source and image identity
-
-**Purpose:** make native and ACE-optional trials byte-comparable before running an agent.
-
-**Files/artifacts:**
-- Read: `scripts/harbor-task-identities.ts`
-- Read: `scripts/freeze-feedback-task-manifest.ts`
-- Read: `scripts/prepare-harbor-feedback-jobs.ts`
-- Read: `benchmarks/harbor/ace-retrieval-codex-config.toml`
-- Create outside the repository: `/tmp/ace-feedback/${RUN_ID}/tasks/`, `/tmp/ace-feedback/${RUN_ID}/jobs/`
-
-- [ ] Obtain the pinned Harbor registry JSON and exact SWE-Atlas source checkout; verify the checkout is clean and at the registry commit.
-- [ ] Run task identity freezing with the actual registry and checkout:
-
-```bash
-npm run harbor:task-identities -- \
-  --registry /tmp/ace-feedback/${RUN_ID}/registry.json \
-  --dataset-id scale-ai/swe-atlas-qna \
-  --version ${PINNED_REGISTRY_VERSION} \
-  --source-root /tmp/ace-feedback/${RUN_ID}/swe-atlas \
-  --output /tmp/ace-feedback/${RUN_ID}/tasks/task-identities.jsonl
-```
-
-- [ ] Select exactly ten main IDs and ten untouched holdout IDs from that output. Freeze them once:
-
-```bash
-mapfile -t SELECTED_IDS < <(jq -r '.id' /tmp/ace-feedback/${RUN_ID}/tasks/task-identities.jsonl | sort)
-test "${#SELECTED_IDS[@]}" -ge 20
-MAIN_IDS=("${SELECTED_IDS[@]:0:10}")
-HOLDOUT_IDS=("${SELECTED_IDS[@]:10:10}")
-MAIN_ARGS=()
-HOLDOUT_ARGS=()
-for id in "${MAIN_IDS[@]}"; do MAIN_ARGS+=(--main-id "$id"); done
-for id in "${HOLDOUT_IDS[@]}"; do HOLDOUT_ARGS+=(--holdout-id "$id"); done
-: "${PINNED_REGISTRY_VERSION:?set from the pinned Harbor registry}"
-: "${PINNED_DATASET_REVISION:?set from the pinned dataset export}"
-: "${PINNED_DATASET_SHA256:?set from the pinned dataset export}"
-npm run freeze:feedback-tasks -- \
-  --tasks /tmp/ace-feedback/${RUN_ID}/tasks/task-identities.jsonl \
-  --dataset-revision ${PINNED_DATASET_REVISION} \
-  --dataset-sha256 ${PINNED_DATASET_SHA256} \
-  --output /tmp/ace-feedback/${RUN_ID}/tasks/frozen \
-  "${MAIN_ARGS[@]}" \
-  "${HOLDOUT_ARGS[@]}"
-```
-
-- [ ] Inspect every task image with `docker image inspect`; record its exact SHA-256 digest. A tag without a digest is a blocker.
-- [ ] Prepare matching native and ACE-optional jobs with the same model, reasoning effort, serial execution, task input, source revision, timeouts and image digest. Use `scripts/prepare-harbor-feedback-jobs.ts`; do not hand-edit provenance fields after generation.
-- [ ] Run the preflight again with the generated native/ACE jobs and experiment manifest. Reject contradictory model, source, task or image identity.
-
-**Done when:** `task-manifest.json`, job manifests and preflight manifest bind the same frozen task/source/model/runtime/image identity, or a retained `BLOCKED` artifact explains which external identity is unavailable.
-
-**Out:** actual Harbor execution and result scoring.
-
----
-
-### FB-03 — Run one native and one ACE-optional smoke trial
-
-**Purpose:** prove the real agent/container/MCP boundary before spending on a larger run.
-
-**Files/artifacts:**
-- Read: generated jobs from FB-02
-- Read: `benchmarks/harbor/ace-retrieval-codex-config.toml`
-- Create outside the repository: `/tmp/ace-feedback/${RUN_ID}/raw-agent-native/` and `/tmp/ace-feedback/${RUN_ID}/raw-agent-ace/`
-
-- [ ] Confirm FB-01 and FB-02 are `READY`; otherwise stop without launching Harbor.
-- [ ] Run exactly one task in the native arm and one identical task in the ACE-optional arm, serially, with separate state/artifact directories.
-- [ ] Verify inside the first ACE container that `ace_context` is callable, Qdrant is reachable from the container, the source mount is the pinned checkout and provider trace files are writable.
-- [ ] Preserve raw agent logs, verifier output, MCP requests/responses, provider receipts, source revision, task SHA, image digest and request correlation.
-- [ ] If the ACE-optional arm makes zero ACE calls, record `ACE_NOT_USED`; do not call that a retrieval or token-saving result.
-
-**Done when:** both trials finish with a verifier outcome and complete provenance, or a raw `BLOCKED`/`ACE_NOT_USED` result explains why no paired feedback exists.
-
-**Out:** 10-task economics and any ACE code change.
-
----
-
-### FB-04 — Reconcile and render the smoke evidence
-
-**Purpose:** ensure the first trial is structurally usable before scaling it.
-
-**Files/artifacts:**
-- Read: `scripts/collect-feedback-loop.ts`
-- Read: `scripts/render-feedback-summary.ts`
-- Create outside the repository: `/tmp/ace-feedback/${RUN_ID}/summary/`
-
-- [ ] Run the collector with the frozen task manifest, experiment manifest, native result and ACE result:
-
-```bash
-npm run collect:feedback-loop -- \
-  /tmp/ace-feedback/${RUN_ID}/tasks/frozen/task-manifest.json \
-  /tmp/ace-feedback/${RUN_ID}/experiment-manifest.json \
-  /tmp/ace-feedback/${RUN_ID}/raw-agent-native/result.json \
-  /tmp/ace-feedback/${RUN_ID}/raw-agent-ace/result.json \
-  /tmp/ace-feedback/${RUN_ID}/summary
-```
-
-- [ ] Require matching source/task SHA, valid verifier results, raw usage for both arms, ACE call count, MCP/provider correlation and no unverified acknowledgements.
-- [ ] Render the human summary and label missing metrics `UNKNOWN`; never coerce them to zero.
-- [ ] Record the smoke as infrastructure evidence only. Do not infer causal token savings from one task.
-
-**Done when:** the collector emits a reconciled summary or a fail-closed reason naming the missing/contradictory artifact.
-
-**Out:** changing prompts, models, ranking or ACE implementation.
-
----
-
-### FB-05 — Run the frozen ten-task paired set
-
-**Gate:** FB-04 has a reconciled smoke result and the owner has accepted the pinned model, cost and quality thresholds before the run.
-
-**Purpose:** obtain the first directional natural-use comparison, not a 5× claim.
-
-- [ ] Run exactly the ten frozen main tasks in native and ACE-optional arms, serially and with independent state per task.
-- [ ] Keep model, reasoning effort, tool policy, timeouts, source revision, image digest and task input identical between arms.
-- [ ] Capture provider-reported input/cached-input/output tokens, cost USD, tool-output bytes/tokens, ACE calls, native file reads, duration, errors and verifier quality.
-- [ ] Collect with the same command and artifact schema as FB-04.
-- [ ] Publish a versioned summary under `benchmarks/reports/` only after raw artifacts exist outside the repository and their hashes are recorded.
-
-**Done when:** all ten task pairs have an explicit quality verdict and measured-or-unknown economics. A negative or inconclusive result is a valid outcome.
-
-**Out:** holdout tuning and production promotion.
-
----
-
-### FB-06 — Repeat on independent trials and untouched holdout
-
-**Gate:** FB-05 has no unresolved provenance contradiction and quality non-inferiority has been checked before interpreting economics.
-
-- [ ] Repeat the same ten-task selection at least twice more without changing the frozen task manifest or runtime identity.
-- [ ] Run the untouched holdout only after the repeated main-set artifacts are retained.
-- [ ] Calculate paired deltas, p50/p95 duration, raw and uncached token breakdown, cost and failure rates; keep unknown components unknown.
-- [ ] Do not tune prompts, retrieval parameters or task selection using holdout outcomes.
-- [ ] Report whether ACE was actually used in each optional trial; separate `ACE_NOT_USED` from a genuine ACE result.
-
-**Done when:** repeated and holdout artifacts are independently hashable and the report states quality first, economics second, with all limitations.
-
----
-
-### FB-07 — Create one failure card and select one causal ACE change
-
-**Gate:** FB-05 or FB-06 contains at least one correlated failure or unnecessary native read. If no such case exists, record `NO_ACTIONABLE_FAILURE` and stop this slice.
-
-**Files/artifacts:**
-- Read: `src/domain/feedback-loop-experiment.ts`
-- Read: `src/adapters/retrieval-benchmark-trace.ts`
-- Create outside the repository: `/tmp/ace-feedback/${RUN_ID}/failure-cards/${CARD_ID}.json`
-
-- [ ] Select one failure without changing the frozen input.
-- [ ] Record task ID, source/task revision and digest, query, ranked candidates, exact ranges, LSP verdict, delivered bytes, ACE/native calls, request IDs and the specific failure class: recall, scope, LSP, dedupe, stale source, oversized context, discovery or unnecessary native read.
-- [ ] Identify one smallest ACE mechanism that could change that failure. Do not bundle prompt, provider, ranking and cache changes.
-- [ ] If production code must change, open a separate implementation slice with a RED regression in the existing cheapest test owner; do not edit code as part of this diagnostic card.
-
-**Done when:** one failure has one falsifiable hypothesis and one bounded change, or the card explicitly says no causal ACE change is justified.
-
----
-
-### FB-08 — Re-run the diagnostic case and one untouched case
-
-**Gate:** FB-07 produced a reviewed implementation PR and its affected tests passed.
-
-- [ ] Re-run the exact failed task with the same source/task/model/runtime identity.
-- [ ] Verify the original failure changed for the stated reason; do not accept a result that merely changed the ranking without preserving source proof.
-- [ ] Run one untouched task that was not used to select the fix.
-- [ ] Compare before/after raw traces and record regression, improvement or inconclusive outcome.
-- [ ] Keep the fix out of the default path until owner review and benchmark evidence justify promotion.
-
-**Done when:** the change is classified as `IMPROVED`, `REGRESSED` or `INCONCLUSIVE` with raw correlated evidence and no holdout contamination.
-
----
-
-## RepoBench-R slices
-
-### RB-01 — Acquire official records and prove source mapping
-
-**Purpose:** either produce a source-bound RepoBench-R manifest or retain a precise blocker.
-
-**Files/artifacts:**
-- Read: `scripts/repobench-r-acquire.ts`
-- Read: `scripts/repobench-r-resolve-context.ts`
-- Read: `scripts/repobench-r-adapter.ts`
-- Create outside the repository: `/tmp/ace-feedback/${RUN_ID}/repobench-r/`
-
-- [ ] Pin the official Hugging Face records URL, dataset revision, config (`python_cff`, `python_cfr`, `java_cff` or `java_cfr`) and split.
-- [ ] Obtain clean source checkouts at exact revisions for every repository referenced by the selected records. Do not synthesize repositories.
-- [ ] Run acquisition with one explicit source-revision mapping and checkout mapping per repository:
-
-```bash
-npm run acquire:repobench-r -- \
-  --records-url "${REPOBENCH_RECORDS_URL}" \
-  --revision "${REPOBENCH_DATASET_REVISION}" \
-  --config "${REPOBENCH_CONFIG}" \
-  --split "${REPOBENCH_SPLIT}" \
-  --output /tmp/ace-feedback/${RUN_ID}/repobench-r \
-  --source-revision "${REPO_ID}=${SOURCE_REVISION}" \
-  "${REPO_ID}=/tmp/ace-feedback/${RUN_ID}/sources/${REPO_ID}"
-```
-
-- [ ] Resolve gold context paths and require unique source occurrence; classify unresolved or ambiguous rows as `INVALID`, not as misses.
-- [ ] Run the adapter only after acquisition and resolution manifests are `READY`.
-- [ ] If exact source revisions cannot be established, write the tool's `BLOCKED` manifest and stop this branch. Do not create a substitute dataset.
-
-**Done when:** official records, source checkouts, source manifests and gold paths are all digest-bound, or an honest `BLOCKED`/`INVALID` report is retained.
-
----
-
-### RB-02 — Run retrieval ranking and grounding diagnostics
-
-**Gate:** RB-01 is `READY` with no invalid rows in the selected evaluation subset.
-
-- [ ] Convert the resolved rows to the existing `RetrievalHoldout`; do not change the evaluator or inject gold context into runtime queries.
-- [ ] Run `dense`, `sparse` and `hybrid_rrf` through the real MCP against the same source generation, without an unapproved reranker.
-- [ ] Retain per-query request ID, ranked candidate ID, path/range, AST/LSP verdict, source digest, payload bytes, latency and provider trace.
-- [ ] Calculate Recall@1/3/5, MRR, exact-span grounding, unknown/uncertain rate, duplicates, payload size and latency. Use an explicit tokenizer for token estimates and keep agent billing separate.
-- [ ] List worst cases and their concrete failure class; do not report only an average.
-
-**Done when:** ranked results and source-grounding diagnostics are reproducible from the frozen manifest, even if retrieval quality is poor.
-
----
-
-## Evidence and reporting contract
-
-Raw external artifacts belong under `/tmp/ace-feedback/${RUN_ID}/` or another explicitly configured evidence root:
+Run the OAuth-first preflight and save:
 
 ```text
-manifest.json
-raw-agent-native/
-raw-agent-ace/
-provider-trace.jsonl
-retrieval-rows.jsonl
-metrics.json
+/tmp/ace-feedback/<run-id>/preflight/manifest.json
 ```
 
-The versioned summary in `benchmarks/reports/` must include at least:
+If any mandatory dependency is unavailable, retain `BLOCKED` with the exact reason and stop all Harbor jobs. Do not use a mock, lexical fallback, guessed endpoint, or API-key workaround.
 
-| Task/query | Source/task SHA | Gold found@k | LSP proof | ACE called? | Native tokens | ACE tokens | Quality delta | Token ratio | Failure |
-|---|---|---|---|---|---:|---:|---|---:|---|
-| measured ID | measured | measured/unknown | measured/unknown | yes/no | measured/unknown | measured/unknown | measured/unknown | measured/unknown | specific or none |
+## STAGE0-01 — Real CST to LSP evidence
 
-Unknown is not zero. A missing trace, timeout, malformed response or unverified acknowledgement is not evidence of absence or successful deletion. Historical failures remain historical; they are not rewritten into a pass.
+- Use a real pinned TypeScript repository, not the synthetic fixture.
+- Exercise `ast-grep → local index → Qdrant → ace_context → TypeScript LSP` through the real MCP executable.
+- Forbid manual `semanticAnchor` injection.
+- Cover class/function/method, same-name scopes, Unicode, imports/re-exports, overloads, and nested declarations.
+- Retain raw MCP/provider traces and exact source/runtime digests.
+- Report indexed symbols, anchored symbols, LSP-confirmed symbols, LSP-unconfirmed symbols, and errors by language.
+- Preserve `uncertain` for ambiguous declarations and open issues for unsupported language/name-node cases.
 
-## Final decision gates
+**Done:** at least one real source symbol has `LSP definition confirmed` through an actual `ace_context` response and the coverage manifest is commit-bound.
 
-- `PROVIDER-PATH PASS`: real MCP/provider trace exists for the exact source and runtime; this does not prove agent benefit.
-- `SMOKE READY`: one native and one ACE-optional trial have complete source/task/image/model provenance and verifier results.
-- `DIRECTIONAL FEEDBACK`: the ten-task paired set has quality-first results and measured-or-unknown economics.
-- `REPEATABLE FEEDBACK`: independent repeats and untouched holdout preserve frozen identities and raw evidence.
-- `RETRIEVAL DIAGNOSTIC`: RepoBench-R or another approved source-bound holdout has exact gold mapping and reproducible ranked results.
-- `PRODUCTION READY`: not implied by any item above; requires applicable real-provider, security, DBC, release and explicit owner-approval gates.
+## RB-01 — RepoBench-R source mapping
 
-No slice may claim 5×. The target remains a hypothesis to measure against a strong native baseline.
+- Pin the official records URL, dataset revision, config, split, and SHA-256.
+- Obtain clean source checkouts at exact revisions for every selected repository.
+- Resolve each gold context to one unique file and exact byte range.
+- Mark missing or ambiguous rows `INVALID`; never convert them into misses.
+- Run the existing acquisition and resolution tools only after all mappings are explicit.
+- If the official records cannot be mapped to exact source, retain `BLOCKED` and stop this branch.
+
+**Done:** source-bound manifest with valid mappings, or an honest `BLOCKED/INVALID` report.
+
+## RB-02 — Retrieval diagnostics
+
+After `RB-01=READY`:
+
+- Run dense, sparse, and hybrid through the real MCP on one source generation.
+- Do not use an unapproved reranker.
+- Retain request IDs, ranked candidates, paths, byte ranges, AST/LSP verdicts, source digests, provider traces, payload bytes, and latency.
+- Compute Recall@1/3/5, MRR, exact-span grounding, unknown/uncertain rate, duplicate rate, payload size, and latency.
+- List worst cases: miss, wrong scope, unverified anchor, stale source, oversized context, duplicate/native-read overhead.
+
+## HARBOR-01 — Freeze real Harbor inputs
+
+- Use `scale-ai/swe-atlas-qna` and pin Harbor registry/version plus source repository commits.
+- Select exactly 10 main tasks and 10 untouched holdout tasks.
+- Hash task inputs and source checkouts.
+- Pin model, reasoning effort, task image digests, source revision, ACE config digest, and OAuth route.
+- Generate native and ACE-optional jobs through the existing generator.
+- Native job must not load ACE config; ACE-optional job must load it.
+- Enforce serial execution: `n_concurrent_trials=1`, `n_attempts=1`.
+
+**Done:** task, job, experiment, source, image, auth, and runtime manifests agree byte-for-byte or the slice is `BLOCKED`.
+
+## HARBOR-02 — One-task smoke
+
+Run one frozen task in this order:
+
+1. native Codex without ACE;
+2. ACE-optional Codex with ACE available but not forced.
+
+Inside the ACE container verify `ace_context`, Qdrant reachability, source mount, provider receipts, task verifier, and raw JSONL retention. A zero ACE-call result is `ACE_NOT_USED`, not savings.
+
+**Done:** both arms have verifier outcomes and complete provenance, or raw `BLOCKED`/`ACE_NOT_USED` artifacts explain the result.
+
+## HARBOR-03 — Reconcile smoke
+
+Use the existing collector and renderer to verify:
+
+- source/task/model/reasoning/image identity;
+- raw and cached-input usage;
+- ACE/native call counts;
+- request/provider correlation;
+- raw artifact hashes;
+- quality outcome.
+
+Keep missing metrics `UNKNOWN`. This is an infrastructure gate, not an economics result.
+
+## HARBOR-04 — Ten-task paired run
+
+- Run the 10 frozen tasks in native and ACE-optional arms with independent state per task.
+- Retain quality, input/cached/output tokens, cost, tool-output bytes/tokens, ACE calls, native reads, latency, failures, and timeouts.
+- Evaluate quality non-inferiority before interpreting economics.
+- Treat negative and inconclusive results as valid.
+
+## HARBOR-05 — Repeats and untouched holdout
+
+- Repeat the frozen main set at least twice more.
+- Do not change tasks, prompts, model, reasoning, or retrieval settings.
+- Run untouched holdout only after main repeats are retained.
+- Keep `ACE_USED`, `ACE_NOT_USED`, failed, and unknown telemetry separate.
+- Report paired deltas, p50/p95 latency, quality/failure rates, raw/cached token breakdown, and cost.
+- Never tune on holdout outcomes.
+
+## FIX-01 — Failure card and one targeted change
+
+If natural-use evidence contains an actionable correlated failure:
+
+- record task/query/candidates/ranges, AST/LSP verdict, calls, request IDs, and raw traces;
+- classify recall, scope, LSP, stale-source, dedupe, oversized-context, discovery, or unnecessary-read failure;
+- state one falsifiable causal hypothesis;
+- make one minimal ACE-only change;
+- add a RED regression in the existing cheapest test owner;
+- do not combine prompt, model, ranking, provider, and cache changes.
+
+If no actionable failure exists, record `NO_ACTIONABLE_FAILURE` and make no production change.
+
+## FIX-02 — Validate the targeted change
+
+- Re-run the exact failed task with unchanged frozen inputs.
+- Verify the original failure changed for the stated reason.
+- Run one untouched task.
+- Compare raw traces before/after.
+- Classify `IMPROVED`, `REGRESSED`, or `INCONCLUSIVE`.
+- Keep the change out of the default path until review and evidence justify promotion.
+
+## Evidence and reporting
+
+Store raw external artifacts under:
+
+```text
+/tmp/ace-feedback/<run-id>/
+```
+
+Commit only English summaries and hashes under `benchmarks/reports/`. Every report must contain exact source/task/runtime identities, quality-first conclusions, measured-or-unknown token/cost fields, failure classes, limitations, and no invented values.
+
+## Verification and delivery
+
+For code changes:
+
+```bash
+npm run test:affected
+npm run verify:pr
+```
+
+For real runtime evidence:
+
+```bash
+CODEX_FORCE_AUTH_JSON=1 harbor run --config <generated-job>
+```
+
+Every evidence slice must retain a manifest, exact commit, artifact hashes, request correlation, and one of `READY`, `BLOCKED`, `UNKNOWN`, `INVALID`, or `ACE_NOT_USED`.
+
+All repository changes must be made on a reviewable branch and delivered through a PR targeting `main`. No 5x or production-readiness claim is permitted before the applicable real-provider, agent-E2E, benchmark, security, and owner-approval gates pass.
