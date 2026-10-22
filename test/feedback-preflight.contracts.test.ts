@@ -90,6 +90,7 @@ test('feedback jobs use the Codex OAuth route and do not require the legacy API-
   assert.match(sweAtlasConfig, /cwd = "\/app"/u);
   assert.match(sweAtlasConfig, /ACE_WORKSPACE_ROOT = "\/app"/u);
   assert.match(sweAtlasConfig, /ACE_ALLOWED_ROOTS = "\/app"/u);
+  assert.match(sweAtlasConfig, /GIT_CONFIG_VALUE_0 = "\/ace"/u);
 });
 
 
