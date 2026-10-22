@@ -15,6 +15,7 @@ const validAuth = JSON.stringify({
     id_token: 'oauth-id-token',
     account_id: 'account-id',
   },
+  last_refresh: '2026-10-22T16:00:00Z',
 });
 
 test('Codex ChatGPT auth is ready without a manually supplied API key', () => {
@@ -31,6 +32,27 @@ test('Codex auth preflight rejects missing or malformed OAuth state', () => {
   assert.equal(inspectCodexAuthJson('/tmp/auth.json', '{"tokens":{"access_token":"x"}}').status, 'not_ready');
   assert.equal(inspectCodexAuthJson('/tmp/auth.json', '{not-json').status, 'not_ready');
   assert.equal(inspectCodexAuthJson('/tmp/auth.json', '{"auth_mode":"api_key","tokens":{"access_token":"x"}}').status, 'not_ready');
+  assert.equal(inspectCodexAuthJson('/tmp/auth.json', JSON.stringify({
+    auth_mode: 'chatgpt',
+    tokens: { id_token: 'identity-only' },
+    last_refresh: '2026-10-22T16:00:00Z',
+  })).status, 'not_ready');
+  assert.equal(inspectCodexAuthJson('/tmp/auth.json', JSON.stringify({
+    auth_mode: 'chatgpt',
+    tokens: { access_token: 'access-only' },
+    last_refresh: '2026-10-22T16:00:00Z',
+  })).status, 'not_ready');
+  assert.equal(inspectCodexAuthJson('/tmp/auth.json', JSON.stringify({
+    auth_mode: 'chatgpt',
+    tokens: { access_token: 'access', refresh_token: 'refresh' },
+  })).status, 'not_ready');
+});
+
+test('real Stage0 keeps evidence outside frozen source and revalidates source identity after providers run', async () => {
+  const stage0 = await readFile('scripts/feedback-loop-stage0.ts', 'utf8');
+  assert.match(stage0, /--output must remain outside --source-root/u);
+  assert.match(stage0, /const finalSource = realSourceIdentity\(sourceRoot\)/u);
+  assert.match(stage0, /finalSource\.manifestSha256 !== source\.manifestSha256/u);
 });
 
 test('feedback jobs use the Codex OAuth route and do not require the legacy API-key route', async () => {
