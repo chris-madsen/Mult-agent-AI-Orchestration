@@ -3,11 +3,19 @@ import { domainError, type DomainError } from './errors.js';
 import { err, ok, type Result } from './result.js';
 import type { RetrievalHoldout, RetrievalHoldoutCase, RetrievalHoldoutRepository } from './retrieval-quality-evaluation.js';
 
+export interface RepoBenchContextSnippet {
+  readonly identifier?: string;
+  readonly path: string;
+  readonly snippet: string;
+}
+
 export interface RepoBenchRecord {
   readonly id: string;
   readonly repoName: string;
+  /** Current file where the completion/query originates. */
   readonly filePath: string;
-  readonly context: readonly string[];
+  /** Cross-file snippets supplied by RepoBench-R. */
+  readonly context: readonly RepoBenchContextSnippet[];
   readonly goldSnippetIndex: number;
   readonly importStatement?: string;
   readonly code: string;
@@ -38,11 +46,24 @@ export interface RepoBenchManifest {
   readonly repositories: readonly RepoBenchRepositoryIdentity[];
 }
 
+export interface RepoBenchStructuralCandidate {
+  readonly range: {
+    readonly startLine: number;
+    readonly endLine: number;
+    readonly startColumn: number;
+    readonly endColumn: number;
+  };
+  readonly startByteOffset: number;
+  readonly endByteOffset: number;
+}
+
 export interface RepoBenchSourceFile {
   readonly repositoryId: string;
   readonly repoPath: string;
   readonly source: string;
   readonly sourceDigest: string;
+  /** Exact structural candidates produced by the same ast-grep outline contract ACE indexes. */
+  readonly structuralCandidates: readonly RepoBenchStructuralCandidate[];
 }
 
 export interface RepoBenchInvalidRow {
@@ -52,9 +73,11 @@ export interface RepoBenchInvalidRow {
   readonly reason: 'record_invalid'
   | 'repository_unbound'
   | 'gold_index_invalid'
+  | 'gold_context_invalid'
   | 'gold_snippet_empty'
   | 'gold_snippet_not_found'
-  | 'gold_snippet_ambiguous';
+  | 'gold_snippet_ambiguous'
+  | 'gold_structural_candidate_not_found';
 }
 
 export interface RepoBenchMappedRow {
@@ -62,13 +85,15 @@ export interface RepoBenchMappedRow {
   readonly repositoryId: string;
   readonly repoPath: string;
   readonly sourceDigest: string;
-  readonly goldCandidateId: string;
+  /** Exact RepoBench gold snippet span, retained for audit. */
   readonly goldRange: {
     readonly startLine: number;
     readonly endLine: number;
     readonly startColumn: number;
     readonly endColumn: number;
   };
+  /** Minimal ACE structural candidate(s) that contain the exact gold snippet. */
+  readonly relevantCandidateIds: readonly string[];
   readonly querySha256: string;
 }
 
@@ -132,10 +157,11 @@ const queryFor = (record: RepoBenchRecord): string => [record.importStatement ??
 const invalid = (
   record: RepoBenchRecord,
   reason: RepoBenchInvalidRow['reason'],
+  repoPath: string = record.filePath,
 ): RepoBenchInvalidRow => ({
   recordId: record.id,
   repositoryId: record.repoName,
-  repoPath: record.filePath,
+  repoPath,
   reason,
 });
 
@@ -188,34 +214,41 @@ export const mapRepoBenchRecords = (
       invalidRows.push(invalid(record, 'gold_index_invalid'));
       continue;
     }
-    const goldSnippet = record.context[record.goldSnippetIndex];
-    if (goldSnippet === undefined || goldSnippet.length === 0) {
-      invalidRows.push(invalid(record, 'gold_snippet_empty'));
+    const goldContext = record.context[record.goldSnippetIndex];
+    if (goldContext === undefined || !safeRepoPath(goldContext.path)) {
+      invalidRows.push(invalid(record, 'gold_context_invalid'));
       continue;
     }
-    const source = sources.get(sourceKey(record.repoName, record.filePath));
+    const goldSnippet = goldContext.snippet;
+    if (!nonEmpty(goldSnippet)) {
+      invalidRows.push(invalid(record, 'gold_snippet_empty', goldContext.path));
+      continue;
+    }
+    const source = sources.get(sourceKey(record.repoName, goldContext.path));
     if (source === undefined) {
       return err(domainError(
         'INVALID_BENCHMARK',
-        `repobench_r.sources.${record.repoName}.${record.filePath}`,
-        'source snapshot is missing; benchmark must be blocked rather than synthesized',
+        `repobench_r.sources.${record.repoName}.${goldContext.path}`,
+        'gold cross-file source snapshot is missing; benchmark must be blocked rather than synthesized',
       ));
     }
-    if (source.repositoryId !== repository.id || source.repoPath !== record.filePath || !sha256Hex(source.sourceDigest)
+    if (source.repositoryId !== repository.id || source.repoPath !== goldContext.path || !sha256Hex(source.sourceDigest)
       || sha256(source.source) !== source.sourceDigest) {
       return err(domainError('INVALID_BENCHMARK', `repobench_r.sources.${record.id}`, 'source identity is inconsistent'));
     }
     const offsets = exactOccurrences(source.source, goldSnippet);
     if (offsets.length === 0) {
-      invalidRows.push(invalid(record, 'gold_snippet_not_found'));
+      invalidRows.push(invalid(record, 'gold_snippet_not_found', goldContext.path));
       continue;
     }
     if (offsets.length !== 1) {
-      invalidRows.push(invalid(record, 'gold_snippet_ambiguous'));
+      invalidRows.push(invalid(record, 'gold_snippet_ambiguous', goldContext.path));
       continue;
     }
     const startOffset = offsets[0] as number;
     const endOffset = startOffset + goldSnippet.length;
+    const goldStartByteOffset = Buffer.byteLength(source.source.slice(0, startOffset), 'utf8');
+    const goldEndByteOffset = Buffer.byteLength(source.source.slice(0, endOffset), 'utf8');
     const starts = lineStarts(source.source);
     const start = positionFor(source.source, starts, startOffset);
     const end = positionFor(source.source, starts, endOffset);
@@ -225,12 +258,26 @@ export const mapRepoBenchRecords = (
       startColumn: start.byteColumn,
       endColumn: end.byteColumn,
     };
-    const goldCandidateId = canonicalBenchmarkCandidateId(repository.id, record.filePath, source.sourceDigest, range);
+    const containing = source.structuralCandidates.filter((candidate) =>
+      candidate.startByteOffset <= goldStartByteOffset && candidate.endByteOffset >= goldEndByteOffset);
+    if (containing.length === 0) {
+      invalidRows.push(invalid(record, 'gold_structural_candidate_not_found', goldContext.path));
+      continue;
+    }
+    const smallestBytes = Math.min(...containing.map((candidate) => candidate.endByteOffset - candidate.startByteOffset));
+    const relevantCandidateIds = [...new Set(containing
+      .filter((candidate) => candidate.endByteOffset - candidate.startByteOffset === smallestBytes)
+      .map((candidate) => canonicalBenchmarkCandidateId(
+        repository.id,
+        goldContext.path,
+        source.sourceDigest,
+        candidate.range,
+      )))];
     const query = queryFor(record);
     cases.push({
       id: record.id,
       query,
-      relevantCandidateIds: [goldCandidateId],
+      relevantCandidateIds,
       repositoryId: repository.id,
       critical: true,
       kind: 'exact_symbol_or_config',
@@ -238,10 +285,10 @@ export const mapRepoBenchRecords = (
     mappedRows.push({
       recordId: record.id,
       repositoryId: repository.id,
-      repoPath: record.filePath,
+      repoPath: goldContext.path,
       sourceDigest: source.sourceDigest,
-      goldCandidateId,
       goldRange: range,
+      relevantCandidateIds,
       querySha256: sha256(query),
     });
   }
