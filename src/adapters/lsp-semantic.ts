@@ -93,6 +93,19 @@ const setStreamRef = (stream: NodeJS.ReadableStream | NodeJS.WritableStream, ref
   method?.call(stream);
 };
 
+const terminateProviderProcess = (child: ChildProcessWithoutNullStreams): void => {
+  const pid = child.pid;
+  if (pid !== undefined && process.platform !== 'win32') {
+    try {
+      process.kill(-pid, 'SIGTERM');
+      return;
+    } catch {
+      // The process group may already have exited; fall back to the direct child.
+    }
+  }
+  child.kill('SIGTERM');
+};
+
 export const lspLanguageIdForPath = (repoPath: string, languageIds?: Readonly<Record<string, string>>): string | undefined => {
   const extension = path.extname(repoPath).toLocaleLowerCase();
   const configured = languageIds?.[extension];
@@ -233,6 +246,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
       cwd: options.rootPath,
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: providerUsesWindowsShell(command),
+      detached: process.platform !== 'win32',
     });
     child.unref();
     const refProcess = (): void => {
@@ -305,7 +319,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
       diagnosticSettleTimers.clear();
       diagnosticWaiters.clear();
       connection.dispose();
-      child.kill('SIGTERM');
+      terminateProviderProcess(child);
     };
     const waitForDiagnostics = (uri: string, timeoutMs: number): Promise<readonly LspDiagnostic[]> => {
       const current = diagnostics.get(uri);

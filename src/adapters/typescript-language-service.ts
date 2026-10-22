@@ -10,6 +10,7 @@ export interface TypeScriptLanguageServiceOptions {
   readonly compilerOptions?: ts.CompilerOptions;
   readonly providerVersion?: string;
   readonly snapshotIdentity?: string;
+  readonly timeoutMs?: number;
   readonly trace?: ProviderTraceSink;
 }
 
@@ -23,6 +24,7 @@ export const makeTypeScriptLanguageServicePort = (
     keepProcessAlive: false,
     ...(options.providerVersion === undefined ? {} : { providerVersion: options.providerVersion }),
     ...(options.snapshotIdentity === undefined ? {} : { snapshotIdentity: options.snapshotIdentity }),
+    timeoutMs: options.timeoutMs ?? 30_000,
     ...(options.trace === undefined ? {} : { trace: options.trace }),
   });
   // Keep one LSP session for the lifetime of the compatibility port so a
