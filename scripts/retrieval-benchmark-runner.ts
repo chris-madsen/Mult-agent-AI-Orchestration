@@ -18,6 +18,11 @@ import type {
   RetrievalStageRanks,
   RetrievalStrategyRun,
 } from '../src/domain/retrieval-quality-evaluation.js';
+import {
+  retrievalSourceManifestExcludedPath,
+  retrievalSourceManifestSha256,
+} from '../src/domain/retrieval-source-manifest.js';
+import { structuralLanguageForPath } from '../src/domain/structural-language.js';
 
 const strategies = [
   'sparse',
@@ -105,6 +110,45 @@ const parseArgs = (): {
 };
 
 const gitRevision = (root: string): string => execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+const gitBytes = (root: string, args: readonly string[]): Buffer => execFileSync('git', ['-C', root, ...args]);
+const gitText = (root: string, args: readonly string[]): string => gitBytes(root, args).toString('utf8');
+
+const sourceManifestFor = (binding: RepositoryBinding): string => {
+  const paths = gitText(binding.root, ['ls-tree', '-r', '-z', '--name-only', binding.revision])
+    .split('\0')
+    .filter((value) => value.length > 0)
+    .sort((left, right) => left.localeCompare(right));
+  const entries: Array<{ path: string; sizeBytes: number; sha256: string }> = [];
+  for (const repoPath of paths) {
+    if (retrievalSourceManifestExcludedPath(repoPath)) continue;
+    const bytes = gitBytes(binding.root, ['show', `${binding.revision}:${repoPath}`]);
+    if (bytes.includes(0)) continue;
+    entries.push({ path: repoPath, sizeBytes: bytes.byteLength, sha256: sha256(bytes) });
+  }
+  return retrievalSourceManifestSha256(binding.id, binding.revision, entries);
+};
+
+const runtimeIndexExcludedDirectories = new Set([
+  '.git', '.ace', '.venv', '.venv-system', 'node_modules', 'dist', 'target', 'coverage',
+]);
+
+const runtimeIndexedPath = (repoPath: string): boolean =>
+  !repoPath.replaceAll('\\', '/').split('/').some((part) => runtimeIndexExcludedDirectories.has(part))
+  && structuralLanguageForPath(repoPath.replaceAll('\\', '/')) !== undefined;
+
+const dirtyIndexedPaths = (root: string): readonly string[] => {
+  const statusPaths = gitText(root, ['-c', 'core.quotepath=false', 'status', '--porcelain=v1', '--untracked-files=all'])
+    .split(/\r?\n/u)
+    .filter((line) => line.length > 0)
+    .flatMap((line) => line.slice(3).split(' -> '));
+  const ignoredPaths = gitText(root, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'])
+    .split('\0')
+    .filter((path) => path.length > 0);
+  return [...new Set([...statusPaths, ...ignoredPaths]
+    .map((path) => path.replaceAll('\\', '/'))
+    .filter(runtimeIndexedPath))]
+    .sort();
+};
 
 const parseBindings = (mappings: readonly string[], holdout: RetrievalHoldout): readonly RepositoryBinding[] => {
   const roots = new Map<string, string>();
@@ -122,12 +166,21 @@ const parseBindings = (mappings: readonly string[], holdout: RetrievalHoldout): 
     if (actual !== repository.revision) {
       throw new Error(`repository ${repository.id} revision mismatch: expected ${repository.revision}, got ${actual}`);
     }
-    return {
+    const binding = {
       id: repository.id,
       root,
       revision: repository.revision,
       sourceManifestSha256: repository.sourceManifestSha256,
     };
+    const actualManifest = sourceManifestFor(binding);
+    if (actualManifest !== repository.sourceManifestSha256) {
+      throw new Error(`repository ${repository.id} source manifest mismatch: expected ${repository.sourceManifestSha256}, got ${actualManifest}`);
+    }
+    const dirty = dirtyIndexedPaths(root);
+    if (dirty.length > 0) {
+      throw new Error(`repository ${repository.id} has dirty or extra runtime-indexed paths: ${dirty.slice(0, 20).join(', ')}`);
+    }
+    return binding;
   });
 };
 
