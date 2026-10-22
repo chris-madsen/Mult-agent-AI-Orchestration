@@ -40,6 +40,24 @@ export interface RepoBenchRepositoryIdentity {
   readonly sourceManifestSha256: string;
 }
 
+export interface RepoBenchGitManifestEntry {
+  readonly path: string;
+  readonly mode: string;
+  readonly objectId: string;
+}
+
+/**
+ * Repository identity used by the adapter: SHA-256 of sorted Git index entries
+ * (path, mode, object id) at the pinned clean checkout. The adapter separately
+ * rejects dirty and ignored-untracked files so the runtime worktree cannot
+ * silently diverge from this identity.
+ */
+export const repoBenchSourceManifestSha256 = (
+  entries: readonly RepoBenchGitManifestEntry[],
+): string => sha256(JSON.stringify([...entries]
+  .map((entry) => ({ ...entry }))
+  .sort((left, right) => left.path.localeCompare(right.path))));
+
 export interface RepoBenchManifest {
   readonly schemaVersion: 1;
   readonly dataset: RepoBenchDatasetIdentity;
