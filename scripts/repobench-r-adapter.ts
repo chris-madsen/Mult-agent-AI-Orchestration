@@ -8,6 +8,7 @@ import { makeAstGrepStructuralPort } from '../src/adapters/ast-grep-structural.j
 import {
   mapRepoBenchRecords,
   repoBenchSourceKey,
+  repoBenchSourceManifestExclusions,
   repoBenchSourceManifestSha256,
   type RepoBenchManifest,
   type RepoBenchRecord,
@@ -157,32 +158,46 @@ const parseMappings = (mappings: readonly string[]): ReadonlyMap<string, string>
 
 const gitRevision = (root: string): string => execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 
-const gitSourceManifest = (root: string): { readonly digest: string; readonly dirtyPaths: readonly string[] } => {
-  const dirty = execFileSync('git', ['-C', root, 'status', '--porcelain=v1', '--untracked-files=all'], { encoding: 'utf8' })
-    .split(/\r?\n/u).filter((line) => line.length > 0);
-  const ignored = execFileSync('git', ['-C', root, 'ls-files', '--others', '--ignored', '--exclude-standard', '-z'], { encoding: 'utf8' })
-    .split('\0').filter((path) => path.length > 0).map((path) => `ignored:${path}`);
-  const staged = execFileSync('git', ['-C', root, 'ls-files', '--stage', '-z'], { encoding: 'utf8' })
-    .split('\0').filter((line) => line.length > 0).map((line) => {
-      const match = /^(\d+) ([a-f0-9]+) (\d+)\t(.+)$/iu.exec(line);
-      if (match?.[1] === undefined || match[2] === undefined || match[4] === undefined) {
-        throw new Error('BLOCKED: could not parse Git source manifest');
-      }
-      return { mode: match[1], objectId: match[2].toLowerCase(), path: match[4].replaceAll('\\', '/') };
-    });
-  return { digest: repoBenchSourceManifestSha256(staged), dirtyPaths: [...dirty, ...ignored] };
+const sourceManifestExcluded = (repoPath: string): boolean => {
+  const lower = repoPath.toLocaleLowerCase();
+  return repoPath.split('/').some((part) =>
+    ['node_modules', 'dist', 'build', 'artifacts', '.cache', 'coverage', 'vendor'].includes(part))
+    || ['.png', '.jpg', '.jpeg', '.gif', '.ico', '.woff', '.woff2', '.zip', '.tar', '.gz', '.exe', '.dll']
+      .some((suffix) => lower.endsWith(suffix));
+};
+
+const gitSourceBytes = (root: string, revision: string, repoPath: string): Buffer =>
+  execFileSync('git', ['-C', root, 'show', `${revision}:${repoPath}`]);
+
+const gitSourceManifest = (root: string, repositoryId: string, revision: string): string => {
+  const paths = execFileSync('git', ['-C', root, 'ls-tree', '-r', '-z', '--name-only', revision], { encoding: 'utf8' })
+    .split('\0').filter((path) => path.length > 0).sort((left, right) => left.localeCompare(right));
+  const entries: Array<{ path: string; sizeBytes: number; sha256: string }> = [];
+  for (const repoPath of paths) {
+    if (sourceManifestExcluded(repoPath)) continue;
+    const bytes = gitSourceBytes(root, revision, repoPath);
+    if (bytes.includes(0)) continue;
+    entries.push({ path: repoPath, sizeBytes: bytes.byteLength, sha256: sha256(bytes) });
+  }
+  // Keep the exclusion vocabulary byte-for-byte aligned with the canonical freezer.
+  if (repoBenchSourceManifestExclusions.join('|')
+    !== ['.git', 'node_modules', 'dist', 'build', 'artifacts', '.cache', 'coverage', 'vendor', 'binary files'].join('|')) {
+    throw new Error('BLOCKED: source-manifest exclusion contract drifted');
+  }
+  return repoBenchSourceManifestSha256(repositoryId, revision, entries);
 };
 
 const readSource = async (
   root: string,
   repositoryId: string,
+  revision: string,
   repoPath: string,
   structural: ReturnType<typeof makeAstGrepStructuralPort>,
 ): Promise<RepoBenchSourceFile> => {
   if (isAbsolute(repoPath) || relative(root, resolve(root, repoPath)).startsWith('..')) {
     throw new Error(`source path escapes checkout: ${repositoryId}/${repoPath}`);
   }
-  const bytes = await readFile(resolve(root, repoPath));
+  const bytes = gitSourceBytes(root, revision, repoPath);
   const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   const outlined = await Effect.runPromise(structural.extract({ repoPath, source: bytes }));
   if (outlined._tag === 'Err') {
@@ -233,14 +248,11 @@ const main = async (): Promise<void> => {
     if (actualRevision !== repository.revision) {
       throw new Error(`BLOCKED: ${repository.id} revision mismatch; expected ${repository.revision}, got ${actualRevision}`);
     }
-    const sourceManifest = gitSourceManifest(root);
-    if (sourceManifest.dirtyPaths.length > 0) {
-      throw new Error(`BLOCKED: ${repository.id} checkout is not an immutable clean source snapshot: ${sourceManifest.dirtyPaths.slice(0, 10).join(', ')}`);
+    const sourceManifest = gitSourceManifest(root, repository.id, repository.revision);
+    if (sourceManifest !== repository.sourceManifestSha256) {
+      throw new Error(`BLOCKED: ${repository.id} source manifest mismatch; expected ${repository.sourceManifestSha256}, got ${sourceManifest}`);
     }
-    if (sourceManifest.digest !== repository.sourceManifestSha256) {
-      throw new Error(`BLOCKED: ${repository.id} source manifest mismatch; expected ${repository.sourceManifestSha256}, got ${sourceManifest.digest}`);
-    }
-    verifiedRepositories.push({ id: repository.id, revision: actualRevision, sourceManifestSha256: sourceManifest.digest });
+    verifiedRepositories.push({ id: repository.id, revision: actualRevision, sourceManifestSha256: sourceManifest });
   }
   const structural = makeAstGrepStructuralPort({ command: args.astGrepCommand });
   const sourceFiles = new Map<string, RepoBenchSourceFile>();
@@ -251,7 +263,9 @@ const main = async (): Promise<void> => {
     if (goldContext === undefined) continue;
     const key = repoBenchSourceKey(record.repoName, goldContext.path);
     if (sourceFiles.has(key)) continue;
-    sourceFiles.set(key, await readSource(root, record.repoName, goldContext.path, structural));
+    const repository = manifest.repositories.find((item) => item.id === record.repoName);
+    if (repository === undefined) continue;
+    sourceFiles.set(key, await readSource(root, record.repoName, repository.revision, goldContext.path, structural));
   }
   const mapped = mapRepoBenchRecords(manifest, records, sourceFiles);
   if (mapped._tag === 'Err') {
