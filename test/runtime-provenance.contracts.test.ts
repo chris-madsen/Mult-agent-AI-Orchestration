@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
+import { verifyCompiledRuntimeProvenance } from '../src/application/runtime-provenance.js';
 import {
   runtimeRelevantPath,
   sourceManifestBytes,
@@ -83,4 +84,16 @@ test('a runtime root mismatch cannot reuse another root manifest', () => {
     runtimeRoot: '/different-root',
   }, sourceManifestSha256);
   assert.ok(failures.includes('runtime_root_mismatch'));
+});
+
+test('executing a binary from another checkout cannot reuse a clean manifest', async () => {
+  const result = await verifyCompiledRuntimeProvenance(
+    '/frozen-clean-checkout',
+    '/different-runtime/dist/bin/ace-mcp.js',
+  );
+  assert.equal(result._tag, 'Err');
+  if (result._tag === 'Err') {
+    assert.equal(result.error.code, 'NOT_READY');
+    assert.match(result.error.message, /executable path does not match/u);
+  }
 });
