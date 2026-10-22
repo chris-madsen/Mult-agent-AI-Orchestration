@@ -40,23 +40,32 @@ export interface RepoBenchRepositoryIdentity {
   readonly sourceManifestSha256: string;
 }
 
-export interface RepoBenchGitManifestEntry {
+export interface RepoBenchSourceManifestEntry {
   readonly path: string;
-  readonly mode: string;
-  readonly objectId: string;
+  readonly sizeBytes: number;
+  readonly sha256: string;
 }
 
+export const repoBenchSourceManifestExclusions = [
+  '.git', 'node_modules', 'dist', 'build', 'artifacts', '.cache', 'coverage', 'vendor', 'binary files',
+] as const;
+
 /**
- * Repository identity used by the adapter: SHA-256 of sorted Git index entries
- * (path, mode, object id) at the pinned clean checkout. The adapter separately
- * rejects dirty and ignored-untracked files so the runtime worktree cannot
- * silently diverge from this identity.
+ * Match the canonical external retrieval-holdout manifest format used by
+ * scripts/freeze-retrieval-holdout.ts so RepoBench labels and generic frozen
+ * holdouts share one source identity scheme.
  */
 export const repoBenchSourceManifestSha256 = (
-  entries: readonly RepoBenchGitManifestEntry[],
-): string => sha256(JSON.stringify([...entries]
-  .map((entry) => ({ ...entry }))
-  .sort((left, right) => left.path.localeCompare(right.path))));
+  repositoryId: string,
+  revisionValue: string,
+  entries: readonly RepoBenchSourceManifestEntry[],
+): string => sha256(JSON.stringify({
+  schemaVersion: 1,
+  repositoryId,
+  revision: revisionValue,
+  exclusions: repoBenchSourceManifestExclusions,
+  entries: [...entries].map((entry) => ({ ...entry })).sort((left, right) => left.path.localeCompare(right.path)),
+}, null, 2) + '\n');
 
 export interface RepoBenchManifest {
   readonly schemaVersion: 1;
