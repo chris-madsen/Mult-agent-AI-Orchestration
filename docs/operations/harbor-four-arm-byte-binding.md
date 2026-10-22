@@ -49,6 +49,22 @@ usage/timestamps, and extracts returned evidence receipt/delivery metrics.
 It reconciles those observations against the declared aggregate. Forged
 success/token counters, missing verifier outcomes, missing request
 correlation, task-order drift, or unsupported receipt reuse are `BLOCKED`.
+The reconciler additionally requires every raw trial name to match the **exact
+frozen job task path or the task ID from the frozen manifest**, in serial
+execution order. The raw Harbor aggregate file itself must exist. Trial
+directories are ordered by their observed `started_at` timestamps (not
+lexical directory names); ambiguous timestamps and unexpected task identities
+are blocked. One successful MCP request ID cannot be counted again in another
+trial or arm. A failed ACE trial paired with a successful native trial blocks
+quality non-inferiority regardless of the report's `qualityNonInferior` flag.
+
+**Remaining proof limitations:** These checks do not authenticate arbitrary
+files supplied as Harbor logs, prove that an external runtime image was actually
+executed, or independently validate every cost/quality methodology. Complete
+native-read and timeout instrumentation is still needed before the existing
+release gate can pass; passing contract tests does not constitute a real
+Harbor result or permission to claim 5×.
+
 The parser deliberately leaves timeout and native-read telemetry `unknown`
 when the raw runtime did not emit those facts; absence of `ace_expand` is not
 evidence of zero native reads.
