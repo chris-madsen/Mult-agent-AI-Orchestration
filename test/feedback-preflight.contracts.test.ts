@@ -13,7 +13,7 @@ const validAuth = JSON.stringify({
   tokens: {
     access_token: 'oauth-access-token',
     refresh_token: 'oauth-refresh-token',
-    id_token: 'oauth-id-token',
+    id_token: 'e30.e30.signature',
     account_id: 'account-id',
   },
   last_refresh: '2026-10-22T16:00:00Z',
@@ -51,6 +51,11 @@ test('Codex auth preflight rejects missing or malformed OAuth state', () => {
     auth_mode: 'chatgpt',
     tokens: { access_token: 'access', refresh_token: 'refresh' },
     last_refresh: 'not-a-date',
+  })).status, 'not_ready');
+  assert.equal(inspectCodexAuthJson('/tmp/auth.json', JSON.stringify({
+    auth_mode: 'chatgpt',
+    tokens: { access_token: 'access', refresh_token: 'refresh', id_token: 'not-a-jwt' },
+    last_refresh: '2026-10-22T16:00:00Z',
   })).status, 'not_ready');
 });
 
