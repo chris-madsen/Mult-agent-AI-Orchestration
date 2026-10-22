@@ -375,6 +375,19 @@ test('feedback Harbor identity comes from frozen jobs, not CODEX environment var
   }
 });
 
+test('feedback Harbor identity requires ACE config only on the ACE optional arm', () => {
+  const aceJob = harborJob({
+    agents: [{
+      name: 'codex',
+      model_name: 'gpt-5.6-luna',
+      kwargs: { reasoning_effort: 'high', config: '/ace/benchmarks/harbor/ace-retrieval-codex-config.toml' },
+    }],
+  });
+  assert.equal(validateMatchingFeedbackHarborJobs(harborJob(), aceJob)._tag, 'Ok');
+  assert.equal(validateMatchingFeedbackHarborJobs(harborJob(), harborJob())._tag, 'Err');
+  assert.equal(validateMatchingFeedbackHarborJobs(aceJob, aceJob)._tag, 'Err');
+});
+
 test('feedback Harbor identity rejects model/reasoning drift and non-serial jobs', () => {
   assert.equal(validateMatchingFeedbackHarborJobs(harborJob(), harborJob({ agents: [{ name: 'codex', model_name: 'other', kwargs: { reasoning_effort: 'high' } }] }))._tag, 'Err');
   assert.equal(validateFeedbackHarborJob(harborJob({ n_concurrent_trials: 2 }))._tag, 'Err');
