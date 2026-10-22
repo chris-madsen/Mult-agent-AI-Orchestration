@@ -43,14 +43,16 @@ interface Stage0Manifest {
   readonly schemaVersion: 1;
   readonly status: StageStatus;
   readonly generatedAt: string;
-  readonly sourceCommit: string;
+  readonly runtimeSourceCommit: string;
   readonly runtimeRoot: string;
+  readonly workspaceSourceKind: 'synthetic_fixture';
+  readonly workspaceSourceManifestSha256: string;
   readonly manualSemanticAnchorInjection: false;
   readonly fixtureFiles: readonly Readonly<{ path: string; sha256: string }>[];
-  readonly indexedStructuralSymbols: number;
-  readonly anchoredSymbols: number;
-  readonly lspConfirmedSymbols: number;
-  readonly lspUnconfirmedSymbols: number;
+  readonly preflightIndexedStructuralSymbols: number;
+  readonly preflightAnchoredSymbols: number;
+  readonly lspConfirmedRetrievedSymbols: number;
+  readonly lspUnconfirmedRetrievedSymbols: number;
   readonly languageErrors: readonly string[];
   readonly cases: readonly Stage0CaseResult[];
   readonly requestIds: readonly string[];
@@ -227,8 +229,7 @@ const main = async (): Promise<void> => {
         ACE_PROVIDER_TRACE_FILE: providerTracePath,
         ACE_BENCHMARK_TRACE_FILE: retrievalTracePath,
         ACE_BENCHMARK_REPOSITORY_ID: 'feedback-stage0',
-        ACE_BENCHMARK_RUNNER_VERSION: 'ace-feedback-stage0/v1',
-        ACE_EVIDENCE_SOURCE_COMMIT: runtimeCommit(),
+        ACE_BENCHMARK_RUNNER_VERSION: 'ace-feedback-stage0/v2',
       },
     });
     stderr = [];
@@ -242,8 +243,8 @@ const main = async (): Promise<void> => {
       if (readiness.isError === true || readinessBundle.index_status !== 'ready') {
         throw new Error(`NOT_READY: ${JSON.stringify(readinessBundle)}`);
       }
-      let confirmed = 0;
-      let lspUnconfirmed = 0;
+      const confirmedSymbols = new Set<string>();
+      const unconfirmedSymbols = new Set<string>();
       for (const item of cases) {
         const response = await client.callTool({
           name: 'ace_context',
@@ -279,8 +280,12 @@ const main = async (): Promise<void> => {
           ...(response.isError === true ? { error: 'MCP tool returned an error' } : {}),
         };
         caseResults.push(result);
-        confirmed += direct.length;
-        lspUnconfirmed += uncertain.length;
+        for (const entry of direct) {
+          confirmedSymbols.add(`${String(entry.citation)}\0${String(entry.structuralName ?? item.expectedSymbol)}`);
+        }
+        for (const entry of uncertain) {
+          unconfirmedSymbols.add(`${String(entry.citation)}\0${String(entry.structuralName ?? item.expectedSymbol)}`);
+        }
         await writeFile(responsePath, `${JSON.stringify({ tool: 'ace_context', case: item.id, response })}\n`, { encoding: 'utf8', flag: 'a' });
       }
       await client.close();
@@ -297,11 +302,15 @@ const main = async (): Promise<void> => {
         && item.directEvidence > 0
         && item.lspCoverage !== 'unavailable'
         && item.lspCoverage !== 'unknown');
-      const hasRequiredLspProof = requiredWithLspProof.length > 0;
+      const hasRequiredLspProof = requiredCases.length > 0
+        && requiredWithLspProof.length === requiredCases.length;
+      const failedRequiredIds = requiredCases
+        .filter((item) => !requiredWithLspProof.some((confirmed) => confirmed.id === item.id))
+        .map((item) => item.id);
       status = hasRequiredLspProof ? 'PASS' : 'NOT_VERIFIED';
       reason = hasRequiredLspProof
-        ? 'real MCP ace_context returned current/direct symbol evidence with confirmed LSP definition'
-        : 'no required case had current/direct evidence with confirmed LSP definition';
+        ? 'every required case returned current/direct symbol evidence with confirmed LSP definition'
+        : `required cases without confirmed LSP proof: ${failedRequiredIds.join(', ') || 'none were configured'}`;
       const providerEvents = await readJsonLines(providerTracePath);
       const failedProviderEvents = providerEvents
         .filter((event) => event.status === 'failure')
@@ -315,22 +324,24 @@ const main = async (): Promise<void> => {
       const traceValidation = validateRetrievalBenchmarkTraceArtifact(retrievalText, retrievalReceipt, requestIds);
       if (!traceValidation.valid) throw new Error(`benchmark trace rejected: ${traceValidation.failures.join(', ')}`);
       const artifactSha256 = await artifactDigests([responsePath, stderrPath, providerTracePath, retrievalTracePath, retrievalReceiptPath]);
-      const fixtureFiles = await Promise.all(Object.entries(sourceFixtures).map(async ([path, source]) => ({
-        path,
-        sha256: sha256(new TextEncoder().encode(source)),
-      })));
+      const fixtureFiles = Object.entries(sourceFixtures)
+        .map(([path, source]) => ({ path, sha256: sha256(new TextEncoder().encode(source)) }))
+        .sort((left, right) => left.path.localeCompare(right.path));
+      const workspaceSourceManifestSha256 = sha256(new TextEncoder().encode(JSON.stringify(fixtureFiles)));
       const manifest: Stage0Manifest = {
         schemaVersion: 1,
         status,
         generatedAt: new Date().toISOString(),
-        sourceCommit: runtimeCommit(),
+        runtimeSourceCommit: runtimeCommit(),
         runtimeRoot: resolve('.'),
+        workspaceSourceKind: 'synthetic_fixture',
+        workspaceSourceManifestSha256,
         manualSemanticAnchorInjection: false,
         fixtureFiles,
-        indexedStructuralSymbols,
-        anchoredSymbols,
-        lspConfirmedSymbols: confirmed,
-        lspUnconfirmedSymbols: lspUnconfirmed,
+        preflightIndexedStructuralSymbols: indexedStructuralSymbols,
+        preflightAnchoredSymbols: anchoredSymbols,
+        lspConfirmedRetrievedSymbols: confirmedSymbols.size,
+        lspUnconfirmedRetrievedSymbols: unconfirmedSymbols.size,
         languageErrors,
         cases: caseResults,
         requestIds,
@@ -350,18 +361,23 @@ const main = async (): Promise<void> => {
     reason = error instanceof Error ? error.message : 'unknown stage-0 provider failure';
     if (stderr.length > 0) await writeFile(stderrPath, Buffer.concat(stderr));
     const artifactSha256 = await artifactDigests([responsePath, stderrPath, providerTracePath, retrievalTracePath, retrievalReceiptPath]);
+    const fixtureFiles = Object.entries(sourceFixtures)
+      .map(([path, source]) => ({ path, sha256: sha256(new TextEncoder().encode(source)) }))
+      .sort((left, right) => left.path.localeCompare(right.path));
     const manifest: Stage0Manifest = {
       schemaVersion: 1,
       status,
       generatedAt: new Date().toISOString(),
-      sourceCommit: runtimeCommit(),
+      runtimeSourceCommit: runtimeCommit(),
       runtimeRoot: resolve('.'),
+      workspaceSourceKind: 'synthetic_fixture',
+      workspaceSourceManifestSha256: sha256(new TextEncoder().encode(JSON.stringify(fixtureFiles))),
       manualSemanticAnchorInjection: false,
-      fixtureFiles: Object.entries(sourceFixtures).map(([path, source]) => ({ path, sha256: sha256(new TextEncoder().encode(source)) })),
-      indexedStructuralSymbols,
-      anchoredSymbols,
-      lspConfirmedSymbols: 0,
-      lspUnconfirmedSymbols: 0,
+      fixtureFiles,
+      preflightIndexedStructuralSymbols: indexedStructuralSymbols,
+      preflightAnchoredSymbols: anchoredSymbols,
+      lspConfirmedRetrievedSymbols: 0,
+      lspUnconfirmedRetrievedSymbols: 0,
       languageErrors,
       cases: caseResults,
       requestIds,
