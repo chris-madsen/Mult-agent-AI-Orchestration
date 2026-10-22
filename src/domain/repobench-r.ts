@@ -46,7 +46,7 @@ export interface RepoBenchSourceManifestEntry {
   readonly sha256: string;
 }
 
-export const repoBenchSourceManifestExclusions = [
+export const retrievalSourceManifestExclusions = [
   '.git', 'node_modules', 'dist', 'build', 'artifacts', '.cache', 'coverage', 'vendor', 'binary files',
 ] as const;
 
@@ -55,7 +55,7 @@ export const repoBenchSourceManifestExclusions = [
  * scripts/freeze-retrieval-holdout.ts so RepoBench labels and generic frozen
  * holdouts share one source identity scheme.
  */
-export const repoBenchSourceManifestSha256 = (
+export const retrievalSourceManifestSha256 = (
   repositoryId: string,
   revisionValue: string,
   entries: readonly RepoBenchSourceManifestEntry[],
@@ -63,9 +63,14 @@ export const repoBenchSourceManifestSha256 = (
   schemaVersion: 1,
   repositoryId,
   revision: revisionValue,
-  exclusions: repoBenchSourceManifestExclusions,
+  exclusions: retrievalSourceManifestExclusions,
   entries: [...entries].map((entry) => ({ ...entry })).sort((left, right) => left.path.localeCompare(right.path)),
 }, null, 2) + '\n');
+
+// Backward-compatible names inside the new RepoBench adapter; the format is
+// intentionally the generic frozen retrieval source-manifest format.
+export const repoBenchSourceManifestExclusions = retrievalSourceManifestExclusions;
+export const repoBenchSourceManifestSha256 = retrievalSourceManifestSha256;
 
 export interface RepoBenchManifest {
   readonly schemaVersion: 1;
