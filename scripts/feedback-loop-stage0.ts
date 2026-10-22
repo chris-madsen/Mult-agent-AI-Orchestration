@@ -252,8 +252,8 @@ const main = async (): Promise<void> => {
     transport.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk));
     const client = new Client({ name: 'ace-feedback-stage0', version: '1.0.0' });
     try {
-      await client.connect(transport, { timeout: 30_000, maxTotalTimeout: 180_000 });
-      const readiness = await client.callTool({ name: 'ace_workspace_status', arguments: { workspace_id: workspaceIdValue } }, { timeout: 30_000, maxTotalTimeout: 180_000 });
+      await client.connect(transport, { timeout: 180_000, maxTotalTimeout: 300_000 });
+      const readiness = await client.callTool({ name: 'ace_workspace_status', arguments: { workspace_id: workspaceIdValue } }, { timeout: 180_000, maxTotalTimeout: 300_000 });
       await writeFile(responsePath, `${JSON.stringify({ tool: 'ace_workspace_status', response: readiness })}\n`, 'utf8');
       const readinessBundle = object(readiness.structuredContent ?? {});
       if (readiness.isError === true || readinessBundle.index_status !== 'ready') {
@@ -274,7 +274,7 @@ const main = async (): Promise<void> => {
             include_history: false,
             source_obligations: { required: ['code', 'structural', 'lsp'] },
           },
-        }, { timeout: 90_000, maxTotalTimeout: 120_000 });
+        }, { timeout: 180_000, maxTotalTimeout: 300_000 });
         const bundle = object(response.structuredContent ?? {});
         const evidence = evidenceFor(bundle, item);
         const direct = evidence.filter((entry) => entry.source === 'code'
