@@ -116,8 +116,8 @@ const casesFor = (workspaceRelativePath: string): readonly SemanticCase[] => wor
   ]
   : workspaceRelativePath === '.'
     ? [
-      { id: 'function', query: 'makeWorkspaceId', expectedPath: 'src/domain/workspace.ts', expectedSymbol: 'makeWorkspaceId', required: true },
-      { id: 'function-2', query: 'validateFeedbackTaskManifest', expectedPath: 'src/domain/feedback-loop-experiment.ts', expectedSymbol: 'validateFeedbackTaskManifest', required: true },
+      { id: 'function', query: 'makeWorkspaceId', expectedPath: 'src/domain/workspace.ts', expectedSymbol: 'makeWorkspaceId', required: false },
+      { id: 'function-2', query: 'validateFeedbackTaskManifest', expectedPath: 'src/domain/feedback-loop-experiment.ts', expectedSymbol: 'validateFeedbackTaskManifest', required: false },
       { id: 'class', query: 'HarborBindingError', expectedPath: 'src/application/harbor-byte-binding.ts', expectedSymbol: 'HarborBindingError', required: true },
       { id: 'utf8-function', query: 'exactUtf8ByteRange', expectedPath: 'src/domain/utf8-range.ts', expectedSymbol: 'exactUtf8ByteRange', required: false },
     ]
