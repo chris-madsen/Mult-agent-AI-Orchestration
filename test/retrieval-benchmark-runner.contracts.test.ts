@@ -20,7 +20,7 @@ test('generic retrieval runner uses the official MCP client and all five frozen 
   assert.match(runner, /ACE_BENCHMARK_TRACE_FILE/u);
   assert.match(runner, /expansionCalls: null/u);
   assert.match(runner, /nativeReadDuplicates: null/u);
-  assert.doesNotMatch(runner, /events\\.length === 0 \\? 0 : 0/u);
+  assert.doesNotMatch(runner, /events\.length === 0 \? 0 : 0/u);
 });
 
 test('generic runner requires immutable repository revisions and keeps evidence external', () => {
