@@ -79,3 +79,39 @@ test('language registry is explicit and unsupported extensions do not silently r
   assert.equal(result._tag, 'Err');
   if (result._tag === 'Err') assert.equal(result.error.code, 'UNSUPPORTED_PROVIDER');
 });
+
+
+test('real ast-grep outline supplies byte-exact declaration name anchors, not a body occurrence', async () => {
+  const source = [
+    'const marker = "🎯";',
+    'export function привет(value: string): string { return value + "привет"; }',
+    'class Service { save(value: string): string { return value; } }',
+    '',
+  ].join('\n');
+  const bytes = Buffer.from(source, 'utf8');
+  const parsed = await Effect.runPromise(provider.extract({ repoPath: 'fixture.ts', source: bytes }));
+  assert.equal(parsed._tag, 'Ok');
+  if (parsed._tag === 'Err') return;
+  for (const name of ['привет', 'Service', 'save']) {
+    const kind = name === 'привет' ? 'function' : name === 'Service' ? 'class' : 'method';
+    const symbol = parsed.value.symbols.find((item) => item.name === name && item.kind === kind);
+    assert.ok(symbol, \`missing ast-grep declaration for \${name}\`);
+    if (symbol === undefined) continue;
+    assert.ok(symbol.nameStartLine !== undefined && symbol.nameStartColumn !== undefined
+      && symbol.nameEndLine !== undefined && symbol.nameEndColumn !== undefined, name);
+    const lines = bytes.toString('utf8').split('\n');
+    const sourceLine = lines[(symbol.nameStartLine ?? 0) - 1] ?? '';
+    const prefix = Buffer.from(sourceLine, 'utf8').subarray(0, (symbol.nameStartColumn ?? 1) - 1);
+    const tail = Buffer.from(sourceLine, 'utf8').subarray((symbol.nameStartColumn ?? 1) - 1);
+    assert.equal(tail.subarray(0, Buffer.byteLength(name, 'utf8')).toString('utf8'), name);
+    assert.equal(Buffer.byteLength(prefix.toString('utf8'), 'utf8'), (symbol.nameStartColumn ?? 1) - 1);
+    assert.equal(symbol.nameStartLine, symbol.nameEndLine);
+    assert.equal((symbol.nameEndColumn ?? 0) - (symbol.nameStartColumn ?? 0), Buffer.byteLength(name, 'utf8'));
+  }
+  const imported = 'import { save } from "./service";';
+  const imports = await Effect.runPromise(provider.extract({ repoPath: 'fixture.ts', source: Buffer.from(imported) }));
+  assert.equal(imports._tag, 'Ok');
+  if (imports._tag === 'Ok') {
+    assert.ok(imports.value.symbols.filter((item) => item.kind === 'import').every((item) => item.nameStartLine === undefined));
+  }
+});
