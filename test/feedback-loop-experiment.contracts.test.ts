@@ -358,6 +358,7 @@ test('untrusted RepoBench pickle is rejected before Python can deserialize it', 
 });
 
 const harborJob = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+  tasks: [{ path: '/frozen/task-a' }],
   agents: [{ name: 'codex', model_name: 'gpt-5.6-luna', kwargs: { reasoning_effort: 'high' } }],
   n_concurrent_trials: 1,
   n_attempts: 1,
@@ -386,6 +387,18 @@ test('feedback Harbor identity requires ACE config only on the ACE optional arm'
   assert.equal(validateMatchingFeedbackHarborJobs(harborJob(), aceJob)._tag, 'Ok');
   assert.equal(validateMatchingFeedbackHarborJobs(harborJob(), harborJob())._tag, 'Err');
   assert.equal(validateMatchingFeedbackHarborJobs(aceJob, aceJob)._tag, 'Err');
+});
+
+test('feedback Harbor identity rejects different frozen task sets between arms', () => {
+  const aceJob = harborJob({
+    tasks: [{ path: '/frozen/task-b' }],
+    agents: [{
+      name: 'codex',
+      model_name: 'gpt-5.6-luna',
+      kwargs: { reasoning_effort: 'high', config: '/ace/benchmarks/harbor/ace-retrieval-codex-config.toml' },
+    }],
+  });
+  assert.equal(validateMatchingFeedbackHarborJobs(harborJob(), aceJob)._tag, 'Err');
 });
 
 test('feedback Harbor identity rejects model/reasoning drift and non-serial jobs', () => {
