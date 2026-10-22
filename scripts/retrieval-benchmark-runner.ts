@@ -18,6 +18,11 @@ import type {
   RetrievalStageRanks,
   RetrievalStrategyRun,
 } from '../src/domain/retrieval-quality-evaluation.js';
+import {
+  retrievalSourceManifestExcludedPath,
+  retrievalSourceManifestSha256,
+} from '../src/domain/retrieval-source-manifest.js';
+import { structuralLanguageForPath } from '../src/domain/structural-language.js';
 
 const strategies = [
   'sparse',
@@ -32,6 +37,7 @@ interface RepositoryBinding {
   readonly id: string;
   readonly root: string;
   readonly revision: string;
+  readonly sourceManifestSha256: string;
 }
 
 interface TraceCandidate {
@@ -104,13 +110,54 @@ const parseArgs = (): {
 };
 
 const gitRevision = (root: string): string => execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+const gitBytes = (root: string, args: readonly string[]): Buffer => execFileSync('git', ['-C', root, ...args]);
+const gitText = (root: string, args: readonly string[]): string => gitBytes(root, args).toString('utf8');
+
+const sourceManifestFor = (binding: RepositoryBinding): string => {
+  const paths = gitText(binding.root, ['ls-tree', '-r', '-z', '--name-only', binding.revision])
+    .split('\0')
+    .filter((value) => value.length > 0)
+    .sort((left, right) => left.localeCompare(right));
+  const entries: Array<{ path: string; sizeBytes: number; sha256: string }> = [];
+  for (const repoPath of paths) {
+    if (retrievalSourceManifestExcludedPath(repoPath)) continue;
+    const bytes = gitBytes(binding.root, ['show', `${binding.revision}:${repoPath}`]);
+    if (bytes.includes(0)) continue;
+    entries.push({ path: repoPath, sizeBytes: bytes.byteLength, sha256: sha256(bytes) });
+  }
+  return retrievalSourceManifestSha256(binding.id, binding.revision, entries);
+};
+
+const runtimeIndexExcludedDirectories = new Set([
+  '.git', '.ace', '.venv', '.venv-system', 'node_modules', 'dist', 'target', 'coverage',
+]);
+
+const runtimeIndexedPath = (repoPath: string): boolean =>
+  !repoPath.replaceAll('\\', '/').split('/').some((part) => runtimeIndexExcludedDirectories.has(part))
+  && structuralLanguageForPath(repoPath.replaceAll('\\', '/')) !== undefined;
+
+const dirtyIndexedPaths = (root: string): readonly string[] => {
+  const statusPaths = gitText(root, ['-c', 'core.quotepath=false', 'status', '--porcelain=v1', '--untracked-files=all'])
+    .split(/\r?\n/u)
+    .filter((line) => line.length > 0)
+    .flatMap((line) => line.slice(3).split(' -> '));
+  const ignoredPaths = gitText(root, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'])
+    .split('\0')
+    .filter((path) => path.length > 0);
+  return [...new Set([...statusPaths, ...ignoredPaths]
+    .map((path) => path.replaceAll('\\', '/'))
+    .filter(runtimeIndexedPath))]
+    .sort();
+};
 
 const parseBindings = (mappings: readonly string[], holdout: RetrievalHoldout): readonly RepositoryBinding[] => {
   const roots = new Map<string, string>();
   for (const mapping of mappings) {
     const separator = mapping.indexOf('=');
     if (separator < 1 || separator === mapping.length - 1) throw new Error(`invalid repository mapping: ${mapping}`);
-    roots.set(mapping.slice(0, separator), resolve(mapping.slice(separator + 1)));
+    const id = mapping.slice(0, separator);
+    if (roots.has(id)) throw new Error(`duplicate repository mapping: ${id}`);
+    roots.set(id, resolve(mapping.slice(separator + 1)));
   }
   return (holdout.repositories ?? []).map((repository) => {
     const root = roots.get(repository.id);
@@ -119,12 +166,32 @@ const parseBindings = (mappings: readonly string[], holdout: RetrievalHoldout): 
     if (actual !== repository.revision) {
       throw new Error(`repository ${repository.id} revision mismatch: expected ${repository.revision}, got ${actual}`);
     }
-    return { id: repository.id, root, revision: repository.revision };
+    const binding = {
+      id: repository.id,
+      root,
+      revision: repository.revision,
+      sourceManifestSha256: repository.sourceManifestSha256,
+    };
+    const actualManifest = sourceManifestFor(binding);
+    if (actualManifest !== repository.sourceManifestSha256) {
+      throw new Error(`repository ${repository.id} source manifest mismatch: expected ${repository.sourceManifestSha256}, got ${actualManifest}`);
+    }
+    const dirty = dirtyIndexedPaths(root);
+    if (dirty.length > 0) {
+      throw new Error(`repository ${repository.id} has dirty or extra runtime-indexed paths: ${dirty.slice(0, 20).join(', ')}`);
+    }
+    return binding;
   });
 };
 
 const holdoutCaseFor = (holdout: RetrievalHoldout, repositoryId: string) =>
   holdout.cases.filter((item) => item.repositoryId === repositoryId);
+
+const sourceSetRevision = (bindings: readonly RepositoryBinding[]): string => sha256(new TextEncoder().encode(JSON.stringify(
+  [...bindings]
+    .map(({ id, revision, sourceManifestSha256 }) => ({ id, revision, sourceManifestSha256 }))
+    .sort((left, right) => left.id.localeCompare(right.id)),
+)));
 
 const windowsToWsl = (value: string): string => {
   const match = /^([A-Za-z]):[\\/](.*)$/u.exec(value);
@@ -192,6 +259,7 @@ const strategyEnvironment = (
   );
   const sparse = workerInvocation(runtimeRoot, 'fastembed-sparse-worker.sh', {
     ACE_SPARSE_EMBEDDING_MODEL: process.env.ACE_SPARSE_EMBEDDING_MODEL?.trim() || 'Qdrant/bm25',
+    ACE_SPARSE_EMBEDDING_LD_PRELOAD: process.env.ACE_SPARSE_EMBEDDING_LD_PRELOAD?.trim() || '',
     FASTEMBED_CACHE_PATH: fastembedCache,
   });
   const rerankerModel = process.env.ACE_RERANKER_MODEL?.trim() || 'jinaai/jina-reranker-v2-base-multilingual';
@@ -419,6 +487,7 @@ const main = async (): Promise<void> => {
   const bindings = parseBindings(parsed.mappings, holdout);
   await mkdir(parsed.outputDirectory, { recursive: true });
   const runtimeCommit = gitRevision(parsed.runtimeRoot);
+  const boundSourceSetRevision = sourceSetRevision(bindings);
   for (const strategy of parsed.selectedStrategies) {
     const observations: RetrievalObservation[] = [];
     const tracePaths: string[] = [];
@@ -427,6 +496,7 @@ const main = async (): Promise<void> => {
       runner: 'ace-generic-retrieval-runner/v1',
       runtimeCommit,
       holdoutSha256,
+      sourceSetRevision: boundSourceSetRevision,
     };
     for (const binding of bindings) {
       const result = await runRepositoryStrategy(
@@ -445,7 +515,9 @@ const main = async (): Promise<void> => {
       strategy,
       holdoutSha256,
       observations,
-      sourceCommit: holdout.repositories?.find((repository) => repository.id === 'ace')?.revision ?? runtimeCommit,
+      // Multi-repository runs cannot truthfully identify their source with the
+      // ACE runtime commit. Bind the complete repository set instead.
+      sourceCommit: boundSourceSetRevision,
       runnerVersion: 'ace-generic-retrieval-runner/v1',
       providerIdentities,
       tracePaths,
@@ -457,7 +529,12 @@ const main = async (): Promise<void> => {
     status: 'retrieval_runs_written',
     holdoutSha256,
     cases: holdout.cases.length,
-    repositories: bindings.map((binding) => ({ id: binding.id, revision: binding.revision })),
+    repositories: bindings.map((binding) => ({
+      id: binding.id,
+      revision: binding.revision,
+      sourceManifestSha256: binding.sourceManifestSha256,
+    })),
+    sourceSetRevision: boundSourceSetRevision,
     strategies: parsed.selectedStrategies,
     outputDirectory: parsed.outputDirectory,
   }) + '\n');

@@ -29,6 +29,7 @@ test('TypeScript language service resolves definition, references and type infor
   assert.equal(typeInfo._tag, 'Ok');
   if (typeInfo._tag === 'Err') return;
   assert.match(typeInfo.value?.display ?? '', /string/u);
+  port.close();
 });
 
 test('TypeScript language service returns diagnostics and rejects unknown files', async () => {
@@ -39,4 +40,5 @@ test('TypeScript language service returns diagnostics and rejects unknown files'
   if (diagnostics._tag === 'Ok') assert.ok(diagnostics.value.some((item) => item.category === 'error'));
   const missing = await Effect.runPromise(invalid.definition({ repoPath: 'missing.ts', line: 1, column: 1 }));
   assert.equal(missing._tag, 'Err');
+  invalid.close();
 });

@@ -103,3 +103,43 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('real sparse shell launcher forwards explicit preload configuration', {
+  skip: process.platform === 'win32',
+}, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-sparse-preload-'));
+  const fakePython = join(root, 'fake-python');
+  await writeFile(fakePython, `#!/usr/bin/env node
+const readline = require('node:readline');
+const model = process.argv[3];
+console.log(JSON.stringify({ type: 'ready', identity: {
+  provider: 'fake-sparse', model, preprocessing: 'fixture',
+  artifactDigest: 'a'.repeat(64), runtimeBuild: 'fixture#1',
+  runtimeVersion: process.env.LD_PRELOAD || 'missing',
+} }));
+readline.createInterface({ input: process.stdin }).on('line', (line) => {
+  const request = JSON.parse(line);
+  console.log(JSON.stringify({ id: request.id, vectors: request.texts.map(() => ({ indices: [1], values: [0.75] })) }));
+});
+`, 'utf8');
+  await chmod(fakePython, 0o755);
+  const preload = '/lib/x86_64-linux-gnu/libstdc++.so.6';
+  const port = makeProcessSparseEmbeddingPort({
+    command: sparseShell,
+    expectedModel: 'Qdrant/bm25',
+    timeoutMs: 10_000,
+    env: {
+      ACE_SPARSE_EMBEDDING_PYTHON: fakePython,
+      ACE_SPARSE_EMBEDDING_MODEL: 'Qdrant/bm25',
+      ACE_SPARSE_EMBEDDING_LD_PRELOAD: preload,
+    },
+  });
+  try {
+    const observed = await Effect.runPromise(port.probe());
+    assert.equal(observed._tag, 'Ok');
+    assert.equal(port.identity()?.runtimeVersion, preload);
+  } finally {
+    port.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
