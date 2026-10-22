@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { HarborFourArmName, HarborFourArmReportArm } from '../src/domain/harbor-four-arm.js';
-import { reconcileHarborFourArmTrials, type HarborFourArmTrialObservation } from '../src/domain/harbor-four-arm-evidence.js';
+import { bindHarborTrialsToFrozenTasks, reconcileHarborFourArmTrials, type HarborFourArmTrialObservation } from '../src/domain/harbor-four-arm-evidence.js';
 
 const taskNames = ['task-a', 'task-a', 'task-b'];
 const armNames: readonly HarborFourArmName[] = ['native', 'dense', 'hybrid', 'hybrid-delta'];
@@ -119,4 +119,47 @@ test('native baseline ACE calls are rejected even when aggregate quality is good
     : item);
   const result = reconcileHarborFourArmTrials(allExpected(), observations);
   assert.equal(result._tag, 'Err');
+});
+
+test('raw Harbor trial task identities must match frozen job paths/ids in the exact order', () => {
+  const jobTasks = ['repo/task-a', 'repo/task-a', 'repo/task-b'];
+  const bindings = [{ id: 'task-a', path: 'repo/task-a' }, { id: 'task-b', path: 'repo/task-b' }];
+  const observed = [
+    observation('native', 0),
+    observation('native', 1, { taskName: 'repo/task-a' }),
+    observation('native', 2),
+  ];
+  const bound = bindHarborTrialsToFrozenTasks(jobTasks, bindings, observed);
+  assert.equal(bound._tag, 'Ok');
+  if (bound._tag === 'Ok') assert.deepEqual(bound.value.map((item) => item.taskName), jobTasks);
+
+  const unrelated = bindHarborTrialsToFrozenTasks(jobTasks, bindings, [
+    observation('native', 0, { taskName: 'unfrozen-task' }),
+    ...observed.slice(1),
+  ]);
+  assert.equal(unrelated._tag, 'Err');
+  const reordered = bindHarborTrialsToFrozenTasks(jobTasks, bindings, [
+    observed[2] as HarborFourArmTrialObservation,
+    observed[1] as HarborFourArmTrialObservation,
+    observed[0] as HarborFourArmTrialObservation,
+  ]);
+  assert.equal(reordered._tag, 'Err');
+});
+
+test('duplicate successful MCP request IDs cannot be replayed across trials or arms', () => {
+  const events = allObservations().map((item) => item.arm === 'hybrid' && item.trialId.endsWith('-0')
+    ? { ...item, successfulRequestIds: ['dense-request-0'] }
+    : item);
+  const result = reconcileHarborFourArmTrials(allExpected(), events);
+  assert.equal(result._tag, 'Err');
+  if (result._tag === 'Err') assert.equal(result.error.path, 'harbor_trial_evidence.successfulRequestIds');
+});
+
+test('a successful native trial followed by ACE failure cannot be called quality non-inferior', () => {
+  const events = allObservations().map((item) => item.arm === 'hybrid' && item.trialId.endsWith('-0')
+    ? { ...item, success: false }
+    : item);
+  const result = reconcileHarborFourArmTrials(allExpected(), events);
+  assert.equal(result._tag, 'Err');
+  if (result._tag === 'Err') assert.equal(result.error.path, 'harbor_trial_evidence.hybrid.paired_quality');
 });
