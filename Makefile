@@ -2,7 +2,7 @@ SHELL := bash
 .DEFAULT_GOAL := help
 EMBEDDING_PYTHON ?= $(shell command -v python3.13 || command -v python3)
 
-.PHONY: help install install-python-providers install-embedding-providers check lint lint-ts lint-rust probe-providers qdrant-up verify build test report-harbor-retrieval clean
+.PHONY: help install install-python-providers install-embedding-providers check lint lint-ts lint-rust probe-providers qdrant-up verify build test feedback-preflight feedback-stage0 adapt-repobench-r report-harbor-retrieval clean
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -57,6 +57,15 @@ qdrant-up: ## Start the local Qdrant container without exposing it beyond localh
 		docker pull qdrant/qdrant:v1.19.2; \
 		docker run -d --name ace-qdrant -p 127.0.0.1:6333:6333 -p 127.0.0.1:6334:6334 -v "$${HOME}/.local/share/ace-qdrant:/qdrant/storage" qdrant/qdrant:v1.19.2; \
 	fi
+
+feedback-preflight: ## Record real feedback-loop provider readiness and provenance
+	npm run preflight:feedback-loop
+
+feedback-stage0: ## Run the real ast-grep -> Qdrant -> MCP -> LSP stage-0 trace
+	npm run test:feedback-stage0
+
+adapt-repobench-r: ## Convert pinned RepoBench-R records and source spans to a holdout
+	npm run adapt:repobench-r -- $(ARGS)
 
 build: ## Compile the foundation
 	npm run build
