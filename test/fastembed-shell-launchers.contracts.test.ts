@@ -162,3 +162,10 @@ test('feedback preflight probes the sparse provider required by hybrid retrieval
   assert.match(preflight, /fastembed-sparse-worker\.sh/u);
   assert.match(preflight, /sparseEmbedding/u);
 });
+
+
+test('sparse FastEmbed launcher contains one Nix library bootstrap block after merges', async () => {
+  const source = await readFile(sparseShell, 'utf8');
+  const bootstrapBranches = source.match(/elif \[\[ "\$\{python_command\}" == "\$\{default_python\}" \]\]; then/gu) ?? [];
+  assert.equal(bootstrapBranches.length, 1);
+});

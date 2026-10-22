@@ -6,6 +6,7 @@ default_python="${root}/.venv-embedding-fast/bin/python"
 python_command="${ACE_SPARSE_EMBEDDING_PYTHON:-${default_python}}"
 model="${ACE_SPARSE_EMBEDDING_MODEL:-Qdrant/bm25}"
 export FASTEMBED_CACHE_PATH="${FASTEMBED_CACHE_PATH:-${root}/.cache/ace-fastembed}"
+export PYTHONDONTWRITEBYTECODE="${PYTHONDONTWRITEBYTECODE:-1}"
 
 if [[ -n "${ACE_SPARSE_EMBEDDING_LD_LIBRARY_PATH:-}" ]]; then
   export LD_LIBRARY_PATH="${ACE_SPARSE_EMBEDDING_LD_LIBRARY_PATH}"

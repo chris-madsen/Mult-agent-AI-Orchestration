@@ -204,7 +204,16 @@ const main = async (): Promise<void> => {
     const aceRuntimeSha256 = sha256(await readFile(aceRuntime));
     const aceConfigSha256 = sha256(await readFile(aceConfig));
     const aceConfigContainerPath = join('/ace', relative(aceRoot, aceConfig).split('\\').join('/'));
-    const agent = { name: 'codex', model_name: model, override_setup_timeout_sec: 900, env: { CODEX_FORCE_AUTH_JSON: '1' }, kwargs: { reasoning_effort: reasoning } } as const;
+    const agent = {
+      name: 'codex',
+      model_name: model,
+      override_setup_timeout_sec: 900,
+      // Harbor gives CODEX_AUTH_JSON_PATH precedence over CODEX_FORCE_AUTH_JSON.
+      // Pin an explicit empty override so ambient host state cannot redirect the
+      // frozen job away from the default ~/.codex/auth.json route.
+      env: { CODEX_AUTH_JSON_PATH: '', CODEX_FORCE_AUTH_JSON: '1' },
+      kwargs: { reasoning_effort: reasoning },
+    } as const;
     const common = {
       tasks: taskPaths.map((path) => ({ path })),
       agents: [agent],
