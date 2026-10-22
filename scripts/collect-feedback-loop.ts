@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve } from 'node:path';
-import { readHarborFourArmTrialObservations } from '../src/adapters/harbor-four-arm-trial-evidence.js';
+import { readHarborFeedbackTrialObservations } from '../src/adapters/harbor-feedback-trial-evidence.js';
 import {
   reconcileFeedbackTrials,
   validateFeedbackExperimentManifest,
@@ -139,8 +139,7 @@ const observationsFor = async (
   taskManifest: FeedbackTaskManifest,
   outputRoot: string,
 ): Promise<{ readonly observations: readonly FeedbackTrialObservation[]; readonly providerTraceLines: readonly string[] }> => {
-  const harborArm = arm === 'native' ? 'native' : 'dense';
-  const parsed = await readHarborFourArmTrialObservations(harborArm, aggregatePath);
+  const parsed = await readHarborFeedbackTrialObservations(arm, aggregatePath);
   const directories = await trialDirectories(aggregatePath);
   if (parsed.length !== directories.length) throw new Error(`BLOCKED: ${arm} raw trial count does not match Harbor directories`);
   const trialDirById = new Map<string, string>();

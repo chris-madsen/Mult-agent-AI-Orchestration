@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  isObservedAceToolEvent,
+  isObservedAceToolJsonLine,
   isObservedAceContextEvent,
   isObservedAceContextJsonLine,
+  isSuccessfulAceToolEvent,
+  isSuccessfulAceToolJsonLine,
   isSuccessfulAceContextEvent,
   isSuccessfulAceContextJsonLine,
   successfulAceContextRequestId,
@@ -85,4 +89,25 @@ test('DBC-12 does not count a completed MCP tool error as a successful context r
   assert.equal(isSuccessfulAceContextEvent(failed), false);
   assert.equal(successfulAceContextRequestId(failed), undefined);
   assert.equal(isSuccessfulAceContextEvent(event({ result: { ...original, is_error: true } })), false);
+});
+
+test('feedback telemetry counts exact ace_expand calls without inventing provider correlation', () => {
+  const expand = event({
+    tool: 'ace_expand',
+    result: {
+      structured_content: {
+        content_utf8: 'const value = 1;\n',
+        digest: 'a'.repeat(64),
+        offset: 0,
+        total_bytes: 18,
+      },
+    },
+  });
+  assert.equal(isObservedAceToolEvent(expand), true);
+  assert.equal(isObservedAceToolJsonLine(JSON.stringify(expand)), true);
+  assert.equal(isSuccessfulAceToolEvent(expand), true);
+  assert.equal(isSuccessfulAceToolJsonLine(JSON.stringify(expand)), true);
+  assert.equal(isObservedAceContextEvent(expand), false);
+  assert.equal(isSuccessfulAceContextEvent(expand), false);
+  assert.equal(isSuccessfulAceToolEvent({ ...expand, item: { ...(expand.item as Record<string, unknown>), result: { isError: true } } }), false);
 });

@@ -1,8 +1,9 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import {
-  isObservedAceContextJsonLine,
+  isObservedAceToolJsonLine,
   isSuccessfulAceContextJsonLine,
+  isSuccessfulAceToolJsonLine,
   successfulAceContextRequestIdJsonLine,
 } from '../domain/harbor-mcp-evidence.js';
 import type { HarborFourArmName } from '../domain/harbor-four-arm.js';
@@ -124,15 +125,19 @@ const readTrial = async (arm: HarborFourArmName, directory: string): Promise<Har
       return [];
     }
   });
-  const observedAceCalls = lines.filter(isObservedAceContextJsonLine).length;
-  const successfulAceCalls = lines.filter(isSuccessfulAceContextJsonLine).length;
+  const observedAceCalls = lines.filter(isObservedAceToolJsonLine).length;
+  const successfulContextCalls = lines.filter(isSuccessfulAceContextJsonLine).length;
+  const successfulAceCalls = lines.filter(isSuccessfulAceToolJsonLine).length;
   const successfulRequestIds = lines
     .map(successfulAceContextRequestIdJsonLine)
     .filter((value): value is string => value !== undefined);
-  if (successfulRequestIds.length !== successfulAceCalls) {
+  // ace_context carries the provider requestId. ace_expand is an exact local
+  // artifact read and intentionally has no new provider requestId, so it is
+  // counted but cannot silently establish provider correlation.
+  if (successfulRequestIds.length !== successfulContextCalls) {
     throw new Error(`BLOCKED: successful ACE calls are missing request correlation: ${logPath}`);
   }
-  const successfulEvents = parsedEvents.filter((event) => isSuccessfulAceContextJsonLine(JSON.stringify(event)));
+  const successfulEvents = parsedEvents.filter((event) => isSuccessfulAceToolJsonLine(JSON.stringify(event)));
   const evidenceReceiptIds = [...new Set(successfulEvents.flatMap((event) => structuredEvidenceReceiptIds(event).all))];
   const reusedReceiptIds = [...new Set(successfulEvents.flatMap((event) => structuredEvidenceReceiptIds(event).reused))];
   const metrics = successfulEvents.map(deliveryMetrics);

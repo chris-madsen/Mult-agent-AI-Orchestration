@@ -35,7 +35,12 @@ export interface FeedbackExperimentManifest {
   readonly model: string;
   readonly reasoningEffort: 'low' | 'medium' | 'high';
   readonly harborVersion: string;
-  readonly imageDigest: string;
+  /** Present for a single-image smoke; main runs use taskImages. */
+  readonly imageDigest?: string;
+  readonly taskImages: readonly {
+    readonly reference: string;
+    readonly digest: string;
+  }[];
   readonly aceConfigDigest: string;
   readonly seed: string | 'unknown';
   readonly mode: FeedbackMode;
@@ -272,9 +277,37 @@ export const validateFeedbackExperimentManifest = (value: unknown): Result<Feedb
   const root = value as Record<string, unknown>;
   const effort = root.reasoningEffort;
   const seed = root.seed;
+  const imageDigest = root.imageDigest;
+  const taskImagesValue = root.taskImages;
+  const taskImages: { readonly reference: string; readonly digest: string }[] = [];
+  if (taskImagesValue !== undefined) {
+    if (!Array.isArray(taskImagesValue) || taskImagesValue.length === 0) {
+      return invalid('experiment_manifest.taskImages', 'task image provenance must be a non-empty array when present');
+    }
+    for (const [index, item] of taskImagesValue.entries()) {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+        return invalid(`experiment_manifest.taskImages[${index}]`, 'task image provenance must be an object');
+      }
+      const image = item as Record<string, unknown>;
+      if (!nonEmpty(image.reference) || typeof image.digest !== 'string' || !/^sha256:[a-f0-9]{64}$/u.test(image.digest)) {
+        return invalid(`experiment_manifest.taskImages[${index}]`, 'task image provenance requires a reference and Docker digest');
+      }
+      if (taskImages.some((candidate) => candidate.reference === image.reference)) {
+        return invalid(`experiment_manifest.taskImages[${index}].reference`, 'task image references must be unique');
+      }
+      taskImages.push({ reference: image.reference, digest: image.digest });
+    }
+  }
+  const hasSingleImage = typeof imageDigest === 'string' && /^sha256:[a-f0-9]{64}$/u.test(imageDigest);
+  if (!hasSingleImage && taskImages.length === 0) {
+    return invalid('experiment_manifest', 'experiment requires one image digest or task image provenance');
+  }
+  if (imageDigest !== undefined && !hasSingleImage) {
+    return invalid('experiment_manifest.imageDigest', 'imageDigest must be a Docker sha256 digest');
+  }
   if (root.schemaVersion !== 1 || !nonEmpty(root.runId) || !revision(root.sourceCommit)
     || !sha256Hex(root.taskManifestSha256) || !nonEmpty(root.model) || (effort !== 'low' && effort !== 'medium' && effort !== 'high')
-    || !nonEmpty(root.harborVersion) || typeof root.imageDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/u.test(root.imageDigest)
+    || !nonEmpty(root.harborVersion)
     || !sha256Hex(root.aceConfigDigest) || !(seed === 'unknown' || nonEmpty(seed))
     || (root.mode !== 'cold' && root.mode !== 'warm') || root.nConcurrentTrials !== 1 || root.nAttempts !== 1
     || !nonEmpty(root.authenticationRoute)) {
@@ -291,7 +324,8 @@ export const validateFeedbackExperimentManifest = (value: unknown): Result<Feedb
     model: root.model,
     reasoningEffort: effort,
     harborVersion: root.harborVersion,
-    imageDigest: root.imageDigest,
+    ...(hasSingleImage ? { imageDigest } : {}),
+    taskImages,
     aceConfigDigest: root.aceConfigDigest,
     seed,
     mode: root.mode,
