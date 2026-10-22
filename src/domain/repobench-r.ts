@@ -175,8 +175,12 @@ const invalid = (
 });
 
 const validateManifest = (manifest: RepoBenchManifest): Result<void, DomainError> => {
+  const configs = new Set(['python_cff', 'python_cfr', 'java_cff', 'java_cfr']);
+  const splits = new Set(['test_easy', 'test_hard', 'train_easy', 'train_hard']);
   if (manifest.schemaVersion !== 1
     || manifest.dataset.datasetId !== 'tianyang/repobench-r'
+    || !configs.has(manifest.dataset.config)
+    || !splits.has(manifest.dataset.split)
     || !revision(manifest.dataset.revision)
     || !sha256Hex(manifest.dataset.recordsSha256)
     || manifest.repositories.length === 0) {
@@ -241,8 +245,18 @@ export const mapRepoBenchRecords = (
         'gold cross-file source snapshot is missing; benchmark must be blocked rather than synthesized',
       ));
     }
+    const sourceByteLength = Buffer.byteLength(source.source, 'utf8');
+    const structuralIdentityValid = source.structuralCandidates.every((candidate) =>
+      Number.isSafeInteger(candidate.startByteOffset)
+      && Number.isSafeInteger(candidate.endByteOffset)
+      && candidate.startByteOffset >= 0
+      && candidate.endByteOffset > candidate.startByteOffset
+      && candidate.endByteOffset <= sourceByteLength
+      && [candidate.range.startLine, candidate.range.endLine, candidate.range.startColumn, candidate.range.endColumn]
+        .every((value) => Number.isSafeInteger(value) && value >= 1)
+      && candidate.range.endLine >= candidate.range.startLine);
     if (source.repositoryId !== repository.id || source.repoPath !== goldContext.path || !sha256Hex(source.sourceDigest)
-      || sha256(source.source) !== source.sourceDigest) {
+      || sha256(source.source) !== source.sourceDigest || !structuralIdentityValid) {
       return err(domainError('INVALID_BENCHMARK', `repobench_r.sources.${record.id}`, 'source identity is inconsistent'));
     }
     const offsets = exactOccurrences(source.source, goldSnippet);
