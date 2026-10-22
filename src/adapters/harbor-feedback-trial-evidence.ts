@@ -4,10 +4,8 @@ import type { HarborFourArmTrialObservation } from '../domain/harbor-four-arm-ev
 /** The two arms used by the real feedback-loop experiment. */
 export type HarborFeedbackArm = 'native' | 'ace_optional';
 
-export interface HarborFeedbackTrialObservation extends Omit<
-  HarborFourArmTrialObservation,
-  'arm' | 'observedAceCalls' | 'successfulAceCalls'
-> {
+export interface HarborFeedbackTrialObservation extends Omit<HarborFourArmTrialObservation,
+'arm' | 'observedAceCalls' | 'successfulAceCalls'> {
   readonly arm: HarborFeedbackArm;
   /** Total user-facing ACE calls: ace_context + ace_expand. */
   readonly observedAceCalls: number;
