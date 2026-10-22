@@ -26,7 +26,10 @@ export const inspectCodexAuthJson = (authPath: string, contents: string): CodexA
   const authMode = root?.auth_mode;
   const hasAccessToken = nonEmpty(tokens?.access_token);
   const hasRefreshToken = nonEmpty(tokens?.refresh_token);
-  const hasRefreshMetadata = nonEmpty(root?.last_refresh);
+  const refreshMetadata = root?.last_refresh;
+  const hasRefreshMetadata = nonEmpty(refreshMetadata)
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(refreshMetadata)
+    && Number.isFinite(Date.parse(refreshMetadata));
   if (authMode !== 'chatgpt' || !hasAccessToken || !hasRefreshToken || !hasRefreshMetadata) {
     return { status: 'not_ready', reason: 'Codex auth file does not contain complete ChatGPT OAuth access/refresh state' };
   }

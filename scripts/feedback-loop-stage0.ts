@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/client';
@@ -140,6 +140,10 @@ const realSourceIdentity = (root: string): {
   readonly files: readonly Readonly<{ path: string; sizeBytes: number; sha256: string }>[];
   readonly manifestSha256: string;
 } => {
+  const actualRoot = resolve(gitText(root, ['rev-parse', '--show-toplevel']));
+  if (realpathSync(actualRoot) !== realpathSync(root)) {
+    throw new Error('BLOCKED: --source-root must be the Git checkout root');
+  }
   const revision = gitText(root, ['rev-parse', 'HEAD']);
   if (!/^[a-f0-9]{40,64}$/iu.test(revision)) throw new Error('BLOCKED: real source checkout did not provide an exact Git commit');
   if (gitText(root, ['status', '--porcelain=v1', '--untracked-files=all']).length > 0) {
