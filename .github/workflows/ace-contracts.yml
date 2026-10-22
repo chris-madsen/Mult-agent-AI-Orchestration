@@ -71,7 +71,11 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Embedding artifact and evaluator regressions
         if: steps.scope.outputs.mode != 'docs'
-        run: python3 -m unittest discover -s scripts -p 'test_embedding_*.py'
+        env:
+          # Python imports must not create untracked scripts/__pycache__ files:
+          # runtime provenance intentionally fails closed on dirty source trees.
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -B -m unittest discover -s scripts -p 'test_embedding_*.py'
       - name: Install pinned structural provider
         if: steps.scope.outputs.mode != 'docs'
         run: |
@@ -88,6 +92,19 @@ jobs:
         env:
           ACE_TEST_BASE: ${{ github.event.pull_request.base.sha }}
         run: npm run verify:pr:affected
+      - name: Verify clean compiled-runtime provenance
+        if: steps.scope.outputs.mode != 'docs'
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('dist/runtime-provenance.json', 'utf8'));
+          if (manifest.sourceClean !== true
+            || !Array.isArray(manifest.dirtyRelevantPaths)
+            || manifest.dirtyRelevantPaths.length > 0) {
+            console.error('BLOCKED: compiled runtime provenance is dirty:', manifest.dirtyRelevantPaths);
+            process.exitCode = 1;
+          }
+          NODE
       - name: Documentation/evidence verification
         if: steps.scope.outputs.mode == 'docs'
         env:
