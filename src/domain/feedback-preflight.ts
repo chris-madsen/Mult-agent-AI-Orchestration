@@ -40,3 +40,43 @@ export const inspectCodexAuthJson = (authPath: string, contents: string): CodexA
     authenticationRoute: codexAuthenticationRoute,
   };
 };
+
+
+export interface FeedbackPreflightBindingInput {
+  readonly currentSourceCommit: string;
+  readonly actualHarborVersion: string;
+  readonly expectedAuthenticationRoute: string;
+  readonly jobModel: string;
+  readonly jobReasoningEffort: 'low' | 'medium' | 'high';
+  readonly experiment: {
+    readonly sourceCommit: string;
+    readonly model: string;
+    readonly reasoningEffort: 'low' | 'medium' | 'high';
+    readonly harborVersion: string;
+    readonly authenticationRoute: string;
+  };
+}
+
+export const validateFeedbackPreflightBinding = (
+  input: FeedbackPreflightBindingInput,
+): readonly string[] => {
+  const failures: string[] = [];
+  if (input.experiment.sourceCommit !== input.currentSourceCommit) failures.push('sourceCommit');
+  if (input.experiment.model !== input.jobModel) failures.push('model');
+  if (input.experiment.reasoningEffort !== input.jobReasoningEffort) failures.push('reasoningEffort');
+  if (input.experiment.harborVersion !== input.actualHarborVersion) failures.push('harborVersion');
+  if (input.experiment.authenticationRoute !== input.expectedAuthenticationRoute) failures.push('authenticationRoute');
+  return failures;
+};
+
+export const validateFeedbackImageOverride = (
+  requested: string | undefined,
+  experimentImageDigest: string | undefined,
+  taskImages: readonly { readonly reference: string; readonly digest: string }[],
+): readonly string[] => {
+  if (requested === undefined) return [];
+  if (taskImages.length > 0) {
+    return taskImages.length === 1 && taskImages[0]?.digest === requested ? [] : ['imageDigest'];
+  }
+  return experimentImageDigest === undefined || experimentImageDigest === requested ? [] : ['imageDigest'];
+};

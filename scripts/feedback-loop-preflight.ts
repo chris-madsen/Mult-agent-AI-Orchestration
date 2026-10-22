@@ -12,8 +12,13 @@ import {
 import {
   codexAuthenticationRoute,
   inspectCodexAuthJson,
+  validateFeedbackImageOverride,
+  validateFeedbackPreflightBinding,
 } from '../src/domain/feedback-preflight.js';
-import { validateFeedbackExperimentManifest } from '../src/domain/feedback-loop-experiment.js';
+import {
+  validateFeedbackExperimentManifest,
+  type FeedbackExperimentManifest,
+} from '../src/domain/feedback-loop-experiment.js';
 
 type CheckStatus = 'ready' | 'not_ready' | 'unknown';
 
@@ -88,8 +93,10 @@ const harborDataset = (): PreflightCheck => {
 };
 
 const codexAuth = async (): Promise<PreflightCheck> => {
-  const codexHome = process.env.CODEX_HOME?.trim() || `${process.env.HOME ?? ''}/.codex`;
-  const authPath = resolve(codexHome, 'auth.json');
+  // Harbor's CODEX_FORCE_AUTH_JSON route resolves Path.home()/.codex/auth.json
+  // on the host. Do not inspect CODEX_HOME here unless the generated job also
+  // switches to CODEX_AUTH_JSON_PATH.
+  const authPath = resolve(process.env.HOME ?? '/', '.codex', 'auth.json');
   if (!existsSync(authPath)) return { status: 'not_ready', reason: 'Codex auth file is unavailable' };
   try {
     return inspectCodexAuthJson(authPath, await readFile(authPath, 'utf8'));
@@ -216,16 +223,24 @@ const parseArgs = (): {
 
 const main = async (): Promise<void> => {
   const args = parseArgs();
+  let experimentManifest: FeedbackExperimentManifest | undefined;
   let manifestTaskImages: readonly { readonly reference: string; readonly digest: string }[] | undefined;
   let manifestImageDigest: string | undefined;
   if (args.experimentManifestPath !== undefined) {
     const experiment = validateFeedbackExperimentManifest(JSON.parse(await readFile(args.experimentManifestPath, 'utf8')) as unknown);
     if (experiment._tag === 'Err') throw new Error(`BLOCKED: ${experiment.error.path}: ${experiment.error.message}`);
+    experimentManifest = experiment.value;
     manifestTaskImages = experiment.value.taskImages;
     manifestImageDigest = experiment.value.imageDigest;
   }
   const effectiveImageDigest = args.imageDigest ?? manifestImageDigest;
+  const imageBindingFailures = validateFeedbackImageOverride(
+    args.imageDigest,
+    manifestImageDigest,
+    manifestTaskImages ?? [],
+  );
   const harborJobs = await harborJobIdentity(args.nativeJobPath, args.aceJobPath);
+  const currentSourceCommit = gitCommit();
   const embeddingEnvironment = {
     ACE_EMBEDDING_PYTHON: args.embeddingPython,
     PYTHONDONTWRITEBYTECODE: '1',
@@ -260,19 +275,40 @@ const main = async (): Promise<void> => {
     harborJobs: harborJobs.check,
     harborImageDigest: dockerImages(effectiveImageDigest, manifestTaskImages),
   };
+  const harborVersion = checks.harbor.identity;
+  if (experimentManifest === undefined) {
+    checks.experimentBinding = { status: 'not_ready', reason: 'experiment manifest is required for exact-current feedback preflight' };
+  } else if (harborJobs.identity === undefined || harborVersion === undefined) {
+    checks.experimentBinding = { status: 'not_ready', reason: 'experiment identity cannot be bound until Harbor jobs/version are ready' };
+  } else {
+    const failures = [
+      ...validateFeedbackPreflightBinding({
+        currentSourceCommit,
+        actualHarborVersion: harborVersion,
+        expectedAuthenticationRoute: codexAuthenticationRoute,
+        jobModel: harborJobs.identity.model,
+        jobReasoningEffort: harborJobs.identity.reasoningEffort,
+        experiment: experimentManifest,
+      }),
+      ...imageBindingFailures,
+    ];
+    checks.experimentBinding = failures.length === 0
+      ? { status: 'ready', reason: 'experiment identity matches current checkout, Harbor jobs/version, image provenance and OAuth route' }
+      : { status: 'not_ready', reason: `experiment identity mismatch: ${[...new Set(failures)].join(', ')}` };
+  }
   checks.qdrant = await qdrant(args.qdrantUrl);
   checks.embeddingCache = await embeddingCache();
   const required = [
     'node', 'npm', 'astGrep', 'typescriptLanguageServer', 'embeddingPython', 'sparseEmbedding', 'harbor', 'harborRun',
     'harborDatasetPinned', 'codex', 'codexAuth', 'docker', 'harborJobs',
-    'harborImageDigest', 'embeddingCache', 'qdrant',
+    'harborImageDigest', 'experimentBinding', 'embeddingCache', 'qdrant',
   ];
   const blocked = required.filter((name) => checks[name]?.status !== 'ready');
   const manifest: PreflightManifest = {
     schemaVersion: 2,
     status: blocked.length === 0 ? 'READY' : 'BLOCKED',
     generatedAt: new Date().toISOString(),
-    sourceCommit: gitCommit(),
+    sourceCommit: currentSourceCommit,
     runtimeRoot: resolve('.'),
     authenticationRoute: codexAuthenticationRoute,
     checks,
