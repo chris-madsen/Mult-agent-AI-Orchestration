@@ -1,4 +1,9 @@
 import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import test from 'node:test';
 import {
   reconcileFeedbackTrials,
@@ -196,4 +201,78 @@ test('feedback report validator rejects malformed rows and zero economic counter
   assert.equal(validateFeedbackReport({ ...reconciled.value, rows: [] })._tag, 'Err');
   assert.equal(validateFeedbackReport({ ...reconciled.value, nativeTotalTokens: 0 })._tag, 'Err');
   assert.equal(validateFeedbackReport({ ...reconciled.value, qualityRegressionTaskIds: [7] })._tag, 'Err');
+});
+
+
+test('Harbor preparation binds actual clean Git blobs and blocks dirty source', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-feedback-frozen-'));
+  const source = join(root, 'source');
+  const ace = join(root, 'ace');
+  await mkdir(source);
+  await mkdir(join(ace, 'dist', 'bin'), { recursive: true });
+  const git = (cwd: string, ...args: string[]): string =>
+    execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
+  const sha = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
+  for (const dir of [source, ace]) {
+    git(dir, 'init', '-q');
+    git(dir, 'config', 'user.name', 'ACE test');
+    git(dir, 'config', 'user.email', 'ace-test@example.invalid');
+  }
+  for (let i = 0; i < 20; i += 1) {
+    const taskDir = join(source, 'tasks', 'task-' + String(i));
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(join(taskDir, 'test.txt'), 'content ' + String(i) + '\n');
+  }
+  git(source, 'add', '.');
+  git(source, 'commit', '-q', '-m', 'pin tasks');
+  const revisionValue = git(source, 'rev-parse', 'HEAD');
+  const entries = (prefix?: string) => {
+    const paths = execFileSync('git', [
+      '-C', source, 'ls-tree', '-r', '-z', '--name-only', revisionValue,
+      ...(prefix === undefined ? [] : [prefix + '/']),
+    ]).toString('utf8').split('\0').filter(Boolean).sort((a, b) => a.localeCompare(b));
+    return paths.map((path) => {
+      const bytes = execFileSync('git', ['-C', source, 'show', revisionValue + ':' + path]);
+      return { path, sizeBytes: bytes.byteLength, sha256: sha(bytes) };
+    });
+  };
+  const treeDigest = (id: string, items: ReturnType<typeof entries>) =>
+    sha(Buffer.from(JSON.stringify({ schemaVersion: 1, identity: id, revision: revisionValue, entries: items }, null, 2) + '\n'));
+  const sourceDigest = treeDigest('scale-ai/swe-atlas-qna', entries());
+  const tasks = Array.from({ length: 20 }, (_, i) => {
+    const taskPath = 'tasks/task-' + String(i);
+    const id = 'task-' + String(i);
+    return { id, taskPath, sourceRevision: revisionValue, sourceDigest, taskDigest: treeDigest(id, entries(taskPath)) };
+  });
+  const manifestPath = join(root, 'task-manifest.json');
+  await writeFile(manifestPath, JSON.stringify({
+    schemaVersion: 1, selection: 'main',
+    dataset: { id: 'scale-ai/swe-atlas-qna', revision: revisionValue, rawSha256: 'b'.repeat(64) },
+    tasks: tasks.slice(0, 10), holdout: tasks.slice(10),
+  }));
+  const aceConfig = join(ace, 'codex.toml');
+  await writeFile(aceConfig, 'model = "test-model"\n');
+  await writeFile(join(ace, 'dist', 'bin', 'ace-mcp.js'), 'console.log("mock executable");\n');
+  git(ace, 'add', '.');
+  git(ace, 'commit', '-q', '-m', 'pin ACE');
+  const run = (output: string) => spawnSync(resolve('node_modules/.bin/tsx'), [
+    'scripts/prepare-harbor-feedback-jobs.ts',
+    '--task-manifest', manifestPath, '--source-root', source, '--ace-root', ace,
+    '--output', output, '--run-id', 'frozen-test', '--model', 'test-model',
+    '--reasoning', 'medium', '--image-digest', 'sha256:' + 'a'.repeat(64),
+    '--ace-config', aceConfig,
+  ], { cwd: resolve('.'), encoding: 'utf8', timeout: 120_000 });
+  const firstOutput = join(root, 'first');
+  const first = run(firstOutput);
+  assert.equal(first.status, 0, first.stderr);
+  const prepared = JSON.parse(await readFile(join(firstOutput, 'job-manifest.json'), 'utf8'));
+  assert.equal(prepared.status, 'READY');
+  assert.equal(prepared.verifiedSourceDigest, sourceDigest);
+  await writeFile(join(source, 'tasks', 'task-1', 'test.txt'), 'tampered task\n');
+  const secondOutput = join(root, 'second');
+  const second = run(secondOutput);
+  assert.equal(second.status, 2);
+  const blocked = JSON.parse(await readFile(join(secondOutput, 'job-manifest.json'), 'utf8'));
+  assert.equal(blocked.status, 'BLOCKED');
+  assert.match(blocked.reason, /dirty/u);
 });
