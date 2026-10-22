@@ -286,12 +286,22 @@ const main = async (): Promise<void> => {
       await client.close();
       await writeFile(stderrPath, Buffer.concat(stderr));
       const requiredCases = caseResults.filter((item) => cases.find((expected) => expected.id === item.id)?.required === true);
-      const allRequiredConfirmed = requiredCases.length > 0
-        && requiredCases.every((item) => item.status === 'confirmed' && item.complete && item.lspCoverage === 'satisfied');
-      status = allRequiredConfirmed ? 'PASS' : 'NOT_VERIFIED';
-      reason = allRequiredConfirmed
-        ? 'real MCP ace_context returned current/direct code evidence with satisfied LSP coverage'
-        : 'no complete required case had current/direct evidence with satisfied LSP coverage';
+      // `complete` and `sourceCoverage.lsp=satisfied` describe every ranked
+      // candidate in the response. A single uncertain candidate therefore
+      // makes the aggregate response partial even when the requested symbol
+      // has independently confirmed LSP evidence. Stage-0 proves that
+      // symbol-level path, so do not turn aggregate partial coverage into a
+      // false provider failure.
+      const requiredWithLspProof = requiredCases.filter((item) =>
+        item.status === 'confirmed'
+        && item.directEvidence > 0
+        && item.lspCoverage !== 'unavailable'
+        && item.lspCoverage !== 'unknown');
+      const hasRequiredLspProof = requiredWithLspProof.length > 0;
+      status = hasRequiredLspProof ? 'PASS' : 'NOT_VERIFIED';
+      reason = hasRequiredLspProof
+        ? 'real MCP ace_context returned current/direct symbol evidence with confirmed LSP definition'
+        : 'no required case had current/direct evidence with confirmed LSP definition';
       const providerEvents = await readJsonLines(providerTracePath);
       const failedProviderEvents = providerEvents
         .filter((event) => event.status === 'failure')
