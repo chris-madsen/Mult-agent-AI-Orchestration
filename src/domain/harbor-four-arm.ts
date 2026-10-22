@@ -68,20 +68,58 @@ export const validateHarborFourArmDesign = (
     const evidence = jobs.map((job) => job.externalEvidence);
     if (evidence.some((item) => item === undefined)
       || new Set(evidence.map((item) => item?.taskManifestSha256)).size !== 1
+      || new Set(evidence.map((item) => item?.taskBytesSha256)).size !== 1
       || repositoryIds.some((repositoryId) => jobs.some((job) => job.externalEvidence?.repositoryRevisions[repositoryId] === undefined))) {
       return err(domainError(
         'INVALID_BENCHMARK',
         'harbor_job.external_evidence',
-        'external four-arm jobs must bind one task manifest and every configured repository revision',
+        'external four-arm jobs must bind one task manifest, task byte set and every configured repository revision',
       ));
     }
     const referenceRevisions = evidence[0]?.repositoryRevisions;
-    if (referenceRevisions === undefined || repositoryIds.some((repositoryId) => jobs.some((job) =>
-      job.externalEvidence?.repositoryRevisions[repositoryId] !== referenceRevisions[repositoryId]))) {
+    if (referenceRevisions === undefined
+      || JSON.stringify(Object.keys(referenceRevisions).sort()) !== JSON.stringify([...repositoryIds].sort())
+      || repositoryIds.some((repositoryId) => jobs.some((job) =>
+        job.externalEvidence?.repositoryRevisions[repositoryId] !== referenceRevisions[repositoryId]))) {
       return err(domainError(
         'INVALID_BENCHMARK',
         'harbor_job.external_evidence.repository_revisions',
         'all external four-arm jobs must bind identical repository revisions',
+      ));
+    }
+    const reference = evidence[0];
+    if (reference === undefined || evidence.some((item) => item === undefined
+      || JSON.stringify(item?.taskBindings) !== JSON.stringify(reference.taskBindings)
+      || item?.taskManifestPath !== reference.taskManifestPath
+      || item?.modelIdentity !== reference.modelIdentity
+      || item?.providerIdentity !== reference.providerIdentity
+      || item?.runtimeImageIdentity !== reference.runtimeImageIdentity
+      || item?.codexConfig.effectiveSha256 === undefined)) {
+      return err(domainError(
+        'INVALID_BENCHMARK',
+        'harbor_job.external_evidence',
+        'external four-arm jobs must bind identical task bytes and model/provider/runtime identities',
+      ));
+    }
+    const taskBindingPaths = new Set(reference.taskBindings.map((binding) => binding.path));
+    if (native.value.tasks.some((task) => !taskBindingPaths.has(task))) {
+      return err(domainError(
+        'INVALID_BENCHMARK',
+        'harbor_job.external_evidence.task_bindings',
+        'every effective task path must be present in the frozen task byte bindings',
+      ));
+    }
+    if (jobs.some((job) => {
+      const config = job.externalEvidence?.codexConfig;
+      return config === undefined
+        || (job.codexConfig === undefined
+          ? config.path !== null || config.bytesSha256 !== null
+          : config.path !== job.codexConfig || config.bytesSha256 === null);
+    })) {
+      return err(domainError(
+        'INVALID_BENCHMARK',
+        'harbor_job.external_evidence.codex_config',
+        'each arm must bind the exact effective Codex/MCP config path and bytes; native must bind explicit no-config',
       ));
     }
   }
@@ -97,8 +135,11 @@ export const validateHarborFourArmDesign = (
   }
   const distinctTaskCount = new Set(native.value.tasks).size;
   const counts: Record<string, number> = Object.fromEntries(repositoryIds.map((repositoryId) => [repositoryId, 0]));
+  const boundRepositoryByPath = options.requireExternalEvidence === true
+    ? new Map((native.value.externalEvidence?.taskBindings ?? []).map((binding) => [binding.path, binding.repositoryId]))
+    : undefined;
   for (const task of native.value.tasks) {
-    const repository = repositoryForTask(task, repositoryIds);
+    const repository = boundRepositoryByPath?.get(task) ?? repositoryForTask(task, repositoryIds);
     if (repository === undefined) {
       return err(domainError(
         'INVALID_BENCHMARK',
@@ -252,4 +293,27 @@ export const validateHarborFourArmReport = (value: unknown): Result<HarborFourAr
       'hybrid-delta': delta,
     },
   });
+};
+
+/**
+ * Byte hashing alone proves artifact presence/integrity, not that the observed
+ * per-trial traces corroborate the report's declared quality/token counters.
+ * Release claims therefore require an independent trial-level reconciliation.
+ */
+export const assessHarborFourArmFiveX = (input: {
+  readonly qualityNonInferior: boolean;
+  readonly costTelemetryComplete: boolean;
+  readonly tokenRatio: number | null;
+  readonly rawTrialEvidenceVerified: boolean;
+}): { readonly allowed: boolean; readonly reason: string } => {
+  if (!input.rawTrialEvidenceVerified) {
+    return { allowed: false, reason: 'raw_trial_evidence_not_independently_reconciled' };
+  }
+  if (!input.qualityNonInferior || !input.costTelemetryComplete) {
+    return { allowed: false, reason: 'quality_or_cost_gate_failed' };
+  }
+  if (input.tokenRatio === null || !Number.isFinite(input.tokenRatio) || input.tokenRatio < 0 || input.tokenRatio > 0.2) {
+    return { allowed: false, reason: 'token_ratio_did_not_meet_five_x' };
+  }
+  return { allowed: true, reason: 'independent_quality_cost_and_trial_evidence_satisfied' };
 };
