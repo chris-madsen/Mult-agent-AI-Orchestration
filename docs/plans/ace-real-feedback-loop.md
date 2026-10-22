@@ -10,7 +10,7 @@
 
 **Architecture:** preserve the existing MCP facade, exact-source reread, provider receipts, source-coverage semantics, OAuth auth-file route, and fail-closed statuses. Do not replace an unavailable provider with a mock or lexical success.
 
-**Auth decision:** Harbor Codex jobs use the existing ChatGPT/Codex OAuth route through `CODEX_FORCE_AUTH_JSON=1` and the host `CODEX_HOME/auth.json`. A manually supplied `OPENAI_API_KEY` or `OPENAI_API_BASE` is not required for Codex subscription execution. A task-specific remote verifier may declare its own requirement; that is separate from agent authentication.
+**Auth decision:** Harbor Codex jobs use the existing ChatGPT/Codex OAuth route through `CODEX_FORCE_AUTH_JSON=1` and the host `~/.codex/auth.json`. A manually supplied `OPENAI_API_KEY` or `OPENAI_API_BASE` is not required for Codex subscription execution. A task-specific remote verifier may declare its own requirement; that is separate from agent authentication.
 
 ---
 
@@ -32,7 +32,7 @@
 |---|---|---|
 | Provider implementation | **IMPLEMENTED/CONTRACT-TESTED** | MCP, ast-grep, LSP, FastEmbed, Qdrant, receipts, and fail-closed reporting exist. This is not agent-E2E evidence. |
 | CST to LSP | **REAL STAGE-0 PASS / LIMITED COVERAGE** | A real source checkout produced one current/direct LSP-confirmed class symbol through MCP. Three optional arrow-function cases remain unconfirmed because the provider did not expose an exact name anchor; they are not counted as direct evidence. |
-| Codex authentication | **OAUTH ROUTE READY** | Exact-current preflight accepts `CODEX_HOME/auth.json` with `CODEX_FORCE_AUTH_JSON=1` and no manually supplied API key. Credentials are not retained in manifests or logs. |
+| Codex authentication | **OAUTH ROUTE READY** | Exact-current preflight accepts `~/.codex/auth.json` with `CODEX_FORCE_AUTH_JSON=1` and no manually supplied API key. Credentials are not retained in manifests or logs. |
 | Local provider stack | **LOCAL PROVIDERS READY / HARBOR BLOCKED** | Node/npm, ast-grep, TypeScript LSP, dense/sparse FastEmbed, Qdrant, Harbor, Docker and Codex CLI passed their local checks. The exact preflight is still `BLOCKED` because generated jobs require local inspection of two missing task images and a task-specific verifier route was not proven ready. |
 | Harbor natural-use feedback | **NOT RUN — INPUTS FROZEN** | Twenty source-bound SWE-Atlas task identities and main/holdout selection are frozen, but job generation/smoke cannot pass the local image/verifier gate. No natural, forced, zero-call, paired, repeat, or holdout result is accepted. |
 | RepoBench-R | **BLOCKED — NO SOURCE COMMIT MAPPING** | The pinned official records expose repository/file/context data but no exact source commits. Acquisition stopped before download or synthetic checkout creation. |
@@ -71,7 +71,7 @@ AUTH-01 OAuth-first preflight
 
 **Files:** `scripts/feedback-loop-preflight.ts`, `src/domain/feedback-preflight.ts`, and the existing preflight contract owner.
 
-- Validate `CODEX_HOME/auth.json` metadata and OAuth token presence without logging token bytes.
+- Validate `~/.codex/auth.json` metadata and OAuth token presence without logging token bytes.
 - Record `authenticationRoute = CODEX_FORCE_AUTH_JSON=1 with the host Codex auth route; credentials are not retained`.
 - Do not require `OPENAI_API_KEY` or `OPENAI_API_BASE`.
 - Remove the global API verifier from the required base checks.
