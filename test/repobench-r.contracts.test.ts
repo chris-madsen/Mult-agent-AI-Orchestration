@@ -141,18 +141,18 @@ test('RepoBench-R keeps valid rows and reports unmappable rows as INVALID', () =
   assert.deepEqual(result.value.holdout.cases.map((item) => item.id), ['case-valid']);
 });
 
-test('RepoBench-R source manifest identity is stable across entry ordering and sensitive to Git object ids', () => {
-  const first = repoBenchSourceManifestSha256([
-    { path: 'b.py', mode: '100644', objectId: '2'.repeat(40) },
-    { path: 'a.py', mode: '100644', objectId: '1'.repeat(40) },
+test('RepoBench-R source manifest identity matches canonical frozen-manifest semantics', () => {
+  const first = repoBenchSourceManifestSha256('repo-one', revision, [
+    { path: 'b.py', sizeBytes: 2, sha256: '2'.repeat(64) },
+    { path: 'a.py', sizeBytes: 1, sha256: '1'.repeat(64) },
   ]);
-  const reordered = repoBenchSourceManifestSha256([
-    { path: 'a.py', mode: '100644', objectId: '1'.repeat(40) },
-    { path: 'b.py', mode: '100644', objectId: '2'.repeat(40) },
+  const reordered = repoBenchSourceManifestSha256('repo-one', revision, [
+    { path: 'a.py', sizeBytes: 1, sha256: '1'.repeat(64) },
+    { path: 'b.py', sizeBytes: 2, sha256: '2'.repeat(64) },
   ]);
-  const changed = repoBenchSourceManifestSha256([
-    { path: 'a.py', mode: '100644', objectId: '3'.repeat(40) },
-    { path: 'b.py', mode: '100644', objectId: '2'.repeat(40) },
+  const changed = repoBenchSourceManifestSha256('repo-one', revision, [
+    { path: 'a.py', sizeBytes: 1, sha256: '3'.repeat(64) },
+    { path: 'b.py', sizeBytes: 2, sha256: '2'.repeat(64) },
   ]);
   assert.equal(first, reordered);
   assert.notEqual(first, changed);
