@@ -266,7 +266,13 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
   const first = run(firstOutput);
   assert.equal(first.status, 0, first.stderr);
   const prepared = JSON.parse(await readFile(join(firstOutput, 'job-manifest.json'), 'utf8'));
-  assert.equal(prepared.status, 'READY');
+  assert.equal(prepared.status, 'PREPARED');
+  assert.equal(prepared.runtimeImageVerification, 'NOT_VERIFIED');
+  const job = JSON.parse(await readFile(join(firstOutput, 'ace-optional-job.json'), 'utf8'));
+  assert.equal('mounts' in job.environment, false);
+  const runner = await readFile(join(firstOutput, 'run-ace-optional.sh'), 'utf8');
+  assert.match(runner, /--mounts/u);
+  assert.match(runner, /read_only/u);
   assert.equal(prepared.verifiedSourceDigest, sourceDigest);
   await writeFile(join(source, 'tasks', 'task-1', 'test.txt'), 'tampered task\n');
   const secondOutput = join(root, 'second');
