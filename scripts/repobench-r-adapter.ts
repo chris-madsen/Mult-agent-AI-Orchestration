@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { Effect } from 'effect';
 import { makeAstGrepStructuralPort } from '../src/adapters/ast-grep-structural.js';
+import { retrievalSourceManifestExcludedPath } from '../src/domain/retrieval-source-manifest.js';
 import {
   mapRepoBenchRecords,
   repoBenchSourceKey,
@@ -158,14 +159,6 @@ const parseMappings = (mappings: readonly string[]): ReadonlyMap<string, string>
 
 const gitRevision = (root: string): string => execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 
-const sourceManifestExcluded = (repoPath: string): boolean => {
-  const lower = repoPath.toLocaleLowerCase();
-  return repoPath.split('/').some((part) =>
-    ['node_modules', 'dist', 'build', 'artifacts', '.cache', 'coverage', 'vendor'].includes(part))
-    || ['.png', '.jpg', '.jpeg', '.gif', '.ico', '.woff', '.woff2', '.zip', '.tar', '.gz', '.exe', '.dll']
-      .some((suffix) => lower.endsWith(suffix));
-};
-
 const gitSourceBytes = (root: string, revision: string, repoPath: string): Buffer =>
   execFileSync('git', ['-C', root, 'show', `${revision}:${repoPath}`]);
 
@@ -174,7 +167,7 @@ const gitSourceManifest = (root: string, repositoryId: string, revision: string)
     .split('\0').filter((path) => path.length > 0).sort((left, right) => left.localeCompare(right));
   const entries: Array<{ path: string; sizeBytes: number; sha256: string }> = [];
   for (const repoPath of paths) {
-    if (sourceManifestExcluded(repoPath)) continue;
+    if (retrievalSourceManifestExcludedPath(repoPath)) continue;
     const bytes = gitSourceBytes(root, revision, repoPath);
     if (bytes.includes(0)) continue;
     entries.push({ path: repoPath, sizeBytes: bytes.byteLength, sha256: sha256(bytes) });
