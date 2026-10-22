@@ -84,6 +84,7 @@ test('feedback jobs use the Codex OAuth route and do not require the legacy API-
   assert.match(preflight, /authenticationRoute: codexAuthenticationRoute/u);
   assert.match(preflight, /fastembed-sparse-worker\.sh'\], sparseEmbeddingEnvironment/u);
   assert.match(jobs, /CODEX_FORCE_AUTH_JSON:\s*'1'/u);
+  assert.match(jobs, /CODEX_AUTH_JSON_PATH:\s*''/u);
   assert.doesNotMatch(jobs, /OPENAI_API_KEY|OPENAI_API_BASE/u);
 });
 
