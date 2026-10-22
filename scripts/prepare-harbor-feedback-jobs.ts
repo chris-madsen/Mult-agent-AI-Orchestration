@@ -1,11 +1,43 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { validateFeedbackTaskManifest, type FeedbackTaskManifest } from '../src/domain/feedback-loop-experiment.js';
 
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
+
+const gitBytes = (root: string, args: readonly string[]): Buffer =>
+  execFileSync('git', ['-C', root, ...args]);
+const gitText = (root: string, args: readonly string[]): string => gitBytes(root, args).toString('utf8').trim();
+
+const assertCleanCheckout = (root: string, label: string): string => {
+  const actualRoot = resolve(gitText(root, ['rev-parse', '--show-toplevel']));
+  if (realpathSync(actualRoot) !== realpathSync(root)) throw new Error(`BLOCKED: ${label} must be a Git checkout root`);
+  if (gitText(root, ['status', '--porcelain=v1', '--untracked-files=all']).length > 0) {
+    throw new Error(`BLOCKED: ${label} checkout is dirty; frozen source bytes would not match the job`);
+  }
+  return gitText(root, ['rev-parse', 'HEAD']);
+};
+
+// Use exactly the canonical task-identities freezer algorithm; hash actual Git blobs,
+// not unverified strings copied from a task manifest.
+const frozenTreeEntries = (root: string, revision: string, prefix?: string): readonly {
+  readonly path: string;
+  readonly sizeBytes: number;
+  readonly sha256: string;
+}[] => {
+  const paths = gitText(root, ['ls-tree', '-r', '-z', '--name-only', revision,
+    ...(prefix === undefined ? [] : [`${prefix}/`])])
+    .split('\\0').filter((path) => path.length > 0).sort((a, b) => a.localeCompare(b));
+  return paths.map((path) => {
+    const bytes = gitBytes(root, ['show', `${revision}:${path}`]);
+    return { path, sizeBytes: bytes.byteLength, sha256: sha256(bytes) };
+  });
+};
+
+const frozenTreeDigest = (identity: string, revision: string, entries: ReturnType<typeof frozenTreeEntries>): string =>
+  sha256(Buffer.from(`${JSON.stringify({ schemaVersion: 1, identity, revision, entries }, null, 2)}\\n`, 'utf8'));
 const usage = (): never => {
   throw new Error('Usage: tsx scripts/prepare-harbor-feedback-jobs.ts --task-manifest <path> --source-root <checkout> --ace-root <checkout> --output <dir> --run-id <id> --model <model> --reasoning <low|medium|high> --image-digest sha256:<64hex> --ace-config <path>');
 };
@@ -56,11 +88,26 @@ const main = async (): Promise<void> => {
     const taskManifest: FeedbackTaskManifest = checked.value;
     if (taskManifest.selection !== 'main' || taskManifest.tasks.length !== 10) throw new Error('BLOCKED: Harbor main job preparation requires the frozen 10-task manifest');
     const sourceRoot = resolve(sourceRootArg);
+    const sourceRevision = assertCleanCheckout(sourceRoot, 'task source');
+    const allTasks = [...taskManifest.tasks, ...taskManifest.holdout];
+    if (allTasks.some((task) => task.sourceRevision !== sourceRevision)) {
+      throw new Error('BLOCKED: task/holdout revision does not match actual source checkout');
+    }
+    const sourceDigest = frozenTreeDigest(taskManifest.dataset.id, sourceRevision, frozenTreeEntries(sourceRoot, sourceRevision));
+    if (allTasks.some((task) => task.sourceDigest !== sourceDigest)) {
+      throw new Error('BLOCKED: task/holdout source digest does not match actual Git source blobs');
+    }
+    for (const task of allTasks) {
+      if (task.taskPath === undefined) throw new Error(`BLOCKED: frozen task ${task.id} has no taskPath`);
+      const expected = frozenTreeDigest(task.id, sourceRevision, frozenTreeEntries(sourceRoot, sourceRevision, task.taskPath));
+      if (task.taskDigest !== expected) throw new Error(`BLOCKED: task ${task.id} digest does not match actual Git task blobs`);
+    }
     const taskPaths = taskManifest.tasks.map((task) => {
       if (task.taskPath === undefined) throw new Error(`BLOCKED: frozen task ${task.id} has no taskPath`);
       const absolute = resolve(sourceRoot, task.taskPath);
       const containment = relative(sourceRoot, absolute);
-      if (isAbsolute(containment) || containment === '..' || containment.startsWith('../') || !existsSync(absolute)) {
+      if (isAbsolute(containment) || containment === '..' || containment.startsWith('../') || !existsSync(absolute)
+        || !realpathSync(absolute).startsWith(`${realpathSync(sourceRoot)}/`)) {
         throw new Error(`BLOCKED: frozen task path is missing or escapes source root: ${task.id}`);
       }
       return absolute;
@@ -80,7 +127,10 @@ const main = async (): Promise<void> => {
     }
     const model = modelArg.trim();
     if (model.length === 0) throw new Error('BLOCKED: model must be explicit and non-empty');
-    const aceSourceCommit = execFileSync('git', ['-C', aceRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/u.test(runId) || runId === '..') {
+      throw new Error('BLOCKED: run ID must be a safe, portable identifier');
+    }
+    const aceSourceCommit = assertCleanCheckout(aceRoot, 'ACE runtime');
     if (!/^[a-f0-9]{40,64}$/iu.test(aceSourceCommit)) throw new Error('BLOCKED: ACE checkout did not provide a pinned source commit');
     const aceRuntimeSha256 = sha256(await readFile(aceRuntime));
     const agent = { name: 'codex', model_name: model, override_setup_timeout_sec: 900, env: { CODEX_FORCE_AUTH_JSON: '1' }, kwargs: { reasoning_effort: reasoning } } as const;
@@ -120,7 +170,8 @@ const main = async (): Promise<void> => {
       aceSourceCommit,
       aceRuntime: '/ace/dist/bin/ace-mcp.js',
       aceRuntimeSha256,
-      taskSourceRevision: taskManifest.tasks[0]!.sourceRevision,
+      taskSourceRevision: sourceRevision,
+      verifiedSourceDigest: sourceDigest,
       taskManifestSha256: sha256(taskManifestBytes),
       model,
       reasoningEffort: reasoning,
