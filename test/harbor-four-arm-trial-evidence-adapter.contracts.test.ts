@@ -47,3 +47,36 @@ test('raw Harbor adapter blocks when a trial result has no verifier outcome', as
     /BLOCKED: missing verifier reward/u,
   );
 });
+
+test('raw Harbor adapter rejects a missing aggregate even if trial directories exist', async () => {
+  const root = await mkdtemp('/tmp/ace-harbor-missing-aggregate-');
+  const trialDirectory = join(root, 'trial-0');
+  await mkdir(join(trialDirectory, 'agent'), { recursive: true });
+  await writeFile(join(trialDirectory, 'result.json'), '{}\n', 'utf8');
+  await assert.rejects(
+    readHarborFourArmTrialObservations('native', join(root, 'missing-result.json')),
+  );
+});
+
+test('raw Harbor adapter orders serial trials by timestamps, not lexical directory names', async () => {
+  const root = await mkdtemp('/tmp/ace-harbor-trial-order-');
+  await writeFile(join(root, 'result.json'), '{}\n', 'utf8');
+  for (const [directory, task, started] of [
+    ['trial-10', 'second', '2026-10-22T10:00:02.000Z'],
+    ['trial-2', 'first', '2026-10-22T10:00:01.000Z'],
+  ]) {
+    const path = join(root, directory);
+    await mkdir(join(path, 'agent'), { recursive: true });
+    await writeFile(join(path, 'result.json'), JSON.stringify({
+      task_name: task,
+      verifier_result: { rewards: { reward: 1 } },
+      exception_info: null,
+      started_at: started,
+      finished_at: '2026-10-22T10:00:03.000Z',
+      agent_result: { n_input_tokens: 10, n_output_tokens: 1, n_cache_tokens: 0 },
+    }) + '\n', 'utf8');
+    await writeFile(join(path, 'agent', 'codex.txt'), 'empty trace\n', 'utf8');
+  }
+  const result = await readHarborFourArmTrialObservations('native', join(root, 'result.json'));
+  assert.deepEqual(result.map((item) => item.taskName), ['first', 'second']);
+});
