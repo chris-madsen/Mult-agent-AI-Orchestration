@@ -86,8 +86,14 @@ const currentObservation = async (runtimeRoot: string): Promise<RuntimeProvenanc
 
 export const verifyCompiledRuntimeProvenance = async (
   runtimeRootInput: string,
+  runningExecutablePath: string,
 ): Promise<Result<RuntimeProvenanceManifest, ReturnType<typeof domainError>>> => {
   const runtimeRoot = resolve(runtimeRootInput);
+  // Check the module Node is *actually executing*, not a clean checkout
+  // that ACE_RUNTIME_ROOT points to while another executable runs.
+  if (resolve(runningExecutablePath) !== resolve(runtimeRoot, 'dist/bin/ace-mcp.js')) {
+    return err(domainError('NOT_READY', 'runtime_provenance', 'compiled executable path does not match the verified runtime root'));
+  }
   try {
     const manifestBytes = await readFile(join(runtimeRoot, 'dist/runtime-provenance.json'));
     const manifest = JSON.parse(manifestBytes.toString('utf8')) as RuntimeProvenanceManifest;
