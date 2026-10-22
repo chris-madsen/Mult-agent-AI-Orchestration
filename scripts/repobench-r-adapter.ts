@@ -134,7 +134,9 @@ const parseArguments = (): {
     recordsPath: resolve(recordsPath),
     manifestPath: resolve(manifestPath),
     outputDirectory: resolve(outputDirectory),
-    astGrepCommand: resolve(astGrepCommand),
+    astGrepCommand: astGrepCommand.includes('/') || astGrepCommand.includes('\\')
+      ? resolve(astGrepCommand)
+      : astGrepCommand,
     mappings,
   };
 };
@@ -240,7 +242,6 @@ const main = async (): Promise<void> => {
     }
     verifiedRepositories.push({ id: repository.id, revision: actualRevision, sourceManifestSha256: sourceManifest.digest });
   }
-  if (!existsSync(args.astGrepCommand)) throw new Error(`BLOCKED: ast-grep command is missing: ${args.astGrepCommand}`);
   const structural = makeAstGrepStructuralPort({ command: args.astGrepCommand });
   const sourceFiles = new Map<string, RepoBenchSourceFile>();
   for (const record of records) {
