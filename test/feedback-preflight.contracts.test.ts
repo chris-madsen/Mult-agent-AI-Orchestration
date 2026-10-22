@@ -91,6 +91,7 @@ test('feedback jobs use the Codex OAuth route and do not require the legacy API-
   assert.match(sweAtlasConfig, /cwd = "\/app"/u);
   assert.match(sweAtlasConfig, /ACE_WORKSPACE_ROOT = "\/app"/u);
   assert.match(sweAtlasConfig, /ACE_ALLOWED_ROOTS = "\/app"/u);
+  assert.match(sweAtlasConfig, /ACE_WORKSPACE_ID = "00000000-0000-4000-8000-000000000001"/u);
   assert.match(sweAtlasConfig, /GIT_CONFIG_VALUE_0 = "\/ace"/u);
   assert.match(sweAtlasConfig, /GIT_CONFIG_VALUE_1 = "\/app"/u);
   assert.match(sweAtlasConfig, /command = "\/ace\/scripts\/harbor-ace-mcp\.sh"/u);

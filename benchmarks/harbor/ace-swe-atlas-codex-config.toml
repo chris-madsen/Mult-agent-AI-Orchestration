@@ -11,6 +11,7 @@ enabled_tools = ["ace_context", "ace_expand"]
 [mcp_servers.ace.env]
 ACE_WORKSPACE_ROOT = "/app"
 ACE_ALLOWED_ROOTS = "/app"
+ACE_WORKSPACE_ID = "00000000-0000-4000-8000-000000000001"
 ACE_STATE_DIR = "/tmp/ace-state"
 ACE_ARTIFACT_DIR = "/logs/artifacts"
 ACE_ENABLE_EXPERIMENTAL_QDRANT = "true"
