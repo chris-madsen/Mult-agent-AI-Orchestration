@@ -96,11 +96,15 @@ const parseArgs = (): { readonly outputDirectory: string; readonly sourceRoot: s
   }
   const resolvedSourceRoot = resolve(sourceRoot);
   const resolvedWorkspaceRoot = resolve(workspaceRoot ?? join(resolvedSourceRoot, 'src'));
+  const resolvedOutputDirectory = resolve(outputDirectory);
   const relativeWorkspace = requireWithinSource(resolvedSourceRoot, resolvedWorkspaceRoot);
   if (relativeWorkspace === undefined) {
     throw new Error('BLOCKED: --workspace-root must remain inside --source-root');
   }
-  return { outputDirectory: resolve(outputDirectory), sourceRoot: resolvedSourceRoot, workspaceRoot: resolvedWorkspaceRoot };
+  if (requireWithinSource(resolvedSourceRoot, resolvedOutputDirectory) !== undefined) {
+    throw new Error('BLOCKED: --output must remain outside --source-root so evidence cannot dirty frozen source bytes');
+  }
+  return { outputDirectory: resolvedOutputDirectory, sourceRoot: resolvedSourceRoot, workspaceRoot: resolvedWorkspaceRoot };
 };
 
 const requireWithinSource = (sourceRoot: string, workspaceRoot: string): string | undefined => {
@@ -346,6 +350,10 @@ const main = async (): Promise<void> => {
       if (retrievalReceipt === undefined) throw new Error('benchmark trace terminal receipt is missing');
       const traceValidation = validateRetrievalBenchmarkTraceArtifact(retrievalText, retrievalReceipt, requestIds);
       if (!traceValidation.valid) throw new Error(`benchmark trace rejected: ${traceValidation.failures.join(', ')}`);
+      const finalSource = realSourceIdentity(sourceRoot);
+      if (finalSource.revision !== source.revision || finalSource.manifestSha256 !== source.manifestSha256) {
+        throw new Error('BLOCKED: real source checkout changed during Stage-0; evidence is not bound to one frozen source identity');
+      }
       const artifactSha256 = await artifactDigests([responsePath, stderrPath, providerTracePath, retrievalTracePath, retrievalReceiptPath]);
       const manifest: Stage0Manifest = {
         schemaVersion: 1,

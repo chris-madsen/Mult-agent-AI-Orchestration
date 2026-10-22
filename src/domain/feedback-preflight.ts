@@ -24,10 +24,11 @@ export const inspectCodexAuthJson = (authPath: string, contents: string): CodexA
   const root = object(parsed);
   const tokens = object(root?.tokens);
   const authMode = root?.auth_mode;
-  const hasOAuthToken = tokens !== undefined
-    && ['access_token', 'refresh_token', 'id_token'].some((key) => nonEmpty(tokens[key]));
-  if (authMode !== 'chatgpt' || !hasOAuthToken) {
-    return { status: 'not_ready', reason: 'Codex auth file does not contain a valid ChatGPT OAuth credential' };
+  const hasAccessToken = nonEmpty(tokens?.access_token);
+  const hasRefreshToken = nonEmpty(tokens?.refresh_token);
+  const hasRefreshMetadata = nonEmpty(root?.last_refresh);
+  if (authMode !== 'chatgpt' || !hasAccessToken || !hasRefreshToken || !hasRefreshMetadata) {
+    return { status: 'not_ready', reason: 'Codex auth file does not contain complete ChatGPT OAuth access/refresh state' };
   }
   return {
     status: 'ready',
