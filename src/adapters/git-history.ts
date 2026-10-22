@@ -127,7 +127,7 @@ export const makeGitHistoryPort = (options: GitHistoryOptions = {}): GitHistoryP
               cwd: input.rootPath,
               encoding: 'utf8',
               maxBuffer: MAX_BUFFER_BYTES,
-            env: isolatedGitEnvironment(),
+              env: isolatedGitEnvironment(),
             });
             message = shown.stdout.trim();
           } catch {
