@@ -36,6 +36,16 @@ writing its output. Missing or empty artifacts are `BLOCKED`. A report boolean
 or declared counter is not independent provider evidence, and a successful
 synthetic contract smoke is not an agent-E2E or benchmark result.
 
+**Release-gate limitation:** The current implementation verifies that referenced raw
+trace/usage/failure files exist and binds their bytes, but it does **not** parse
+and reconcile per-trial task outcomes, actual ACE MCP calls or provider token
+usage against the aggregate report. Consequently `fiveXAllowed=false` with
+`fiveXBlocker=raw_trial_evidence_not_independently_reconciled` even when the
+self-declared aggregate passes the quality/cost/ratio checks. A separate
+trial-level evidence reader/validator must be implemented, tested against
+forged aggregates and independently approved before this gate is eligible
+to assert a 5× result. Byte hashes alone cannot justify a release claim.
+
 The four-arm result remains `NOT_RUN`/`BLOCKED` until real Harbor, Codex/OAuth,
 Docker/Linux execution supplies correlated MCP calls, per-trial task success,
 raw usage, latency and failure evidence. This binding workflow does not claim
