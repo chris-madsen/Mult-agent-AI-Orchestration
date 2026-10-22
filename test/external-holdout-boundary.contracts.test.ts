@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { retrievalSourceManifestSha256 } from '../src/domain/retrieval-source-manifest.js';
 
 const repositoryRoot = path.resolve('.');
 const tsxCli = path.resolve('node_modules/tsx/dist/cli.mjs');
@@ -70,7 +71,18 @@ test('external holdout freezer writes only to an external evidence directory', a
     assert.deepEqual(generated.repositories.map((item) => item.id), ['repo-a', 'repo-b']);
     assert.deepEqual(generated.repositories.map((item) => item.revision), [revision, revision]);
     assert.equal(generated.cases.length, 2);
-    assert.match(await readFile(path.join(manifests, 'manifest-repo-a.json'), 'utf8'), /"repositoryId": "repo-a"/u);
+    const repoAManifestPath = path.join(manifests, 'manifest-repo-a.json');
+    const repoAManifestBytes = await readFile(repoAManifestPath);
+    const repoAManifest = JSON.parse(repoAManifestBytes.toString('utf8')) as {
+      readonly repositoryId: string;
+      readonly revision: string;
+      readonly entries: readonly { readonly path: string; readonly sizeBytes: number; readonly sha256: string }[];
+    };
+    assert.match(repoAManifestBytes.toString('utf8'), /"repositoryId": "repo-a"/u);
+    assert.equal(
+      retrievalSourceManifestSha256(repoAManifest.repositoryId, repoAManifest.revision, repoAManifest.entries),
+      createHash('sha256').update(repoAManifestBytes).digest('hex'),
+    );
     assert.match(await readFile(path.join(manifests, 'manifest-repo-b.json'), 'utf8'), /"repositoryId": "repo-b"/u);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
