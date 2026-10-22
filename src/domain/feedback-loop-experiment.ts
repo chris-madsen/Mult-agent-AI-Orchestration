@@ -393,7 +393,7 @@ const rowFor = (taskId: string, native: FeedbackTrialObservation, ace: FeedbackT
     : native.quality === 'unknown' || ace.quality === 'unknown' ? 'unknown' : 'no_regression';
   const nativeTotal = totalTokens(native.usage);
   const aceTotal = totalTokens(ace.usage);
-  const tokenRatio = nativeTotal !== null && aceTotal !== null && nativeTotal > 0 && aceTotal > 0 && correlation === 'correlated'
+  const tokenRatio = qualityDelta === 'no_regression' && nativeTotal !== null && aceTotal !== null && nativeTotal > 0 && aceTotal > 0 && correlation === 'correlated'
     ? nativeTotal / aceTotal
     : null;
   return {
@@ -497,7 +497,10 @@ export const reconcileFeedbackTrials = (input: {
     nativeCostUsd: sumOptional(input.native.map((item) => item.usage.costUsd)),
     aceCostUsd: sumOptional(input.ace.map((item) => item.usage.costUsd)),
     aceObservedCalls: input.ace.reduce((sum, item) => sum + item.observedAceCalls, 0),
-    aceCorrelatedCalls: rows.reduce((sum, row) => sum + (row.aceCorrelation === 'correlated' ? 1 : 0), 0),
+    aceCorrelatedCalls: input.ace.reduce((sum, trial) => {
+      const providerIds = new Set(trial.providerTraceRequestIds);
+      return sum + trial.observedAceRequestIds.filter((id) => providerIds.has(id)).length;
+    }, 0),
     aceNotUsed,
   });
 };
