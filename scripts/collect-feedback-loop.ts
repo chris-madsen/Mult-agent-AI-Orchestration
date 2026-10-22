@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { copyFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { readHarborFourArmTrialObservations } from '../src/adapters/harbor-four-arm-trial-evidence.js';
 import {
@@ -67,6 +67,7 @@ const walkFiles = async (root: string): Promise<readonly string[]> => {
     const path = join(root, entry.name);
     if (entry.isDirectory()) files.push(...await walkFiles(path));
     else if (entry.isFile()) files.push(path);
+    else throw new Error(`BLOCKED: non-regular Harbor artifact is not safely capturable: ${path}`);
   }
   return files;
 };
@@ -78,7 +79,9 @@ const copyDirectory = async (source: string, destination: string): Promise<reado
     const target = join(destination, relative(source, file));
     await mkdir(dirname(target), { recursive: true });
     const bytes = await readFile(file);
-    await copyFile(file, target);
+    // Write the exact bytes used for the digest; copying after hashing could
+    // silently associate a changed source file with the old hash.
+    await writeFile(target, bytes);
     hashes.push({ path: relative(destination, target).split(/\\/u).join('/'), sha256: sha256(bytes) });
   }
   return hashes.sort((left, right) => left.path.localeCompare(right.path));
@@ -140,13 +143,22 @@ const observationsFor = async (
   const parsed = await readHarborFourArmTrialObservations(harborArm, aggregatePath);
   const directories = await trialDirectories(aggregatePath);
   if (parsed.length !== directories.length) throw new Error(`BLOCKED: ${arm} raw trial count does not match Harbor directories`);
+  const trialDirById = new Map<string, string>();
+  for (const directory of directories) {
+    const result = await readJson(join(directory, 'result.json'));
+    const trialId = nonEmpty(result.trial_id) ? result.trial_id : basename(directory);
+    if (trialDirById.has(trialId)) throw new Error(`BLOCKED: duplicate ${arm} trial ID ${trialId}`);
+    trialDirById.set(trialId, directory);
+  }
   const observations: FeedbackTrialObservation[] = [];
   const providerTraceLines: string[] = [];
-  for (const [index, trial] of parsed.entries()) {
-    const directory = directories[index];
-    if (directory === undefined) throw new Error(`BLOCKED: missing ${arm} trial directory ${index}`);
+  for (const trial of parsed) {
+    const directory = trialDirById.get(trial.trialId);
+    if (directory === undefined) throw new Error(`BLOCKED: missing ${arm} trial directory for ${trial.trialId}`);
     const task = taskFor(taskManifest.tasks, trial.taskName);
-    const destination = join(outputRoot, arm === 'native' ? 'raw-agent-native' : 'raw-agent-ace', task.id);
+    // Task names are data from the Harbor dataset, not safe filesystem segments.
+    const safeTaskDirectory = Buffer.from(task.id, 'utf8').toString('base64url');
+    const destination = join(outputRoot, arm === 'native' ? 'raw-agent-native' : 'raw-agent-ace', safeTaskDirectory);
     const artifacts = await copyDirectory(directory, destination);
     const result = await readJson(join(directory, 'result.json'));
     const traceFiles = await providerTraceFiles(directory);
@@ -227,12 +239,12 @@ const main = async (): Promise<void> => {
       rawArtifactHashes: [
         ...native.observations.flatMap((observation) => observation.rawArtifactHashes.map((artifact) => ({
           arm: 'native',
-          path: `raw-agent-native/${observation.taskId}/${artifact.path}`,
+          path: `raw-agent-native/${Buffer.from(observation.taskId, 'utf8').toString('base64url')}/${artifact.path}`,
           sha256: artifact.sha256,
         }))),
         ...ace.observations.flatMap((observation) => observation.rawArtifactHashes.map((artifact) => ({
           arm: 'ace_optional',
-          path: `raw-agent-ace/${observation.taskId}/${artifact.path}`,
+          path: `raw-agent-ace/${Buffer.from(observation.taskId, 'utf8').toString('base64url')}/${artifact.path}`,
           sha256: artifact.sha256,
         }))),
       ],
