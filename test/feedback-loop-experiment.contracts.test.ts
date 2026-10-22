@@ -131,6 +131,46 @@ test('duplicate trial and request IDs are invalid', () => {
   assert.equal(duplicateRequest._tag, 'Err');
 });
 
+
+test('multiple ACE calls are counted as calls, not as one correlated task', () => {
+  const result = reconcile(undefined, observation('ace_optional', {
+    observedAceCalls: 3,
+    observedAceRequestIds: ['request-1', 'request-2', 'request-3'],
+    providerTraceRequestIds: ['request-1', 'request-2', 'request-3'],
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Err') return;
+  assert.equal(result.value.status, 'PASS');
+  assert.equal(result.value.aceObservedCalls, 3);
+  assert.equal(result.value.aceCorrelatedCalls, 3);
+});
+
+test('partially correlated requests are counted individually but not marked complete', () => {
+  const result = reconcile(undefined, observation('ace_optional', {
+    observedAceCalls: 3,
+    observedAceRequestIds: ['request-1', 'request-2', 'request-3'],
+    providerTraceRequestIds: ['request-1', 'request-3'],
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Err') return;
+  assert.equal(result.value.status, 'UNKNOWN');
+  assert.equal(result.value.aceObservedCalls, 3);
+  assert.equal(result.value.aceCorrelatedCalls, 2);
+  assert.equal(result.value.tokenRatio, null);
+});
+
+test('quality regression never presents token savings even in the per-task row', () => {
+  const result = reconcile(undefined, observation('ace_optional', {
+    quality: 'fail',
+    usage: { inputTokens: 20, cachedInputTokens: 0, outputTokens: 10 },
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Err') return;
+  assert.equal(result.value.status, 'QUALITY_REGRESSION');
+  assert.equal(result.value.rows[0]?.tokenRatio, null);
+  assert.equal(result.value.tokenRatio, null);
+});
+
 test('main task manifest requires ten frozen tasks and ten untouched holdout tasks', () => {
   const result = validateFeedbackTaskManifest({
     ...manifest,
