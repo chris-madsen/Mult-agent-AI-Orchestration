@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { canonicalBenchmarkCandidateId, type BenchmarkCandidateRange } from '../src/domain/retrieval-benchmark.js';
+import { exactUtf8SourceSpan } from '../src/domain/utf8-range.js';
 import type { RetrievalHoldout } from '../src/domain/retrieval-quality-evaluation.js';
 import {
   type RerankerFixture,
@@ -107,20 +108,11 @@ const manifestFor = (repository: RepositorySpec, root: string): { readonly bytes
 };
 
 const textForRange = (bytes: Buffer, range: BenchmarkCandidateRange): string => {
-  const text = bytes.toString('utf8');
-  const starts = [0];
-  for (let index = 0; index < text.length; index += 1) {
-    if (text[index] === '\n') starts.push(index + 1);
+  const text = exactUtf8SourceSpan(bytes, range);
+  if (text === undefined) {
+    throw new Error('frozen reranker source range is invalid or splits a UTF-8 character');
   }
-  const startLine = starts[range.startLine - 1];
-  const endLine = starts[range.endLine - 1];
-  if (startLine === undefined || endLine === undefined) throw new Error('range line is outside source');
-  const lineEnd = text.indexOf('\n', endLine);
-  const endOfLine = lineEnd < 0 ? text.length : lineEnd - (text[lineEnd - 1] === '\r' ? 1 : 0);
-  const start = startLine + (range.startColumn ?? 1) - 1;
-  const end = range.endColumn === undefined ? endOfLine : endLine + range.endColumn - 1;
-  if (start < startLine || end < start || end > endOfLine) throw new Error('range columns are outside source');
-  return text.slice(start, end);
+  return text;
 };
 
 const repositories: NonNullable<RerankerFixture['repositories']> = [];
