@@ -3,9 +3,12 @@ import { execFileSync } from 'node:child_process';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
+import { Effect } from 'effect';
+import { makeAstGrepStructuralPort } from '../src/adapters/ast-grep-structural.js';
 import {
   mapRepoBenchRecords,
   repoBenchSourceKey,
+  repoBenchSourceManifestSha256,
   type RepoBenchManifest,
   type RepoBenchRecord,
   type RepoBenchSourceFile,
@@ -15,7 +18,7 @@ type JsonObject = Record<string, unknown>;
 
 const usage = (): never => {
   throw new Error(
-    'Usage: tsx scripts/repobench-r-adapter.ts --records <records.json|records.jsonl> --manifest <manifest.json> --output <directory> <repository-id>=<checkout-root> [...mappings]',
+    'Usage: tsx scripts/repobench-r-adapter.ts --records <records.json|records.jsonl> --manifest <manifest.json> --output <directory> [--ast-grep-command <path>] <repository-id>=<checkout-root> [...mappings]',
   );
 };
 
@@ -68,8 +71,15 @@ const parseManifest = (value: unknown): RepoBenchManifest => {
 
 const parseRecord = (value: unknown, index: number): RepoBenchRecord => {
   const record = asObject(value, `records[${index}]`);
-  const context = arrayAt(record.context, `records[${index}].context`).map((item, contextIndex) =>
-    stringAt(item, `records[${index}].context[${contextIndex}]`));
+  const context = arrayAt(record.context, `records[${index}].context`).map((item, contextIndex) => {
+    const snippet = asObject(item, `records[${index}].context[${contextIndex}]`);
+    const identifier = optionalStringAt(snippet.identifier, `records[${index}].context[${contextIndex}].identifier`);
+    return {
+      ...(identifier === undefined ? {} : { identifier }),
+      path: stringAt(snippet.path, `records[${index}].context[${contextIndex}].path`),
+      snippet: stringAt(snippet.snippet, `records[${index}].context[${contextIndex}].snippet`),
+    };
+  });
   const rawIndex = record.gold_snippet_index ?? record.gold_snippet_idex;
   const importStatement = optionalStringAt(record.import_statement, `records[${index}].import_statement`);
   const nextLine = optionalStringAt(record.next_line, `records[${index}].next_line`);
@@ -101,18 +111,22 @@ const parseArguments = (): {
   readonly recordsPath: string;
   readonly manifestPath: string;
   readonly outputDirectory: string;
+  readonly astGrepCommand: string;
   readonly mappings: readonly string[];
 } => {
   const args = process.argv.slice(2);
   let recordsPath: string | undefined;
   let manifestPath: string | undefined;
   let outputDirectory = process.env.REPOBENCH_OUTPUT?.trim() || 'artifacts/feedback/repobench-r';
+  let astGrepCommand = process.env.ACE_AST_GREP_COMMAND?.trim()
+    || resolve(process.platform === 'win32' ? 'node_modules/.bin/ast-grep.cmd' : 'node_modules/.bin/ast-grep');
   const mappings: string[] = [];
   while (args.length > 0) {
     const current = args.shift();
     if (current === '--records') recordsPath = args.shift();
     else if (current === '--manifest') manifestPath = args.shift();
     else if (current === '--output') outputDirectory = args.shift() ?? usage();
+    else if (current === '--ast-grep-command') astGrepCommand = args.shift() ?? usage();
     else if (current !== undefined) mappings.push(current);
   }
   if (recordsPath === undefined || manifestPath === undefined || mappings.length === 0) return usage();
@@ -120,6 +134,7 @@ const parseArguments = (): {
     recordsPath: resolve(recordsPath),
     manifestPath: resolve(manifestPath),
     outputDirectory: resolve(outputDirectory),
+    astGrepCommand: resolve(astGrepCommand),
     mappings,
   };
 };
@@ -140,13 +155,51 @@ const parseMappings = (mappings: readonly string[]): ReadonlyMap<string, string>
 
 const gitRevision = (root: string): string => execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 
-const readSource = async (root: string, repositoryId: string, repoPath: string): Promise<RepoBenchSourceFile> => {
+const gitSourceManifest = (root: string): { readonly digest: string; readonly dirtyPaths: readonly string[] } => {
+  const dirty = execFileSync('git', ['-C', root, 'status', '--porcelain=v1', '--untracked-files=all'], { encoding: 'utf8' })
+    .split(/\r?\n/u).filter((line) => line.length > 0);
+  const ignored = execFileSync('git', ['-C', root, 'ls-files', '--others', '--ignored', '--exclude-standard', '-z'], { encoding: 'utf8' })
+    .split('\0').filter((path) => path.length > 0).map((path) => `ignored:${path}`);
+  const staged = execFileSync('git', ['-C', root, 'ls-files', '--stage', '-z'], { encoding: 'utf8' })
+    .split('\0').filter((line) => line.length > 0).map((line) => {
+      const match = /^(\d+) ([a-f0-9]+) (\d+)\t(.+)$/iu.exec(line);
+      if (match?.[1] === undefined || match[2] === undefined || match[4] === undefined) {
+        throw new Error('BLOCKED: could not parse Git source manifest');
+      }
+      return { mode: match[1], objectId: match[2].toLowerCase(), path: match[4].replaceAll('\\', '/') };
+    });
+  return { digest: repoBenchSourceManifestSha256(staged), dirtyPaths: [...dirty, ...ignored] };
+};
+
+const readSource = async (
+  root: string,
+  repositoryId: string,
+  repoPath: string,
+  structural: ReturnType<typeof makeAstGrepStructuralPort>,
+): Promise<RepoBenchSourceFile> => {
   if (isAbsolute(repoPath) || relative(root, resolve(root, repoPath)).startsWith('..')) {
     throw new Error(`source path escapes checkout: ${repositoryId}/${repoPath}`);
   }
   const bytes = await readFile(resolve(root, repoPath));
   const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  return { repositoryId, repoPath, source, sourceDigest: sha256(bytes) };
+  const outlined = await Effect.runPromise(structural.extract({ repoPath, source: bytes }));
+  if (outlined._tag === 'Err') {
+    throw new Error(`BLOCKED: ast-grep could not map RepoBench gold source ${repositoryId}/${repoPath}: ${outlined.error.code}`);
+  }
+  const structuralCandidates = outlined.value.symbols.flatMap((symbol) =>
+    symbol.startByteOffset === undefined || symbol.endByteOffset === undefined
+      ? []
+      : [{
+          range: {
+            startLine: symbol.startLine,
+            endLine: symbol.endLine,
+            startColumn: symbol.startColumn,
+            endColumn: symbol.endColumn,
+          },
+          startByteOffset: symbol.startByteOffset,
+          endByteOffset: symbol.endByteOffset,
+        }]);
+  return { repositoryId, repoPath, source, sourceDigest: sha256(bytes), structuralCandidates };
 };
 
 const main = async (): Promise<void> => {
@@ -170,6 +223,7 @@ const main = async (): Promise<void> => {
     return;
   }
   const mappings = parseMappings(args.mappings);
+  const verifiedRepositories: Array<Readonly<{ id: string; revision: string; sourceManifestSha256: string }>> = [];
   for (const repository of manifest.repositories) {
     const root = mappings.get(repository.id);
     if (root === undefined) throw new Error(`missing checkout mapping for ${repository.id}`);
@@ -177,14 +231,26 @@ const main = async (): Promise<void> => {
     if (actualRevision !== repository.revision) {
       throw new Error(`BLOCKED: ${repository.id} revision mismatch; expected ${repository.revision}, got ${actualRevision}`);
     }
+    const sourceManifest = gitSourceManifest(root);
+    if (sourceManifest.dirtyPaths.length > 0) {
+      throw new Error(`BLOCKED: ${repository.id} checkout is not an immutable clean source snapshot: ${sourceManifest.dirtyPaths.slice(0, 10).join(', ')}`);
+    }
+    if (sourceManifest.digest !== repository.sourceManifestSha256) {
+      throw new Error(`BLOCKED: ${repository.id} source manifest mismatch; expected ${repository.sourceManifestSha256}, got ${sourceManifest.digest}`);
+    }
+    verifiedRepositories.push({ id: repository.id, revision: actualRevision, sourceManifestSha256: sourceManifest.digest });
   }
+  if (!existsSync(args.astGrepCommand)) throw new Error(`BLOCKED: ast-grep command is missing: ${args.astGrepCommand}`);
+  const structural = makeAstGrepStructuralPort({ command: args.astGrepCommand });
   const sourceFiles = new Map<string, RepoBenchSourceFile>();
   for (const record of records) {
     const root = mappings.get(record.repoName);
     if (root === undefined) continue;
-    const key = repoBenchSourceKey(record.repoName, record.filePath);
+    const goldContext = record.context[record.goldSnippetIndex];
+    if (goldContext === undefined) continue;
+    const key = repoBenchSourceKey(record.repoName, goldContext.path);
     if (sourceFiles.has(key)) continue;
-    sourceFiles.set(key, await readSource(root, record.repoName, record.filePath));
+    sourceFiles.set(key, await readSource(root, record.repoName, goldContext.path, structural));
   }
   const mapped = mapRepoBenchRecords(manifest, records, sourceFiles);
   if (mapped._tag === 'Err') {
@@ -214,7 +280,8 @@ const main = async (): Promise<void> => {
       schemaVersion: 1,
       command: process.argv.join(' '),
       dataset: manifest.dataset,
-      repositories: manifest.repositories,
+      repositories: verifiedRepositories,
+      astGrepCommand: args.astGrepCommand,
       recordsSha256: recordsDigest,
       holdoutSha256: sha256(new TextEncoder().encode(`${JSON.stringify(mapped.value.holdout, null, 2)}\n`)),
     }, null, 2)}\n`, 'utf8'),
