@@ -81,3 +81,29 @@ export const exactUtf8Span = (
     ? undefined
     : new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(resolved.offset, resolved.offset + resolved.length));
 };
+
+/**
+ * Interpret freeze-spec columns as one-based UTF-8 *byte* offsets.
+ * Optional startColumn means start of the first line; optional endColumn
+ * means the exclusive end of the final line's content (without CR/LF).
+ * Supports multi-line selections starting from an empty line.
+ */
+export const exactUtf8SourceSpan = (
+  bytes: Uint8Array,
+  range: Utf8ByteRange,
+): string | undefined => {
+  const first = lineBounds(bytes, range.startLine);
+  const last = lineBounds(bytes, range.endLine);
+  if (first === undefined || last === undefined || range.startLine > range.endLine) return undefined;
+  const startColumn = range.startColumn ?? 1;
+  const endColumn = range.endColumn ?? last.end - last.start + 1;
+  if (!validPoint(startColumn) || !validPoint(endColumn)) return undefined;
+  const from = first.start + startColumn - 1;
+  const to = last.start + endColumn - 1;
+  if (from < first.start || from > first.end || to < last.start || to > last.end || to <= from) return undefined;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(from, to));
+  } catch {
+    return undefined;
+  }
+};
