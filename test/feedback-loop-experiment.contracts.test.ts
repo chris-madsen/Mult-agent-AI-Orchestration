@@ -224,6 +224,33 @@ test('main task manifest requires ten frozen tasks and ten untouched holdout tas
   assert.match(result.error.message, /exactly 10/u);
 });
 
+test('freeze CLI creates a provenance-bound one-task smoke manifest', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-feedback-smoke-freeze-'));
+  const tasksPath = join(root, 'task-identities.jsonl');
+  const output = join(root, 'frozen');
+  await writeFile(tasksPath, `${JSON.stringify({
+    ...manifest.tasks[0],
+    taskPath: 'tasks/task-1',
+  })}\n`);
+  const run = spawnSync(resolve('node_modules/.bin/tsx'), [
+    'scripts/freeze-feedback-task-manifest.ts',
+    '--tasks', tasksPath,
+    '--dataset-revision', revision,
+    '--dataset-sha256', digest('b'),
+    '--output', output,
+    '--smoke-id', 'task-1',
+  ], { cwd: resolve('.'), encoding: 'utf8', timeout: 120_000 });
+  assert.equal(run.status, 0, run.stderr);
+  const frozen = JSON.parse(await readFile(join(output, 'task-manifest.json'), 'utf8')) as FeedbackTaskManifest;
+  assert.equal(frozen.selection, 'smoke');
+  assert.equal(frozen.tasks.length, 1);
+  assert.equal(frozen.tasks[0]?.id, 'task-1');
+  assert.deepEqual(frozen.holdout, []);
+  const selection = JSON.parse(await readFile(join(output, 'selection.json'), 'utf8')) as Record<string, unknown>;
+  assert.equal(selection.smokeId, 'task-1');
+  assert.equal(validateFeedbackTaskManifest(frozen)._tag, 'Ok');
+});
+
 test('holdout mutation and duplicate IDs are rejected before trials are reconciled', () => {
   const result = validateFeedbackTaskManifest({
     ...manifest,
