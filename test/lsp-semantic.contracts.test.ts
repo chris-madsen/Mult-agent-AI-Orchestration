@@ -104,7 +104,7 @@ test('actual ast-grep declarations resolve through real LSP without injected nam
     'export function привет(name: string): string { return name; }',
     'class Service { save(): void {} }',
     '',
-  ].join('\\n');
+  ].join('\n');
   const bytes = Buffer.from(source, 'utf8');
   const structural = makeAstGrepStructuralPort({ command: join(process.cwd(), 'node_modules/.bin/ast-grep') });
   const outlined = await Effect.runPromise(structural.extract({ repoPath: 'main.ts', source: bytes }));
