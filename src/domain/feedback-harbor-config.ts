@@ -12,6 +12,10 @@ export interface FeedbackHarborJobIdentity {
   readonly configPath?: string;
 }
 
+export interface FeedbackHarborPairIdentity extends FeedbackHarborJobIdentity {
+  readonly aceConfigPath: string;
+}
+
 type JsonObject = Readonly<Record<string, unknown>>;
 
 const object = (value: unknown): JsonObject | undefined =>
@@ -70,7 +74,7 @@ export const validateFeedbackHarborJob = (
 export const validateMatchingFeedbackHarborJobs = (
   native: unknown,
   aceOptional: unknown,
-): Result<FeedbackHarborJobIdentity, DomainError> => {
+): Result<FeedbackHarborPairIdentity, DomainError> => {
   const nativeIdentity = validateFeedbackHarborJob(native, 'native_job');
   if (nativeIdentity._tag === 'Err') return nativeIdentity;
   const aceIdentity = validateFeedbackHarborJob(aceOptional, 'ace_optional_job');
@@ -88,7 +92,10 @@ export const validateMatchingFeedbackHarborJobs = (
   if (aceIdentity.value.configPath === undefined) {
     return invalid('ace_optional_job.agents[0].kwargs.config', 'ACE optional job must load an explicit Codex config');
   }
-  return nativeIdentity;
+  return ok({
+    ...nativeIdentity.value,
+    aceConfigPath: aceIdentity.value.configPath,
+  });
 };
 
 /** Accepts either a local Docker image ID or a repository digest. */

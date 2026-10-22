@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { isAbsolute, relative, resolve } from 'node:path';
 import {
   dockerImageDigestPattern,
   dockerImageMatchesDigest,
   validateMatchingFeedbackHarborJobs,
   type FeedbackHarborJobIdentity,
+  type FeedbackHarborPairIdentity,
 } from '../src/domain/feedback-harbor-config.js';
 import {
   codexAuthenticationRoute,
@@ -19,6 +20,7 @@ import {
   validateFeedbackExperimentManifest,
   type FeedbackExperimentManifest,
 } from '../src/domain/feedback-loop-experiment.js';
+import { verifyCompiledRuntimeProvenance } from '../src/application/runtime-provenance.js';
 
 type CheckStatus = 'ready' | 'not_ready' | 'unknown';
 
@@ -105,11 +107,64 @@ const codexAuth = async (): Promise<PreflightCheck> => {
   }
 };
 
-const gitCommit = (): string => {
+const sourceCheckout = (): { readonly check: PreflightCheck; readonly commit: string } => {
   try {
-    return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const runtimeRoot = resolve('.');
+    const actualRoot = resolve(execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim());
+    const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const dirty = execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { encoding: 'utf8' }).trim();
+    if (realpathSync(actualRoot) !== realpathSync(runtimeRoot)) {
+      return { check: { status: 'not_ready', reason: 'preflight must run from the ACE Git checkout root' }, commit };
+    }
+    if (!/^[a-f0-9]{40,64}$/iu.test(commit)) {
+      return { check: { status: 'not_ready', reason: 'ACE Git commit identity is invalid' }, commit: 'unknown' };
+    }
+    if (dirty.length > 0) {
+      return { check: { status: 'not_ready', reason: 'ACE checkout is dirty; exact-current preflight requires frozen source bytes' }, commit };
+    }
+    return { check: { status: 'ready', reason: 'ACE checkout is clean at an exact Git commit', identity: commit }, commit };
   } catch {
-    return 'unknown';
+    return { check: { status: 'not_ready', reason: 'ACE Git checkout identity could not be verified' }, commit: 'unknown' };
+  }
+};
+
+const compiledRuntime = async (): Promise<PreflightCheck> => {
+  const runtimeRoot = resolve('.');
+  const executable = resolve(runtimeRoot, 'dist/bin/ace-mcp.js');
+  if (!existsSync(executable)) return { status: 'not_ready', reason: 'compiled ACE runtime is missing' };
+  const verified = await verifyCompiledRuntimeProvenance(runtimeRoot, executable);
+  return verified._tag === 'Err'
+    ? { status: 'not_ready', reason: verified.error.message }
+    : {
+      status: 'ready',
+      reason: 'compiled ACE runtime provenance matches the current source checkout',
+      identity: `${verified.value.sourceCommit}:${verified.value.executableSha256}`,
+    };
+};
+
+const aceConfigDigestCheck = async (
+  jobs: FeedbackHarborPairIdentity | undefined,
+  experiment: FeedbackExperimentManifest | undefined,
+): Promise<PreflightCheck> => {
+  if (jobs === undefined || experiment === undefined) {
+    return { status: 'not_ready', reason: 'ACE config digest requires frozen Harbor jobs and experiment manifest' };
+  }
+  if (!jobs.aceConfigPath.startsWith('/ace/')) {
+    return { status: 'not_ready', reason: 'ACE job config path is not inside the mounted /ace checkout' };
+  }
+  const runtimeRoot = resolve('.');
+  const hostPath = resolve(runtimeRoot, jobs.aceConfigPath.slice('/ace/'.length));
+  const containment = relative(runtimeRoot, hostPath);
+  if (isAbsolute(containment) || containment === '..' || containment.startsWith('../')) {
+    return { status: 'not_ready', reason: 'ACE job config path escapes the current checkout' };
+  }
+  try {
+    const actual = createHash('sha256').update(await readFile(hostPath)).digest('hex');
+    return actual === experiment.aceConfigDigest
+      ? { status: 'ready', reason: 'ACE job config bytes match the experiment digest', identity: actual }
+      : { status: 'not_ready', reason: 'ACE job config digest does not match experiment manifest' };
+  } catch {
+    return { status: 'not_ready', reason: 'ACE job config bytes could not be read' };
   }
 };
 
@@ -126,7 +181,7 @@ const qdrant = async (url: string): Promise<PreflightCheck> => {
 const harborJobIdentity = async (
   nativeJobPath: string | undefined,
   aceJobPath: string | undefined,
-): Promise<{ readonly check: PreflightCheck; readonly identity?: FeedbackHarborJobIdentity }> => {
+): Promise<{ readonly check: PreflightCheck; readonly identity?: FeedbackHarborPairIdentity }> => {
   if (nativeJobPath === undefined || aceJobPath === undefined) {
     return { check: { status: 'not_ready', reason: 'native and ACE optional Harbor job paths are required' } };
   }
@@ -240,7 +295,8 @@ const main = async (): Promise<void> => {
     manifestTaskImages ?? [],
   );
   const harborJobs = await harborJobIdentity(args.nativeJobPath, args.aceJobPath);
-  const currentSourceCommit = gitCommit();
+  const source = sourceCheckout();
+  const currentSourceCommit = source.commit;
   const embeddingEnvironment = {
     ACE_EMBEDDING_PYTHON: args.embeddingPython,
     PYTHONDONTWRITEBYTECODE: '1',
@@ -255,6 +311,8 @@ const main = async (): Promise<void> => {
     ...(process.env.ACE_SPARSE_EMBEDDING_LD_PRELOAD?.trim() === undefined ? {} : { LD_PRELOAD: process.env.ACE_SPARSE_EMBEDDING_LD_PRELOAD.trim() }),
   };
   const checks: Record<string, PreflightCheck> = {
+    sourceCheckout: source.check,
+    runtimeProvenance: await compiledRuntime(),
     node: command('node', ['--version']),
     npm: command('npm', ['--version']),
     astGrep: command('./node_modules/.bin/ast-grep', ['--version']),
@@ -274,6 +332,7 @@ const main = async (): Promise<void> => {
     docker: command('docker', ['--version']),
     harborJobs: harborJobs.check,
     harborImageDigest: dockerImages(effectiveImageDigest, manifestTaskImages),
+    aceConfigDigest: await aceConfigDigestCheck(harborJobs.identity, experimentManifest),
   };
   const harborVersion = checks.harbor.identity;
   if (experimentManifest === undefined) {
@@ -299,9 +358,10 @@ const main = async (): Promise<void> => {
   checks.qdrant = await qdrant(args.qdrantUrl);
   checks.embeddingCache = await embeddingCache();
   const required = [
-    'node', 'npm', 'astGrep', 'typescriptLanguageServer', 'embeddingPython', 'sparseEmbedding', 'harbor', 'harborRun',
-    'harborDatasetPinned', 'codex', 'codexAuth', 'docker', 'harborJobs',
-    'harborImageDigest', 'experimentBinding', 'embeddingCache', 'qdrant',
+    'sourceCheckout', 'runtimeProvenance', 'node', 'npm', 'astGrep', 'typescriptLanguageServer',
+    'embeddingPython', 'sparseEmbedding', 'harbor', 'harborRun', 'harborDatasetPinned', 'codex',
+    'codexAuth', 'docker', 'harborJobs', 'harborImageDigest', 'aceConfigDigest', 'experimentBinding',
+    'embeddingCache', 'qdrant',
   ];
   const blocked = required.filter((name) => checks[name]?.status !== 'ready');
   const manifest: PreflightManifest = {
