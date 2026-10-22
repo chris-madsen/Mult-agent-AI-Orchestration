@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  assessHarborFourArmFiveX,
   validateHarborFourArmDesign,
   validateHarborFourArmReport,
 } from '../src/domain/harbor-four-arm.js';
@@ -89,15 +90,23 @@ test('external four-arm design requires one task manifest and immutable revision
   )._tag, 'Err');
   const evidence = {
     external_evidence: {
+      schema_version: 1,
+      task_manifest_path: 'fixtures/task-manifest.json',
       task_manifest_sha256: 'a'.repeat(64),
+      task_bytes_sha256: 'b'.repeat(64),
+      task_bindings: taskPaths.filter((path, index) => index % 5 === 0).map((path, index) => ({ id: `task-${index}`, repository_id: path.includes('/ace/') || path.startsWith('ace/') ? 'ace' : 'external', path, sha256: `${String(index + 1).repeat(64)}`.slice(0, 64) })),
       repository_revisions: { ace: '1'.repeat(40), external: '2'.repeat(40) },
+      model_identity: 'openai/gpt-5.6-luna',
+      provider_identity: 'codex-oauth|harbor=0.24.0',
+      runtime_image_identity: 'image@sha256:' + '3'.repeat(64),
+      codex_config: { path: null, bytes_sha256: null, effective_sha256: 'c'.repeat(64) },
     },
   };
   const result = validateHarborFourArmDesign(
     { ...job(), ...evidence },
-    { ...job('four-arm-dense-codex-config.toml'), ...evidence },
-    { ...job('four-arm-hybrid-codex-config.toml'), ...evidence },
-    { ...job('four-arm-hybrid-delta-codex-config.toml'), ...evidence },
+    { ...job('four-arm-dense-codex-config.toml'), ...evidence, external_evidence: { ...evidence.external_evidence, codex_config: { path: 'four-arm-dense-codex-config.toml', bytes_sha256: 'd'.repeat(64), effective_sha256: 'e'.repeat(64) } } },
+    { ...job('four-arm-hybrid-codex-config.toml'), ...evidence, external_evidence: { ...evidence.external_evidence, codex_config: { path: 'four-arm-hybrid-codex-config.toml', bytes_sha256: 'f'.repeat(64), effective_sha256: '1'.repeat(64) } } },
+    { ...job('four-arm-hybrid-delta-codex-config.toml'), ...evidence, external_evidence: { ...evidence.external_evidence, codex_config: { path: 'four-arm-hybrid-delta-codex-config.toml', bytes_sha256: '2'.repeat(64), effective_sha256: '3'.repeat(64) } } },
     options,
   );
   assert.equal(result._tag, 'Ok');
@@ -130,4 +139,31 @@ test('four-arm Harbor report rejects savings without real ACE calls or observed 
     },
   });
   assert.equal(accepted._tag, 'Ok');
+});
+
+test('five-X evidence gate rejects self-declared success when raw trials were only hashed', () => {
+  const advertisedWin = {
+    qualityNonInferior: true,
+    costTelemetryComplete: true,
+    tokenRatio: 0.1,
+    rawTrialEvidenceVerified: false,
+  };
+  assert.deepEqual(assessHarborFourArmFiveX(advertisedWin), {
+    allowed: false,
+    reason: 'raw_trial_evidence_not_independently_reconciled',
+  });
+  assert.equal(assessHarborFourArmFiveX({
+    ...advertisedWin,
+    rawTrialEvidenceVerified: true,
+    tokenRatio: 0.25,
+  }).allowed, false);
+  assert.equal(assessHarborFourArmFiveX({
+    ...advertisedWin,
+    rawTrialEvidenceVerified: true,
+    qualityNonInferior: false,
+  }).allowed, false);
+  assert.equal(assessHarborFourArmFiveX({
+    ...advertisedWin,
+    rawTrialEvidenceVerified: true,
+  }).allowed, true);
 });

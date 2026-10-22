@@ -48,9 +48,12 @@ test('Git history provider returns direct commit evidence ranked by message/path
   }
 });
 
-test('Git history provider fails closed outside a Git repository', async () => {
+test('Git history provider fails closed for an invalid repo even when temp dir has a Git ancestor', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ace-no-git-history-'));
   try {
+    // Explicit invalid .git sentinel blocks ancestor discovery if TMPDIR
+    // happens to be inside the project checkout on the test runner.
+    await writeFile(join(root, '.git'), 'invalid git metadata\\n', 'utf8');
     const result = await Effect.runPromise(makeGitHistoryPort().search({
       rootPath: root,
       query: 'why retry',

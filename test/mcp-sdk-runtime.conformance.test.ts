@@ -19,6 +19,7 @@ test('DBC-09 official MCP client interoperates with the production executable', 
     cwd: process.cwd(),
     stderr: 'pipe',
     env: {
+      ACE_ALLOW_SOURCE_RUNTIME: 'true',
       ACE_WORKSPACE_ROOT: workspace,
       ACE_ALLOWED_ROOTS: parent,
       ACE_STATE_DIR: join(parent, 'state'),

@@ -65,6 +65,12 @@ import {
   type WorkspaceManifest,
   type WorkspaceManifestDelta,
 } from '../domain/workspace-manifest.js';
+import {
+  exactUtf8ByteRange,
+  utf16ColumnAtUtf8Byte,
+} from '../domain/utf8-range.js';
+
+export { exactUtf8ByteRange, exactUtf8Span } from '../domain/utf8-range.js';
 
 export interface QdrantContextConfig {
   readonly workspaceId: WorkspaceId;
@@ -735,71 +741,6 @@ export const reuseOrPopulateQdrantSnapshot = (
   }
   return ok({ count: indexed.value, reused: false, reusedVectorCount: seedVectors.size });
 });
-
-/** ast-grep uses one-based line/column coordinates here, but columns count UTF-8 bytes.
- * Re-slice authoritative workspace bytes and compare them with the Qdrant payload.
- * Qdrant ranking never confers source-of-truth status. */
-export const exactUtf8ByteRange = (
-  bytes: Uint8Array,
-  range: { readonly startLine: number; readonly endLine: number; readonly startColumn?: number; readonly endColumn?: number },
-): { readonly offset: number; readonly length: number } | undefined => {
-  if (range.startColumn === undefined || range.endColumn === undefined) return undefined;
-  if (![range.startLine, range.endLine, range.startColumn, range.endColumn]
-    .every((value) => Number.isSafeInteger(value) && (value as number) >= 1)
-    || range.startLine > range.endLine) return undefined;
-  const raw = Buffer.from(bytes);
-  const lineOffsets = [0];
-  for (let i = 0; i < raw.length; i += 1) if (raw[i] === 10) lineOffsets.push(i + 1);
-  const a = lineOffsets[range.startLine - 1];
-  const b = lineOffsets[range.endLine - 1];
-  if (a === undefined || b === undefined) return undefined;
-  // An untrusted column must not spill into another line.
-  const startLineEnd = lineOffsets[range.startLine] === undefined
-    ? raw.length : (lineOffsets[range.startLine] as number) - 1;
-  const endLineEnd = lineOffsets[range.endLine] === undefined
-    ? raw.length : (lineOffsets[range.endLine] as number) - 1;
-  const from = a + (range.startColumn as number) - 1;
-  const until = b + (range.endColumn as number) - 1;
-  if (from < a || from >= startLineEnd || until < b || until > endLineEnd || until <= from) return undefined;
-  try {
-    new TextDecoder('utf-8', { fatal: true }).decode(raw.subarray(from, until));
-  } catch {
-    return undefined;
-  }
-  return { offset: from, length: until - from };
-};
-
-const utf16ColumnAtUtf8Byte = (
-  bytes: Uint8Array,
-  line: number,
-  byteColumn: number,
-): number | undefined => {
-  if (!Number.isSafeInteger(line) || line < 1 || !Number.isSafeInteger(byteColumn) || byteColumn < 1) return undefined;
-  const raw = Buffer.from(bytes);
-  const lineOffsets = [0];
-  for (let i = 0; i < raw.length; i += 1) if (raw[i] === 10) lineOffsets.push(i + 1);
-  const start = lineOffsets[line - 1];
-  if (start === undefined) return undefined;
-  const end = lineOffsets[line] === undefined ? raw.length : (lineOffsets[line] as number) - 1;
-  const target = start + byteColumn - 1;
-  if (target < start || target > end) return undefined;
-  try {
-    const prefix = new TextDecoder('utf-8', { fatal: true }).decode(raw.subarray(start, target));
-    return prefix.length + 1;
-  } catch {
-    return undefined;
-  }
-};
-
-export const exactUtf8Span = (
-  bytes: Uint8Array,
-  range: { readonly startLine: number; readonly endLine: number; readonly startColumn?: number; readonly endColumn?: number },
-): string | undefined => {
-  const span = exactUtf8ByteRange(bytes, range);
-  return span === undefined
-    ? undefined
-    : Buffer.from(bytes).subarray(span.offset, span.offset + span.length).toString('utf8');
-};
 
 export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
   let activeConfig = config;

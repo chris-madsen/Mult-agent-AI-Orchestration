@@ -96,6 +96,7 @@ if (openspecHelp.status === 'PASS') {
       '004-temporal-memory',
       '005-adaptive-routing-spike',
       '006-production-retrieval-vertical-slice',
+      '007-hybrid-context-engine',
     ];
     const validations = [];
     for (const change of changes) {
@@ -103,7 +104,7 @@ if (openspecHelp.status === 'PASS') {
         `openspec-${change}`,
         'openspec',
         ['validate', change, '--strict'],
-        resolve(root, 'docs'),
+        root,
       );
       steps.push(validation);
       validations.push(validation);

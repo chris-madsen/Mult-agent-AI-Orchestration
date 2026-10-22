@@ -5,7 +5,7 @@
   "description": "Adaptive Context Engine foundation",
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/generate-runtime-provenance.mjs",
     "mcp:stdio": "npm run build && node dist/bin/ace-mcp.js",
     "check": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src test --ext .ts --max-warnings=0",
@@ -42,6 +42,7 @@
     "gate:reranker-selection": "tsx scripts/reranker-selection-gate.ts",
     "gate:harbor-three-arm": "tsx scripts/harbor-three-arm-gate.ts",
     "gate:harbor-four-arm": "tsx scripts/harbor-four-arm-gate.ts",
+    "verify:harbor-four-arm-binding": "tsx scripts/verify-harbor-four-arm-binding.ts",
     "freeze:harbor-four-arm": "tsx scripts/freeze-harbor-four-arm-jobs.ts",
     "test:real-graphiti-lifecycle": "tsx scripts/graphiti-real-lifecycle-e2e.ts",
     "vertex:import-synthetic": "bash scripts/vertex-synthetic-fixture-import.sh",

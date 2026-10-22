@@ -47,8 +47,10 @@ export interface RetrievalObservation {
   readonly rawRetrievedCandidateIds?: readonly string[];
   readonly payloadCharacters: number;
   readonly duplicateSourceHits: number;
-  readonly expansionCalls: number;
-  readonly nativeReadDuplicates: number;
+  /** Null means this run did not instrument the delivery/expansion path. */
+  readonly expansionCalls: number | null;
+  /** Null means native source-read duplication was not instrumented. */
+  readonly nativeReadDuplicates: number | null;
   readonly latencyMs: number;
   /** Optional UTF-8 delivery telemetry; development runs may omit it. */
   readonly payloadBytes?: number;
@@ -103,8 +105,8 @@ export interface RetrievalQualityMetrics {
   readonly ndcgAt5: number;
   readonly payloadCharactersMean: number;
   readonly duplicateSourceHitsMean: number;
-  readonly expansionCallsMean: number;
-  readonly nativeReadDuplicatesMean: number;
+  readonly expansionCallsMean: number | null;
+  readonly nativeReadDuplicatesMean: number | null;
   readonly latencyP95Ms: number;
   readonly payloadBytesMean?: number;
   readonly initialEvidenceBytesMean?: number;
@@ -172,6 +174,10 @@ const optionalMean = (values: readonly (number | undefined)[]): number | undefin
   const present = values.filter((value): value is number => value !== undefined);
   return present.length === 0 ? undefined : mean(present);
 };
+const requiredMean = (values: readonly (number | null)[]): number | null =>
+  values.every((value): value is number => value !== null) ? mean(values) : null;
+const nullableCounter = (value: unknown): value is number | null =>
+  value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0);
 const p95 = (values: readonly number[]): number => {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -301,8 +307,6 @@ export const evaluateRetrievalStrategy = (
     const integerCounters = [
       observation.payloadCharacters,
       observation.duplicateSourceHits,
-      observation.expansionCalls,
-      observation.nativeReadDuplicates,
       observation.payloadBytes,
       observation.initialEvidenceBytes,
       observation.newContextBytes,
@@ -313,6 +317,8 @@ export const evaluateRetrievalStrategy = (
       observation.duplicateContextBytesAvoided,
     ].filter((value): value is number => value !== undefined);
     if (new Set(observation.retrievedCandidateIds).size !== observation.retrievedCandidateIds.length
+      || !nullableCounter(observation.expansionCalls)
+      || !nullableCounter(observation.nativeReadDuplicates)
       || !integerCounters.every((value) => Number.isSafeInteger(value) && value >= 0)
       || !nonNegative(observation.latencyMs)
       || (observation.stageLatencyMs !== undefined
@@ -398,8 +404,8 @@ export const evaluateRetrievalStrategy = (
     ndcgAt5: mean(scores.map((item) => item.ndcg5)),
     payloadCharactersMean: mean(scores.map((item) => item.observed.payloadCharacters)),
     duplicateSourceHitsMean: mean(scores.map((item) => item.observed.duplicateSourceHits)),
-    expansionCallsMean: mean(scores.map((item) => item.observed.expansionCalls)),
-    nativeReadDuplicatesMean: mean(scores.map((item) => item.observed.nativeReadDuplicates)),
+    expansionCallsMean: requiredMean(scores.map((item) => item.observed.expansionCalls)),
+    nativeReadDuplicatesMean: requiredMean(scores.map((item) => item.observed.nativeReadDuplicates)),
     latencyP95Ms: p95(scores.map((item) => item.observed.latencyMs)),
     ...byteMetrics,
     missedCriticalCaseIds: critical.filter((item) => item.r5 === 0).map((item) => item.item.id),
@@ -458,10 +464,14 @@ export const evaluateRetrievalQualityPolicy = (
     && metrics.payloadCharactersMean > policy.maxPayloadCharactersMean) failures.push('payload_above_threshold');
   if (policy.maxDuplicateSourceHitsMean !== undefined
     && metrics.duplicateSourceHitsMean > policy.maxDuplicateSourceHitsMean) failures.push('duplicate_hits_above_threshold');
-  if (policy.maxExpansionCallsMean !== undefined
-    && metrics.expansionCallsMean > policy.maxExpansionCallsMean) failures.push('expansion_calls_above_threshold');
-  if (policy.maxNativeReadDuplicatesMean !== undefined
-    && metrics.nativeReadDuplicatesMean > policy.maxNativeReadDuplicatesMean) failures.push('native_read_duplicates_above_threshold');
+  if (policy.maxExpansionCallsMean !== undefined) {
+    if (metrics.expansionCallsMean === null) failures.push('expansion_calls_unknown');
+    else if (metrics.expansionCallsMean > policy.maxExpansionCallsMean) failures.push('expansion_calls_above_threshold');
+  }
+  if (policy.maxNativeReadDuplicatesMean !== undefined) {
+    if (metrics.nativeReadDuplicatesMean === null) failures.push('native_read_duplicates_unknown');
+    else if (metrics.nativeReadDuplicatesMean > policy.maxNativeReadDuplicatesMean) failures.push('native_read_duplicates_above_threshold');
+  }
   if (policy.maxLatencyP95Ms !== undefined
     && metrics.latencyP95Ms > policy.maxLatencyP95Ms) failures.push('latency_p95_above_threshold');
   if (policy.minRepositoryCount !== undefined

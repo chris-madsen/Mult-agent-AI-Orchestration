@@ -23,9 +23,9 @@ Use [`plans/2026-10-21-cursor-like-hybrid-context-completion-plan.md`](plans/202
 
 **Agent SDD implementation packet**
 
-- [`openspec/README.md`](openspec/README.md) — execution order and OpenSpec CLI guidance.
-- [`openspec/config.yaml`](openspec/config.yaml) — project context for coding agent.
-- [`openspec/changes/`](openspec/changes) — active spec-driven changes, including `007-hybrid-context-engine`, with `proposal.md`, `specs/*/spec.md`, `design.md`, `tasks.md`.
+- [`../openspec/README.md`](../openspec/README.md) — execution order and OpenSpec CLI guidance.
+- [`../openspec/config.yaml`](../openspec/config.yaml) — project context for coding agent.
+- [`../openspec/changes/`](../openspec/changes) — active spec-driven changes, including `007-hybrid-context-engine`, with `proposal.md`, `specs/*/spec.md`, `design.md`, `tasks.md`.
 - [`AGENTS.md`](AGENTS.md) — agent safety, scope and implementation policy.
 - [`docs/references/`](docs/references) — source PRD and ADR decision record, including Accepted ADR-014 for the hybrid context target.
 

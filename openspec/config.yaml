@@ -1,11 +1,12 @@
 schema: spec-driven
 context: |
   Project: Adaptive Context Engine (ACE), external harness for Codex.
-  Source of truth: docs/references/PRD-v1.0.md and docs/references/ADR-000..ADR-010.
-  Proposed DDD architecture: docs/architecture/01..05. BC boundaries do not imply microservices.
-  Accepted constraints: one logical MCP facade; local code Qdrant, Vertex docs;
-  Tree-sitter/ast-grep, LSP adapter remains a spike; Graphiti and immutable raw archive;
-  local existing Kubernetes, modular monolith; Harbor for benchmarks.
+  Source of truth: docs/docs/references/PRD-v1.0.md and accepted ADR-000..ADR-014.
+  DDD architecture and contracts: docs/docs/architecture/01..07. BC boundaries do not imply microservices.
+  Accepted constraints: one logical MCP facade; local code Qdrant with dense+sparse/RRF retrieval;
+  Tree-sitter/ast-grep structural facts; an evidence-selected language-service provider;
+  explicitly authorized Vertex documentation; Graphiti plus an immutable raw session archive;
+  local-first Kubernetes deployment; Harbor for paired agent benchmarks.
   North Star: target 5x fewer end-to-end total tokens, not achieved yet;
   no degradation in task quality; never claim measured improvements without evidence.
   ADR-006 supersedes older PRD FR-06: NO mandatory fixed context token cap,
