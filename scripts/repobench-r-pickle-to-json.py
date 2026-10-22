@@ -13,6 +13,7 @@ import gzip
 import hashlib
 import json
 import pickle
+import re
 import sys
 from pathlib import Path
 from typing import Any, NoReturn
@@ -24,6 +25,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", choices=("python_cff", "python_cfr", "java_cff", "java_cfr"), required=True)
     parser.add_argument("--split", choices=("test_easy", "test_hard", "train_easy", "train_hard"), required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--expected-sha256", required=True, help="SHA-256 pinned independently before loading the pickle")
+    parser.add_argument(
+        "--trust-pickle-source", action="store_true",
+        help="Explicitly acknowledge that Python pickle can execute arbitrary code; only use an independently trusted artifact",
+    )
     return parser.parse_args()
 
 
@@ -65,6 +71,13 @@ def main() -> int:
     if not source.is_file():
         fail(f"missing pickle input: {source}")
     raw = source.read_bytes()
+    actual_sha = hashlib.sha256(raw).hexdigest()
+    if not re.fullmatch(r"[0-9a-f]{64}", args.expected_sha256):
+        fail("expected SHA-256 must be a 64-digit lowercase hexadecimal digest")
+    if actual_sha != args.expected_sha256:
+        fail("upstream pickle digest does not match independently trusted SHA-256; refusing deserialization")
+    if not args.trust_pickle_source:
+        fail("pickle is executable data: pass --trust-pickle-source only after independent source verification and run in an isolated environment")
     try:
         with gzip.open(source, "rb") as handle:
             dataset = pickle.load(handle)
@@ -86,7 +99,7 @@ def main() -> int:
         "schemaVersion": 1,
         "status": "READY",
         "source": str(source.resolve()),
-        "sourceSha256": hashlib.sha256(raw).hexdigest(),
+        "sourceSha256": actual_sha,
         "config": args.config,
         "split": args.split,
         "records": len(normalized),
