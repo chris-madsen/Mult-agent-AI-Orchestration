@@ -170,6 +170,21 @@ test('partially correlated requests are counted individually but not marked comp
   assert.equal(result.value.tokenRatio, null);
 });
 
+test('ace_expand counts as ACE usage without breaking provider correlation for ace_context', () => {
+  const result = reconcile(undefined, observation('ace_optional', {
+    observedAceCalls: 2,
+    observedAceRequestIds: ['request-1'],
+    providerTraceRequestIds: ['request-1'],
+    observedAceContextCalls: 1,
+  } as Partial<FeedbackTrialObservation> & { readonly observedAceContextCalls: number }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Err') return;
+  assert.equal(result.value.status, 'PASS');
+  assert.equal(result.value.aceObservedCalls, 2);
+  assert.equal(result.value.aceCorrelatedCalls, 1);
+  assert.equal(result.value.rows[0]?.aceCorrelation, 'correlated');
+});
+
 test('quality regression never presents token savings even in the per-task row', () => {
   const result = reconcile(undefined, observation('ace_optional', {
     quality: 'fail',
@@ -285,6 +300,9 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
   const fakeDocker = join(dockerBin, 'docker');
   await writeFile(fakeDocker, `#!/usr/bin/env bash\nprintf '%s\\n' '{"Id":"sha256:${'a'.repeat(64)}","RepoDigests":[]}'\n`);
   await chmod(fakeDocker, 0o755);
+  const fakeHarbor = join(dockerBin, 'harbor');
+  await writeFile(fakeHarbor, '#!/usr/bin/env bash\nif [[ "$1" == "--version" ]]; then echo "harbor 0.24.0"; exit 0; fi\nexit 2\n');
+  await chmod(fakeHarbor, 0o755);
   const run = (output: string) => spawnSync(resolve('node_modules/.bin/tsx'), [
     'scripts/prepare-harbor-feedback-jobs.ts',
     '--task-manifest', manifestPath, '--source-root', source, '--ace-root', ace,

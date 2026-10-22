@@ -80,3 +80,52 @@ test('raw Harbor adapter orders serial trials by timestamps, not lexical directo
   const result = await readHarborFourArmTrialObservations('native', join(root, 'result.json'));
   assert.deepEqual(result.map((item) => item.taskName), ['first', 'second']);
 });
+
+
+test('raw Harbor adapter keeps four-arm context correlation stable while recording ace_expand separately', async () => {
+  const root = await mkdtemp('/tmp/ace-harbor-expand-');
+  const aggregatePath = join(root, 'result.json');
+  const trialDirectory = join(root, 'trial-0');
+  await mkdir(join(trialDirectory, 'agent'), { recursive: true });
+  await writeFile(aggregatePath, '{}\n', 'utf8');
+  await writeFile(join(trialDirectory, 'result.json'), JSON.stringify({
+    trial_id: 'trial-expand',
+    task_name: 'task-a',
+    exception_info: null,
+    verifier_result: { rewards: { reward: 1 } },
+    agent_result: { n_input_tokens: 11, n_cache_tokens: 2, n_output_tokens: 3 },
+    started_at: '2026-10-22T10:00:00.000Z',
+    finished_at: '2026-10-22T10:00:01.000Z',
+  }) + '\n', 'utf8');
+  const contextEvent = {
+    type: 'item.completed',
+    item: {
+      type: 'mcp_tool_call', server: 'ace', tool: 'ace_context', error: null, status: 'completed',
+      result: { structured_content: {
+        complete: true, requestId: 'request-context',
+        delivery_metrics: { uniqueContentBytes: 10, newContextBytes: 8, reusedContextBytes: 2, duplicateContextBytesAvoided: 1 },
+        evidence: [{ source: 'code', freshness: 'current', proofClass: 'direct', receiptId: 'receipt-context', reusedContentBytes: 2 }],
+      } },
+    },
+  };
+  const expandEvent = {
+    type: 'item.completed',
+    item: {
+      type: 'mcp_tool_call', server: 'ace', tool: 'ace_expand', error: null, status: 'completed',
+      result: { structured_content: {
+        content_utf8: 'const x = 1;\n', digest: 'a'.repeat(64), offset: 0, total_bytes: 13,
+        delivery_metrics: { expanded_bytes: 13, total_bytes: 13 },
+      } },
+    },
+  };
+  await writeFile(join(trialDirectory, 'agent', 'codex.txt'), JSON.stringify(contextEvent) + '\n' + JSON.stringify(expandEvent) + '\n', 'utf8');
+
+  const [observation] = await readHarborFourArmTrialObservations('dense', aggregatePath);
+  assert.equal(observation?.observedAceCalls, 1, 'four-arm context-call contract must stay context-only');
+  assert.equal(observation?.successfulAceCalls, 1, 'provider-correlated successful calls remain ace_context only');
+  const extended = observation as typeof observation & { readonly observedAceToolCalls?: number; readonly successfulAceToolCalls?: number };
+  assert.equal(extended?.observedAceToolCalls, 2);
+  assert.equal(extended?.successfulAceToolCalls, 2);
+  assert.equal(observation?.successfulRequestIds.length, 1);
+  assert.equal(observation?.uniqueContextBytes, 10, 'ace_expand delivery metrics must not erase context metrics');
+});
