@@ -61,6 +61,65 @@ const normalizedKinds: ReadonlySet<string> = new Set([
 const normalizedKind = (value: string): StructuralKind =>
   normalizedKinds.has(value) ? value as StructuralKind : 'unknown';
 
+// ast-grep outline exposes the declaration *node* range but not the identifier
+// range required for LSP definition requests. Recover a name anchor only when
+// it is unambiguous in the node's declaration header; never guess from the
+// function body or treat arbitrary text matches as semantic proof.
+const anchorableKinds: ReadonlySet<StructuralKind> = new Set([
+  'class', 'function', 'interface', 'type', 'enum', 'method', 'struct', 'trait', 'impl', 'module',
+]);
+const identifierName = /^[\p{ID_Start}_$][\p{ID_Continue}$]*$/u;
+const identifierBoundary = /[\p{ID_Continue}$]/u;
+
+const nameAnchorFromOutline = (
+  source: Uint8Array,
+  startOffset: number,
+  endOffset: number,
+  name: string,
+  kind: StructuralKind,
+): Pick<StructuralSymbol, 'nameStartLine' | 'nameStartColumn' | 'nameEndLine' | 'nameEndColumn'> => {
+  if (!anchorableKinds.has(kind) || !identifierName.test(name)) return {};
+  const bytes = Buffer.from(source);
+  const preview = bytes.subarray(startOffset, Math.min(endOffset, startOffset + 1024)).toString('utf8');
+  // Stop before a body, type/value assignment or parameter list. A search in
+  // an entire symbol can accidentally select a recursive call or a namesake.
+  const terminators = ['(', '{', '=', ';'].map((item) => preview.indexOf(item)).filter((index) => index >= 0);
+  const header = preview.slice(0, terminators.length === 0 ? preview.length : Math.min(...terminators));
+  if (header.includes('//') || header.includes('/*') || /['"\x60]/u.test(header)) return {};
+  const matches: number[] = [];
+  for (let from = 0; from < header.length;) {
+    const index = header.indexOf(name, from);
+    if (index < 0) break;
+    const before = index === 0 ? '' : String.fromCodePoint(header.codePointAt(index - 1) ?? 0);
+    const after = header.slice(index + name.length, index + name.length + 2);
+    if ((before.length === 0 || !identifierBoundary.test(before))
+      && (after.length === 0 || !identifierBoundary.test(after))) matches.push(index);
+    from = index + name.length;
+  }
+  if (matches.length !== 1) return {};
+  const offset = startOffset + Buffer.byteLength(header.slice(0, matches[0]), 'utf8');
+  const length = Buffer.byteLength(name, 'utf8');
+  if (offset < startOffset || offset + length > endOffset
+    || !bytes.subarray(offset, offset + length).equals(Buffer.from(name, 'utf8'))) return {};
+  const position = (at: number): { line: number; column: number } => {
+    let line = 1;
+    let lineStart = 0;
+    // Offset conversion uses UTF-8 byte columns, not JS UTF-16 columns.
+    for (let i = 0; i < at; i += 1) {
+      if (bytes[i] === 10) { line += 1; lineStart = i + 1; }
+    }
+    return { line, column: at - lineStart + 1 };
+  };
+  const start = position(offset);
+  const end = position(offset + length);
+  return {
+    nameStartLine: start.line,
+    nameStartColumn: start.column,
+    nameEndLine: end.line,
+    nameEndColumn: end.column,
+  };
+};
+
 const invalidResponse = (path: string, message: string): Result<never, DomainError> =>
   err(domainError('INVALID_EXTERNAL_RESPONSE', path, message));
 
@@ -104,9 +163,12 @@ const parseOutline = (
       || byteOffset.end > source.byteLength) {
       return invalidResponse(`${path}.range`, 'outline item has an invalid byte range');
     }
+    const kind = normalizedKind(symbolType);
+    const nameAnchor = nameAnchorFromOutline(source, byteOffset.start, byteOffset.end, name, kind);
     symbols.push({
       name,
-      kind: normalizedKind(symbolType),
+      kind,
+      ...nameAnchor,
       providerKind: astKind,
       language,
       startLine: start.line + 1,
