@@ -29,7 +29,7 @@ const frozenTreeEntries = (root: string, revision: string, prefix?: string): rea
 }[] => {
   const paths = gitText(root, ['ls-tree', '-r', '-z', '--name-only', revision,
     ...(prefix === undefined ? [] : [`${prefix}/`])])
-    .split('\\0').filter((path) => path.length > 0).sort((a, b) => a.localeCompare(b));
+    .split('\0').filter((path) => path.length > 0).sort((a, b) => a.localeCompare(b));
   return paths.map((path) => {
     const bytes = gitBytes(root, ['show', `${revision}:${path}`]);
     return { path, sizeBytes: bytes.byteLength, sha256: sha256(bytes) };
@@ -37,7 +37,7 @@ const frozenTreeEntries = (root: string, revision: string, prefix?: string): rea
 };
 
 const frozenTreeDigest = (identity: string, revision: string, entries: ReturnType<typeof frozenTreeEntries>): string =>
-  sha256(Buffer.from(`${JSON.stringify({ schemaVersion: 1, identity, revision, entries }, null, 2)}\\n`, 'utf8'));
+  sha256(Buffer.from(`${JSON.stringify({ schemaVersion: 1, identity, revision, entries }, null, 2)}\n`, 'utf8'));
 const usage = (): never => {
   throw new Error('Usage: tsx scripts/prepare-harbor-feedback-jobs.ts --task-manifest <path> --source-root <checkout> --ace-root <checkout> --output <dir> --run-id <id> --model <model> --reasoning <low|medium|high> --image-digest sha256:<64hex> --ace-config <path>');
 };
