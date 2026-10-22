@@ -26,9 +26,30 @@ const readJson = async (path: string): Promise<JsonObject> => {
 };
 
 const trialDirectories = async (aggregatePath: string): Promise<readonly string[]> => {
+  // The CLI accepts an actual Harbor result file, not a directory locator.
+  // Previously a non-existent aggregate path silently worked if its parent
+  // happened to contain unrelated run directories.
+  await readJson(aggregatePath);
   const parent = dirname(resolve(aggregatePath));
   const entries = await readdir(parent, { withFileTypes: true });
-  return entries.filter((entry) => entry.isDirectory()).map((entry) => join(parent, entry.name)).sort();
+  const paths = entries.filter((entry) => entry.isDirectory()).map((entry) => join(parent, entry.name)).sort();
+  const started = await Promise.all(paths.map(async (path) => {
+    const raw = await readJson(join(path, 'result.json'));
+    const millis = typeof raw.started_at === 'string' ? Date.parse(raw.started_at) : Number.NaN;
+    return { path, millis };
+  }));
+  // A frozen n_concurrent_trials=1 job's actual trial order is temporal.
+  // Directory names can sort trial-10 before trial-2.
+  if (started.every((item) => Number.isFinite(item.millis))) {
+    started.sort((left, right) => left.millis - right.millis);
+    if (started.some((item, index) => index > 0 && item.millis === started[index - 1]?.millis)) {
+      throw new Error('BLOCKED: raw Harbor trials have ambiguous identical start timestamps');
+    }
+    return started.map((item) => item.path);
+  }
+  // Missing timestamps are reported as unknown latency below and cannot
+  // authorize release, but preserve deterministic diagnostics.
+  return paths;
 };
 
 const deliveryMetrics = (event: unknown): JsonObject | undefined => {
