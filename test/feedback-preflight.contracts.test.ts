@@ -161,3 +161,11 @@ test('OAuth preflight inspects the same default auth.json path Harbor uses for C
   assert.doesNotMatch(preflight, /process\.env\.CODEX_HOME/u);
   assert.match(preflight, /process\.env\.HOME/u);
 });
+
+
+test('exact-current preflight requires a clean checkout, compiled runtime provenance and ACE config digest', async () => {
+  const preflight = await readFile('scripts/feedback-loop-preflight.ts', 'utf8');
+  assert.match(preflight, /status', '--porcelain=v1'/u);
+  assert.match(preflight, /verifyCompiledRuntimeProvenance/u);
+  assert.match(preflight, /aceConfigDigest/u);
+});
