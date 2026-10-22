@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  assessHarborFourArmFiveX,
   validateHarborFourArmDesign,
   validateHarborFourArmReport,
 } from '../src/domain/harbor-four-arm.js';
@@ -138,4 +139,31 @@ test('four-arm Harbor report rejects savings without real ACE calls or observed 
     },
   });
   assert.equal(accepted._tag, 'Ok');
+});
+
+test('five-X evidence gate rejects self-declared success when raw trials were only hashed', () => {
+  const advertisedWin = {
+    qualityNonInferior: true,
+    costTelemetryComplete: true,
+    tokenRatio: 0.1,
+    rawTrialEvidenceVerified: false,
+  };
+  assert.deepEqual(assessHarborFourArmFiveX(advertisedWin), {
+    allowed: false,
+    reason: 'raw_trial_evidence_not_independently_reconciled',
+  });
+  assert.equal(assessHarborFourArmFiveX({
+    ...advertisedWin,
+    rawTrialEvidenceVerified: true,
+    tokenRatio: 0.25,
+  }).allowed, false);
+  assert.equal(assessHarborFourArmFiveX({
+    ...advertisedWin,
+    rawTrialEvidenceVerified: true,
+    qualityNonInferior: false,
+  }).allowed, false);
+  assert.equal(assessHarborFourArmFiveX({
+    ...advertisedWin,
+    rawTrialEvidenceVerified: true,
+  }).allowed, true);
 });
