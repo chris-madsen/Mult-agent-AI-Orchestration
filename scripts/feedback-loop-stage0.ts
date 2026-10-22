@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { Effect } from 'effect';
@@ -47,6 +47,7 @@ interface Stage0Manifest {
   readonly workspaceSourceKind: 'real_git_checkout';
   readonly workspaceSourceCommit: string;
   readonly workspaceSourceManifestSha256: string;
+  readonly workspaceRoot: string;
   readonly manualSemanticAnchorInjection: false;
   readonly sourceFiles: readonly Readonly<{ path: string; sizeBytes: number; sha256: string }>[];
   readonly preflightIndexedStructuralSymbols: number;
@@ -77,21 +78,34 @@ const object = (value: unknown): JsonObject => {
   return value as JsonObject;
 };
 
-const parseArgs = (): { readonly outputDirectory: string; readonly sourceRoot: string } => {
+const parseArgs = (): { readonly outputDirectory: string; readonly sourceRoot: string; readonly workspaceRoot: string } => {
   const args = process.argv.slice(2);
   let outputDirectory = process.env.ACE_FEEDBACK_OUTPUT?.trim()
     || join('artifacts', 'feedback', `stage0-${new Date().toISOString().replaceAll(/[^0-9]/gu, '').slice(0, 14)}`);
   let sourceRoot = process.env.ACE_FEEDBACK_SOURCE_ROOT?.trim();
+  let workspaceRoot = process.env.ACE_FEEDBACK_WORKSPACE_ROOT?.trim();
   while (args.length > 0) {
     const current = args.shift();
     if (current === '--output') outputDirectory = args.shift() ?? outputDirectory;
     else if (current === '--source-root') sourceRoot = args.shift() ?? sourceRoot;
+    else if (current === '--workspace-root') workspaceRoot = args.shift() ?? workspaceRoot;
     else throw new Error(`unknown argument: ${current}`);
   }
   if (sourceRoot === undefined || sourceRoot.length === 0) {
     throw new Error('BLOCKED: --source-root must point to a clean real Git checkout; synthetic fixtures are not accepted');
   }
-  return { outputDirectory: resolve(outputDirectory), sourceRoot: resolve(sourceRoot) };
+  const resolvedSourceRoot = resolve(sourceRoot);
+  const resolvedWorkspaceRoot = resolve(workspaceRoot ?? join(resolvedSourceRoot, 'src'));
+  const relativeWorkspace = requireWithinSource(resolvedSourceRoot, resolvedWorkspaceRoot);
+  if (relativeWorkspace === undefined) {
+    throw new Error('BLOCKED: --workspace-root must remain inside --source-root');
+  }
+  return { outputDirectory: resolve(outputDirectory), sourceRoot: resolvedSourceRoot, workspaceRoot: resolvedWorkspaceRoot };
+};
+
+const requireWithinSource = (sourceRoot: string, workspaceRoot: string): string | undefined => {
+  const relation = relative(resolve(sourceRoot), resolve(workspaceRoot)).split('\\').join('/');
+  return isAbsolute(relation) || relation === '..' || relation.startsWith('../') ? undefined : relation.length === 0 ? '.' : relation;
 };
 
 const cases: readonly SemanticCase[] = [
@@ -167,10 +181,12 @@ const lspCoverageFor = (bundle: JsonObject): string => {
 };
 
 const main = async (): Promise<void> => {
-  const { outputDirectory, sourceRoot } = parseArgs();
+  const { outputDirectory, sourceRoot, workspaceRoot } = parseArgs();
   await mkdir(outputDirectory, { recursive: true });
   const source = realSourceIdentity(sourceRoot);
-  const workspace = sourceRoot;
+  const workspace = workspaceRoot;
+  const workspaceRelativePath = requireWithinSource(sourceRoot, workspaceRoot) ?? '.';
+  const workspaceIdValue = `feedback-stage0-ts-${source.revision.slice(0, 12)}-${sha256(workspaceRelativePath).slice(0, 8)}`;
   const stateDirectory = join(outputDirectory, 'state');
   const providerTracePath = join(outputDirectory, 'provider-trace.jsonl');
   const retrievalTracePath = join(outputDirectory, 'retrieval-trace.jsonl');
@@ -186,7 +202,7 @@ const main = async (): Promise<void> => {
   let status: StageStatus = 'BLOCKED';
   let reason = 'stage did not complete';
   try {
-    const workspaceId = mustOk(makeWorkspaceId('feedback-stage0-ts-v1'));
+    const workspaceId = mustOk(makeWorkspaceId(workspaceIdValue));
     const files = makeNodeWorkspacePort({ allowedRoots: [sourceRoot] });
     const structural = makeAstGrepStructuralPort({ command: resolve('node_modules/.bin/ast-grep') });
     const indexed = mustOk(await Effect.runPromise(buildLocalCodeIndex(files, workspaceId, workspace, {
@@ -211,7 +227,7 @@ const main = async (): Promise<void> => {
         ACE_ALLOWED_ROOTS: sourceRoot,
         ACE_STATE_DIR: stateDirectory,
         ACE_ARTIFACT_DIR: join(outputDirectory, 'artifacts'),
-        ACE_WORKSPACE_ID: 'feedback-stage0-ts-v1',
+        ACE_WORKSPACE_ID: workspaceIdValue,
         ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
         ACE_QDRANT_URL: process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333',
         ACE_EMBEDDING_WORKER: resolve('scripts/fastembed-worker.sh'),
@@ -229,8 +245,8 @@ const main = async (): Promise<void> => {
     transport.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk));
     const client = new Client({ name: 'ace-feedback-stage0', version: '1.0.0' });
     try {
-      await client.connect(transport, { timeout: 30_000, maxTotalTimeout: 90_000 });
-      const readiness = await client.callTool({ name: 'ace_workspace_status', arguments: { workspace_id: 'feedback-stage0-ts-v1' } }, { timeout: 30_000, maxTotalTimeout: 90_000 });
+      await client.connect(transport, { timeout: 30_000, maxTotalTimeout: 180_000 });
+      const readiness = await client.callTool({ name: 'ace_workspace_status', arguments: { workspace_id: workspaceIdValue } }, { timeout: 30_000, maxTotalTimeout: 180_000 });
       await writeFile(responsePath, `${JSON.stringify({ tool: 'ace_workspace_status', response: readiness })}\n`, 'utf8');
       const readinessBundle = object(readiness.structuredContent ?? {});
       if (readiness.isError === true || readinessBundle.index_status !== 'ready') {
@@ -242,7 +258,7 @@ const main = async (): Promise<void> => {
         const response = await client.callTool({
           name: 'ace_context',
           arguments: {
-            workspace_id: 'feedback-stage0-ts-v1',
+            workspace_id: workspaceIdValue,
             query: item.query,
             intent: 'locate',
             include_code: true,
@@ -326,6 +342,7 @@ const main = async (): Promise<void> => {
         workspaceSourceKind: 'real_git_checkout',
         workspaceSourceCommit: source.revision,
         workspaceSourceManifestSha256: source.manifestSha256,
+        workspaceRoot: workspaceRelativePath,
         manualSemanticAnchorInjection: false,
         sourceFiles: source.files,
         preflightIndexedStructuralSymbols: indexedStructuralSymbols,
@@ -360,6 +377,7 @@ const main = async (): Promise<void> => {
       workspaceSourceKind: 'real_git_checkout',
       workspaceSourceCommit: source.revision,
       workspaceSourceManifestSha256: source.manifestSha256,
+      workspaceRoot: workspaceRelativePath,
       manualSemanticAnchorInjection: false,
       sourceFiles: source.files,
       preflightIndexedStructuralSymbols: indexedStructuralSymbols,
