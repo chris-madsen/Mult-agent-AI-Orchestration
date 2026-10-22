@@ -294,3 +294,26 @@ export const validateHarborFourArmReport = (value: unknown): Result<HarborFourAr
     },
   });
 };
+
+/**
+ * Byte hashing alone proves artifact presence/integrity, not that the observed
+ * per-trial traces corroborate the report's declared quality/token counters.
+ * Release claims therefore require an independent trial-level reconciliation.
+ */
+export const assessHarborFourArmFiveX = (input: {
+  readonly qualityNonInferior: boolean;
+  readonly costTelemetryComplete: boolean;
+  readonly tokenRatio: number | null;
+  readonly rawTrialEvidenceVerified: boolean;
+}): { readonly allowed: boolean; readonly reason: string } => {
+  if (!input.rawTrialEvidenceVerified) {
+    return { allowed: false, reason: 'raw_trial_evidence_not_independently_reconciled' };
+  }
+  if (!input.qualityNonInferior || !input.costTelemetryComplete) {
+    return { allowed: false, reason: 'quality_or_cost_gate_failed' };
+  }
+  if (input.tokenRatio === null || !Number.isFinite(input.tokenRatio) || input.tokenRatio < 0 || input.tokenRatio > 0.2) {
+    return { allowed: false, reason: 'token_ratio_did_not_meet_five_x' };
+  }
+  return { allowed: true, reason: 'independent_quality_cost_and_trial_evidence_satisfied' };
+};
