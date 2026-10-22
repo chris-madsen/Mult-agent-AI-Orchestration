@@ -114,6 +114,12 @@ const casesFor = (workspaceRelativePath: string): readonly SemanticCase[] => wor
     { id: 'function-2', query: 'validateFeedbackTaskManifest', expectedPath: 'feedback-loop-experiment.ts', expectedSymbol: 'validateFeedbackTaskManifest', required: true },
     { id: 'utf8-function', query: 'exactUtf8ByteRange', expectedPath: 'utf8-range.ts', expectedSymbol: 'exactUtf8ByteRange', required: false },
   ]
+  : workspaceRelativePath === '.'
+    ? [
+      { id: 'function', query: 'makeWorkspaceId', expectedPath: 'src/domain/workspace.ts', expectedSymbol: 'makeWorkspaceId', required: true },
+      { id: 'function-2', query: 'validateFeedbackTaskManifest', expectedPath: 'src/domain/feedback-loop-experiment.ts', expectedSymbol: 'validateFeedbackTaskManifest', required: true },
+      { id: 'utf8-function', query: 'exactUtf8ByteRange', expectedPath: 'src/domain/utf8-range.ts', expectedSymbol: 'exactUtf8ByteRange', required: false },
+    ]
   : [
     { id: 'function', query: 'makeWorkspaceId', expectedPath: 'domain/workspace.ts', expectedSymbol: 'makeWorkspaceId', required: true },
     { id: 'function-2', query: 'validateFeedbackTaskManifest', expectedPath: 'domain/feedback-loop-experiment.ts', expectedSymbol: 'validateFeedbackTaskManifest', required: true },
