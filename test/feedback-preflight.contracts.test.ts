@@ -46,6 +46,17 @@ test('Codex auth preflight rejects missing or malformed OAuth state', () => {
     auth_mode: 'chatgpt',
     tokens: { access_token: 'access', refresh_token: 'refresh' },
   })).status, 'not_ready');
+  assert.equal(inspectCodexAuthJson('/tmp/auth.json', JSON.stringify({
+    auth_mode: 'chatgpt',
+    tokens: { access_token: 'access', refresh_token: 'refresh' },
+    last_refresh: 'not-a-date',
+  })).status, 'not_ready');
+});
+
+test('real Stage0 requires source-root to be the actual Git checkout root', async () => {
+  const stage0 = await readFile('scripts/feedback-loop-stage0.ts', 'utf8');
+  assert.match(stage0, /rev-parse', '--show-toplevel/u);
+  assert.match(stage0, /--source-root must be the Git checkout root/u);
 });
 
 test('real Stage0 keeps evidence outside frozen source and revalidates source identity after providers run', async () => {
