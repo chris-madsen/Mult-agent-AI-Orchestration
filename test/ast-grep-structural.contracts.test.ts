@@ -95,7 +95,7 @@ test('real ast-grep outline supplies byte-exact declaration name anchors, not a 
   for (const name of ['привет', 'Service', 'save']) {
     const kind = name === 'привет' ? 'function' : name === 'Service' ? 'class' : 'method';
     const symbol = parsed.value.symbols.find((item) => item.name === name && item.kind === kind);
-    assert.ok(symbol, \`missing ast-grep declaration for \${name}\`);
+    assert.ok(symbol, 'missing ast-grep declaration for ' + name);
     if (symbol === undefined) continue;
     assert.ok(symbol.nameStartLine !== undefined && symbol.nameStartColumn !== undefined
       && symbol.nameEndLine !== undefined && symbol.nameEndColumn !== undefined, name);
