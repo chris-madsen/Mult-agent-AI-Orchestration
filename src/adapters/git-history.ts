@@ -10,6 +10,16 @@ import { err, ok, type Result } from '../domain/result.js';
 import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
 
 const execFileAsync = promisify(execFile);
+// History searches are rooted in the requested workspace, never in a different
+// checkout selected by inherited Git process environment variables.
+const isolatedGitEnvironment = (): NodeJS.ProcessEnv => ({
+  ...process.env,
+  GIT_DIR: undefined,
+  GIT_WORK_TREE: undefined,
+  GIT_COMMON_DIR: undefined,
+  GIT_INDEX_FILE: undefined,
+  GIT_PREFIX: undefined,
+});
 const HISTORY_SCAN_LIMIT = 200;
 const MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 
@@ -94,6 +104,7 @@ export const makeGitHistoryPort = (options: GitHistoryOptions = {}): GitHistoryP
             cwd: input.rootPath,
             encoding: 'utf8',
             maxBuffer: MAX_BUFFER_BYTES,
+            env: isolatedGitEnvironment(),
           });
           logOutput = result.stdout;
         } catch {
@@ -116,6 +127,7 @@ export const makeGitHistoryPort = (options: GitHistoryOptions = {}): GitHistoryP
               cwd: input.rootPath,
               encoding: 'utf8',
               maxBuffer: MAX_BUFFER_BYTES,
+            env: isolatedGitEnvironment(),
             });
             message = shown.stdout.trim();
           } catch {
