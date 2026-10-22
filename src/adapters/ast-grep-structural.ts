@@ -69,7 +69,8 @@ const anchorableKinds: ReadonlySet<StructuralKind> = new Set([
   'class', 'function', 'interface', 'type', 'enum', 'method', 'struct', 'trait', 'impl', 'module',
 ]);
 const identifierName = /^[\p{ID_Start}_$][\p{ID_Continue}$]*$/u;
-const identifierBoundary = /[\p{ID_Continue}$]/u;
+const identifierBoundaryEnd = /[\p{ID_Continue}$]$/u;
+const identifierBoundaryStart = /^[\p{ID_Continue}$]/u;
 
 const nameAnchorFromOutline = (
   source: Uint8Array,
@@ -77,6 +78,7 @@ const nameAnchorFromOutline = (
   endOffset: number,
   name: string,
   kind: StructuralKind,
+  position: (offset: number) => { readonly line: number; readonly column: number },
 ): Pick<StructuralSymbol, 'nameStartLine' | 'nameStartColumn' | 'nameEndLine' | 'nameEndColumn'> => {
   if (!anchorableKinds.has(kind) || !identifierName.test(name)) return {};
   const bytes = Buffer.from(source);
@@ -90,10 +92,9 @@ const nameAnchorFromOutline = (
   for (let from = 0; from < header.length;) {
     const index = header.indexOf(name, from);
     if (index < 0) break;
-    const before = index === 0 ? '' : String.fromCodePoint(header.codePointAt(index - 1) ?? 0);
-    const after = header.slice(index + name.length, index + name.length + 2);
-    if ((before.length === 0 || !identifierBoundary.test(before))
-      && (after.length === 0 || !identifierBoundary.test(after))) matches.push(index);
+    const before = header.slice(0, index);
+    const after = header.slice(index + name.length);
+    if (!identifierBoundaryEnd.test(before) && !identifierBoundaryStart.test(after)) matches.push(index);
     from = index + name.length;
   }
   if (matches.length !== 1) return {};
@@ -101,15 +102,6 @@ const nameAnchorFromOutline = (
   const length = Buffer.byteLength(name, 'utf8');
   if (offset < startOffset || offset + length > endOffset
     || !bytes.subarray(offset, offset + length).equals(Buffer.from(name, 'utf8'))) return {};
-  const position = (at: number): { line: number; column: number } => {
-    let line = 1;
-    let lineStart = 0;
-    // Offset conversion uses UTF-8 byte columns, not JS UTF-16 columns.
-    for (let i = 0; i < at; i += 1) {
-      if (bytes[i] === 10) { line += 1; lineStart = i + 1; }
-    }
-    return { line, column: at - lineStart + 1 };
-  };
   const start = position(offset);
   const end = position(offset + length);
   return {
@@ -137,6 +129,23 @@ const parseOutline = (
   }
   const language = response.language;
   const symbols: StructuralSymbol[] = [];
+  const sourceBytes = Buffer.from(source);
+  const lineStarts = [0];
+  for (let i = 0; i < sourceBytes.length; i += 1) {
+    if (sourceBytes[i] === 10) lineStarts.push(i + 1);
+  }
+  const position = (offset: number): { readonly line: number; readonly column: number } => {
+    let low = 0;
+    let high = lineStarts.length;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if ((lineStarts[mid] ?? 0) <= offset) low = mid + 1;
+      else high = mid;
+    }
+    const lineStart = lineStarts[low - 1] ?? 0;
+    return { line: low, column: offset - lineStart + 1 };
+  };
+
   const visit = (raw: unknown, path: string): Result<void, DomainError> => {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
       return invalidResponse(path, 'outline item must be an object');
@@ -164,7 +173,7 @@ const parseOutline = (
       return invalidResponse(`${path}.range`, 'outline item has an invalid byte range');
     }
     const kind = normalizedKind(symbolType);
-    const nameAnchor = nameAnchorFromOutline(source, byteOffset.start, byteOffset.end, name, kind);
+    const nameAnchor = nameAnchorFromOutline(source, byteOffset.start, byteOffset.end, name, kind, position);
     symbols.push({
       name,
       kind,
