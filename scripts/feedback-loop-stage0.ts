@@ -108,12 +108,18 @@ const requireWithinSource = (sourceRoot: string, workspaceRoot: string): string 
   return isAbsolute(relation) || relation === '..' || relation.startsWith('../') ? undefined : relation.length === 0 ? '.' : relation;
 };
 
-const cases: readonly SemanticCase[] = [
-  { id: 'function', query: 'makeWorkspaceId', expectedPath: 'src/domain/workspace.ts', expectedSymbol: 'makeWorkspaceId', required: true },
-  { id: 'function-2', query: 'validateFeedbackTaskManifest', expectedPath: 'src/domain/feedback-loop-experiment.ts', expectedSymbol: 'validateFeedbackTaskManifest', required: true },
-  { id: 'class', query: 'HarborBindingError', expectedPath: 'src/application/harbor-byte-binding.ts', expectedSymbol: 'HarborBindingError', required: false },
-  { id: 'reexport', query: 'exactUtf8ByteRange', expectedPath: 'src/adapters/qdrant-context-provider.ts', expectedSymbol: 'exactUtf8ByteRange', required: false },
-];
+const casesFor = (workspaceRelativePath: string): readonly SemanticCase[] => workspaceRelativePath === 'src/domain'
+  ? [
+    { id: 'function', query: 'makeWorkspaceId', expectedPath: 'workspace.ts', expectedSymbol: 'makeWorkspaceId', required: true },
+    { id: 'function-2', query: 'validateFeedbackTaskManifest', expectedPath: 'feedback-loop-experiment.ts', expectedSymbol: 'validateFeedbackTaskManifest', required: true },
+    { id: 'utf8-function', query: 'exactUtf8ByteRange', expectedPath: 'utf8-range.ts', expectedSymbol: 'exactUtf8ByteRange', required: false },
+  ]
+  : [
+    { id: 'function', query: 'makeWorkspaceId', expectedPath: 'domain/workspace.ts', expectedSymbol: 'makeWorkspaceId', required: true },
+    { id: 'function-2', query: 'validateFeedbackTaskManifest', expectedPath: 'domain/feedback-loop-experiment.ts', expectedSymbol: 'validateFeedbackTaskManifest', required: true },
+    { id: 'class', query: 'HarborBindingError', expectedPath: 'application/harbor-byte-binding.ts', expectedSymbol: 'HarborBindingError', required: false },
+    { id: 'reexport', query: 'exactUtf8ByteRange', expectedPath: 'adapters/qdrant-context-provider.ts', expectedSymbol: 'exactUtf8ByteRange', required: false },
+  ];
 
 const gitText = (root: string, args: readonly string[]): string => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
 const gitBytes = (root: string, args: readonly string[]): Buffer => execFileSync('git', ['-C', root, ...args]);
@@ -187,6 +193,7 @@ const main = async (): Promise<void> => {
   const workspace = workspaceRoot;
   const workspaceRelativePath = requireWithinSource(sourceRoot, workspaceRoot) ?? '.';
   const workspaceIdValue = `feedback-stage0-ts-${source.revision.slice(0, 12)}-${sha256(workspaceRelativePath).slice(0, 8)}`;
+  const cases = casesFor(workspaceRelativePath);
   const stateDirectory = join(outputDirectory, 'state');
   const providerTracePath = join(outputDirectory, 'provider-trace.jsonl');
   const retrievalTracePath = join(outputDirectory, 'retrieval-trace.jsonl');
