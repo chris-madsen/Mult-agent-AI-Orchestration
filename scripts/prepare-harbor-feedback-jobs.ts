@@ -136,8 +136,9 @@ const main = async (): Promise<void> => {
     const taskManifest: FeedbackTaskManifest = checked.value;
     const validSelection = taskManifest.selection === 'smoke'
       ? taskManifest.tasks.length === 1 && taskManifest.holdout.length === 0
-      : taskManifest.tasks.length === 10 && taskManifest.holdout.length === 10;
-    if (!validSelection) throw new Error('BLOCKED: Harbor preparation requires one smoke task or the frozen 10-task main/holdout manifest');
+      : taskManifest.tasks.length === 10
+        && (taskManifest.selection === 'holdout' ? taskManifest.holdout.length === 0 : taskManifest.holdout.length === 10);
+    if (!validSelection) throw new Error('BLOCKED: Harbor preparation requires one smoke task, a frozen 10-task main/holdout manifest, or a frozen 10-task holdout manifest');
     const sourceRoot = resolve(sourceRootArg);
     const artifactsRoot = resolve(args['--artifacts-root'] ?? process.env.ACE_FEEDBACK_ARTIFACTS_ROOT ?? '/tmp/ace-feedback-artifacts');
     const sourceRevision = assertCleanCheckout(sourceRoot, 'task source');
@@ -203,6 +204,10 @@ const main = async (): Promise<void> => {
     if (!/^[a-f0-9]{40,64}$/iu.test(aceSourceCommit)) throw new Error('BLOCKED: ACE checkout did not provide a pinned source commit');
     const aceRuntimeSha256 = sha256(await readFile(aceRuntime));
     const aceConfigSha256 = sha256(await readFile(aceConfig));
+    // Harbor constructs the Codex agent on the host before it starts the task
+    // container, so kwargs.config must be a host-readable path. Harbor uploads
+    // the parsed effective TOML into CODEX_HOME inside the container; the
+    // config itself keeps /ace paths for the mounted ACE runtime.
     const aceConfigContainerPath = join('/ace', relative(aceRoot, aceConfig).split('\\').join('/'));
     const agent = {
       name: 'codex',
@@ -232,7 +237,7 @@ const main = async (): Promise<void> => {
     const aceJob = {
       ...common,
       job_name: `${runId}-ace-optional`,
-      agents: [{ ...agent, kwargs: { reasoning_effort: reasoning, config: aceConfigContainerPath } }],
+      agents: [{ ...agent, kwargs: { reasoning_effort: reasoning, config: aceConfig } }],
       environment: {},
       jobs_dir: join(artifactsRoot, runId, 'raw-agent-ace'),
     };

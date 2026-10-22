@@ -5,7 +5,7 @@ export type FeedbackArm = 'native' | 'ace_optional';
 export type FeedbackQuality = 'pass' | 'fail' | 'unknown';
 export type FeedbackStatus = 'PASS' | 'UNKNOWN' | 'BLOCKED' | 'QUALITY_REGRESSION' | 'ACE_NOT_USED';
 export type FeedbackMode = 'cold' | 'warm';
-export type FeedbackSelection = 'smoke' | 'main';
+export type FeedbackSelection = 'smoke' | 'main' | 'holdout';
 
 export interface FeedbackTaskIdentity {
   readonly id: string;
@@ -253,18 +253,18 @@ export const validateFeedbackTaskManifest = (value: unknown): Result<FeedbackTas
     ? root.dataset as Record<string, unknown>
     : undefined;
   const selection = root.selection;
-  if (root.schemaVersion !== 1 || (selection !== 'smoke' && selection !== 'main')
+  if (root.schemaVersion !== 1 || (selection !== 'smoke' && selection !== 'main' && selection !== 'holdout')
     || dataset?.id !== 'scale-ai/swe-atlas-qna' || !revision(dataset.revision) || !sha256Hex(dataset.rawSha256)) {
     return invalid('task_manifest', 'dataset identity and selection are not pinned');
   }
   const seen = new Set<string>();
-  const expectedMain = selection === 'main' ? 10 : 1;
-  const expectedHoldout = selection === 'main' ? 10 : undefined;
+  const expectedMain = selection === 'smoke' ? 1 : 10;
   const tasks = validateTaskList(root.tasks, 'task_manifest.tasks', expectedMain, seen);
   if (tasks._tag === 'Err') return tasks;
-  const holdout = selection === 'smoke' && (root.holdout === undefined || Array.isArray(root.holdout) && root.holdout.length === 0)
+  const holdout = (selection === 'smoke' || selection === 'holdout')
+    && (root.holdout === undefined || Array.isArray(root.holdout) && root.holdout.length === 0)
     ? ok([] as readonly FeedbackTaskIdentity[])
-    : validateTaskList(root.holdout, 'task_manifest.holdout', expectedHoldout, seen);
+    : validateTaskList(root.holdout, 'task_manifest.holdout', 10, seen);
   if (holdout._tag === 'Err') return holdout;
   return ok({
     schemaVersion: 1,

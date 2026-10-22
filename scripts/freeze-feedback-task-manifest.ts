@@ -11,7 +11,7 @@ const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes)
 
 const usage = (): never => {
   throw new Error(
-    'Usage: tsx scripts/freeze-feedback-task-manifest.ts --tasks <tasks.json|tasks.jsonl> --dataset-revision <40+hex> --dataset-sha256 <sha256> --output <external-dir> (--smoke-id <id> | --main-id <id> x10 --holdout-id <id> x10)',
+    'Usage: tsx scripts/freeze-feedback-task-manifest.ts --tasks <tasks.json|tasks.jsonl> --dataset-revision <40+hex> --dataset-sha256 <sha256> --output <external-dir> (--smoke-id <id> | --main-id <id> x10 --holdout-id <id> x10 | --holdout-only-id <id> x10)',
   );
 };
 
@@ -23,6 +23,7 @@ const parseArgs = (): {
   readonly smokeId?: string;
   readonly mainIds: readonly string[];
   readonly holdoutIds: readonly string[];
+  readonly holdoutOnlyIds: readonly string[];
 } => {
   const args = process.argv.slice(2);
   let tasksPath: string | undefined;
@@ -32,6 +33,7 @@ const parseArgs = (): {
   let smokeId: string | undefined;
   const mainIds: string[] = [];
   const holdoutIds: string[] = [];
+  const holdoutOnlyIds: string[] = [];
   while (args.length > 0) {
     const name = args.shift();
     const value = args.shift();
@@ -42,13 +44,15 @@ const parseArgs = (): {
     else if (name === '--smoke-id') smokeId = value;
     else if (name === '--main-id' && value !== undefined) mainIds.push(value);
     else if (name === '--holdout-id' && value !== undefined) holdoutIds.push(value);
+    else if (name === '--holdout-only-id' && value !== undefined) holdoutOnlyIds.push(value);
     else return usage();
   }
   const smokeSelection = smokeId !== undefined;
   const mainSelection = mainIds.length === 10 && holdoutIds.length === 10;
+  const holdoutSelection = holdoutOnlyIds.length === 10;
   if (tasksPath === undefined || datasetRevision === undefined || datasetSha256 === undefined || outputDirectory === undefined
-    || smokeSelection === mainSelection) return usage();
-  const selectedIds = smokeSelection ? [smokeId!] : [...mainIds, ...holdoutIds];
+    || [smokeSelection, mainSelection, holdoutSelection].filter(Boolean).length !== 1) return usage();
+  const selectedIds = smokeSelection ? [smokeId!] : mainSelection ? [...mainIds, ...holdoutIds] : holdoutOnlyIds;
   if (!revisionPattern.test(datasetRevision) || !digestPattern.test(datasetSha256)
     || new Set(selectedIds).size !== selectedIds.length || selectedIds.some((id) => !nonEmpty(id))) return usage();
   return {
@@ -59,6 +63,7 @@ const parseArgs = (): {
     ...(smokeId === undefined ? {} : { smokeId }),
     mainIds,
     holdoutIds,
+    holdoutOnlyIds,
   };
 };
 
@@ -114,14 +119,15 @@ const main = async (): Promise<void> => {
     if (args.smokeId !== undefined && smoke === undefined) throw new Error('BLOCKED: smoke task selection is empty');
     const manifest = {
       schemaVersion: 1 as const,
-      selection: args.smokeId === undefined ? 'main' as const : 'smoke' as const,
+      selection: args.smokeId !== undefined ? 'smoke' as const : args.holdoutOnlyIds.length > 0 ? 'holdout' as const : 'main' as const,
       dataset: {
         id: 'scale-ai/swe-atlas-qna' as const,
         revision: args.datasetRevision,
         rawSha256: args.datasetSha256,
       },
-      tasks: args.smokeId === undefined ? select(args.mainIds, 'main') : [smoke],
-      holdout: args.smokeId === undefined ? select(args.holdoutIds, 'holdout') : [],
+      tasks: args.smokeId !== undefined ? [smoke] : args.holdoutOnlyIds.length > 0
+        ? select(args.holdoutOnlyIds, 'holdout-only') : select(args.mainIds, 'main'),
+      holdout: args.smokeId !== undefined || args.holdoutOnlyIds.length > 0 ? [] : select(args.holdoutIds, 'holdout'),
     };
     const validated = validateFeedbackTaskManifest(manifest);
     if (validated._tag === 'Err') throw new Error(`BLOCKED: ${validated.error.path}: ${validated.error.message}`);
@@ -133,7 +139,9 @@ const main = async (): Promise<void> => {
       taskInputSha256: sha256(await readFile(args.tasksPath)),
       taskManifestSha256: sha256(manifestBytes),
       ...(args.smokeId === undefined
-        ? { mainIds: args.mainIds, holdoutIds: args.holdoutIds }
+        ? args.holdoutOnlyIds.length > 0
+          ? { holdoutOnlyIds: args.holdoutOnlyIds }
+          : { mainIds: args.mainIds, holdoutIds: args.holdoutIds }
         : { smokeId: args.smokeId }),
     }, null, 2)}\n`, 'utf8');
     process.stdout.write(`${JSON.stringify({ status: 'READY', output: resolve(args.outputDirectory, 'task-manifest.json'), taskManifestSha256: sha256(manifestBytes) })}\n`);

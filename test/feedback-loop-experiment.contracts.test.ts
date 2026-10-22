@@ -224,6 +224,18 @@ test('main task manifest requires ten frozen tasks and ten untouched holdout tas
   assert.match(result.error.message, /exactly 10/u);
 });
 
+test('holdout selection requires ten tasks and no main set', () => {
+  const result = validateFeedbackTaskManifest({
+    ...manifest,
+    selection: 'holdout',
+    tasks: Array.from({ length: 10 }, (_, index) => ({
+      ...manifest.tasks[0],
+      id: `holdout-${index}`,
+    })),
+  });
+  assert.equal(result._tag, 'Ok');
+});
+
 test('freeze CLI creates a provenance-bound one-task smoke manifest', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ace-feedback-smoke-freeze-'));
   const tasksPath = join(root, 'task-identities.jsonl');
@@ -251,10 +263,47 @@ test('freeze CLI creates a provenance-bound one-task smoke manifest', async () =
   assert.equal(validateFeedbackTaskManifest(frozen)._tag, 'Ok');
 });
 
+test('freeze CLI creates a provenance-bound holdout-only manifest', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-feedback-holdout-freeze-'));
+  const tasksPath = join(root, 'task-identities.jsonl');
+  const output = join(root, 'frozen');
+  const tasks = Array.from({ length: 10 }, (_, index) => ({
+    ...manifest.tasks[0],
+    id: `holdout-${index}`,
+    taskPath: `tasks/holdout-${index}`,
+  }));
+  await writeFile(tasksPath, `${tasks.map((task) => JSON.stringify(task)).join('\n')}\n`);
+  const args = tasks.flatMap((task) => ['--holdout-only-id', task.id]);
+  const run = spawnSync(resolve('node_modules/.bin/tsx'), [
+    'scripts/freeze-feedback-task-manifest.ts',
+    '--tasks', tasksPath,
+    '--dataset-revision', revision,
+    '--dataset-sha256', digest('b'),
+    '--output', output,
+    ...args,
+  ], { cwd: resolve('.'), encoding: 'utf8', timeout: 120_000 });
+  assert.equal(run.status, 0, run.stderr);
+  const frozen = JSON.parse(await readFile(join(output, 'task-manifest.json'), 'utf8')) as FeedbackTaskManifest;
+  assert.equal(frozen.selection, 'holdout');
+  assert.equal(frozen.tasks.length, 10);
+  assert.deepEqual(frozen.holdout, []);
+  assert.equal(validateFeedbackTaskManifest(frozen)._tag, 'Ok');
+});
+
 test('holdout mutation and duplicate IDs are rejected before trials are reconciled', () => {
+  const mainTasks = Array.from({ length: 10 }, (_, index) => ({
+    ...manifest.tasks[0],
+    id: `main-${index}`,
+  }));
+  const holdoutTasks = Array.from({ length: 10 }, (_, index) => ({
+    ...manifest.tasks[0],
+    id: index === 0 ? 'main-0' : `holdout-${index}`,
+  }));
   const result = validateFeedbackTaskManifest({
     ...manifest,
-    holdout: [manifest.tasks[0]!],
+    selection: 'main',
+    tasks: mainTasks,
+    holdout: holdoutTasks,
   });
   assert.equal(result._tag, 'Err');
   assert.match(result.error.message, /unique/u);
@@ -345,9 +394,11 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
   assert.equal(prepared.taskImages[0].reference, 'registry.example/feedback:1');
   const job = JSON.parse(await readFile(join(firstOutput, 'ace-optional-job.json'), 'utf8'));
   assert.equal('mounts' in job.environment, false);
+  assert.equal(job.agents[0].kwargs.config, aceConfig);
   const runner = await readFile(join(firstOutput, 'run-ace-optional.sh'), 'utf8');
   assert.match(runner, /--mounts/u);
   assert.match(runner, /read_only/u);
+  assert.equal(prepared.aceConfigContainerPath, '/ace/codex.toml');
   assert.equal(prepared.verifiedSourceDigest, sourceDigest);
   await writeFile(join(source, 'tasks', 'task-1', 'test.txt'), 'tampered task\n');
   const secondOutput = join(root, 'second');
@@ -382,6 +433,23 @@ test('untrusted RepoBench pickle is rejected before Python can deserialize it', 
   ], { cwd: resolve('.'), encoding: 'utf8' });
   assert.equal(noOptIn.status, 2);
   assert.match(noOptIn.stderr, /trust-pickle-source/u);
+});
+
+test('RepoBench Parquet converter rejects an unpinned digest before importing a reader', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-repobench-parquet-'));
+  const input = join(root, 'records.parquet');
+  const output = join(root, 'records.jsonl');
+  await writeFile(input, 'not parquet');
+  const run = spawnSync('python3', [
+    'scripts/repobench-r-parquet-to-json.py',
+    '--input', input,
+    '--config', 'python_cff',
+    '--split', 'test_easy',
+    '--output', output,
+    '--expected-sha256', digest('a'),
+  ], { cwd: resolve('.'), encoding: 'utf8', timeout: 120_000 });
+  assert.equal(run.status, 2);
+  assert.match(run.stderr, /digest/u);
 });
 
 const harborJob = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
