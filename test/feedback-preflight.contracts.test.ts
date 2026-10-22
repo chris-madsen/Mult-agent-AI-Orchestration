@@ -81,6 +81,7 @@ test('feedback jobs use the Codex OAuth route and do not require the legacy API-
   const preflight = await readFile('scripts/feedback-loop-preflight.ts', 'utf8');
   const jobs = await readFile('scripts/prepare-harbor-feedback-jobs.ts', 'utf8');
   const sweAtlasConfig = await readFile('benchmarks/harbor/ace-swe-atlas-codex-config.toml', 'utf8');
+  const sweAtlasWrapper = await readFile('scripts/harbor-ace-mcp.sh', 'utf8');
   assert.doesNotMatch(preflight, /OPENAI_API_KEY|OPENAI_API_BASE/u);
   assert.match(preflight, /authenticationRoute: codexAuthenticationRoute/u);
   assert.match(preflight, /fastembed-sparse-worker\.sh'\], sparseEmbeddingEnvironment/u);
@@ -92,6 +93,9 @@ test('feedback jobs use the Codex OAuth route and do not require the legacy API-
   assert.match(sweAtlasConfig, /ACE_ALLOWED_ROOTS = "\/app"/u);
   assert.match(sweAtlasConfig, /GIT_CONFIG_VALUE_0 = "\/ace"/u);
   assert.match(sweAtlasConfig, /GIT_CONFIG_VALUE_1 = "\/app"/u);
+  assert.match(sweAtlasConfig, /command = "\/ace\/scripts\/harbor-ace-mcp\.sh"/u);
+  assert.match(sweAtlasWrapper, /fastembed==0\.7\.4/u);
+  assert.match(sweAtlasWrapper, /PYTHONPATH=/u);
 });
 
 

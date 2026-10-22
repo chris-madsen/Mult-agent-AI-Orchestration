@@ -1,6 +1,6 @@
 [mcp_servers.ace]
-command = "node"
-args = ["/ace/dist/bin/ace-mcp.js"]
+command = "/ace/scripts/harbor-ace-mcp.sh"
+args = []
 cwd = "/app"
 required = true
 startup_timeout_sec = 180
