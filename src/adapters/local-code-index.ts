@@ -99,6 +99,42 @@ const candidateId = (workspaceId: WorkspaceId, repoPath: RepoPath, digest: Conte
       span.semanticAnchor?.endLine ?? '', span.semanticAnchor?.endByteColumn ?? ''].join(':'))
     .digest('hex');
 
+/** Convert an authoritative absolute UTF-8 byte range to the indexed source range. */
+export const sourceRangeFromByteOffsets = (
+  source: Uint8Array,
+  startOffset: number,
+  endOffset: number,
+): SourceRange | undefined => {
+  if (!Number.isSafeInteger(startOffset) || !Number.isSafeInteger(endOffset)
+    || startOffset < 0 || endOffset <= startOffset || endOffset > source.byteLength) return undefined;
+  const bytes = Buffer.from(source);
+  const lineStarts = [0];
+  for (let offset = 0; offset < bytes.length; offset += 1) {
+    if (bytes[offset] === 10) lineStarts.push(offset + 1);
+  }
+  const lineForOffset = (offset: number): number | undefined => {
+    let line = 0;
+    for (let index = 0; index < lineStarts.length; index += 1) {
+      const lineStart = lineStarts[index];
+      if (lineStart === undefined || lineStart > offset) break;
+      line = index;
+    }
+    return line + 1;
+  };
+  const startLine = lineForOffset(startOffset);
+  const endLine = lineForOffset(endOffset);
+  if (startLine === undefined || endLine === undefined) return undefined;
+  const startLineOffset = lineStarts[startLine - 1];
+  const endLineOffset = lineStarts[endLine - 1];
+  if (startLineOffset === undefined || endLineOffset === undefined) return undefined;
+  return {
+    startLine,
+    startColumn: startOffset - startLineOffset + 1,
+    endLine,
+    endColumn: endOffset - endLineOffset + 1,
+  };
+};
+
 // Structural providers report UTF-8 byte columns (zero-based) and may also
 // report exact byte offsets. Prefer offsets when available so the provider's
 // span and authoritative source bytes cannot drift at Unicode boundaries.
@@ -115,12 +151,16 @@ const structuralSpans = (
     const start = symbol.startByteOffset ?? (lineStarts[symbol.startLine - 1] ?? -1) + symbol.startColumn - 1;
     const end = symbol.endByteOffset ?? (lineStarts[symbol.endLine - 1] ?? -1) + symbol.endColumn - 1;
     if (start < 0 || end <= start || end > bytes.length) return [];
+    const range = symbol.startByteOffset !== undefined && symbol.endByteOffset !== undefined
+      ? sourceRangeFromByteOffsets(bytes, symbol.startByteOffset, symbol.endByteOffset)
+      : { startLine: symbol.startLine, startColumn: symbol.startColumn, endLine: symbol.endLine, endColumn: symbol.endColumn };
+    if (range === undefined) return [];
     return [{
       name: symbol.name,
       kind: symbol.kind,
       ...(symbol.language === undefined ? {} : { language: symbol.language }),
       ...(symbol.isExported === undefined ? {} : { isExported: symbol.isExported }),
-      range: { startLine: symbol.startLine, startColumn: symbol.startColumn, endLine: symbol.endLine, endColumn: symbol.endColumn },
+      range,
       ...(symbol.nameStartLine === undefined || symbol.nameStartColumn === undefined
         || symbol.nameEndLine === undefined || symbol.nameEndColumn === undefined
         ? {}

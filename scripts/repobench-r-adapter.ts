@@ -76,10 +76,11 @@ const parseRecord = (value: unknown, index: number): RepoBenchRecord => {
   const context = arrayAt(record.context, `records[${index}].context`).map((item, contextIndex) => {
     const snippet = asObject(item, `records[${index}].context[${contextIndex}]`);
     const identifier = optionalStringAt(snippet.identifier, `records[${index}].context[${contextIndex}].identifier`);
+    if (typeof snippet.snippet !== 'string') throw new Error(`records[${index}].context[${contextIndex}].snippet must be a string`);
     return {
       ...(identifier === undefined ? {} : { identifier }),
-      path: stringAt(snippet.path, `records[${index}].context[${contextIndex}].path`),
-      snippet: stringAt(snippet.snippet, `records[${index}].context[${contextIndex}].snippet`),
+      ...(snippet.path === undefined ? {} : { path: stringAt(snippet.path, `records[${index}].context[${contextIndex}].path`) }),
+      snippet: snippet.snippet,
     };
   });
   const rawIndex = record.gold_snippet_index ?? record.gold_snippet_idex;
@@ -200,15 +201,15 @@ const readSource = async (
     symbol.startByteOffset === undefined || symbol.endByteOffset === undefined
       ? []
       : [{
-          range: {
-            startLine: symbol.startLine,
-            endLine: symbol.endLine,
-            startColumn: symbol.startColumn,
-            endColumn: symbol.endColumn,
-          },
-          startByteOffset: symbol.startByteOffset,
-          endByteOffset: symbol.endByteOffset,
-        }]);
+        range: {
+          startLine: symbol.startLine,
+          endLine: symbol.endLine,
+          startColumn: symbol.startColumn,
+          endColumn: symbol.endColumn,
+        },
+        startByteOffset: symbol.startByteOffset,
+        endByteOffset: symbol.endByteOffset,
+      }]);
   return { repositoryId, repoPath, source, sourceDigest: sha256(bytes), structuralCandidates };
 };
 
@@ -254,6 +255,7 @@ const main = async (): Promise<void> => {
     if (root === undefined) continue;
     const goldContext = record.context[record.goldSnippetIndex];
     if (goldContext === undefined) continue;
+    if (goldContext.path === undefined) continue;
     const key = repoBenchSourceKey(record.repoName, goldContext.path);
     if (sourceFiles.has(key)) continue;
     const repository = manifest.repositories.find((item) => item.id === record.repoName);

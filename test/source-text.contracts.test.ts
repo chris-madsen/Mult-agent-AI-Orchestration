@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { Effect } from 'effect';
-import { buildLocalCodeIndex } from '../src/adapters/local-code-index.js';
+import { buildLocalCodeIndex, sourceRangeFromByteOffsets } from '../src/adapters/local-code-index.js';
 import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
 import { decodeStrictSourceText } from '../src/domain/source-text.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
@@ -28,6 +28,58 @@ test('strict source decoder rejects malformed UTF-8 and binary control bytes', (
 
   const binary = decodeStrictSourceText(new Uint8Array([0x65, 0x78, 0x70, 0x00, 0x6f, 0x72, 0x74]));
   assert.deepEqual(binary, { _tag: 'Err', kind: 'binary_source' });
+});
+
+test('structural byte offsets produce byte-accurate indexed ranges at Unicode boundaries', () => {
+  const source = Buffer.from('export function caféUser(): string { return "ok"; }\n', 'utf8');
+  const start = 0;
+  const end = source.indexOf(0x0a);
+  assert.deepEqual(sourceRangeFromByteOffsets(source, start, end), {
+    startLine: 1,
+    startColumn: 1,
+    endLine: 1,
+    endColumn: end + 1,
+  });
+});
+
+test('local index prefers structural byte offsets over Unicode code-point columns', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-unicode-range-'));
+  await mkdir(root, { recursive: true });
+  const source = 'export function caféUser(): string { return "ok"; }\n';
+  await writeFile(join(root, 'unicode.ts'), source, 'utf8');
+  const bytes = Buffer.from(source, 'utf8');
+  const structural: StructuralAnalysisPort = {
+    extract: () => Effect.succeed(ok({
+      repoPath: 'unicode.ts',
+      sourceDigest: createHash('sha256').update(bytes).digest('hex') as never,
+      symbols: [{
+        name: 'caféUser',
+        kind: 'function' as const,
+        startLine: 1,
+        startColumn: 1,
+        endLine: 1,
+        // Simulate a provider Unicode-column value; the exact offsets are authoritative.
+        endColumn: source.length,
+        startByteOffset: 0,
+        endByteOffset: bytes.length - 1,
+        nameStartLine: 1,
+        nameStartColumn: 17,
+        nameEndLine: 1,
+        nameEndColumn: 26,
+      }],
+      hasSyntaxErrors: false,
+    })),
+  };
+  const files = makeNodeWorkspacePort({ allowedRoots: [root] });
+  const built = await Effect.runPromise(buildLocalCodeIndex(files, workspace.value, root, {
+    generation: 1,
+    structural,
+  }));
+  assert.equal(built._tag, 'Ok');
+  if (built._tag === 'Err') throw new Error(built.error.message);
+  assert.equal(built.value.index.candidates.length, 1);
+  assert.equal(built.value.index.candidates[0]?.range.endColumn, bytes.length);
+  assert.equal(built.value.index.candidates[0]?.text, source.trimEnd());
 });
 
 test('binary and malformed UTF-8 source never reaches structural provider', async () => {

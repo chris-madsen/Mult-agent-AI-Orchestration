@@ -2,7 +2,7 @@ SHELL := bash
 .DEFAULT_GOAL := help
 EMBEDDING_PYTHON ?= $(shell command -v python3.13 || command -v python3)
 
-.PHONY: help install install-python-providers install-embedding-providers check lint lint-ts lint-rust probe-providers qdrant-up verify build test feedback-preflight feedback-stage0 adapt-repobench-r report-harbor-retrieval clean
+.PHONY: help install install-python-providers install-embedding-providers check lint lint-ts lint-rust probe-providers qdrant-up verify build test feedback-preflight feedback-stage0 acquire-repobench-r convert-repobench-r resolve-repobench-r harbor-task-identities freeze-feedback-tasks prepare-harbor-feedback adapt-repobench-r collect-feedback-loop report-feedback-summary report-harbor-retrieval clean
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -64,8 +64,32 @@ feedback-preflight: ## Record real feedback-loop provider readiness and provenan
 feedback-stage0: ## Run the real ast-grep -> Qdrant -> MCP -> LSP stage-0 trace
 	npm run test:feedback-stage0
 
+acquire-repobench-r: ## Acquire and pin official RepoBench-R records and source identities
+	npm run acquire:repobench-r -- $(ARGS)
+
+convert-repobench-r: ## Convert official RepoBench-R pickle bytes to JSONL
+	npm run convert:repobench-r -- $(ARGS)
+
+resolve-repobench-r: ## Resolve exact gold snippet paths against frozen source checkouts
+	npm run resolve:repobench-r -- $(ARGS)
+
+harbor-task-identities: ## Hash exact pinned Harbor task/source bytes
+	npm run harbor:task-identities -- $(ARGS)
+
+prepare-harbor-feedback: ## Generate serial native and ACE optional Harbor jobs from a frozen manifest
+	npm run prepare:harbor-feedback -- $(ARGS)
+
+freeze-feedback-tasks: ## Freeze ten main and ten untouched Harbor task identities
+	npm run freeze:feedback-tasks -- $(ARGS)
+
 adapt-repobench-r: ## Convert pinned RepoBench-R records and source spans to a holdout
 	npm run adapt:repobench-r -- $(ARGS)
+
+collect-feedback-loop: ## Reconcile real Harbor native and ACE optional trials
+	npm run collect:feedback-loop -- $(ARGS)
+
+report-feedback-summary: ## Write a hash-linked summary for a real feedback run
+	npm run report:feedback-summary -- $(ARGS)
 
 build: ## Compile the foundation
 	npm run build
