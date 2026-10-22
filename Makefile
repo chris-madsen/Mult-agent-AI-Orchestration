@@ -59,7 +59,7 @@ qdrant-up: ## Start the local Qdrant container without exposing it beyond localh
 	fi
 
 feedback-preflight: ## Record real feedback-loop provider readiness and provenance
-	npm run preflight:feedback-loop
+	npm run preflight:feedback-loop -- $(ARGS)
 
 feedback-stage0: ## Run the real ast-grep -> Qdrant -> MCP -> LSP stage-0 trace
 	npm run test:feedback-stage0

@@ -35,7 +35,12 @@ export interface FeedbackExperimentManifest {
   readonly model: string;
   readonly reasoningEffort: 'low' | 'medium' | 'high';
   readonly harborVersion: string;
-  readonly imageDigest: string;
+  /** Present for a single-image smoke; main runs use taskImages. */
+  readonly imageDigest?: string;
+  readonly taskImages: readonly {
+    readonly reference: string;
+    readonly digest: string;
+  }[];
   readonly aceConfigDigest: string;
   readonly seed: string | 'unknown';
   readonly mode: FeedbackMode;
@@ -70,8 +75,11 @@ export interface FeedbackTrialObservation {
   readonly usage: FeedbackUsage;
   readonly durationMs?: number;
   readonly nativeFileReads?: number;
+  /** Total user-facing ACE calls, including exact ace_expand reads. */
   readonly observedAceCalls: number;
-  /** Request IDs observed in the Codex MCP tool events. */
+  /** ace_context calls only. Undefined preserves legacy observations where every ACE call was a context call. */
+  readonly observedAceContextCalls?: number;
+  /** Request IDs observed in successful ace_context MCP tool events. */
   readonly observedAceRequestIds: readonly string[];
   /** Request IDs found in the ACE provider trace for this trial. */
   readonly providerTraceRequestIds: readonly string[];
@@ -272,9 +280,41 @@ export const validateFeedbackExperimentManifest = (value: unknown): Result<Feedb
   const root = value as Record<string, unknown>;
   const effort = root.reasoningEffort;
   const seed = root.seed;
+  const imageDigest = root.imageDigest;
+  const taskImagesValue = root.taskImages;
+  const taskImages: { readonly reference: string; readonly digest: string }[] = [];
+  if (taskImagesValue !== undefined) {
+    if (!Array.isArray(taskImagesValue) || taskImagesValue.length === 0) {
+      return invalid('experiment_manifest.taskImages', 'task image provenance must be a non-empty array when present');
+    }
+    for (const [index, item] of taskImagesValue.entries()) {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+        return invalid(`experiment_manifest.taskImages[${index}]`, 'task image provenance must be an object');
+      }
+      const image = item as Record<string, unknown>;
+      if (!nonEmpty(image.reference) || typeof image.digest !== 'string' || !/^sha256:[a-f0-9]{64}$/u.test(image.digest)) {
+        return invalid(`experiment_manifest.taskImages[${index}]`, 'task image provenance requires a reference and Docker digest');
+      }
+      if (taskImages.some((candidate) => candidate.reference === image.reference)) {
+        return invalid(`experiment_manifest.taskImages[${index}].reference`, 'task image references must be unique');
+      }
+      taskImages.push({ reference: image.reference, digest: image.digest });
+    }
+  }
+  const hasSingleImage = typeof imageDigest === 'string' && /^sha256:[a-f0-9]{64}$/u.test(imageDigest);
+  if (hasSingleImage && taskImages.length > 0
+    && (taskImages.length !== 1 || taskImages[0]?.digest !== imageDigest)) {
+    return invalid('experiment_manifest', 'single-image digest and task image provenance must describe the same Docker image');
+  }
+  if (!hasSingleImage && taskImages.length === 0) {
+    return invalid('experiment_manifest', 'experiment requires one image digest or task image provenance');
+  }
+  if (imageDigest !== undefined && !hasSingleImage) {
+    return invalid('experiment_manifest.imageDigest', 'imageDigest must be a Docker sha256 digest');
+  }
   if (root.schemaVersion !== 1 || !nonEmpty(root.runId) || !revision(root.sourceCommit)
     || !sha256Hex(root.taskManifestSha256) || !nonEmpty(root.model) || (effort !== 'low' && effort !== 'medium' && effort !== 'high')
-    || !nonEmpty(root.harborVersion) || typeof root.imageDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/u.test(root.imageDigest)
+    || !nonEmpty(root.harborVersion)
     || !sha256Hex(root.aceConfigDigest) || !(seed === 'unknown' || nonEmpty(seed))
     || (root.mode !== 'cold' && root.mode !== 'warm') || root.nConcurrentTrials !== 1 || root.nAttempts !== 1
     || !nonEmpty(root.authenticationRoute)) {
@@ -291,7 +331,8 @@ export const validateFeedbackExperimentManifest = (value: unknown): Result<Feedb
     model: root.model,
     reasoningEffort: effort,
     harborVersion: root.harborVersion,
-    imageDigest: root.imageDigest,
+    ...(hasSingleImage ? { imageDigest } : {}),
+    taskImages,
     aceConfigDigest: root.aceConfigDigest,
     seed,
     mode: root.mode,
@@ -331,8 +372,12 @@ const validateObservation = (observation: FeedbackTrialObservation, path: string
   if (usage._tag === 'Err') return usage;
   if (observation.durationMs !== undefined && !nonNegativeNumber(observation.durationMs)) return invalid(`${path}.durationMs`, 'duration must be non-negative');
   if (observation.nativeFileReads !== undefined && !nonNegativeInteger(observation.nativeFileReads)) return invalid(`${path}.nativeFileReads`, 'native file reads must be non-negative');
-  if (observation.observedAceRequestIds.length > observation.observedAceCalls) return invalid(`${path}.observedAceRequestIds`, 'request IDs cannot exceed observed ACE calls');
-  if (observation.arm === 'native' && (observation.observedAceCalls !== 0 || observation.observedAceRequestIds.length > 0 || observation.providerTraceRequestIds.length > 0)) {
+  const observedContextCalls = observation.observedAceContextCalls ?? observation.observedAceCalls;
+  if (!nonNegativeInteger(observedContextCalls) || observedContextCalls > observation.observedAceCalls) {
+    return invalid(`${path}.observedAceContextCalls`, 'context calls must be non-negative and cannot exceed total observed ACE calls');
+  }
+  if (observation.observedAceRequestIds.length > observedContextCalls) return invalid(`${path}.observedAceRequestIds`, 'request IDs cannot exceed observed ace_context calls');
+  if (observation.arm === 'native' && (observation.observedAceCalls !== 0 || observedContextCalls !== 0 || observation.observedAceRequestIds.length > 0 || observation.providerTraceRequestIds.length > 0)) {
     return invalid(path, 'native arm must not contain ACE calls or provider trace requests');
   }
   const artifacts = validateFeedbackArtifactHashes(observation.rawArtifactHashes, `${path}.rawArtifactHashes`);
@@ -373,7 +418,8 @@ const sumOptional = (values: readonly (number | undefined)[]): number | null => 
 
 const correlationFor = (observation: FeedbackTrialObservation): 'correlated' | 'ACE_NOT_USED' | 'UNKNOWN' => {
   if (observation.observedAceCalls === 0) return 'ACE_NOT_USED';
-  if (observation.observedAceRequestIds.length !== observation.observedAceCalls) return 'UNKNOWN';
+  const observedContextCalls = observation.observedAceContextCalls ?? observation.observedAceCalls;
+  if (observedContextCalls === 0 || observation.observedAceRequestIds.length !== observedContextCalls) return 'UNKNOWN';
   const providerIds = new Set(observation.providerTraceRequestIds);
   return observation.observedAceRequestIds.every((requestId) => providerIds.has(requestId)) ? 'correlated' : 'UNKNOWN';
 };

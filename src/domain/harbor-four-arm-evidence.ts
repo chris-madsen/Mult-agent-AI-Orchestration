@@ -9,8 +9,12 @@ export interface HarborFourArmTrialObservation {
   readonly success: boolean;
   /** Null means the raw Harbor result did not expose timeout state. */
   readonly timedOut: boolean | null;
+  /** Historical four-arm contract: ace_context calls only. */
   readonly observedAceCalls: number;
   readonly successfulAceCalls: number;
+  /** Optional total user-facing ACE calls, including ace_expand. */
+  readonly observedAceToolCalls?: number;
+  readonly successfulAceToolCalls?: number;
   readonly rawInputTokens: number | null;
   readonly rawOutputTokens: number | null;
   readonly cachedInputTokens: number | null;
@@ -161,7 +165,14 @@ const reconcileArm = (
       || !nullableInteger(observation.newContextBytes) || !nullableInteger(observation.reusedContextBytes)
       || !nullableInteger(observation.duplicateContextAvoided) || !nullableDuration(observation.latencyMs)
       || !integer(observation.observedAceCalls) || !integer(observation.successfulAceCalls)
-      || observation.successfulAceCalls > observation.observedAceCalls || observation.timedOut !== null
+      || observation.successfulAceCalls > observation.observedAceCalls
+      || observation.observedAceToolCalls !== undefined
+        && (!integer(observation.observedAceToolCalls) || observation.observedAceToolCalls < observation.observedAceCalls)
+      || observation.successfulAceToolCalls !== undefined
+        && (!integer(observation.successfulAceToolCalls)
+          || observation.successfulAceToolCalls < observation.successfulAceCalls
+          || observation.successfulAceToolCalls > (observation.observedAceToolCalls ?? observation.observedAceCalls))
+      || observation.timedOut !== null
         && typeof observation.timedOut !== 'boolean'
       || !Array.isArray(observation.successfulRequestIds) || !observation.successfulRequestIds.every(nonEmpty)
       || new Set(observation.successfulRequestIds).size !== observation.successfulRequestIds.length

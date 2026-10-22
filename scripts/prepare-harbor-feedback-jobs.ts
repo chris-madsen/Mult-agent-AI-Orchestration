@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
+import { dockerImageDigestPattern, dockerImageMatchesDigest } from '../src/domain/feedback-harbor-config.js';
 import { validateFeedbackTaskManifest, type FeedbackTaskManifest } from '../src/domain/feedback-loop-experiment.js';
 
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -41,21 +42,28 @@ const frozenTreeDigest = (identity: string, revision: string, entries: ReturnTyp
 const shellQuote = (value: string): string => "'" + value.replaceAll("'", "'\\''") + "'";
 
 const usage = (): never => {
-  throw new Error('Usage: tsx scripts/prepare-harbor-feedback-jobs.ts --task-manifest <path> --source-root <checkout> --ace-root <checkout> --output <dir> --run-id <id> --model <model> --reasoning <low|medium|high> --image-digest sha256:<64hex> --ace-config <path>');
+  throw new Error('Usage: tsx scripts/prepare-harbor-feedback-jobs.ts --task-manifest <path> --source-root <checkout> --ace-root <checkout> --output <dir> [--artifacts-root <external-dir>] --run-id <id> --model <model> --reasoning <low|medium|high> [--image-digest sha256:<64hex> | --task-image-digest <image>=sha256:<64hex> ...] --ace-config <path>');
 };
 
-const parseArgs = (): Record<string, string> => {
+interface ParsedArgs {
+  readonly values: Readonly<Record<string, string>>;
+  readonly taskImageDigests: readonly string[];
+}
+
+const parseArgs = (): ParsedArgs => {
   const values = process.argv.slice(2);
   const result: Record<string, string> = {};
+  const taskImageDigests: string[] = [];
   while (values.length > 0) {
     const name = values.shift();
     const value = values.shift();
     if (name === undefined || value === undefined) return usage();
-    result[name] = value;
+    if (name === '--task-image-digest') taskImageDigests.push(value);
+    else result[name] = value;
   }
-  const required = ['--task-manifest', '--source-root', '--ace-root', '--output', '--run-id', '--model', '--reasoning', '--image-digest', '--ace-config'];
+  const required = ['--task-manifest', '--source-root', '--ace-root', '--output', '--run-id', '--model', '--reasoning', '--ace-config'];
   if (required.some((name) => result[name] === undefined)) return usage();
-  return result;
+  return { values: result, taskImageDigests };
 };
 
 const requiredArg = (args: Readonly<Record<string, string>>, name: string): string => {
@@ -71,15 +79,53 @@ const blocked = async (output: string, reason: string): Promise<void> => {
   process.exitCode = 2;
 };
 
+const dockerImageReference = async (taskPath: string): Promise<string> => {
+  const taskToml = await readFile(join(taskPath, 'task.toml'), 'utf8');
+  const match = /^\s*docker_image\s*=\s*"([^"]+)"\s*$/mu.exec(taskToml);
+  if (match?.[1] === undefined || match[1].trim().length === 0) {
+    throw new Error(`BLOCKED: frozen task is missing an explicit docker_image: ${taskPath}`);
+  }
+  return match[1].trim();
+};
+
+const verifyDockerImageReference = (reference: string, digest: string): void => {
+  if (!dockerImageDigestPattern.test(digest)) throw new Error(`BLOCKED: invalid Docker digest for ${reference}`);
+  const inspected = spawnSync('docker', ['image', 'inspect', '--format', '{{json .}}', reference], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (inspected.error !== undefined || inspected.status !== 0) {
+    throw new Error(`BLOCKED: Docker image ${reference} is not available for inspection at ${digest}`);
+  }
+  let image: unknown;
+  try {
+    image = JSON.parse(inspected.stdout.trim()) as unknown;
+  } catch {
+    throw new Error(`BLOCKED: Docker image inspection returned malformed JSON for ${reference}`);
+  }
+  if (!dockerImageMatchesDigest(digest, image)) {
+    throw new Error(`BLOCKED: Docker image ${reference} does not match pinned digest ${digest}`);
+  }
+};
+
+const parseTaskImageDigest = (value: string): { readonly reference: string; readonly digest: string } => {
+  const separator = value.lastIndexOf('=');
+  if (separator <= 0 || separator === value.length - 1) {
+    throw new Error('BLOCKED: --task-image-digest must be <docker-image-reference>=sha256:<64hex>');
+  }
+  return { reference: value.slice(0, separator), digest: value.slice(separator + 1) };
+};
+
 const main = async (): Promise<void> => {
-  const args = parseArgs();
+  const parsedArgs = parseArgs();
+  const args = parsedArgs.values;
   const taskManifestPath = requiredArg(args, '--task-manifest');
   const sourceRootArg = requiredArg(args, '--source-root');
   const aceRootArg = requiredArg(args, '--ace-root');
   const runId = requiredArg(args, '--run-id');
   const modelArg = requiredArg(args, '--model');
   const reasoningArg = requiredArg(args, '--reasoning');
-  const imageDigestArg = requiredArg(args, '--image-digest');
+  const imageDigestArg = args['--image-digest'];
   const aceConfigArg = requiredArg(args, '--ace-config');
   const output = resolve(requiredArg(args, '--output'));
   try {
@@ -88,8 +134,12 @@ const main = async (): Promise<void> => {
     const checked = validateFeedbackTaskManifest(taskManifestValue);
     if (checked._tag === 'Err') throw new Error(`BLOCKED: ${checked.error.path}: ${checked.error.message}`);
     const taskManifest: FeedbackTaskManifest = checked.value;
-    if (taskManifest.selection !== 'main' || taskManifest.tasks.length !== 10) throw new Error('BLOCKED: Harbor main job preparation requires the frozen 10-task manifest');
+    const validSelection = taskManifest.selection === 'smoke'
+      ? taskManifest.tasks.length === 1 && taskManifest.holdout.length === 0
+      : taskManifest.tasks.length === 10 && taskManifest.holdout.length === 10;
+    if (!validSelection) throw new Error('BLOCKED: Harbor preparation requires one smoke task or the frozen 10-task main/holdout manifest');
     const sourceRoot = resolve(sourceRootArg);
+    const artifactsRoot = resolve(args['--artifacts-root'] ?? process.env.ACE_FEEDBACK_ARTIFACTS_ROOT ?? '/tmp/ace-feedback-artifacts');
     const sourceRevision = assertCleanCheckout(sourceRoot, 'task source');
     const allTasks = [...taskManifest.tasks, ...taskManifest.holdout];
     if (allTasks.some((task) => task.sourceRevision !== sourceRevision)) {
@@ -119,8 +169,25 @@ const main = async (): Promise<void> => {
     if (!existsSync(aceRuntime)) throw new Error(`BLOCKED: compiled ACE runtime is missing: ${aceRuntime}`);
     const reasoning = reasoningArg;
     if (!['low', 'medium', 'high'].includes(reasoning)) throw new Error('BLOCKED: reasoning effort must be low, medium or high');
-    const imageDigest = imageDigestArg;
-    if (!/^sha256:[a-f0-9]{64}$/u.test(imageDigest)) throw new Error('BLOCKED: explicit Docker image digest is required');
+    const taskImageReferences = [...new Set(await Promise.all(taskPaths.map((path) => dockerImageReference(path))))];
+    const explicitTaskImageDigests = new Map<string, string>();
+    for (const value of parsedArgs.taskImageDigests) {
+      const item = parseTaskImageDigest(value);
+      if (explicitTaskImageDigests.has(item.reference)) throw new Error(`BLOCKED: duplicate Docker digest mapping for ${item.reference}`);
+      explicitTaskImageDigests.set(item.reference, item.digest);
+    }
+    if (taskImageReferences.length === 1 && imageDigestArg !== undefined) {
+      explicitTaskImageDigests.set(taskImageReferences[0]!, imageDigestArg);
+    } else if (imageDigestArg !== undefined) {
+      throw new Error('BLOCKED: multiple task Docker images require one --task-image-digest <reference>=<digest> per image');
+    }
+    if (explicitTaskImageDigests.size !== taskImageReferences.length
+      || taskImageReferences.some((reference) => !explicitTaskImageDigests.has(reference))) {
+      throw new Error(`BLOCKED: explicit Docker digests are required for every task image: ${taskImageReferences.join(', ')}`);
+    }
+    for (const reference of taskImageReferences) verifyDockerImageReference(reference, explicitTaskImageDigests.get(reference)!);
+    const taskImages = taskImageReferences.map((reference) => ({ reference, digest: explicitTaskImageDigests.get(reference)! }));
+    const imageDigest = taskImages.length === 1 ? taskImages[0]!.digest : undefined;
     const aceConfig = resolve(aceConfigArg);
     if (!existsSync(aceConfig)) throw new Error(`BLOCKED: ACE Codex config is missing: ${aceConfig}`);
     const aceConfigContainment = relative(aceRoot, aceConfig);
@@ -135,6 +202,8 @@ const main = async (): Promise<void> => {
     const aceSourceCommit = assertCleanCheckout(aceRoot, 'ACE runtime');
     if (!/^[a-f0-9]{40,64}$/iu.test(aceSourceCommit)) throw new Error('BLOCKED: ACE checkout did not provide a pinned source commit');
     const aceRuntimeSha256 = sha256(await readFile(aceRuntime));
+    const aceConfigSha256 = sha256(await readFile(aceConfig));
+    const aceConfigContainerPath = join('/ace', relative(aceRoot, aceConfig).split('\\').join('/'));
     const agent = { name: 'codex', model_name: model, override_setup_timeout_sec: 900, env: { CODEX_FORCE_AUTH_JSON: '1' }, kwargs: { reasoning_effort: reasoning } } as const;
     const common = {
       tasks: taskPaths.map((path) => ({ path })),
@@ -149,14 +218,14 @@ const main = async (): Promise<void> => {
     const nativeJob = {
       ...common,
       job_name: `${runId}-native`,
-      jobs_dir: `artifacts/feedback/${runId}/raw-agent-native`,
+      jobs_dir: join(artifactsRoot, runId, 'raw-agent-native'),
     };
     const aceJob = {
       ...common,
       job_name: `${runId}-ace-optional`,
-      agents: [{ ...agent, kwargs: { reasoning_effort: reasoning, config: aceConfig } }],
+      agents: [{ ...agent, kwargs: { reasoning_effort: reasoning, config: aceConfigContainerPath } }],
       environment: {},
-      jobs_dir: `artifacts/feedback/${runId}/raw-agent-ace`,
+      jobs_dir: join(artifactsRoot, runId, 'raw-agent-ace'),
     };
     await mkdir(output, { recursive: true });
     const nativeJobPath = resolve(output, 'native-job.json');
@@ -172,33 +241,58 @@ const main = async (): Promise<void> => {
     await writeFile(resolve(output, 'run-ace-optional.sh'), `#!/usr/bin/env bash\nset -euo pipefail\n${aceCommand}\n`, 'utf8');
     await chmod(resolve(output, 'run-native.sh'), 0o755);
     await chmod(resolve(output, 'run-ace-optional.sh'), 0o755);
+    const experimentManifest = {
+      schemaVersion: 1 as const,
+      runId,
+      sourceCommit: aceSourceCommit,
+      taskSourceCommit: sourceRevision,
+      taskManifestSha256: sha256(taskManifestBytes),
+      model,
+      reasoningEffort: reasoning as 'low' | 'medium' | 'high',
+      harborVersion: execFileSync('harbor', ['--version'], { encoding: 'utf8' }).trim().split(/\r?\n/u)[0]?.trim() ?? 'unknown',
+      ...(imageDigest === undefined ? {} : { imageDigest }),
+      taskImages,
+      aceConfigDigest: aceConfigSha256,
+      seed: 'unknown' as const,
+      mode: 'cold' as const,
+      nConcurrentTrials: 1 as const,
+      nAttempts: 1 as const,
+      authenticationRoute: 'CODEX_FORCE_AUTH_JSON=1 with the host Codex auth route; credentials are not retained',
+    };
+    await writeFile(resolve(output, 'experiment-manifest.json'), `${JSON.stringify(experimentManifest, null, 2)}\n`, 'utf8');
     await writeFile(resolve(output, 'job-manifest.json'), `${JSON.stringify({
       schemaVersion: 1,
-      // The Docker image digest is declared, not enforced by the job config.
-      // Real container image/agent identity must be checked after trial startup.
-      status: 'PREPARED',
-      runtimeImageVerification: 'NOT_VERIFIED',
+      status: 'READY',
       requiredHarborInvocation: 'run-native.sh and run-ace-optional.sh',
       runId,
       sourceRoot,
+      artifactsRoot,
       aceRoot,
       aceSourceCommit,
       aceRuntime: '/ace/dist/bin/ace-mcp.js',
       aceRuntimeSha256,
+      aceConfigContainerPath,
       taskSourceRevision: sourceRevision,
       verifiedSourceDigest: sourceDigest,
       taskManifestSha256: sha256(taskManifestBytes),
       model,
       reasoningEffort: reasoning,
-      imageDigest,
+      harborVersion: experimentManifest.harborVersion,
+      ...(imageDigest === undefined ? {} : { imageDigest }),
+      taskImages,
       aceConfig: aceConfig,
-      aceConfigSha256: sha256(await readFile(aceConfig)),
+      aceConfigSha256,
+      experimentManifest: resolve(output, 'experiment-manifest.json'),
+      selection: taskManifest.selection,
+      mode: 'cold',
+      seed: 'unknown',
+      authenticationRoute: experimentManifest.authenticationRoute,
       nConcurrentTrials: 1,
       nAttempts: 1,
       taskIds: taskManifest.tasks.map((task) => task.id),
       taskPaths,
     }, null, 2)}\n`, 'utf8');
-    process.stdout.write(`${JSON.stringify({ status: 'PREPARED', output, nativeJob: nativeJobPath, aceJob: aceJobPath, runtimeImageVerification: 'NOT_VERIFIED' })}\n`);
+    process.stdout.write(`${JSON.stringify({ status: 'READY', output, nativeJob: nativeJobPath, aceJob: aceJobPath, experimentManifest: resolve(output, 'experiment-manifest.json') })}\n`);
   } catch (error) {
     await blocked(output, error instanceof Error ? error.message : 'Harbor feedback job preparation failed');
   }

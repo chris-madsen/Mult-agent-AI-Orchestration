@@ -2,7 +2,9 @@ import { readFile, readdir } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import {
   isObservedAceContextJsonLine,
+  isObservedAceToolJsonLine,
   isSuccessfulAceContextJsonLine,
+  isSuccessfulAceToolJsonLine,
   successfulAceContextRequestIdJsonLine,
 } from '../domain/harbor-mcp-evidence.js';
 import type { HarborFourArmName } from '../domain/harbor-four-arm.js';
@@ -125,10 +127,15 @@ const readTrial = async (arm: HarborFourArmName, directory: string): Promise<Har
     }
   });
   const observedAceCalls = lines.filter(isObservedAceContextJsonLine).length;
+  const observedAceToolCalls = lines.filter(isObservedAceToolJsonLine).length;
   const successfulAceCalls = lines.filter(isSuccessfulAceContextJsonLine).length;
+  const successfulAceToolCalls = lines.filter(isSuccessfulAceToolJsonLine).length;
   const successfulRequestIds = lines
     .map(successfulAceContextRequestIdJsonLine)
     .filter((value): value is string => value !== undefined);
+  // ace_context carries the provider requestId. ace_expand is an exact local
+  // artifact read and intentionally has no new provider requestId, so it is
+  // counted but cannot silently establish provider correlation.
   if (successfulRequestIds.length !== successfulAceCalls) {
     throw new Error(`BLOCKED: successful ACE calls are missing request correlation: ${logPath}`);
   }
@@ -152,6 +159,8 @@ const readTrial = async (arm: HarborFourArmName, directory: string): Promise<Har
     timedOut,
     observedAceCalls,
     successfulAceCalls,
+    observedAceToolCalls,
+    successfulAceToolCalls,
     rawInputTokens: integerOrNull(agentResult?.n_input_tokens),
     rawOutputTokens: integerOrNull(agentResult?.n_output_tokens),
     cachedInputTokens: integerOrNull(agentResult?.n_cache_tokens),

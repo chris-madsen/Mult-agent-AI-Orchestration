@@ -1,17 +1,23 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import {
   reconcileFeedbackTrials,
+  validateFeedbackExperimentManifest,
   validateFeedbackTaskManifest,
   validateFeedbackReport,
   type FeedbackTaskManifest,
   type FeedbackTrialObservation,
 } from '../src/domain/feedback-loop-experiment.js';
+import {
+  dockerImageMatchesDigest,
+  validateFeedbackHarborJob,
+  validateMatchingFeedbackHarborJobs,
+} from '../src/domain/feedback-harbor-config.js';
 
 const revision = 'a'.repeat(40);
 const digest = (character: string): string => character.repeat(64);
@@ -164,6 +170,21 @@ test('partially correlated requests are counted individually but not marked comp
   assert.equal(result.value.tokenRatio, null);
 });
 
+test('ace_expand counts as ACE usage without breaking provider correlation for ace_context', () => {
+  const result = reconcile(undefined, observation('ace_optional', {
+    observedAceCalls: 2,
+    observedAceRequestIds: ['request-1'],
+    providerTraceRequestIds: ['request-1'],
+    observedAceContextCalls: 1,
+  } as Partial<FeedbackTrialObservation> & { readonly observedAceContextCalls: number }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Err') return;
+  assert.equal(result.value.status, 'PASS');
+  assert.equal(result.value.aceObservedCalls, 2);
+  assert.equal(result.value.aceCorrelatedCalls, 1);
+  assert.equal(result.value.rows[0]?.aceCorrelation, 'correlated');
+});
+
 test('quality regression never presents token savings even in the per-task row', () => {
   const result = reconcile(undefined, observation('ace_optional', {
     quality: 'fail',
@@ -240,6 +261,7 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
     const taskDir = join(source, 'tasks', 'task-' + String(i));
     await mkdir(taskDir, { recursive: true });
     await writeFile(join(taskDir, 'test.txt'), 'content ' + String(i) + '\n');
+    await writeFile(join(taskDir, 'task.toml'), 'version = "1.0"\n[environment]\ndocker_image = "registry.example/feedback:1"\n');
   }
   git(source, 'add', '.');
   git(source, 'commit', '-q', '-m', 'pin tasks');
@@ -273,19 +295,27 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
   await writeFile(join(ace, 'dist', 'bin', 'ace-mcp.js'), 'console.log("mock executable");\n');
   git(ace, 'add', '.');
   git(ace, 'commit', '-q', '-m', 'pin ACE');
+  const dockerBin = join(root, 'bin');
+  await mkdir(dockerBin);
+  const fakeDocker = join(dockerBin, 'docker');
+  await writeFile(fakeDocker, `#!/usr/bin/env bash\nprintf '%s\\n' '{"Id":"sha256:${'a'.repeat(64)}","RepoDigests":[]}'\n`);
+  await chmod(fakeDocker, 0o755);
+  const fakeHarbor = join(dockerBin, 'harbor');
+  await writeFile(fakeHarbor, '#!/usr/bin/env bash\nif [[ "$1" == "--version" ]]; then echo "harbor 0.24.0"; exit 0; fi\nexit 2\n');
+  await chmod(fakeHarbor, 0o755);
   const run = (output: string) => spawnSync(resolve('node_modules/.bin/tsx'), [
     'scripts/prepare-harbor-feedback-jobs.ts',
     '--task-manifest', manifestPath, '--source-root', source, '--ace-root', ace,
     '--output', output, '--run-id', 'frozen-test', '--model', 'test-model',
     '--reasoning', 'medium', '--image-digest', 'sha256:' + 'a'.repeat(64),
     '--ace-config', aceConfig,
-  ], { cwd: resolve('.'), encoding: 'utf8', timeout: 120_000 });
+  ], { cwd: resolve('.'), encoding: 'utf8', timeout: 120_000, env: { ...process.env, PATH: `${dockerBin}:${process.env.PATH ?? ''}` } });
   const firstOutput = join(root, 'first');
   const first = run(firstOutput);
   assert.equal(first.status, 0, first.stderr);
   const prepared = JSON.parse(await readFile(join(firstOutput, 'job-manifest.json'), 'utf8'));
-  assert.equal(prepared.status, 'PREPARED');
-  assert.equal(prepared.runtimeImageVerification, 'NOT_VERIFIED');
+  assert.equal(prepared.status, 'READY');
+  assert.equal(prepared.taskImages[0].reference, 'registry.example/feedback:1');
   const job = JSON.parse(await readFile(join(firstOutput, 'ace-optional-job.json'), 'utf8'));
   assert.equal('mounts' in job.environment, false);
   const runner = await readFile(join(firstOutput, 'run-ace-optional.sh'), 'utf8');
@@ -325,4 +355,130 @@ test('untrusted RepoBench pickle is rejected before Python can deserialize it', 
   ], { cwd: resolve('.'), encoding: 'utf8' });
   assert.equal(noOptIn.status, 2);
   assert.match(noOptIn.stderr, /trust-pickle-source/u);
+});
+
+const harborJob = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+  tasks: [{ path: '/frozen/task-a' }],
+  agents: [{ name: 'codex', model_name: 'gpt-5.6-luna', kwargs: { reasoning_effort: 'high' } }],
+  n_concurrent_trials: 1,
+  n_attempts: 1,
+  ...overrides,
+});
+
+test('feedback Harbor identity comes from frozen jobs, not CODEX environment variables', () => {
+  const checked = validateMatchingFeedbackHarborJobs(harborJob(), harborJob({
+    environment: { type: 'docker' },
+    agents: [{
+      name: 'codex',
+      model_name: 'gpt-5.6-luna',
+      kwargs: { reasoning_effort: 'high', config: '/ace/benchmarks/harbor/ace-retrieval-codex-config.toml' },
+    }],
+  }));
+  assert.equal(checked._tag, 'Ok');
+  if (checked._tag === 'Ok') {
+    assert.equal(checked.value.model, 'gpt-5.6-luna');
+    assert.equal(checked.value.reasoningEffort, 'high');
+    assert.equal(checked.value.nConcurrentTrials, 1);
+    assert.equal(checked.value.nAttempts, 1);
+  }
+});
+
+test('feedback Harbor identity requires ACE config only on the ACE optional arm', () => {
+  const aceJob = harborJob({
+    agents: [{
+      name: 'codex',
+      model_name: 'gpt-5.6-luna',
+      kwargs: { reasoning_effort: 'high', config: '/ace/benchmarks/harbor/ace-retrieval-codex-config.toml' },
+    }],
+  });
+  assert.equal(validateMatchingFeedbackHarborJobs(harborJob(), aceJob)._tag, 'Ok');
+  assert.equal(validateMatchingFeedbackHarborJobs(harborJob(), harborJob())._tag, 'Err');
+  assert.equal(validateMatchingFeedbackHarborJobs(aceJob, aceJob)._tag, 'Err');
+});
+
+test('feedback Harbor identity rejects different frozen task sets between arms', () => {
+  const aceJob = harborJob({
+    tasks: [{ path: '/frozen/task-b' }],
+    agents: [{
+      name: 'codex',
+      model_name: 'gpt-5.6-luna',
+      kwargs: { reasoning_effort: 'high', config: '/ace/benchmarks/harbor/ace-retrieval-codex-config.toml' },
+    }],
+  });
+  assert.equal(validateMatchingFeedbackHarborJobs(harborJob(), aceJob)._tag, 'Err');
+});
+
+test('feedback Harbor identity rejects model/reasoning drift and non-serial jobs', () => {
+  assert.equal(validateMatchingFeedbackHarborJobs(harborJob(), harborJob({ agents: [{ name: 'codex', model_name: 'other', kwargs: { reasoning_effort: 'high' } }] }))._tag, 'Err');
+  assert.equal(validateFeedbackHarborJob(harborJob({ n_concurrent_trials: 2 }))._tag, 'Err');
+  assert.equal(validateFeedbackHarborJob(harborJob({ n_attempts: 2 }))._tag, 'Err');
+});
+
+test('Docker feedback image identity accepts a local image ID or matching repository digest only', () => {
+  const imageDigest = `sha256:${'a'.repeat(64)}`;
+  assert.equal(dockerImageMatchesDigest(imageDigest, { Id: imageDigest, RepoDigests: [] }), true);
+  assert.equal(dockerImageMatchesDigest(imageDigest, { Id: 'sha256:other', RepoDigests: [`registry.example/ace@${imageDigest}`] }), true);
+  assert.equal(dockerImageMatchesDigest(imageDigest, { Id: 'sha256:other', RepoDigests: [] }), false);
+  assert.equal(dockerImageMatchesDigest('not-a-digest', { Id: imageDigest }), false);
+});
+
+test('feedback experiment manifest rejects contradictory single-image and task-image digests', () => {
+  const checked = validateFeedbackExperimentManifest({
+    schemaVersion: 1,
+    runId: 'smoke-1',
+    sourceCommit: revision,
+    taskManifestSha256: digest('a'),
+    model: 'gpt-5.6-luna',
+    reasoningEffort: 'high',
+    harborVersion: '0.24.0',
+    imageDigest: `sha256:${digest('b')}`,
+    taskImages: [{ reference: 'registry.example/task:1', digest: `sha256:${digest('c')}` }],
+    aceConfigDigest: digest('d'),
+    seed: 'unknown',
+    mode: 'cold',
+    nConcurrentTrials: 1,
+    nAttempts: 1,
+    authenticationRoute: 'CODEX_FORCE_AUTH_JSON=1',
+  });
+  assert.equal(checked._tag, 'Err');
+});
+
+test('feedback experiment manifest accepts pinned per-task Docker images for multi-image datasets', () => {
+  const checked = validateFeedbackExperimentManifest({
+    schemaVersion: 1,
+    runId: 'main-serial-1',
+    sourceCommit: revision,
+    taskManifestSha256: digest('a'),
+    model: 'gpt-5.6-luna',
+    reasoningEffort: 'high',
+    harborVersion: '0.24.0',
+    taskImages: [
+      { reference: 'registry.example/calypso:1', digest: `sha256:${digest('b')}` },
+      { reference: 'registry.example/simple-login:1', digest: `sha256:${digest('c')}` },
+    ],
+    aceConfigDigest: digest('d'),
+    seed: 'unknown',
+    mode: 'cold',
+    nConcurrentTrials: 1,
+    nAttempts: 1,
+    authenticationRoute: 'CODEX_FORCE_AUTH_JSON=1',
+  });
+  assert.equal(checked._tag, 'Ok');
+  if (checked._tag === 'Ok') assert.equal(checked.value.taskImages.length, 2);
+  assert.equal(validateFeedbackExperimentManifest({
+    schemaVersion: 1,
+    runId: 'main-serial-1',
+    sourceCommit: revision,
+    taskManifestSha256: digest('a'),
+    model: 'gpt-5.6-luna',
+    reasoningEffort: 'high',
+    harborVersion: '0.24.0',
+    taskImages: [{ reference: 'registry.example/calypso:1', digest: 'not-a-digest' }],
+    aceConfigDigest: digest('d'),
+    seed: 'unknown',
+    mode: 'cold',
+    nConcurrentTrials: 1,
+    nAttempts: 1,
+    authenticationRoute: 'CODEX_FORCE_AUTH_JSON=1',
+  })._tag, 'Err');
 });

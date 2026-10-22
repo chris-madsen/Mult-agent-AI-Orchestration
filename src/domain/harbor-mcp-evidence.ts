@@ -7,12 +7,30 @@ const object = (value: unknown): JsonObject | null => {
 
 const hasNoError = (value: unknown): boolean => value === undefined || value === null || value === '';
 
-const aceContextItem = (event: unknown): JsonObject | null => {
+const aceToolItem = (event: unknown): JsonObject | null => {
   const eventObject = object(event);
   const item = object(eventObject?.item);
   if (eventObject?.type !== 'item.completed') return null;
-  if (item?.type !== 'mcp_tool_call' || item.server !== 'ace' || item.tool !== 'ace_context') return null;
+  if (item?.type !== 'mcp_tool_call' || item.server !== 'ace' || (item.tool !== 'ace_context' && item.tool !== 'ace_expand')) return null;
   return item;
+};
+
+const aceContextItem = (event: unknown): JsonObject | null => {
+  const item = aceToolItem(event);
+  return item?.tool === 'ace_context' ? item : null;
+};
+
+const hasSuccessfulExpandResult = (item: JsonObject): boolean => {
+  const result = object(item.result);
+  if (result?.isError === true || result?.is_error === true) return false;
+  const structured = object(result?.structured_content) ?? object(result?.structuredContent);
+  const hasExactContent = typeof structured?.content_utf8 === 'string' || typeof structured?.content_base64 === 'string';
+  return item.status === 'completed'
+    && hasNoError(item.error)
+    && hasExactContent
+    && typeof structured?.digest === 'string'
+    && typeof structured?.offset === 'number'
+    && typeof structured?.total_bytes === 'number';
 };
 
 const hasCompleteContextResult = (item: JsonObject): boolean => {
@@ -42,6 +60,12 @@ export const isObservedAceContextEvent = (event: unknown): boolean => {
   return item !== null && (item.status === 'completed' || item.status === 'failed');
 };
 
+/** Counts terminal calls to either user-facing ACE context delivery tool. */
+export const isObservedAceToolEvent = (event: unknown): boolean => {
+  const item = aceToolItem(event);
+  return item !== null && (item.status === 'completed' || item.status === 'failed');
+};
+
 /**
  * Strong attribution evidence: the ACE call reached a terminal successful MCP
  * result, the structured ContextBundle is complete, and it contains at least one\n * current/direct code evidence item. Partial/failed/empty calls are
@@ -52,6 +76,13 @@ export const isSuccessfulAceContextEvent = (event: unknown): boolean => {
   return item?.status === 'completed'
     && hasNoError(item.error)
     && hasCompleteContextResult(item);
+};
+
+/** Strong success evidence for context retrieval or exact source expansion. */
+export const isSuccessfulAceToolEvent = (event: unknown): boolean => {
+  const item = aceToolItem(event);
+  if (item === null) return false;
+  return item.tool === 'ace_context' ? isSuccessfulAceContextEvent(event) : hasSuccessfulExpandResult(item);
 };
 
 const successfulRequestId = (item: JsonObject): string | undefined => {
@@ -87,5 +118,11 @@ const fromJsonLine = (line: string, predicate: (event: unknown) => boolean): boo
 export const isObservedAceContextJsonLine = (line: string): boolean =>
   fromJsonLine(line, isObservedAceContextEvent);
 
+export const isObservedAceToolJsonLine = (line: string): boolean =>
+  fromJsonLine(line, isObservedAceToolEvent);
+
 export const isSuccessfulAceContextJsonLine = (line: string): boolean =>
   fromJsonLine(line, isSuccessfulAceContextEvent);
+
+export const isSuccessfulAceToolJsonLine = (line: string): boolean =>
+  fromJsonLine(line, isSuccessfulAceToolEvent);

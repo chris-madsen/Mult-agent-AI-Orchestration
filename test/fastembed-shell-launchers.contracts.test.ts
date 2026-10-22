@@ -115,7 +115,7 @@ const model = process.argv[3];
 console.log(JSON.stringify({ type: 'ready', identity: {
   provider: 'fake-sparse', model, preprocessing: 'fixture',
   artifactDigest: 'a'.repeat(64), runtimeBuild: 'fixture#1',
-  runtimeVersion: process.env.LD_PRELOAD || 'missing',
+  runtimeVersion: [process.env.LD_LIBRARY_PATH || 'missing', process.env.LD_PRELOAD || 'missing'].join('|'),
 } }));
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const request = JSON.parse(line);
@@ -123,6 +123,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
 });
 `, 'utf8');
   await chmod(fakePython, 0o755);
+  const libraryPath = '/tmp/ace-sparse-library-path';
   const preload = '/lib/x86_64-linux-gnu/libstdc++.so.6';
   const port = makeProcessSparseEmbeddingPort({
     command: sparseShell,
@@ -131,15 +132,33 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     env: {
       ACE_SPARSE_EMBEDDING_PYTHON: fakePython,
       ACE_SPARSE_EMBEDDING_MODEL: 'Qdrant/bm25',
+      ACE_SPARSE_EMBEDDING_LD_LIBRARY_PATH: libraryPath,
       ACE_SPARSE_EMBEDDING_LD_PRELOAD: preload,
     },
   });
   try {
     const observed = await Effect.runPromise(port.probe());
     assert.equal(observed._tag, 'Ok');
-    assert.equal(port.identity()?.runtimeVersion, preload);
+    assert.equal(port.identity()?.runtimeVersion, `${libraryPath}|${preload}`);
   } finally {
     port.close();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+
+test('ACE MCP runtime forwards explicit sparse LD library path into the sparse worker environment', async () => {
+  const runtime = await readFile(resolve('src/bin/ace-mcp.ts'), 'utf8');
+  const sparseEnvironmentBlock = runtime.slice(
+    runtime.indexOf('const sparseEnvironment: Record<string, string>'),
+    runtime.indexOf('const sparseEmbeddings = makeProcessSparseEmbeddingPort'),
+  );
+  assert.match(sparseEnvironmentBlock, /ACE_SPARSE_EMBEDDING_LD_LIBRARY_PATH/u);
+});
+
+
+test('feedback preflight probes the sparse provider required by hybrid retrieval', async () => {
+  const preflight = await readFile(resolve('scripts/feedback-loop-preflight.ts'), 'utf8');
+  assert.match(preflight, /fastembed-sparse-worker\.sh/u);
+  assert.match(preflight, /sparseEmbedding/u);
 });
