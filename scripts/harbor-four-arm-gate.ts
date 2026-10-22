@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { readHarborFourArmTrialObservations } from '../src/adapters/harbor-four-arm-trial-evidence.js';
 import { verifyHarborJobByteBinding } from '../src/application/harbor-byte-binding.js';
 import { assessHarborFourArmFiveX, validateHarborFourArmDesign, validateHarborFourArmReport } from '../src/domain/harbor-four-arm.js';
-import { reconcileHarborFourArmTrials } from '../src/domain/harbor-four-arm-evidence.js';
+import { bindHarborTrialsToFrozenTasks, reconcileHarborFourArmTrials } from '../src/domain/harbor-four-arm-evidence.js';
 
 const [nativeJobPath, denseJobPath, hybridJobPath, deltaJobPath, reportPath, outputPath,
   nativeTrialsPath, denseTrialsPath, hybridTrialsPath, deltaTrialsPath] = process.argv.slice(2);
@@ -80,8 +80,20 @@ const rawTrialEvidence = trialPaths.every((path): path is string => path !== und
       readHarborFourArmTrialObservations('dense', trialPaths[1]),
       readHarborFourArmTrialObservations('hybrid', trialPaths[2]),
       readHarborFourArmTrialObservations('hybrid-delta', trialPaths[3]),
-    ]).then(async (groups) => {
-      const reconciled = reconcileHarborFourArmTrials(checkedReport.value.arms, groups.flat());
+    ]).then((groups) => {
+      const bindings = design.value.native.externalEvidence?.taskBindings;
+      if (bindings === undefined) {
+        throw new Error('BLOCKED: frozen task bindings are required for raw trial attribution');
+      }
+      const arms = ['native', 'dense', 'hybrid', 'hybrid-delta'] as const;
+      const checkedGroups = groups.map((group, index) => {
+        const checked = bindHarborTrialsToFrozenTasks(design.value.native.tasks, bindings, group);
+        if (checked._tag === 'Err') {
+          throw new Error(`BLOCKED: ${arms[index] ?? 'unknown'} task identity: ${checked.error.message}`);
+        }
+        return checked.value;
+      });
+      const reconciled = reconcileHarborFourArmTrials(checkedReport.value.arms, checkedGroups.flat());
       if (reconciled._tag === 'Err') {
         throw new Error(`BLOCKED: raw Harbor trial evidence: ${reconciled.error.path}: ${reconciled.error.message}`);
       }
