@@ -1,5 +1,6 @@
 import { domainError, type DomainError } from './errors.js';
 import { err, ok, type Result } from './result.js';
+import type { HarborExternalEvidence, HarborTaskByteBinding } from './harbor-byte-binding.js';
 
 export type HarborArm = 'native' | 'ace-natural' | 'ace-forced' | 'dense' | 'hybrid' | 'hybrid-delta';
 
@@ -11,10 +12,7 @@ export interface NormalizedHarborJob {
   readonly authMode: 'auth-json';
   readonly codexConfig?: string;
   readonly extraInstructions: readonly string[];
-  readonly externalEvidence?: {
-    readonly taskManifestSha256: string;
-    readonly repositoryRevisions: Readonly<Record<string, string>>;
-  };
+  readonly externalEvidence?: HarborExternalEvidence;
 }
 
 const object = (value: unknown): Record<string, unknown> | undefined =>
@@ -28,6 +26,24 @@ const forcedAceInstruction = (instructions: readonly string[]): boolean =>
 
 const validSha256 = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value);
 const validRevision = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{40,64}$/iu.test(value);
+const nonEmptyString = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
+
+const parseTaskBindings = (value: unknown): readonly HarborTaskByteBinding[] | undefined => {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const bindings: HarborTaskByteBinding[] = [];
+  for (const entry of value) {
+    const binding = object(entry);
+    if (binding === undefined
+      || !nonEmptyString(binding.id)
+      || !nonEmptyString(binding.repository_id)
+      || !nonEmptyString(binding.path)
+      || !validSha256(binding.sha256)) return undefined;
+    bindings.push({ id: binding.id.trim(), repositoryId: binding.repository_id.trim(), path: binding.path.trim(), sha256: binding.sha256 });
+  }
+  if (new Set(bindings.map((binding) => binding.id)).size !== bindings.length
+    || new Set(bindings.map((binding) => binding.path)).size !== bindings.length) return undefined;
+  return bindings;
+};
 
 export const normalizeHarborJob = (
   arm: HarborArm,
@@ -74,18 +90,49 @@ export const normalizeHarborJob = (
     : undefined;
   const externalRoot = object(root?.external_evidence);
   const externalRevisions = object(externalRoot?.repository_revisions);
+  const taskBindings = parseTaskBindings(externalRoot?.task_bindings);
+  const codexConfigRoot = object(externalRoot?.codex_config);
+  const codexConfigPath = codexConfigRoot?.path === null
+    ? null
+    : nonEmptyString(codexConfigRoot?.path) ? codexConfigRoot.path.trim() : undefined;
+  const codexConfigBytesSha256 = codexConfigRoot?.bytes_sha256 === null
+    ? null
+    : validSha256(codexConfigRoot?.bytes_sha256) ? codexConfigRoot.bytes_sha256 : undefined;
   const externalEvidence = externalRoot === undefined
     ? undefined
     : externalRevisions !== undefined
+      && externalRoot.schema_version === 1
+      && nonEmptyString(externalRoot.task_manifest_path)
       && validSha256(externalRoot.task_manifest_sha256)
+      && validSha256(externalRoot.task_bytes_sha256)
+      && taskBindings !== undefined
       && Object.values(externalRevisions).every(validRevision)
+      && nonEmptyString(externalRoot.model_identity)
+      && nonEmptyString(externalRoot.provider_identity)
+      && nonEmptyString(externalRoot.runtime_image_identity)
+      && codexConfigRoot !== undefined
+      && codexConfigPath !== undefined
+      && codexConfigBytesSha256 !== undefined
+      && validSha256(codexConfigRoot.effective_sha256)
       ? {
+        schemaVersion: 1 as const,
+        taskManifestPath: externalRoot.task_manifest_path.trim(),
         taskManifestSha256: externalRoot.task_manifest_sha256,
+        taskBytesSha256: externalRoot.task_bytes_sha256,
+        taskBindings,
         repositoryRevisions: Object.fromEntries(Object.entries(externalRevisions).map(([id, revision]) => [id, revision as string])),
+        modelIdentity: externalRoot.model_identity.trim(),
+        providerIdentity: externalRoot.provider_identity.trim(),
+        runtimeImageIdentity: externalRoot.runtime_image_identity.trim(),
+        codexConfig: {
+          path: codexConfigPath,
+          bytesSha256: codexConfigBytesSha256,
+          effectiveSha256: codexConfigRoot.effective_sha256,
+        },
       }
       : null;
   if (externalEvidence === null) {
-    return err(domainError('INVALID_BENCHMARK', 'harbor_job.external_evidence', 'external evidence requires a task manifest SHA-256 and immutable repository revisions'));
+    return err(domainError('INVALID_BENCHMARK', 'harbor_job.external_evidence', 'external evidence requires manifest/task/config byte bindings and immutable runtime identities'));
   }
   return ok({
     arm,

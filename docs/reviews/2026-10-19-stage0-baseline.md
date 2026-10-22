@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-19
 **Source revision:** `d4c8411` (`main`)
-**Plan:** `docs/openspec/changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md`
+**Plan at this historical pre-root-migration revision:** `docs/openspec/changes/006-production-retrieval-vertical-slice/CODEX-EXECUTION-PLAN.md`
 **Status:** baseline complete; local backends are provisioned and an exploratory real-provider retrieval slice is evidenced. Production selection and real-data gates remain open.
 
 ## Reproducibility

@@ -20,7 +20,7 @@ test('generic retrieval runner uses the official MCP client and all five frozen 
   assert.match(runner, /ACE_BENCHMARK_TRACE_FILE/u);
   assert.match(runner, /expansionCalls: null/u);
   assert.match(runner, /nativeReadDuplicates: null/u);
-  assert.doesNotMatch(runner, /events\.length === 0 \? 0 : 0/u);
+  assert.doesNotMatch(runner, /events\\.length === 0 \\? 0 : 0/u);
 });
 
 test('generic runner requires immutable repository revisions and keeps evidence external', () => {
@@ -29,6 +29,13 @@ test('generic runner requires immutable repository revisions and keeps evidence 
   assert.match(runner, /outputDirectory/u);
   assert.doesNotMatch(runner, /benchmarks[\\/]harbor[\\/]chess/u);
   assert.doesNotMatch(runner, /Chess Trainer/u);
+});
+
+test('generic frozen runner requires the provenance-bound compiled MCP and forbids tsx fallback', () => {
+  assert.match(runner, /compiled ACE MCP is missing/u);
+  assert.match(runner, /dist\/bin\/ace-mcp\.js/u);
+  assert.doesNotMatch(runner, /ACE_ALLOW_SOURCE_RUNTIME/u);
+  assert.doesNotMatch(runner, /args:\s*\['--import', 'tsx'/u);
 });
 
 test('Qdrant rank probe leaves delivery instrumentation unknown', () => {

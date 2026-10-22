@@ -126,7 +126,13 @@ test('frozen reranker runs require repository and runtime evidence identities', 
 });
 
 test('reranker selection requires non-inferiority plus measurable quality or payload improvement', () => {
-  const baseline = evaluateRerankerRun(fixture, run);
+  const baseline = evaluateRerankerRun(fixture, {
+    ...run,
+    observations: run.observations.map((observation, index) => ({
+      ...observation,
+      deliveredPayloadCharacters: (index + 1) * 100,
+    })),
+  });
   assert.equal(baseline._tag, 'Ok');
   if (baseline._tag === 'Err') return;
   const rejected = selectRerankerCandidate(baseline.value, [{
@@ -142,6 +148,60 @@ test('reranker selection requires non-inferiority plus measurable quality or pay
   }]);
   assert.equal(accepted.accepted, true);
   assert.equal(accepted.selectedIdentity, 'model-better');
+});
+
+test('reranker evaluation does not convert missing per-case payload telemetry into zero', () => {
+  const missing = evaluateRerankerRun(fixture, run);
+  assert.equal(missing._tag, 'Ok');
+  if (missing._tag === 'Err') throw new Error(missing.error.message);
+  assert.equal(missing.value.deliveredPayloadCharactersMean, null);
+
+  const measured = evaluateRerankerRun(fixture, {
+    ...run,
+    observations: run.observations.map((observation, index) => ({
+      ...observation,
+      deliveredPayloadCharacters: (index + 1) * 100,
+    })),
+  });
+  assert.equal(measured._tag, 'Ok');
+  if (measured._tag === 'Err') throw new Error(measured.error.message);
+  assert.equal(measured.value.deliveredPayloadCharactersMean, 200);
+});
+
+test('reranker selection rejects missing candidate payload data and quality ties', () => {
+  const baseline = evaluateRerankerRun(fixture, {
+    ...run,
+    observations: run.observations.map((observation, index) => ({
+      ...observation,
+      deliveredPayloadCharacters: (index + 1) * 100,
+    })),
+  });
+  assert.equal(baseline._tag, 'Ok');
+  if (baseline._tag === 'Err') throw new Error(baseline.error.message);
+
+  const missingCandidate = selectRerankerCandidate(baseline.value, [{
+    identity: 'missing-payload',
+    licenseEvidence: 'license/test',
+    metrics: { ...baseline.value, deliveredPayloadCharactersMean: null },
+  }]);
+  assert.equal(missingCandidate.accepted, false);
+  assert.equal(missingCandidate.selectedIdentity, null);
+
+  const tied = selectRerankerCandidate(baseline.value, [{
+    identity: 'quality-tie',
+    licenseEvidence: 'license/test',
+    metrics: { ...baseline.value },
+  }]);
+  assert.equal(tied.accepted, false);
+  assert.equal(tied.selectedIdentity, null);
+});
+
+test('reranker evaluator rejects a run with a missing fixture case', () => {
+  const missingCase = evaluateRerankerRun(fixture, {
+    ...run,
+    observations: run.observations.slice(0, -1),
+  });
+  assert.equal(missingCase._tag, 'Err');
 });
 
 test('frozen model candidate list is explicit and unknown license evidence is rejected', () => {

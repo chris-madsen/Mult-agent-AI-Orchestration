@@ -310,9 +310,12 @@ const runRepositoryStrategy = async (
     ACE_PROVIDER_TRACE_FILE: providerTracePath,
     ACE_EVIDENCE_SOURCE_COMMIT: binding.revision,
   };
-  const runtimeArgs = existsSync(join(runtimeRoot, 'dist', 'bin', 'ace-mcp.js'))
-    ? ['dist/bin/ace-mcp.js']
-    : ['--import', 'tsx', 'src/bin/ace-mcp.ts'];
+  // A frozen scored run cannot silently fall back to the development/tsx
+  // source entrypoint, which explicitly bypasses compiled provenance checks.
+  if (!existsSync(join(runtimeRoot, 'dist', 'bin', 'ace-mcp.js'))) {
+    throw new Error('BLOCKED: compiled ACE MCP is missing; build and verify runtime provenance before scoring a frozen holdout');
+  }
+  const runtimeArgs = ['dist/bin/ace-mcp.js'];
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: runtimeArgs,
@@ -369,9 +372,8 @@ const runRepositoryStrategy = async (
         rawRetrievedCandidateIds: rawStageRanks.delivered,
         payloadCharacters: evidence.reduce((total, entry) => total + (typeof entry.content === 'string' ? entry.content.length : 0), 0),
         duplicateSourceHits,
-        // The current trace contract does not expose provider-native read or
-        // expansion counters. Keep these unknown until the actual delivery
-        // path emits them; zero would be fabricated evidence.
+        // Native reads and expansion calls have not been instrumented.
+        // Unknown values must not be turned into fabricated zero counts.
         expansionCalls: null,
         nativeReadDuplicates: null,
         latencyMs: Math.max(0, performance.now() - startedAt),

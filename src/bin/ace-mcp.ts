@@ -3,7 +3,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join, resolve } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
@@ -55,6 +56,7 @@ import type { RetrievalBenchmarkTraceSink } from '../domain/retrieval-benchmark.
 import { workspaceManifestFromSnapshot, workspaceManifestEqual } from '../domain/workspace-manifest.js';
 import { observeWorkspace, registerWorkspace } from '../application/workspace-service.js';
 import { readVerifiedSemanticSnapshot, semanticSnapshotIdentity } from '../application/semantic-snapshot.js';
+import { verifyCompiledRuntimeProvenance } from '../application/runtime-provenance.js';
 import { makeMcpGateway, type CapabilityReadiness } from '../gateway/mcp-gateway.js';
 import { runMcpSdkStdio } from '../transport/mcp-sdk-stdio.js';
 
@@ -171,6 +173,21 @@ const makeDocumentationProvider = (
 };
 
 const main = async (): Promise<void> => {
+  const sourceRuntime = /[\\/]src[\\/]/u.test(fileURLToPath(import.meta.url));
+  const runtimeRoot = resolve(
+    process.env.ACE_RUNTIME_ROOT?.trim() || resolve(dirname(fileURLToPath(import.meta.url)), '../..'),
+  );
+  if (sourceRuntime) {
+    if (process.env.ACE_ALLOW_SOURCE_RUNTIME !== 'true') {
+      throw new Error('source ACE runtime requires explicit ACE_ALLOW_SOURCE_RUNTIME=true; compiled dist provenance is mandatory otherwise');
+    }
+    process.stderr.write('ace-mcp source runtime explicitly allowed for development/test; compiled provenance was not used\n');
+  } else {
+    const provenance = await verifyCompiledRuntimeProvenance(runtimeRoot, fileURLToPath(import.meta.url));
+    if (provenance._tag === 'Err') throw new Error(`${provenance.error.code}: ${provenance.error.message}`);
+    process.stderr.write(`ace-mcp runtime provenance source_commit=${provenance.value.sourceCommit} source_manifest_sha256=${provenance.value.sourceManifestSha256} executable_sha256=${provenance.value.executableSha256} runtime_root=${provenance.value.runtimeRoot} node=${provenance.value.runtime.node} mcp_client=${provenance.value.runtime.mcpClientSdk} mcp_server=${provenance.value.runtime.mcpServerSdk}\n`);
+    process.stderr.write(`ace-mcp provider identities embedding=${process.env.ACE_EMBEDDING_PROVIDER?.trim() || 'fastembed/onnx'}|model=${process.env.ACE_EMBEDDING_MODEL?.trim() || defaultEmbeddingModel} sparse=${process.env.ACE_SPARSE_EMBEDDING_MODEL?.trim() || 'Qdrant/bm25'} qdrant=${process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2'} lsp=${process.env.ACE_LSP_SERVER?.trim() || 'typescript-language-server'} reranker=${process.env.ACE_RERANKER_MODEL?.trim() || 'disabled'}\n`);
+  }
   const runtimeTestFailpoint = configuredRuntimeTestFailpoint();
   const rootPath = resolve(required('ACE_WORKSPACE_ROOT'));
   const allowedRoots = (process.env.ACE_ALLOWED_ROOTS ?? rootPath)
@@ -242,11 +259,11 @@ const main = async (): Promise<void> => {
   };
   const astGrepCommand = optionalCommand(
     process.env.ACE_AST_GREP_COMMAND,
-    resolve('node_modules/.bin/ast-grep'),
+    resolve(runtimeRoot, 'node_modules/.bin/ast-grep'),
   );
   const lspCommand = optionalCommand(
     process.env.ACE_LSP_COMMAND,
-    resolve('node_modules/.bin/typescript-language-server'),
+    resolve(runtimeRoot, 'node_modules/.bin/typescript-language-server'),
   );
   const lspArgs = configuredStringArray('ACE_LSP_ARGS', ['--stdio']);
   const lspServerName = optionalCommand(process.env.ACE_LSP_SERVER, 'typescript-language-server');
@@ -391,7 +408,7 @@ const main = async (): Promise<void> => {
     const retrievalStrategy = retrievalStrategyRaw as 'dense' | 'sparse' | 'hybrid_rrf';
     const sparseEmbeddingModel = process.env.ACE_SPARSE_EMBEDDING_MODEL?.trim() || 'Qdrant/bm25';
     const sparseEmbeddingWorker = process.env.ACE_SPARSE_EMBEDDING_WORKER?.trim()
-      || resolve('scripts/fastembed-sparse-worker.sh');
+      || resolve(runtimeRoot, 'scripts/fastembed-sparse-worker.sh');
     const sparseEmbeddingTimeoutMs = Number(process.env.ACE_SPARSE_EMBEDDING_TIMEOUT_MS ?? '120000');
     if (!Number.isSafeInteger(sparseEmbeddingTimeoutMs)
       || sparseEmbeddingTimeoutMs < 100
@@ -409,7 +426,7 @@ const main = async (): Promise<void> => {
       throw new Error('ACE_RERANKER_TIMEOUT_MS must be an integer between 100 and 3600000');
     }
     const rerankerModel = process.env.ACE_RERANKER_MODEL?.trim();
-    const rerankerWorker = process.env.ACE_RERANKER_WORKER?.trim() || resolve('scripts/fastembed-reranker-worker.sh');
+    const rerankerWorker = process.env.ACE_RERANKER_WORKER?.trim() || resolve(runtimeRoot, 'scripts/fastembed-reranker-worker.sh');
     let reranker: ReturnType<typeof makeProcessRerankerPort> | undefined;
     if (rerankerMode !== 'disabled') {
       if (rerankerModel === undefined || rerankerModel.length === 0 || !commandBoundaryExists(rerankerWorker)) {
@@ -444,7 +461,7 @@ const main = async (): Promise<void> => {
     const workspaceKey = createHash('sha256').update(registered.value.workspaceId).digest('hex').slice(0, 12);
     const generation = observationEpoch;
     const embeddingWorker = process.env.ACE_EMBEDDING_WORKER?.trim()
-      || resolve(embeddingProvider === 'sentence-transformers/pytorch'
+      || resolve(runtimeRoot, embeddingProvider === 'sentence-transformers/pytorch'
         ? 'scripts/sentence-transformers-worker.sh'
         : 'scripts/fastembed-worker.sh');
     const handleQdrantUnavailable = (errorCode: string): void => {
