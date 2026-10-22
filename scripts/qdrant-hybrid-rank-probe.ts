@@ -86,6 +86,7 @@ const sparseEnvironment: Record<string, string> = {
 };
 for (const name of [
   'ACE_SPARSE_EMBEDDING_PYTHON',
+  'ACE_SPARSE_EMBEDDING_LD_PRELOAD',
   'ACE_SPARSE_EMBEDDING_THREADS',
   'FASTEMBED_CACHE_PATH',
   'HF_HOME',

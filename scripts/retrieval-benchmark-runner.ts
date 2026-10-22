@@ -192,6 +192,7 @@ const strategyEnvironment = (
   );
   const sparse = workerInvocation(runtimeRoot, 'fastembed-sparse-worker.sh', {
     ACE_SPARSE_EMBEDDING_MODEL: process.env.ACE_SPARSE_EMBEDDING_MODEL?.trim() || 'Qdrant/bm25',
+    ACE_SPARSE_EMBEDDING_LD_PRELOAD: process.env.ACE_SPARSE_EMBEDDING_LD_PRELOAD?.trim() || '',
     FASTEMBED_CACHE_PATH: fastembedCache,
   });
   const rerankerModel = process.env.ACE_RERANKER_MODEL?.trim() || 'jinaai/jina-reranker-v2-base-multilingual';
