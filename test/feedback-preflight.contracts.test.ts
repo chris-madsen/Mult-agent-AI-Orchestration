@@ -5,6 +5,7 @@ import {
   codexAuthenticationRoute,
   inspectCodexAuthJson,
 } from '../src/domain/feedback-preflight.js';
+import * as feedbackPreflight from '../src/domain/feedback-preflight.js';
 
 const validAuth = JSON.stringify({
   auth_mode: 'chatgpt',
@@ -74,4 +75,82 @@ test('feedback jobs use the Codex OAuth route and do not require the legacy API-
   assert.match(preflight, /fastembed-sparse-worker\.sh'\], sparseEmbeddingEnvironment/u);
   assert.match(jobs, /CODEX_FORCE_AUTH_JSON:\s*'1'/u);
   assert.doesNotMatch(jobs, /OPENAI_API_KEY|OPENAI_API_BASE/u);
+});
+
+
+test('exact-current preflight binds experiment identity to checkout, jobs, Harbor and auth route', () => {
+  const module = feedbackPreflight as unknown as {
+    readonly validateFeedbackPreflightBinding?: (input: {
+      readonly currentSourceCommit: string;
+      readonly actualHarborVersion: string;
+      readonly expectedAuthenticationRoute: string;
+      readonly jobModel: string;
+      readonly jobReasoningEffort: 'low' | 'medium' | 'high';
+      readonly experiment: {
+        readonly sourceCommit: string;
+        readonly model: string;
+        readonly reasoningEffort: 'low' | 'medium' | 'high';
+        readonly harborVersion: string;
+        readonly authenticationRoute: string;
+      };
+    }) => readonly string[];
+  };
+  assert.equal(typeof module.validateFeedbackPreflightBinding, 'function');
+  if (module.validateFeedbackPreflightBinding === undefined) return;
+  const base = {
+    currentSourceCommit: 'a'.repeat(40),
+    actualHarborVersion: 'harbor 0.24.0',
+    expectedAuthenticationRoute: codexAuthenticationRoute,
+    jobModel: 'gpt-5.6-luna',
+    jobReasoningEffort: 'high' as const,
+    experiment: {
+      sourceCommit: 'a'.repeat(40),
+      model: 'gpt-5.6-luna',
+      reasoningEffort: 'high' as const,
+      harborVersion: 'harbor 0.24.0',
+      authenticationRoute: codexAuthenticationRoute,
+    },
+  };
+  assert.deepEqual(module.validateFeedbackPreflightBinding(base), []);
+  assert.deepEqual(module.validateFeedbackPreflightBinding({
+    ...base,
+    experiment: { ...base.experiment, sourceCommit: 'b'.repeat(40) },
+  }), ['sourceCommit']);
+  assert.deepEqual(module.validateFeedbackPreflightBinding({
+    ...base,
+    experiment: { ...base.experiment, model: 'different-model' },
+  }), ['model']);
+  assert.deepEqual(module.validateFeedbackPreflightBinding({
+    ...base,
+    experiment: { ...base.experiment, reasoningEffort: 'medium' },
+  }), ['reasoningEffort']);
+  assert.deepEqual(module.validateFeedbackPreflightBinding({
+    ...base,
+    experiment: { ...base.experiment, harborVersion: 'harbor 0.23.0' },
+  }), ['harborVersion']);
+  assert.deepEqual(module.validateFeedbackPreflightBinding({
+    ...base,
+    experiment: { ...base.experiment, authenticationRoute: 'different-route' },
+  }), ['authenticationRoute']);
+});
+
+test('explicit image digest cannot contradict experiment task-image provenance', () => {
+  const module = feedbackPreflight as unknown as {
+    readonly validateFeedbackImageOverride?: (
+      requested: string | undefined,
+      experimentImageDigest: string | undefined,
+      taskImages: readonly { readonly reference: string; readonly digest: string }[],
+    ) => readonly string[];
+  };
+  assert.equal(typeof module.validateFeedbackImageOverride, 'function');
+  if (module.validateFeedbackImageOverride === undefined) return;
+  const digestA = `sha256:${'a'.repeat(64)}`;
+  const digestB = `sha256:${'b'.repeat(64)}`;
+  assert.deepEqual(module.validateFeedbackImageOverride(undefined, digestA, [{ reference: 'task:1', digest: digestA }]), []);
+  assert.deepEqual(module.validateFeedbackImageOverride(digestA, digestA, [{ reference: 'task:1', digest: digestA }]), []);
+  assert.deepEqual(module.validateFeedbackImageOverride(digestB, digestA, [{ reference: 'task:1', digest: digestA }]), ['imageDigest']);
+  assert.deepEqual(module.validateFeedbackImageOverride(digestA, undefined, [
+    { reference: 'task:1', digest: digestA },
+    { reference: 'task:2', digest: digestB },
+  ]), ['imageDigest']);
 });
