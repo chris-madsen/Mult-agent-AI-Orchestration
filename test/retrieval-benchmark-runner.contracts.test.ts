@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const runner = await readFile('scripts/retrieval-benchmark-runner.ts', 'utf8');
+const rankProbe = await readFile('scripts/qdrant-hybrid-rank-probe.ts', 'utf8');
 
 test('generic retrieval runner uses the official MCP client and all five frozen strategies', () => {
   assert.match(runner, /@modelcontextprotocol\/client/u);
@@ -17,6 +18,9 @@ test('generic retrieval runner uses the official MCP client and all five frozen 
   assert.match(runner, /name: 'ace_context'/u);
   assert.match(runner, /validateRetrievalBenchmarkTraceArtifact/u);
   assert.match(runner, /ACE_BENCHMARK_TRACE_FILE/u);
+  assert.match(runner, /expansionCalls: null/u);
+  assert.match(runner, /nativeReadDuplicates: null/u);
+  assert.doesNotMatch(runner, /events\\.length === 0 \\? 0 : 0/u);
 });
 
 test('generic runner requires immutable repository revisions and keeps evidence external', () => {
@@ -32,4 +36,11 @@ test('generic frozen runner requires the provenance-bound compiled MCP and forbi
   assert.match(runner, /dist\/bin\/ace-mcp\.js/u);
   assert.doesNotMatch(runner, /ACE_ALLOW_SOURCE_RUNTIME/u);
   assert.doesNotMatch(runner, /args:\s*\['--import', 'tsx'/u);
+});
+
+test('Qdrant rank probe leaves delivery instrumentation unknown', () => {
+  assert.match(rankProbe, /expansionCalls: null/u);
+  assert.match(rankProbe, /nativeReadDuplicates: null/u);
+  assert.doesNotMatch(rankProbe, /expansionCalls: 0/u);
+  assert.doesNotMatch(rankProbe, /nativeReadDuplicates: 0/u);
 });

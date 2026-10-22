@@ -187,8 +187,10 @@ try {
         rawRetrievedCandidateIds: rawCandidateIds,
         payloadCharacters,
         duplicateSourceHits,
-        expansionCalls: 0,
-        nativeReadDuplicates: 0,
+        // This rank probe stops at Qdrant and does not exercise ACE source
+        // delivery or expansion. Never report absent instrumentation as zero.
+        expansionCalls: null,
+        nativeReadDuplicates: null,
         latencyMs: denseEmbeddingLatencyMs + appliedSparseEmbeddingLatencyMs + queryLatencyMs,
         stageRanks,
         stageLatencyMs: {

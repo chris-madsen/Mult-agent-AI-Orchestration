@@ -155,6 +155,39 @@ test('predeclared retrieval policy accepts only the selected strategy on the exa
   }
 });
 
+test('unmeasured delivery instrumentation is unknown and cannot pass its release limits', () => {
+  const unknownRun: RetrievalStrategyRun = {
+    ...run,
+    observations: run.observations.map((observation) => ({
+      ...observation,
+      expansionCalls: null,
+      nativeReadDuplicates: null,
+    })),
+  };
+  const metrics = evaluateRetrievalStrategy(holdout, unknownRun);
+  assert.equal(metrics._tag, 'Ok');
+  if (metrics._tag === 'Err') throw new Error(metrics.error.message);
+  assert.equal(metrics.value.expansionCallsMean, null);
+  assert.equal(metrics.value.nativeReadDuplicatesMean, null);
+
+  const verdict = evaluateRetrievalQualityPolicy(metrics.value, holdoutSha, policy);
+  assert.equal(verdict._tag, 'Ok');
+  if (verdict._tag === 'Err') throw new Error(verdict.error.message);
+  assert.equal(verdict.value.measurementAccepted, false);
+  assert.ok(verdict.value.failures.includes('expansion_calls_unknown'));
+  assert.ok(verdict.value.failures.includes('native_read_duplicates_unknown'));
+});
+
+test('missing required instrumentation fields fail closed instead of becoming unknown by omission', () => {
+  const malformed = { ...run.observations[0] } as Record<string, unknown>;
+  delete malformed.expansionCalls;
+  const result = evaluateRetrievalStrategy(holdout, {
+    ...run,
+    observations: [malformed as never, ...run.observations.slice(1)],
+  });
+  assert.equal(result._tag, 'Err');
+});
+
 test('non-inferiority gate compares critical recall, MRR and nDCG to dense-only baseline', () => {
   const candidateMetrics = evaluateRetrievalStrategy(holdout, run);
   const baselineMetrics = evaluateRetrievalStrategy(holdout, { ...run, strategy: 'dense' });
