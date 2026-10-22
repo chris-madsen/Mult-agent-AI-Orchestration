@@ -5,6 +5,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python_command="${ACE_EMBEDDING_PYTHON:-${root}/.venv-embedding-fast/bin/python}"
 model="${ACE_EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}"
 export FASTEMBED_CACHE_PATH="${FASTEMBED_CACHE_PATH:-${root}/.cache/ace-fastembed}"
+export PYTHONDONTWRITEBYTECODE="${PYTHONDONTWRITEBYTECODE:-1}"
 
 if [[ -z "${ACE_EMBEDDING_LD_LIBRARY_PATH:-}" ]]; then
   library_dirs=()

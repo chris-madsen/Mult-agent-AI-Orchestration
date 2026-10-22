@@ -228,12 +228,14 @@ const main = async (): Promise<void> => {
   const harborJobs = await harborJobIdentity(args.nativeJobPath, args.aceJobPath);
   const embeddingEnvironment = {
     ACE_EMBEDDING_PYTHON: args.embeddingPython,
+    PYTHONDONTWRITEBYTECODE: '1',
     ...(args.embeddingLibraryPath === undefined ? {} : { ACE_EMBEDDING_LD_LIBRARY_PATH: args.embeddingLibraryPath }),
     ...(process.env.LD_PRELOAD?.trim() === undefined ? {} : { LD_PRELOAD: process.env.LD_PRELOAD.trim() }),
     ...(process.env.ACE_EMBEDDING_LD_PRELOAD?.trim() === undefined ? {} : { LD_PRELOAD: process.env.ACE_EMBEDDING_LD_PRELOAD.trim() }),
   };
   const sparseEmbeddingEnvironment = {
     ACE_SPARSE_EMBEDDING_PYTHON: process.env.ACE_SPARSE_EMBEDDING_PYTHON?.trim() || args.embeddingPython,
+    PYTHONDONTWRITEBYTECODE: '1',
     ...(args.embeddingLibraryPath === undefined ? {} : { ACE_SPARSE_EMBEDDING_LD_LIBRARY_PATH: args.embeddingLibraryPath }),
     ...(process.env.ACE_SPARSE_EMBEDDING_LD_PRELOAD?.trim() === undefined ? {} : { LD_PRELOAD: process.env.ACE_SPARSE_EMBEDDING_LD_PRELOAD.trim() }),
   };
