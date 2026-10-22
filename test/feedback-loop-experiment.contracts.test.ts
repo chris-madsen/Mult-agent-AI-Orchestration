@@ -176,6 +176,24 @@ test('quality regression never presents token savings even in the per-task row',
   assert.equal(result.value.tokenRatio, null);
 });
 
+
+test('failed paired tasks cannot be counted as savings per accepted task', () => {
+  const bothFailed = reconcile(observation('native', { quality: 'fail' }), observation('ace_optional', { quality: 'fail' }));
+  assert.equal(bothFailed._tag, 'Ok');
+  if (bothFailed._tag === 'Ok') {
+    assert.equal(bothFailed.value.status, 'UNKNOWN');
+    assert.equal(bothFailed.value.tokenRatio, null);
+    assert.equal(bothFailed.value.rows[0]?.tokenRatio, null);
+  }
+  const improved = reconcile(observation('native', { quality: 'fail' }));
+  assert.equal(improved._tag, 'Ok');
+  if (improved._tag === 'Ok') {
+    assert.equal(improved.value.status, 'UNKNOWN');
+    assert.equal(improved.value.tokenRatio, null);
+    assert.equal(improved.value.rows[0]?.qualityDelta, 'no_regression');
+  }
+});
+
 test('main task manifest requires ten frozen tasks and ten untouched holdout tasks', () => {
   const result = validateFeedbackTaskManifest({
     ...manifest,
