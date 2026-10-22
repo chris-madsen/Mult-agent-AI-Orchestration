@@ -143,6 +143,7 @@ const safeInheritedEnvironment = (): NodeJS.ProcessEnv => {
 const allowedWorkerEnvironment = new Set([
   'ACE_SPARSE_EMBEDDING_MODEL',
   'ACE_SPARSE_EMBEDDING_PYTHON',
+  'ACE_SPARSE_EMBEDDING_LD_LIBRARY_PATH',
   'ACE_SPARSE_EMBEDDING_LD_PRELOAD',
   'ACE_SPARSE_EMBEDDING_THREADS',
   'FASTEMBED_CACHE_PATH',

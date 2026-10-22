@@ -115,7 +115,7 @@ const model = process.argv[3];
 console.log(JSON.stringify({ type: 'ready', identity: {
   provider: 'fake-sparse', model, preprocessing: 'fixture',
   artifactDigest: 'a'.repeat(64), runtimeBuild: 'fixture#1',
-  runtimeVersion: process.env.LD_PRELOAD || 'missing',
+  runtimeVersion: [process.env.LD_LIBRARY_PATH || 'missing', process.env.LD_PRELOAD || 'missing'].join('|'),
 } }));
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const request = JSON.parse(line);
@@ -123,6 +123,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
 });
 `, 'utf8');
   await chmod(fakePython, 0o755);
+  const libraryPath = '/tmp/ace-sparse-library-path';
   const preload = '/lib/x86_64-linux-gnu/libstdc++.so.6';
   const port = makeProcessSparseEmbeddingPort({
     command: sparseShell,
@@ -131,13 +132,14 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     env: {
       ACE_SPARSE_EMBEDDING_PYTHON: fakePython,
       ACE_SPARSE_EMBEDDING_MODEL: 'Qdrant/bm25',
+      ACE_SPARSE_EMBEDDING_LD_LIBRARY_PATH: libraryPath,
       ACE_SPARSE_EMBEDDING_LD_PRELOAD: preload,
     },
   });
   try {
     const observed = await Effect.runPromise(port.probe());
     assert.equal(observed._tag, 'Ok');
-    assert.equal(port.identity()?.runtimeVersion, preload);
+    assert.equal(port.identity()?.runtimeVersion, `${libraryPath}|${preload}`);
   } finally {
     port.close();
     await rm(root, { recursive: true, force: true });
