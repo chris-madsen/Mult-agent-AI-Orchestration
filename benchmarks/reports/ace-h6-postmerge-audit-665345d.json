@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "reportId": "ace-h6-postmerge-audit-665345d",
+  "baselineSourceCommit": "665345df0ecea707179e8fcd2905aed8495681d3",
+  "baselineParentCommit": "4161c96c77705ecbc7d9145c5e1238d1adcbc9fc",
+  "status": "partial",
+  "runtime": {
+    "node": "v24.15.0",
+    "typescript": "5.9.3",
+    "tsx": "4.23.15",
+    "eslint": "8.57.1",
+    "sourceManifestSha256": "c958ccfcc60e1e4aadefb782c3c5ce2610a4b2299db880e510e249a2258a8890",
+    "executableSha256": "dd8696e2dc73b2d7661f8755a707ea52eae12e030f635bb8645ef3e5ef9f00ab",
+    "sourceClean": true,
+    "dirtyRelevantPaths": [],
+    "runtimeRoot": "/tmp/ace-h6-postmerge-implementation",
+    "acePackage": "ace-harness@0.1.0",
+    "mcpClientSdk": "2.3.1",
+    "mcpServerSdk": "2.3.1",
+    "observationScope": "local isolated clean worktree; not a GitHub Actions source-clean observation"
+  },
+  "deterministicVerification": {
+    "affectedSelector": {
+      "command": "node scripts/run-affected-tests.mjs",
+      "status": "PASS",
+      "note": "No dependent tests were selected because the baseline worktree had no source diff"
+    },
+    "affectedSelectorSelfTest": {
+      "command": "node scripts/run-affected-tests.mjs --self-test",
+      "status": "PASS"
+    },
+    "serialFullSuite": {
+      "command": "./node_modules/.bin/tsx --test --test-concurrency=1 test/*.test.ts",
+      "tests": 428,
+      "passed": 428,
+      "failed": 0,
+      "status": "PASS"
+    },
+    "typecheck": {
+      "command": "./node_modules/.bin/tsc -p tsconfig.json --noEmit",
+      "status": "PASS"
+    },
+    "lint": {
+      "command": "./node_modules/.bin/eslint src test --ext .ts --max-warnings=0",
+      "status": "PASS"
+    },
+    "build": {
+      "command": "./node_modules/.bin/tsc -p tsconfig.json && node scripts/generate-runtime-provenance.mjs",
+      "status": "PASS"
+    },
+    "npmGates": {
+      "status": "NOT_RUN",
+      "reason": "npm executable is unavailable; equivalent direct locked binaries passed"
+    },
+    "githubBaseline": {
+      "workflow": "ACE typecheck and contracts",
+      "runUrl": "https://github.com/chris-madsen/Mult-agent-AI-Orchestration/actions/runs/39756480862",
+      "exactCommit": "665345df0ecea707179e8fcd2905aed8495681d3",
+      "status": "PASS_WITH_PROVENANCE_BLOCKER",
+      "tests": 428,
+      "passed": 428,
+      "failed": 0,
+      "literalNpmVerifyPr": "PASS",
+      "generatedRuntimeProvenance": {
+        "sourceClean": false,
+        "sourceManifestSha256": "b6f270bda62f9c04fd96a166267f5f726c308ed3b2cf70b99a0f6736de479b51",
+        "executableSha256": "dd8696e2dc73b2d7661f8755a707ea52eae12e030f635bb8645ef3e5ef9f00ab",
+        "dirtyRelevantPaths": [
+          "scripts/__pycache__/embedding-provider-comparison.cpython-312.pyc",
+          "scripts/__pycache__/embedding_artifact_verifier.cpython-312.pyc",
+          "scripts/__pycache__/test_embedding_artifact_verifier.cpython-312.pyc",
+          "scripts/__pycache__/test_embedding_provider_comparison_metrics.cpython-312.pyc"
+        ]
+      },
+      "note": "Workflow success is not proof of a clean provenance manifest: prior Python unittest produced untracked bytecode files in runtime-relevant scripts/. Local and CI manifest SHA-256 values are different and must not be presented as the same observation."
+    }
+  },
+  "openSpec": {
+    "cli": "@fission-ai/openspec@1.14.0",
+    "rootCount": 1,
+    "activeChanges": 7,
+    "status007": "4/4 planning artifacts complete; implementation tasks remain open where evidence is absent",
+    "validateAllStrict": "PASS: 7 passed, 0 failed",
+    "doctor": "PASS: root healthy",
+    "apply": "NOT_RUN",
+    "sync": "NOT_RUN",
+    "archive": "NOT_RUN"
+  },
+  "providerPreflight": {
+    "codex": "available: codex-cli 0.148.0-alpha.9; authenticated",
+    "docker": "available: 24.0.6",
+    "harbor": "available: 0.24.0",
+    "k3s": "available: v1.35.5+k3s1",
+    "qdrant": "BLOCKED: local endpoint 127.0.0.1:6333 refused connection",
+    "graphitiFalkorDb": "BLOCKED: graphiti_core, falkordb and neo4j Python modules unavailable",
+    "externalV3Holdout": "BLOCKED: historical external ACE/Chess checkout is not mounted",
+    "harborTaskRuntimeBundle": "BLOCKED: frozen external task/runtime bundle is not mounted"
+  },
+  "acceptance": {
+    "h6Cr01": "IMPLEMENTED/CONTRACT_PASS; CLEAN_LOCAL_ONLY: the fail-closed provenance contract passes, but main@665345d GitHub Actions generated sourceClean=false due to Python __pycache__ in scripts/. This CI runtime identity cannot authorize frozen scoring.",
+    "h6Cr02": "VERIFIED: unknown-safe reranker metering and deterministic tests on main@665345d",
+    "h6Cr03": "PARTIAL: byte binding and raw trial reconciler implemented; exact external per-trial Harbor evidence unavailable",
+    "h6Cr04": "VERIFIED: unmeasured native-read metric remains unknown and fails release limits",
+    "h6Cr05": "VERIFIED: UTF-8 range contract and Unicode fixtures",
+    "frozenV3FiveStrategyAblation": "BLOCKED",
+    "naturalUseHarbor": "BLOCKED",
+    "productionReadiness": "NOT_APPROVED",
+    "fiveXClaim": "UNPROVEN",
+    "providerWinner": "UNPROVEN",
+    "ownerApproval": "NOT_RUN"
+  },
+  "limitations": [
+    "npm run test:affected and npm run verify:pr could not run because npm is unavailable",
+    "Direct deterministic equivalents were run with the locked dependency tree from the preserved checkout",
+    "No external v3 benchmark or natural-use Harbor trial was fabricated from local contract fixtures",
+    "At exact baseline main@665345d, GitHub Actions run 39756480862 passed 428 tests but emitted sourceClean=false and a different sourceManifestSha256 due to generated scripts/__pycache__/*.pyc; CI provenance is blocked despite green workflow."
+  ]
+}
