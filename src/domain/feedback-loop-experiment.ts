@@ -400,6 +400,9 @@ const validateObservation = (observation: FeedbackTrialObservation, path: string
     && observation.hermesContextEvidence.length !== contextTransformIds.length) {
     return invalid(`${path}.hermesContextEvidence`, 'Hermes evidence count must match transformation request IDs');
   }
+  if (observation.observedAceCalls < observedContextCalls + contextTransformIds.length) {
+    return invalid(`${path}.observedAceCalls`, 'total ACE calls must include MCP context calls and Hermes ContextEngine transformations');
+  }
   if (observation.hermesContextEvidence?.some((item) => item.requestId.trim().length === 0)) {
     return invalid(`${path}.hermesContextEvidence`, 'Hermes evidence request IDs must be non-empty');
   }
@@ -449,7 +452,9 @@ const correlationFor = (observation: FeedbackTrialObservation): 'correlated' | '
   if (transformIds.length > 0) {
     const receipts = observation.hermesContextEvidence ?? [];
     if (receipts.length !== transformIds.length || receipts.some((item) => item.status !== 'ready')) return 'UNKNOWN';
-    return transformIds.every((requestId) => providerIds.has(requestId)) ? 'correlated' : 'UNKNOWN';
+    return receipts.every((item) => typeof item.providerRequestId === 'string'
+      && transformIds.includes(item.requestId) && providerIds.has(item.providerRequestId))
+      ? 'correlated' : 'UNKNOWN';
   }
   if (observation.observedAceCalls === 0) return 'ACE_NOT_USED';
   const observedContextCalls = observation.observedAceContextCalls ?? observation.observedAceCalls;
@@ -579,11 +584,16 @@ export const reconcileFeedbackTrials = (input: {
     tokenRatio,
     nativeCostUsd: sumOptional(input.native.map((item) => item.usage.costUsd)),
     aceCostUsd: sumOptional(input.ace.map((item) => item.usage.costUsd)),
-    aceObservedCalls: input.ace.reduce((sum, item) => sum + item.observedAceCalls + (item.contextTransformRequestIds?.length ?? 0), 0),
+    aceObservedCalls: input.ace.reduce((sum, item) => sum + item.observedAceCalls, 0),
     aceCorrelatedCalls: input.ace.reduce((sum, trial) => {
       const providerIds = new Set(trial.providerTraceRequestIds);
       const mcpCorrelated = trial.observedAceRequestIds.filter((id) => providerIds.has(id)).length;
-      const transformCorrelated = (trial.contextTransformRequestIds ?? []).filter((id) => providerIds.has(id)).length;
+      const transformIds = new Set(trial.contextTransformRequestIds ?? []);
+      const transformCorrelated = (trial.hermesContextEvidence ?? []).filter((item) =>
+        item.status === 'ready'
+        && transformIds.has(item.requestId)
+        && typeof item.providerRequestId === 'string'
+        && providerIds.has(item.providerRequestId)).length;
       return sum + mcpCorrelated + transformCorrelated;
     }, 0),
     aceNotUsed,

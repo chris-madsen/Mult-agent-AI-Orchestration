@@ -202,6 +202,7 @@ test('Hermes ContextEngine transformation correlates without an MCP tool call', 
       turnId: 'turn-1',
       status: 'ready',
       receiptId: 'receipt-1',
+      providerRequestId: 'retrieval-1',
       selectedEvidenceIds: ['evidence-1'],
       omittedEvidenceIds: [],
       bridgeDigest: digest('a'),
@@ -209,13 +210,15 @@ test('Hermes ContextEngine transformation correlates without an MCP tool call', 
       estimatedTokens: 20,
       limitations: [],
     }],
-    providerTraceRequestIds: ['transform-1'],
+    providerTraceRequestIds: ['retrieval-1'],
   }));
   assert.equal(result._tag, 'Ok');
   if (result._tag === 'Err') return;
   assert.equal(result.value.status, 'PASS');
   assert.equal(result.value.rows[0]?.aceCorrelation, 'correlated');
   assert.equal(result.value.rows[0]?.aceCalled, true);
+  assert.equal(result.value.aceObservedCalls, 1);
+  assert.equal(result.value.aceCorrelatedCalls, 1);
 });
 test('quality regression never presents token savings even in the per-task row', () => {
   const result = reconcile(undefined, observation('ace_optional', {
@@ -463,6 +466,8 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
   assert.equal(prepared.agent, 'hermes');
   assert.equal(prepared.agentVersion, feedbackHermesVersion);
   assert.equal(prepared.aceContextBridge, feedbackAceContextBridgeCommand);
+  assert.equal(prepared.aceContextBridgeSha256, sha(Buffer.from('console.log("mock executable");\n')));
+  assert.equal(prepared.aceRuntimeSha256, prepared.aceContextBridgeSha256);
   assert.equal(prepared.contextPlugin, feedbackHermesContextPluginPath);
   assert.equal(prepared.verifiedSourceDigest, sourceDigest);
   await writeFile(join(source, 'tasks', 'task-1', 'test.txt'), 'tampered task\n');
@@ -520,7 +525,14 @@ test('RepoBench Parquet converter rejects an unpinned digest before importing a 
 const hermesAgent = (withAce: boolean, overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
   import_path: feedbackHermesAgentImportPath,
   model_name: 'openai-codex/gpt-5.6-luna',
-  kwargs: { version: feedbackHermesVersion, reasoning_effort: 'high', ace_context_enabled: withAce },
+  kwargs: {
+    version: feedbackHermesVersion,
+    reasoning_effort: 'high',
+    ace_context_enabled: withAce,
+    ...(withAce
+      ? { ace_context_bridge_sha256: digest('a'), context_plugin_sha256: digest('b') }
+      : {}),
+  },
   ...overrides,
 });
 

@@ -89,9 +89,10 @@
     "test:real-graphiti-crash": "npm run build && node scripts/graphiti-crash-recovery-e2e.mjs",
     "compare:semantic-serena": "node scripts/serena-semantic-comparison.mjs",
     "test:fast": "npm test",
+    "test:hermes-context-plugin": "python3 integrations/hermes/ace_context_engine/test_engine.py",
     "test:affected": "node scripts/run-affected-tests.mjs",
     "test:impact:self": "node scripts/run-affected-tests.mjs --self-test",
-    "verify:pr": "npm run check && npm run test:fast && npm run lint && npm run build",
+    "verify:pr": "npm run check && npm run test:fast && npm run test:hermes-context-plugin && npm run lint && npm run build",
     "verify:pr:affected": "npm run check && npm run test:affected && npm run lint && npm run build"
   },
   "dependencies": {

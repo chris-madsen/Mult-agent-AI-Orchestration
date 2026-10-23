@@ -40,6 +40,7 @@ Bridge принимает версию запроса, session/turn/request iden
 - Tool-call/result пары, provider-specific reasoning carriers и другие обязательные логические message groups не разрываются.
 - Текущие проверенные source bytes имеют приоритет над stale index, memory и docs.
 - Timeout, malformed response, provider outage, missing receipt или identity mismatch дают `UNKNOWN`/`BLOCKED`; они не превращаются в `ACE_NOT_USED` или measured zero.
+- Hermes v0.22.3 сам fail-open для обычных исключений из `select_context()`: host ловит `Exception` и отправляет исходный request. Поэтому strict ACE feedback runtime намеренно завершает Hermes process через `SystemExit` при blocked transform, чтобы provider request не ушёл без обязательного ACE context. Это version-specific seam и должно заново проверяться при каждом обновлении Hermes.
 - Native и Hermes+ACE arms используют одинаковые model/provider/reasoning/task/image/source/runtime identities. Намеренная разница — только request-time ACE transformation.
 - ACE context receipts не содержат raw source payloads, auth state или credentials.
 - Context economy считается только вместе с task quality и verified transformation evidence.

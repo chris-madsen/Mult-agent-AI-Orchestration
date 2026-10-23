@@ -7,9 +7,12 @@ export interface HermesContextEvidence {
   readonly schemaVersion: 1;
   readonly requestId: string;
   readonly sessionId: string;
-  readonly turnId: string;
+  /** Optional because Hermes select_context does not expose a canonical turn ID. */
+  readonly turnId?: string;
   readonly status: HermesContextTransformStatus;
   readonly receiptId: string;
+  /** Provider trace correlation ID, distinct from requestId on the local bridge. */
+  readonly providerRequestId?: string;
   readonly selectedEvidenceIds: readonly string[];
   readonly omittedEvidenceIds: readonly string[];
   readonly bridgeDigest: string;
@@ -37,7 +40,7 @@ export const validateHermesContextEvidence = (value: unknown): Result<HermesCont
   if (input.schemaVersion !== 1
     || !nonEmpty(input.requestId)
     || !nonEmpty(input.sessionId)
-    || !nonEmpty(input.turnId)
+    || (input.turnId !== undefined && !nonEmpty(input.turnId))
     || !['ready', 'partial', 'not_ready', 'blocked'].includes(String(input.status))
     || !nonEmpty(input.receiptId)
     || !uniqueStrings(input.selectedEvidenceIds)
@@ -47,6 +50,12 @@ export const validateHermesContextEvidence = (value: unknown): Result<HermesCont
     || !Array.isArray(input.limitations)
     || !input.limitations.every(nonEmpty)) {
     return invalid('hermes_context_evidence', 'identity, status, digests, IDs or limitations are malformed');
+  }
+  if (input.providerRequestId !== undefined && !nonEmpty(input.providerRequestId)) {
+    return invalid('hermes_context_evidence.providerRequestId', 'provider request ID must be non-empty');
+  }
+  if (input.status === 'ready' && !nonEmpty(input.providerRequestId)) {
+    return invalid('hermes_context_evidence.providerRequestId', 'ready transformations require a real provider trace ID');
   }
   const selected = new Set(input.selectedEvidenceIds as readonly string[]);
   if ((input.omittedEvidenceIds as readonly string[]).some((id) => selected.has(id))) {

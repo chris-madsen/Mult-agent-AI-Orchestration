@@ -18,6 +18,7 @@ const valid = (): HermesContextEvidence => ({
   turnId: 'turn-1',
   status: 'ready',
   receiptId: 'receipt-1',
+  providerRequestId: 'retrieval-1',
   selectedEvidenceIds: ['evidence-1'],
   omittedEvidenceIds: [],
   bridgeDigest: digest('a'),
@@ -68,4 +69,11 @@ test('JSONL parser validates each Hermes transformation receipt', async () => {
   const result = await readHermesContextEvidenceJsonl(path);
   assert.equal(result.length, 1);
   assert.equal(result[0]?.receiptId, 'receipt-1');
+});
+
+
+test('ready transformation cannot claim provider correlation without providerRequestId', () => {
+  const receipt = valid();
+  const withoutTrace = { ...receipt, providerRequestId: undefined };
+  assert.equal(validateHermesContextEvidence(withoutTrace)._tag, 'Err');
 });

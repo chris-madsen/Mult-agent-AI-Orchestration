@@ -41,6 +41,10 @@ const validateContextEngine = (kwargs: JsonObject, path: string): Result<boolean
   const enabled = kwargs.ace_context_enabled;
   if (enabled === undefined) return ok(false);
   if (typeof enabled !== 'boolean') return invalid(`${path}.ace_context_enabled`, 'ace_context_enabled must be boolean');
+  if (enabled && (!/^[a-f0-9]{64}$/u.test(String(kwargs.ace_context_bridge_sha256))
+    || !/^[a-f0-9]{64}$/u.test(String(kwargs.context_plugin_sha256)))) {
+    return invalid(path, 'ACE bridge and ContextEngine plugin must have pinned SHA-256 identities');
+  }
   return ok(enabled);
 };
 

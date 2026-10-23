@@ -83,6 +83,9 @@ test('feedback jobs use Hermes openai-codex OAuth and native ContextEngine regis
   assert.match(adapter, /--provider openai-codex/u);
   assert.match(adapter, /context.*ace_context_engine/u);
   assert.match(adapter, /ACE_CONTEXT_BRIDGE_COMMAND/u);
+  assert.match(adapter, /status=\$\?/u);
+  assert.match(adapter, /exit "\$status"/u);
+  assert.doesNotMatch(adapter, /hermes.*\|.*tee/u);
   assert.match(adapter, /HERMES_HOME/u);
   assert.match(adapter, /download_file\("\/tmp\/hermes\/auth\.json"/u);
   assert.doesNotMatch(adapter, /Path\.home\(\)\s*\/\s*["']\.codex["']|HERMES_CODEX_AUTH_JSON_PATH|\$HOME\/\.codex/u);
@@ -200,5 +203,6 @@ test('exact-current preflight requires a clean checkout, compiled runtime proven
   assert.match(preflight, /verifyCompiledRuntimeProvenance/u);
   assert.match(preflight, /agentAdapterSha256/u);
   assert.match(preflight, /aceContextBridgeSha256/u);
+  assert.match(preflight, /dist\/bin\/ace-context-bridge\.js/u);
   assert.match(preflight, /contextPluginSha256/u);
 });
