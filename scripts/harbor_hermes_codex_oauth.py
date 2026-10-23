@@ -191,7 +191,13 @@ class HermesCodexOAuth(Hermes):
         cli_parts.extend(['-q "$HARBOR_INSTRUCTION"', "-Q", f"--model {shlex.quote(model)}", "--provider openai-codex"])
         if self.options.toolsets:
             cli_parts.append(f"--toolsets {shlex.quote(str(self.options.toolsets))}")
-        run_cmd = f"{cli_parts[0]} && {' '.join(cli_parts[1:])} 2>&1 | stdbuf -oL tee /logs/agent/hermes.txt"
+        # Do not pipe Hermes directly into tee: without a guaranteed pipefail
+        # shell, tee can turn a blocked/non-zero Hermes exit into apparent success.
+        # Capture the agent status first, replay the log, then return that exact code.
+        run_cmd = (
+            f"{cli_parts[0]} && {' '.join(cli_parts[1:])} > /logs/agent/hermes.txt 2>&1; "
+            'status=$?; cat /logs/agent/hermes.txt; exit "$status"'
+        )
 
         try:
             await self.exec_as_agent(environment, command=run_cmd, env=env)
