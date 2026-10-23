@@ -25,6 +25,7 @@ export * from './adapters/evaluation-fingerprint.js';
 export * from './adapters/codex-usage-events.js';
 export * from './adapters/file-memory-archive.js';
 export * from './adapters/file-decision-history.js';
+export * from './application/context-transform-service.js';
 export * from './application/memory-reconcile.js';
 export * from './adapters/local-code-index.js';
 export * from './adapters/evaluation-report-artifacts.js';
