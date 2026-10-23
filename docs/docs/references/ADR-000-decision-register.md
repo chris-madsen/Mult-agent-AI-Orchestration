@@ -70,6 +70,6 @@
 ## Owner clarification — 2026-10-23: Hermes primary feedback agent
 
 - **ADR-015 Accepted.** Для текущих парных Harbor-прогонов primary agent — Hermes, а не Codex.
-- Модель/подписка не меняются автоматически вместе с harness: GPT подключается через Hermes provider `openai-codex` с импортом существующего `~/.codex/auth.json`; отдельный OpenAI/OpenRouter API key не является требованием этого маршрута.
+- Модель/подписка не меняются автоматически вместе с harness: GPT подключается через Hermes provider `openai-codex` с Hermes-owned OAuth store `~/.hermes/auth.json` (либо явно заданным `HERMES_HOME` / `HERMES_AUTH_JSON_PATH`); `~/.codex/auth.json` не переиспользуется, отдельный OpenAI/OpenRouter API key не является требованием этого маршрута.
 - ACE остаётся agent-neutral MCP-сервисом. В ACE-optional arm Hermes получает `ace_context`/`ace_expand` через native MCP registration; baseline arm не получает ACE.
 - Исторические Codex benchmark artifacts остаются историческими Codex artifacts и не используются как доказательство Hermes E2E.

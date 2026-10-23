@@ -48,7 +48,7 @@ remain open and are documented in `docs/docs/spikes/SPIKE-HARBOR.md`.
 Historical completed Codex tasks above remain historical evidence and are not relabeled.
 
 - [x] Replace current feedback-loop job identity with pinned Hermes `v0.22.3` and `openai-codex/<model>`.
-- [x] Add a narrow Harbor 0.24.0 Hermes adapter that imports existing ChatGPT/Codex OAuth from host `~/.codex/auth.json` without requiring OpenAI/OpenRouter API keys.
+- [x] Add a narrow Harbor 0.24.0 Hermes adapter that stages Hermes-owned ChatGPT/Codex OAuth from host `~/.hermes/auth.json` (or explicit Hermes auth path), never borrows `~/.codex/auth.json`, and synchronizes refreshed state back after each serial trial without requiring OpenAI/OpenRouter API keys.
 - [x] Expose ACE only on the optional arm through Hermes native stdio MCP; move the container-specific ACE environment into the pinned MCP wrapper.
 - [x] Update collector compatibility so Hermes `hermes-session.jsonl` MCP calls can be correlated while legacy Codex evidence remains readable.
 - [x] Pin adapter and MCP entrypoint digests in experiment/preflight provenance.
