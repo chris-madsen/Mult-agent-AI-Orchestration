@@ -202,6 +202,7 @@ test('Hermes ContextEngine transformation correlates without an MCP tool call', 
       turnId: 'turn-1',
       status: 'ready',
       receiptId: 'receipt-1',
+      providerRequestId: 'retrieval-1',
       selectedEvidenceIds: ['evidence-1'],
       omittedEvidenceIds: [],
       bridgeDigest: digest('a'),
@@ -209,7 +210,7 @@ test('Hermes ContextEngine transformation correlates without an MCP tool call', 
       estimatedTokens: 20,
       limitations: [],
     }],
-    providerTraceRequestIds: ['transform-1'],
+    providerTraceRequestIds: ['retrieval-1'],
   }));
   assert.equal(result._tag, 'Ok');
   if (result._tag === 'Err') return;

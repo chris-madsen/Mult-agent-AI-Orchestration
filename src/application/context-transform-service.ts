@@ -39,6 +39,8 @@ export interface AceTransformResult {
   readonly sourceManifestSha256?: string;
   readonly providerIdentities: Readonly<Record<string, string>>;
   readonly receiptId: string;
+  /** Original provider trace request identity, distinct from the caller's transform request ID. */
+  readonly providerRequestId: string;
   readonly limitations: readonly string[];
 }
 
@@ -194,6 +196,7 @@ export const makeContextTransformService = (ports: ContextTransformPorts): Conte
         : { sourceManifestSha256: projected.indexCoverage.sourceSnapshotDigest }),
       providerIdentities: ports.providerIdentities ?? {},
       receiptId,
+      providerRequestId: String(searched.value.requestId),
       limitations,
     });
   }),

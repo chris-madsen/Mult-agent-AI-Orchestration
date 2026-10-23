@@ -449,7 +449,9 @@ const correlationFor = (observation: FeedbackTrialObservation): 'correlated' | '
   if (transformIds.length > 0) {
     const receipts = observation.hermesContextEvidence ?? [];
     if (receipts.length !== transformIds.length || receipts.some((item) => item.status !== 'ready')) return 'UNKNOWN';
-    return transformIds.every((requestId) => providerIds.has(requestId)) ? 'correlated' : 'UNKNOWN';
+    return receipts.every((item) => typeof item.providerRequestId === 'string'
+      && transformIds.includes(item.requestId) && providerIds.has(item.providerRequestId))
+      ? 'correlated' : 'UNKNOWN';
   }
   if (observation.observedAceCalls === 0) return 'ACE_NOT_USED';
   const observedContextCalls = observation.observedAceContextCalls ?? observation.observedAceCalls;
