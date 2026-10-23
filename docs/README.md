@@ -4,7 +4,7 @@
 
 ## Runtime status
 
-The statement that this repository contains only a blueprint is obsolete. The current implementation includes the official MCP runtime, exact workspace/artifact reads, Qdrant retrieval, embedding-worker and ast-grep provider identity checks, generic LSP confirmation through the configured language server (TypeScript by default), temporal-memory archive/Graphiti integration, deterministic source routing, Vertex/Harbor acceptance tooling, request-time workspace reconciliation, snapshot/retry recovery, and evidence-backed release gates.
+The statement that this repository contains only a blueprint is obsolete. The current implementation includes the official MCP runtime for explicit tools/expansion, the direct Hermes ContextEngine integration bridge for request-time ACE context projection, exact workspace/artifact reads, Qdrant retrieval, embedding-worker and ast-grep provider identity checks, generic LSP confirmation through the configured language server (TypeScript by default), temporal-memory archive/Graphiti integration, deterministic source routing, Vertex/Harbor acceptance tooling, request-time workspace reconciliation, snapshot/retry recovery, and evidence-backed release gates.
 
 Use [`operations/ace-configuration-and-readiness-matrix.md`](operations/ace-configuration-and-readiness-matrix.md) for the authoritative runtime/configuration meanings. A provider flag enables a code path; it does not by itself constitute production approval.
 
