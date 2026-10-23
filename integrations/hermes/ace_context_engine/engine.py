@@ -123,19 +123,23 @@ class AceContextEngine(ContextEngine):
         deliberately falls back to the original transcript. SystemExit is
         required for strict ACE trials and is not caught by that handler.
         """
-        self._receipts.write({
-            "schemaVersion": 1,
-            "requestId": request_id,
-            "sessionId": self._session_id,
-            "status": "blocked",
-            "receiptId": "blocked-" + request_id,
-            "selectedEvidenceIds": [],
-            "omittedEvidenceIds": [],
-            "bridgeDigest": self._bridge_digest,
-            "pluginDigest": self._plugin_digest,
-            "limitations": [code],
-        })
-        raise SystemExit("ACE_CONTEXT_BLOCKED: " + code)
+        try:
+            self._receipts.write({
+                "schemaVersion": 1,
+                "requestId": request_id,
+                "sessionId": self._session_id,
+                "status": "blocked",
+                "receiptId": "blocked-" + request_id,
+                "selectedEvidenceIds": [],
+                "omittedEvidenceIds": [],
+                "bridgeDigest": self._bridge_digest,
+                "pluginDigest": self._plugin_digest,
+                "limitations": [code],
+            })
+        finally:
+            # Receipt persistence is evidence, not permission to fail open. Even
+            # a disk/logging failure must still prevent the provider request.
+            raise SystemExit("ACE_CONTEXT_BLOCKED: " + code)
 
     def select_context(
         self,
@@ -145,8 +149,33 @@ class AceContextEngine(ContextEngine):
         incoming_message: dict[str, Any] | None = None,
         budget_tokens: int = 0,
     ) -> list[dict[str, Any]]:
-        projected = copy.deepcopy(request_messages)
         request_id = str(uuid.uuid4())
+        try:
+            return self._select_context_strict(
+                request_id,
+                request_messages,
+                conversation_messages=conversation_messages,
+                incoming_message=incoming_message,
+                budget_tokens=budget_tokens,
+            )
+        except SystemExit:
+            raise
+        except Exception:
+            # Hermes v0.22.3 catches Exception from select_context() and sends
+            # the original transcript. Convert every unexpected plugin failure
+            # to BaseException/SystemExit so strict ACE trials cannot fail open.
+            self._abort(request_id, "CONTEXT_ENGINE_EXCEPTION")
+
+    def _select_context_strict(
+        self,
+        request_id: str,
+        request_messages: list[dict[str, Any]],
+        *,
+        conversation_messages: list[dict[str, Any]] | None = None,
+        incoming_message: dict[str, Any] | None = None,
+        budget_tokens: int = 0,
+    ) -> list[dict[str, Any]]:
+        projected = copy.deepcopy(request_messages)
         if not self._workspace_id:
             self._abort(request_id, "WORKSPACE_ID_MISSING")
         if not all(

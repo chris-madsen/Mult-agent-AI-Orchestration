@@ -223,6 +223,42 @@ class ContextEngineTests(unittest.TestCase):
 
 
 
+    def test_unexpected_configuration_error_cannot_fall_back_to_original_request(self):
+        bridge = FakeBridge({"ok": False})
+        engine = AceContextEngine(
+            bridge=bridge,
+            workspace_id="workspace-1",
+            session_id="session-1",
+            bridge_digest="a" * 64,
+            plugin_digest="b" * 64,
+        )
+        old = __import__("os").environ.get("ACE_CONTEXT_BUDGET_TOKENS")
+        __import__("os").environ["ACE_CONTEXT_BUDGET_TOKENS"] = "not-an-integer"
+        try:
+            with self.assertRaises(SystemExit):
+                engine.select_context([{"role": "user", "content": "question"}], budget_tokens=10000)
+        finally:
+            if old is None:
+                __import__("os").environ.pop("ACE_CONTEXT_BUDGET_TOKENS", None)
+            else:
+                __import__("os").environ["ACE_CONTEXT_BUDGET_TOKENS"] = old
+
+    def test_receipt_write_failure_still_aborts_instead_of_failing_open(self):
+        bridge = FakeBridge(error=RuntimeError("bridge unavailable"))
+        with tempfile.TemporaryDirectory() as directory:
+            engine = AceContextEngine(
+                bridge=bridge,
+                workspace_id="workspace-1",
+                session_id="session-1",
+                # Opening a directory as an append-only file raises, exercising
+                # _abort's final SystemExit guarantee.
+                receipt_path=Path(directory),
+                bridge_digest="a" * 64,
+                plugin_digest="b" * 64,
+            )
+            with self.assertRaises(SystemExit):
+                engine.select_context([{"role": "user", "content": "question"}], budget_tokens=10000)
+
     def test_stale_response_identity_aborts_before_model_call(self):
         class StaleBridge(FakeBridge):
             def transform(self, request):
