@@ -5,6 +5,12 @@ import types
 import unittest
 from pathlib import Path
 
+# Direct script execution sets sys.path[0] to this package directory rather than
+# the repository root. Add the root explicitly before importing integrations.*.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 # Allow the plugin's own CI tests to run without a separately installed Hermes
 # package. Production imports the real agent.context_engine.ContextEngine.
 try:
