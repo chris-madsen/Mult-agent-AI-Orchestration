@@ -1,5 +1,6 @@
 import { domainError, type DomainError } from './errors.js';
 import { err, ok, type Result } from './result.js';
+import type { HermesContextEvidence } from './hermes-context-evidence.js';
 
 export type FeedbackArm = 'native' | 'ace_optional';
 export type FeedbackQuality = 'pass' | 'fail' | 'unknown';
@@ -85,6 +86,10 @@ export interface FeedbackTrialObservation {
   readonly observedAceContextCalls?: number;
   /** Request IDs observed in successful ace_context MCP tool events. */
   readonly observedAceRequestIds: readonly string[];
+  /** Request IDs observed in successful Hermes ContextEngine transformations. */
+  readonly contextTransformRequestIds?: readonly string[];
+  /** Sanitized Hermes ContextEngine transformation receipts. */
+  readonly hermesContextEvidence?: readonly HermesContextEvidence[];
   /** Request IDs found in the ACE provider trace for this trial. */
   readonly providerTraceRequestIds: readonly string[];
   readonly rawArtifactHashes: readonly FeedbackArtifactHash[];
@@ -386,6 +391,18 @@ const validateObservation = (observation: FeedbackTrialObservation, path: string
   if (!nonNegativeInteger(observedContextCalls) || observedContextCalls > observation.observedAceCalls) {
     return invalid(`${path}.observedAceContextCalls`, 'context calls must be non-negative and cannot exceed total observed ACE calls');
   }
+  const contextTransformIds = observation.contextTransformRequestIds ?? [];
+  if ((observation.arm === 'native' && (contextTransformIds.length > 0 || (observation.hermesContextEvidence?.length ?? 0) > 0))
+    || !uniqueStrings(contextTransformIds)) {
+    return invalid(path, 'native arm must not contain Hermes ContextEngine evidence and context request IDs must be unique');
+  }
+  if (observation.hermesContextEvidence !== undefined
+    && observation.hermesContextEvidence.length !== contextTransformIds.length) {
+    return invalid(`${path}.hermesContextEvidence`, 'Hermes evidence count must match transformation request IDs');
+  }
+  if (observation.hermesContextEvidence?.some((item) => item.requestId.trim().length === 0)) {
+    return invalid(`${path}.hermesContextEvidence`, 'Hermes evidence request IDs must be non-empty');
+  }
   if (observation.observedAceRequestIds.length > observedContextCalls) return invalid(`${path}.observedAceRequestIds`, 'request IDs cannot exceed observed ace_context calls');
   if (observation.arm === 'native' && (observation.observedAceCalls !== 0 || observedContextCalls !== 0 || observation.observedAceRequestIds.length > 0 || observation.providerTraceRequestIds.length > 0)) {
     return invalid(path, 'native arm must not contain ACE calls or provider trace requests');
@@ -405,8 +422,8 @@ const mapByTask = (observations: readonly FeedbackTrialObservation[], arm: Feedb
     if (observation.arm !== arm || result.has(observation.taskId) || trialIds.has(observation.trialId)) {
       return invalid(`${arm}.observations[${index}]`, 'trial/task IDs must be unique and belong to the declared arm');
     }
-    for (const requestId of observation.observedAceRequestIds) {
-      if (requestIds.has(requestId)) return invalid(`${arm}.observations[${index}].observedAceRequestIds`, 'request IDs must not be duplicated');
+    for (const requestId of [...observation.observedAceRequestIds, ...(observation.contextTransformRequestIds ?? [])]) {
+      if (requestIds.has(requestId)) return invalid(`${arm}.observations[${index}].requestIds`, 'ACE request IDs must not be duplicated');
       requestIds.add(requestId);
     }
     trialIds.add(observation.trialId);
@@ -427,10 +444,16 @@ const sumOptional = (values: readonly (number | undefined)[]): number | null => 
   : null;
 
 const correlationFor = (observation: FeedbackTrialObservation): 'correlated' | 'ACE_NOT_USED' | 'UNKNOWN' => {
+  const transformIds = observation.contextTransformRequestIds ?? [];
+  const providerIds = new Set(observation.providerTraceRequestIds);
+  if (transformIds.length > 0) {
+    const receipts = observation.hermesContextEvidence ?? [];
+    if (receipts.length !== transformIds.length || receipts.some((item) => item.status !== 'ready')) return 'UNKNOWN';
+    return transformIds.every((requestId) => providerIds.has(requestId)) ? 'correlated' : 'UNKNOWN';
+  }
   if (observation.observedAceCalls === 0) return 'ACE_NOT_USED';
   const observedContextCalls = observation.observedAceContextCalls ?? observation.observedAceCalls;
   if (observedContextCalls === 0 || observation.observedAceRequestIds.length !== observedContextCalls) return 'UNKNOWN';
-  const providerIds = new Set(observation.providerTraceRequestIds);
   return observation.observedAceRequestIds.every((requestId) => providerIds.has(requestId)) ? 'correlated' : 'UNKNOWN';
 };
 
@@ -457,7 +480,7 @@ const rowFor = (taskId: string, native: FeedbackTrialObservation, ace: FeedbackT
     taskId,
     nativeQuality: native.quality,
     aceQuality: ace.quality,
-    aceCalled: ace.observedAceCalls === 0 ? false : true,
+    aceCalled: ace.observedAceCalls > 0 || (ace.contextTransformRequestIds?.length ?? 0) > 0,
     aceCorrelation: correlation,
     nativeInputTokens: tokenValue(native.usage, 'inputTokens'),
     nativeCachedInputTokens: tokenValue(native.usage, 'cachedInputTokens'),
@@ -500,8 +523,8 @@ export const reconcileFeedbackTrials = (input: {
   }
   const globalRequestIds = new Set<string>();
   for (const observation of [...input.native, ...input.ace]) {
-    for (const requestId of observation.observedAceRequestIds) {
-      if (globalRequestIds.has(requestId)) return invalid('trials.requestId', 'observed ACE request IDs must be unique across both arms');
+    for (const requestId of [...observation.observedAceRequestIds, ...(observation.contextTransformRequestIds ?? [])]) {
+      if (globalRequestIds.has(requestId)) return invalid('trials.requestId', 'ACE request IDs must be unique across both arms');
       globalRequestIds.add(requestId);
     }
   }
@@ -556,10 +579,12 @@ export const reconcileFeedbackTrials = (input: {
     tokenRatio,
     nativeCostUsd: sumOptional(input.native.map((item) => item.usage.costUsd)),
     aceCostUsd: sumOptional(input.ace.map((item) => item.usage.costUsd)),
-    aceObservedCalls: input.ace.reduce((sum, item) => sum + item.observedAceCalls, 0),
+    aceObservedCalls: input.ace.reduce((sum, item) => sum + item.observedAceCalls + (item.contextTransformRequestIds?.length ?? 0), 0),
     aceCorrelatedCalls: input.ace.reduce((sum, trial) => {
       const providerIds = new Set(trial.providerTraceRequestIds);
-      return sum + trial.observedAceRequestIds.filter((id) => providerIds.has(id)).length;
+      const mcpCorrelated = trial.observedAceRequestIds.filter((id) => providerIds.has(id)).length;
+      const transformCorrelated = (trial.contextTransformRequestIds ?? []).filter((id) => providerIds.has(id)).length;
+      return sum + mcpCorrelated + transformCorrelated;
     }, 0),
     aceNotUsed,
   });

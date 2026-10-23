@@ -189,6 +189,34 @@ test('ace_expand counts as ACE usage without breaking provider correlation for a
   assert.equal(result.value.rows[0]?.aceCorrelation, 'correlated');
 });
 
+test('Hermes ContextEngine transformation correlates without an MCP tool call', () => {
+  const result = reconcile(undefined, observation('ace_optional', {
+    observedAceCalls: 1,
+    observedAceContextCalls: 0,
+    observedAceRequestIds: [],
+    contextTransformRequestIds: ['transform-1'],
+    hermesContextEvidence: [{
+      schemaVersion: 1,
+      requestId: 'transform-1',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      status: 'ready',
+      receiptId: 'receipt-1',
+      selectedEvidenceIds: ['evidence-1'],
+      omittedEvidenceIds: [],
+      bridgeDigest: digest('a'),
+      pluginDigest: digest('b'),
+      estimatedTokens: 20,
+      limitations: [],
+    }],
+    providerTraceRequestIds: ['transform-1'],
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Err') return;
+  assert.equal(result.value.status, 'PASS');
+  assert.equal(result.value.rows[0]?.aceCorrelation, 'correlated');
+  assert.equal(result.value.rows[0]?.aceCalled, true);
+});
 test('quality regression never presents token savings even in the per-task row', () => {
   const result = reconcile(undefined, observation('ace_optional', {
     quality: 'fail',
