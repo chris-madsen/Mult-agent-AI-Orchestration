@@ -1,6 +1,6 @@
-export const hermesCodexAuthenticationRoute = 'Hermes openai-codex imports the host ~/.codex/auth.json into the ephemeral Harbor task container; credentials are not retained';
+export const hermesCodexAuthenticationRoute = 'Hermes openai-codex uses a dedicated host ~/.hermes/auth.json and synchronizes refreshed OAuth state back after each serial Harbor trial; credentials are not retained in benchmark artifacts';
 
-export type CodexAuthenticationCheck = {
+export type HermesAuthenticationCheck = {
   readonly status: 'ready' | 'not_ready';
   readonly reason: string;
   readonly identity?: string;
@@ -12,41 +12,32 @@ const object = (value: unknown): JsonObject | undefined =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? value as JsonObject : undefined;
 const nonEmpty = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
 
-const codexIdTokenIsLoadable = (value: unknown): boolean => {
-  if (!nonEmpty(value)) return false;
-  const parts = value.split('.');
-  if (parts.length !== 3 || parts.some((part) => part.length === 0)) return false;
-  try {
-    const payload = JSON.parse(Buffer.from(parts[1] as string, 'base64url').toString('utf8')) as unknown;
-    return object(payload) !== undefined;
-  } catch {
-    return false;
-  }
-};
-
-export const inspectCodexAuthJson = (authPath: string, contents: string): CodexAuthenticationCheck => {
+export const inspectHermesAuthJson = (authPath: string, contents: string): HermesAuthenticationCheck => {
   let parsed: unknown;
   try {
     parsed = JSON.parse(contents) as unknown;
   } catch {
-    return { status: 'not_ready', reason: 'Codex auth file is not valid JSON' };
+    return { status: 'not_ready', reason: 'Hermes auth file is not valid JSON' };
   }
   const root = object(parsed);
-  const tokens = object(root?.tokens);
-  const authMode = root?.auth_mode;
+  const providers = object(root?.providers);
+  const codex = object(providers?.['openai-codex']);
+  const tokens = object(codex?.tokens);
   const hasAccessToken = nonEmpty(tokens?.access_token);
   const hasRefreshToken = nonEmpty(tokens?.refresh_token);
-  const hasLoadableIdToken = codexIdTokenIsLoadable(tokens?.id_token);
-  const refreshMetadata = root?.last_refresh;
+  const refreshMetadata = codex?.last_refresh;
   const hasRefreshMetadata = nonEmpty(refreshMetadata)
     && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(refreshMetadata)
     && Number.isFinite(Date.parse(refreshMetadata));
-  if (authMode !== 'chatgpt' || !hasAccessToken || !hasRefreshToken || !hasLoadableIdToken || !hasRefreshMetadata) {
-    return { status: 'not_ready', reason: 'Codex auth file does not contain complete ChatGPT OAuth access/refresh state' };
+  if (codex?.auth_mode !== 'chatgpt' || !hasAccessToken || !hasRefreshToken || !hasRefreshMetadata) {
+    return {
+      status: 'not_ready',
+      reason: 'Hermes auth file does not contain a complete independent openai-codex ChatGPT OAuth session',
+    };
   }
   return {
     status: 'ready',
-    reason: 'ChatGPT OAuth state is ready for Hermes openai-codex import; token bytes are not retained',
+    reason: 'Dedicated Hermes ChatGPT OAuth state is ready; token bytes are not retained',
     identity: authPath,
     authenticationRoute: hermesCodexAuthenticationRoute,
   };
