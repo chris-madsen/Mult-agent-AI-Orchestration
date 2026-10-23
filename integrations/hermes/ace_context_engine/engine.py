@@ -42,16 +42,22 @@ class AceContextEngine(ContextEngine):
         workspace_id: str | None = None,
         session_id: str | None = None,
         receipt_path: str | os.PathLike[str] | None = None,
+        bridge_digest: str | None = None,
+        plugin_digest: str | None = None,
     ) -> None:
         self._bridge = bridge or BridgeClient()
         self._workspace_id = workspace_id or os.environ.get("ACE_CONTEXT_WORKSPACE_ID") or os.environ.get("ACE_WORKSPACE_ID", "")
         self._session_id = session_id or os.environ.get("HERMES_SESSION_ID", "unknown")
         self._receipts = ReceiptWriter(receipt_path)
+        self._bridge_digest = bridge_digest or os.environ.get("ACE_CONTEXT_BRIDGE_SHA256", "")
+        self._plugin_digest = plugin_digest or os.environ.get("ACE_CONTEXT_PLUGIN_SHA256", "")
         self.last_prompt_tokens = 0
         self.last_completion_tokens = 0
         self.last_total_tokens = 0
         self.threshold_tokens = 0
-        self.context_length = 0
+        # A conservative, explicit cap is needed: Hermes forwards this entire
+        # model-window value as budget_tokens, not the available ACE allowance.
+        self.context_length = int(os.environ.get("ACE_CONTEXT_WINDOW_TOKENS", "32768"))
         self.compression_count = 0
 
     @property
@@ -69,6 +75,27 @@ class AceContextEngine(ContextEngine):
     def compress(self, messages: list[dict[str, Any]], current_tokens: int | None = None, **kwargs: Any) -> list[dict[str, Any]]:
         return messages
 
+    def _abort(self, request_id: str, code: str) -> None:
+        """Abort BEFORE provider send, even on Hermes v0.22.3.
+
+        Hermes's _apply_context_engine_selection catches Exception and
+        deliberately falls back to the original transcript. SystemExit is
+        required for strict ACE trials and is not caught by that handler.
+        """
+        self._receipts.write({
+            "schemaVersion": 1,
+            "requestId": request_id,
+            "sessionId": self._session_id,
+            "status": "blocked",
+            "receiptId": "blocked-" + request_id,
+            "selectedEvidenceIds": [],
+            "omittedEvidenceIds": [],
+            "bridgeDigest": self._bridge_digest,
+            "pluginDigest": self._plugin_digest,
+            "limitations": [code],
+        })
+        raise SystemExit("ACE_CONTEXT_BLOCKED: " + code)
+
     def select_context(
         self,
         request_messages: list[dict[str, Any]],
@@ -78,15 +105,36 @@ class AceContextEngine(ContextEngine):
         budget_tokens: int = 0,
     ) -> list[dict[str, Any]]:
         projected = copy.deepcopy(request_messages)
-        current = incoming_message if incoming_message in request_messages else next(
-            (message for message in reversed(request_messages) if message.get("role") == "user"),
-            None,
-        )
-        query = _text_content(current.get("content")) if isinstance(current, dict) else ""
-        if not query or not self._workspace_id:
-            return projected
         request_id = str(uuid.uuid4())
-        effective_budget = budget_tokens or int(os.environ.get("ACE_CONTEXT_BUDGET_TOKENS", "12000"))
+        if not self._workspace_id:
+            self._abort(request_id, "WORKSPACE_ID_MISSING")
+        if not all(
+            len(value) == 64 and all(char in "0123456789abcdef" for char in value)
+            for value in (self._bridge_digest, self._plugin_digest)
+        ):
+            self._abort(request_id, "UNPINNED_BRIDGE_OR_PLUGIN")
+        current_index = next(
+            (i for i in range(len(request_messages) - 1, -1, -1)
+             if request_messages[i].get("role") == "user"), None
+        )
+        if current_index is None:
+            self._abort(request_id, "NO_USER_QUERY")
+        query = _text_content(request_messages[current_index].get("content"))
+        if not query.strip():
+            self._abort(request_id, "EMPTY_USER_QUERY")
+
+        # budget_tokens is the model's WHOLE context window. Leave space for
+        # the pre-existing request, tool schemas, and the model's response.
+        original_estimate = sum(
+            (len(str(message.get("content", ""))) + 3) // 4
+            for message in request_messages
+        )
+        requested_limit = int(os.environ.get("ACE_CONTEXT_BUDGET_TOKENS", "12000"))
+        total_budget = budget_tokens or self.context_length
+        effective_budget = min(requested_limit, total_budget - original_estimate - 4096)
+        if effective_budget <= 0:
+            self._abort(request_id, "INSUFFICIENT_CONTEXT_BUDGET")
+
         bridge_request = {
             "type": "transform",
             "schemaVersion": 1,
@@ -98,54 +146,62 @@ class AceContextEngine(ContextEngine):
         }
         try:
             response = self._bridge.transform(bridge_request)
-            if not response.get("ok"):
-                error = response.get("error") if isinstance(response.get("error"), dict) else {}
-                self._receipts.write({
-                    "requestId": request_id,
-                    "sessionId": self._session_id,
-                    "status": "blocked",
-                    "errorCode": error.get("code", "BRIDGE_ERROR"),
-                })
-                return projected
-            result = response.get("result")
-            if not isinstance(result, dict) or result.get("status") not in {"ready", "partial"}:
-                self._receipts.write({
-                    "requestId": request_id,
-                    "sessionId": self._session_id,
-                    "status": "blocked",
-                })
-                return projected
-            context_text = result.get("contextText")
-            if not isinstance(context_text, str) or not context_text.strip():
-                self._receipts.write({
-                    "requestId": request_id,
-                    "sessionId": self._session_id,
-                    "status": "blocked",
-                })
-                return projected
-            if isinstance(current, dict):
-                current_index = request_messages.index(current)
-                _append_context(projected[current_index], context_text)
-            self._receipts.write({
-                "requestId": request_id,
-                "sessionId": self._session_id,
-                "status": result.get("status"),
-                "receiptId": result.get("receiptId"),
-                "selectedEvidenceIds": result.get("selectedEvidenceIds", []),
-                "omittedEvidenceIds": result.get("omittedEvidenceIds", []),
-                "estimatedTokens": result.get("estimatedTokens"),
-                "sourceCommit": result.get("sourceCommit"),
-                "sourceManifestSha256": result.get("sourceManifestSha256"),
-                "providerIdentities": result.get("providerIdentities", {}),
-            })
-            return projected
         except Exception:
-            self._receipts.write({
-                "requestId": request_id,
-                "sessionId": self._session_id,
-                "status": "blocked",
-            })
-            return projected
+            self._abort(request_id, "BRIDGE_EXCEPTION")
+
+        if not isinstance(response, dict) or response.get("ok") is not True:
+            self._abort(request_id, "BRIDGE_ERROR")
+        result = response.get("result")
+        if not isinstance(result, dict) or response.get("requestId") != request_id:
+            self._abort(request_id, "BRIDGE_RESPONSE_ID_MISMATCH")
+        if (result.get("requestId") != request_id
+                or result.get("sessionId") != self._session_id
+                or result.get("workspaceId") != self._workspace_id):
+            self._abort(request_id, "TRANSFORM_IDENTITY_MISMATCH")
+        if result.get("status") not in {"ready", "partial"}:
+            self._abort(request_id, "TRANSFORM_NOT_READY")
+        context_text = result.get("contextText")
+        receipt_id = result.get("receiptId")
+        provider_request_id = result.get("providerRequestId")
+        selected = result.get("selectedEvidenceIds")
+        omitted = result.get("omittedEvidenceIds")
+        limitations = result.get("limitations")
+        estimated = result.get("estimatedTokens")
+        if (not isinstance(context_text, str) or not context_text.strip()
+                or not isinstance(receipt_id, str) or not receipt_id
+                or not isinstance(provider_request_id, str) or not provider_request_id
+                or not isinstance(selected, list) or not selected
+                or not all(isinstance(x, str) and x for x in selected)
+                or not isinstance(omitted, list)
+                or not all(isinstance(x, str) and x for x in omitted)
+                or not isinstance(limitations, list)
+                or not all(isinstance(x, str) and x for x in limitations)
+                or not isinstance(estimated, int) or estimated <= 0
+                or estimated > effective_budget):
+            self._abort(request_id, "MALFORMED_TRANSFORM_RECEIPT")
+        if set(selected) & set(omitted):
+            self._abort(request_id, "OVERLAPPING_EVIDENCE_IDS")
+
+        _append_context(projected[current_index], context_text)
+        self._receipts.write({
+            "schemaVersion": 1,
+            "requestId": request_id,
+            "sessionId": self._session_id,
+            "status": result["status"],
+            "receiptId": receipt_id,
+            "providerRequestId": provider_request_id,
+            "selectedEvidenceIds": selected,
+            "omittedEvidenceIds": omitted,
+            "bridgeDigest": self._bridge_digest,
+            "pluginDigest": self._plugin_digest,
+            "estimatedTokens": estimated,
+            "limitations": limitations,
+            **({"sourceCommit": result["sourceCommit"]}
+               if isinstance(result.get("sourceCommit"), str) else {}),
+            **({"sourceManifestSha256": result["sourceManifestSha256"]}
+               if isinstance(result.get("sourceManifestSha256"), str) else {}),
+        })
+        return projected
 
     def close(self) -> None:
         close = getattr(self._bridge, "close", None)

@@ -28,7 +28,7 @@ class BridgeClient:
             self.command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=None,  # avoid deadlock on an unread stderr pipe
             text=True,
             encoding="utf-8",
             env=env,

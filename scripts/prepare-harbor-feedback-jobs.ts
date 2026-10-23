@@ -247,7 +247,12 @@ const main = async (): Promise<void> => {
       job_name: `${runId}-ace-optional`,
       agents: [{
         ...agent,
-        kwargs: { ...agent.kwargs, ace_context_enabled: true },
+        kwargs: {
+          ...agent.kwargs,
+          ace_context_enabled: true,
+          ace_context_bridge_sha256: aceContextBridgeSha256,
+          context_plugin_sha256: contextPluginSha256,
+        },
       }],
       environment: {},
       jobs_dir: join(artifactsRoot, runId, 'raw-agent-ace'),

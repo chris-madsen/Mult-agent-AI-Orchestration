@@ -36,6 +36,8 @@ class HermesCodexOAuthOptions(HermesOptions):
         default=False,
         description="Enable the direct ACE Hermes ContextEngine plugin.",
     )
+    ace_context_bridge_sha256: str = ""
+    context_plugin_sha256: str = ""
 
 
 class HermesCodexOAuth(Hermes):
@@ -159,6 +161,8 @@ class HermesCodexOAuth(Hermes):
                 "ACE_CONTEXT_WORKSPACE_ID": "00000000-0000-4000-8000-000000000001",
                 "ACE_CONTEXT_BRIDGE_COMMAND": "/ace/scripts/harbor-ace-context-bridge.sh",
                 "ACE_CONTEXT_RECEIPT_FILE": "/logs/artifacts/hermes-context-receipts.jsonl",
+                "ACE_CONTEXT_BRIDGE_SHA256": self.options.ace_context_bridge_sha256,
+                "ACE_CONTEXT_PLUGIN_SHA256": self.options.context_plugin_sha256,
             })
         config_yaml = self._provider_config(
             self._build_config_yaml(model, self.options.max_turns),

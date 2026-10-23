@@ -16,7 +16,14 @@ class FakeBridge:
         self.requests.append(request)
         if self.error is not None:
             raise self.error
-        return self.response
+        reply = json.loads(json.dumps(self.response))
+        if isinstance(reply, dict) and isinstance(reply.get("result"), dict):
+            reply["requestId"] = request["requestId"]
+            reply["result"]["requestId"] = request["requestId"]
+            reply["result"]["sessionId"] = request["sessionId"]
+            reply["result"]["workspaceId"] = request["workspaceId"]
+            reply["result"]["providerRequestId"] = "retrieval-1"
+        return reply
 
 
 class ContextEngineTests(unittest.TestCase):
@@ -47,6 +54,8 @@ class ContextEngineTests(unittest.TestCase):
                 workspace_id="workspace-1",
                 session_id="session-1",
                 receipt_path=Path(directory) / "receipts.jsonl",
+                bridge_digest="a" * 64,
+                plugin_digest="b" * 64,
             )
             history = [
                 {"role": "system", "content": "system"},
@@ -58,7 +67,7 @@ class ContextEngineTests(unittest.TestCase):
                 request,
                 conversation_messages=history,
                 incoming_message=request[-1],
-                budget_tokens=1000,
+                budget_tokens=10000,
             )
 
             self.assertIsNotNone(result)
@@ -83,7 +92,7 @@ class ContextEngineTests(unittest.TestCase):
                 "status": "ready",
                 "contextText": "ACE context",
                 "evidence": [],
-                "selectedEvidenceIds": [],
+                "selectedEvidenceIds": ["evidence-2"],
                 "omittedEvidenceIds": [],
                 "estimatedTokens": 2,
                 "providerIdentities": {},
@@ -91,13 +100,13 @@ class ContextEngineTests(unittest.TestCase):
                 "limitations": [],
             },
         })
-        engine = AceContextEngine(bridge=bridge, workspace_id="workspace-1", session_id="session-1")
+        engine = AceContextEngine(bridge=bridge, workspace_id="workspace-1", session_id="session-1", bridge_digest="a" * 64, plugin_digest="b" * 64)
         request = [{
             "role": "user",
             "content": [{"type": "text", "text": "find this"}],
         }]
 
-        result = engine.select_context(request, incoming_message=request[-1], budget_tokens=1000)
+        result = engine.select_context(request, incoming_message=request[-1], budget_tokens=10000)
 
         self.assertEqual(bridge.requests[0]["query"], "find this")
         self.assertIn("ACE context", result[0]["content"][-1]["text"])
@@ -112,15 +121,42 @@ class ContextEngineTests(unittest.TestCase):
                 workspace_id="workspace-1",
                 session_id="session-1",
                 receipt_path=receipt_path,
+                bridge_digest="a" * 64,
+                plugin_digest="b" * 64,
             )
             request = [{"role": "user", "content": "current question"}]
-            result = engine.select_context(request, incoming_message=request[-1], budget_tokens=1000)
+            with self.assertRaises(SystemExit):
+                engine.select_context(request, incoming_message=request[-1], budget_tokens=100000)
 
-            self.assertEqual(result, request)
+            self.assertEqual(request[0]["content"], "current question")
             receipt = json.loads(receipt_path.read_text().strip())
             self.assertEqual(receipt["status"], "blocked")
             self.assertNotIn("bridge unavailable", receipt.get("contextText", ""))
 
+
+
+    def test_stale_response_identity_aborts_before_model_call(self):
+        class StaleBridge(FakeBridge):
+            def transform(self, request):
+                result = super().transform(request)
+                result["requestId"] = "another-request"
+                return result
+
+        bridge = StaleBridge({
+            "ok": True, "result": {
+                "status": "ready", "contextText": "wrong context", "receiptId": "receipt-1",
+                "selectedEvidenceIds": ["ev-1"], "omittedEvidenceIds": [],
+                "estimatedTokens": 2, "limitations": [],
+            },
+        })
+        engine = AceContextEngine(
+            bridge=bridge, workspace_id="workspace-1", session_id="session-1",
+            bridge_digest="a" * 64, plugin_digest="b" * 64,
+        )
+        request = [{"role": "user", "content": "question"}]
+        with self.assertRaises(SystemExit):
+            engine.select_context(request, budget_tokens=10000)
+        self.assertEqual(request, [{"role": "user", "content": "question"}])
 
 if __name__ == "__main__":
     unittest.main()
