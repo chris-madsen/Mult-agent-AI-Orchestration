@@ -28,6 +28,22 @@ test('Hermes ChatGPT/Codex OAuth is ready without a manually supplied API key', 
   assert.doesNotMatch(JSON.stringify(observed), /oauth-access-token|oauth-refresh-token|oauth-id-token/u);
 });
 
+test('current Hermes credential_pool OAuth schema is accepted without exposing tokens', () => {
+  const observed = inspectHermesAuthJson('/home/test/.hermes/auth.json', JSON.stringify({
+    active_provider: 'openai-codex',
+    credential_pool: {
+      'openai-codex': [{
+        auth_type: 'oauth',
+        access_token: 'oauth-access-token',
+        refresh_token: 'oauth-refresh-token',
+        last_refresh: '2026-10-23T16:18:50.493094Z',
+      }],
+    },
+  }));
+  assert.equal(observed.status, 'ready');
+  assert.doesNotMatch(JSON.stringify(observed), /oauth-access-token|oauth-refresh-token/u);
+});
+
 test('Hermes Codex-OAuth preflight rejects missing or malformed OAuth state', () => {
   assert.equal(inspectHermesAuthJson('/tmp/auth.json', '').status, 'not_ready');
   assert.equal(inspectHermesAuthJson('/tmp/auth.json', '{}').status, 'not_ready');

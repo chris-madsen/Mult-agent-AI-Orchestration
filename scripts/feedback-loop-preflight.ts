@@ -263,7 +263,7 @@ const parseArgs = (): {
 } => {
   const args = process.argv.slice(2);
   let outputDirectory = process.env.ACE_FEEDBACK_OUTPUT?.trim() || 'artifacts/feedback/preflight';
-  let embeddingPython = process.env.ACE_EMBEDDING_PYTHON?.trim() || '.venv-embedding-fast/bin/python';
+  let embeddingPython = resolve(process.env.ACE_EMBEDDING_PYTHON?.trim() || '.venv-embedding-fast/bin/python');
   let embeddingLibraryPath = process.env.ACE_EMBEDDING_LD_LIBRARY_PATH?.trim();
   let qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
   let nativeJobPath: string | undefined;

@@ -76,9 +76,17 @@ class HermesCodexOAuth(Hermes):
     def _validate_auth_store(path: Path) -> None:
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
-            state = value["providers"]["openai-codex"]
-            tokens = state["tokens"]
-            if state.get("auth_mode") != "chatgpt" or not tokens.get("access_token") or not tokens.get("refresh_token"):
+            providers = value.get("providers") if isinstance(value, dict) else None
+            legacy = providers.get("openai-codex") if isinstance(providers, dict) else None
+            tokens = legacy.get("tokens") if isinstance(legacy, dict) else None
+            pool = value.get("credential_pool") if isinstance(value, dict) else None
+            entries = pool.get("openai-codex") if isinstance(pool, dict) else None
+            current = entries[0] if isinstance(entries, list) and entries and isinstance(entries[0], dict) else None
+            legacy_valid = isinstance(legacy, dict) and legacy.get("auth_mode") == "chatgpt" \
+                and isinstance(tokens, dict) and tokens.get("access_token") and tokens.get("refresh_token")
+            current_valid = isinstance(current, dict) and current.get("auth_type") == "oauth" \
+                and current.get("access_token") and current.get("refresh_token")
+            if not (legacy_valid or current_valid):
                 raise ValueError("missing openai-codex ChatGPT OAuth state")
         except Exception as exc:
             raise RuntimeError(f"Hermes OAuth store is malformed: {path}") from exc
