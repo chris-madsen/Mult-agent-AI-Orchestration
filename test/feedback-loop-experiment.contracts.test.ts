@@ -217,6 +217,8 @@ test('Hermes ContextEngine transformation correlates without an MCP tool call', 
   assert.equal(result.value.status, 'PASS');
   assert.equal(result.value.rows[0]?.aceCorrelation, 'correlated');
   assert.equal(result.value.rows[0]?.aceCalled, true);
+  assert.equal(result.value.aceObservedCalls, 1);
+  assert.equal(result.value.aceCorrelatedCalls, 1);
 });
 test('quality regression never presents token savings even in the per-task row', () => {
   const result = reconcile(undefined, observation('ace_optional', {
@@ -521,7 +523,14 @@ test('RepoBench Parquet converter rejects an unpinned digest before importing a 
 const hermesAgent = (withAce: boolean, overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
   import_path: feedbackHermesAgentImportPath,
   model_name: 'openai-codex/gpt-5.6-luna',
-  kwargs: { version: feedbackHermesVersion, reasoning_effort: 'high', ace_context_enabled: withAce },
+  kwargs: {
+    version: feedbackHermesVersion,
+    reasoning_effort: 'high',
+    ace_context_enabled: withAce,
+    ...(withAce
+      ? { ace_context_bridge_sha256: digest('a'), context_plugin_sha256: digest('b') }
+      : {}),
+  },
   ...overrides,
 });
 

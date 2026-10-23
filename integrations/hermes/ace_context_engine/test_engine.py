@@ -1,7 +1,24 @@
 import json
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
+
+# Allow the plugin's own CI tests to run without a separately installed Hermes
+# package. Production imports the real agent.context_engine.ContextEngine.
+try:
+    from agent.context_engine import ContextEngine as _HermesContextEngine  # noqa: F401
+except ModuleNotFoundError:
+    agent_module = types.ModuleType("agent")
+    context_module = types.ModuleType("agent.context_engine")
+
+    class _HermesContextEngine:
+        pass
+
+    context_module.ContextEngine = _HermesContextEngine
+    sys.modules.setdefault("agent", agent_module)
+    sys.modules["agent.context_engine"] = context_module
 
 from integrations.hermes.ace_context_engine.engine import AceContextEngine
 
@@ -111,6 +128,32 @@ class ContextEngineTests(unittest.TestCase):
         self.assertEqual(bridge.requests[0]["query"], "find this")
         self.assertIn("ACE context", result[0]["content"][-1]["text"])
         self.assertEqual(request[0]["content"], [{"type": "text", "text": "find this"}])
+
+    def test_clone_for_agent_avoids_deepcopying_lock_state(self):
+        engine = AceContextEngine(
+            bridge=FakeBridge({"ok": False}),
+            workspace_id="workspace-1",
+            session_id="seed-session",
+            bridge_digest="a" * 64,
+            plugin_digest="b" * 64,
+        )
+        clone = engine.clone_for_agent()
+        self.assertIsNot(clone, engine)
+        self.assertEqual(clone._workspace_id, "workspace-1")
+        self.assertEqual(clone._session_id, "seed-session")
+        self.assertEqual(clone._bridge_digest, "a" * 64)
+        self.assertEqual(clone._plugin_digest, "b" * 64)
+
+    def test_on_session_start_replaces_placeholder_session_identity(self):
+        engine = AceContextEngine(
+            bridge=FakeBridge({"ok": False}),
+            workspace_id="workspace-1",
+            session_id="unknown",
+            bridge_digest="a" * 64,
+            plugin_digest="b" * 64,
+        )
+        engine.on_session_start("hermes-session-123")
+        self.assertEqual(engine._session_id, "hermes-session-123")
 
     def test_bridge_failure_returns_original_request_and_blocked_receipt(self):
         bridge = FakeBridge(error=RuntimeError("bridge unavailable"))

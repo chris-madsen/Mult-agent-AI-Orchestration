@@ -64,6 +64,32 @@ class AceContextEngine(ContextEngine):
     def name(self) -> str:
         return "ace_context_engine"
 
+    def clone_for_agent(self) -> "AceContextEngine":
+        """Return a per-agent engine without deepcopying lock/process state.
+
+        Hermes v0.22.3 clones plugin context engines before attaching them to
+        an agent. BridgeClient and ReceiptWriter contain threading locks, so
+        ContextEngine's default deepcopy implementation cannot be used safely.
+        """
+        bridge = (
+            BridgeClient(command=list(self._bridge.command), timeout_seconds=self._bridge.timeout_seconds)
+            if isinstance(self._bridge, BridgeClient)
+            else self._bridge
+        )
+        return AceContextEngine(
+            bridge=bridge,
+            workspace_id=self._workspace_id,
+            session_id=self._session_id,
+            receipt_path=self._receipts.path,
+            bridge_digest=self._bridge_digest,
+            plugin_digest=self._plugin_digest,
+        )
+
+    def on_session_start(self, session_id: str, **kwargs: Any) -> None:
+        """Bind bridge requests and receipts to Hermes's actual session ID."""
+        if isinstance(session_id, str) and session_id.strip():
+            self._session_id = session_id.strip()
+
     def update_from_response(self, usage: dict[str, Any]) -> None:
         self.last_prompt_tokens = int(usage.get("prompt_tokens", usage.get("input_tokens", 0)) or 0)
         self.last_completion_tokens = int(usage.get("completion_tokens", usage.get("output_tokens", 0)) or 0)
