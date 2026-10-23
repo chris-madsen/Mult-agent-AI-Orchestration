@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import os
 import uuid
 from typing import Any
@@ -59,6 +61,12 @@ class AceContextEngine(ContextEngine):
         # model-window value as budget_tokens, not the available ACE allowance.
         self.context_length = int(os.environ.get("ACE_CONTEXT_WINDOW_TOKENS", "32768"))
         self.compression_count = 0
+        # One successful provider-bound projection is memoized for an exact
+        # request retry. Hermes v0.22.3 invokes select_context() again on
+        # provider retries; a retry must not issue a second retrieval with a
+        # new identity or receive different context.
+        self._last_request_key: str | None = None
+        self._last_projection: list[dict[str, Any]] | None = None
 
     @property
     def name(self) -> str:
@@ -89,6 +97,13 @@ class AceContextEngine(ContextEngine):
         """Bind bridge requests and receipts to Hermes's actual session ID."""
         if isinstance(session_id, str) and session_id.strip():
             self._session_id = session_id.strip()
+        self._last_request_key = None
+        self._last_projection = None
+
+    def on_turn_complete(self, messages: list[dict[str, Any]], **kwargs: Any) -> None:
+        """Never reuse a retry projection across completed user turns."""
+        self._last_request_key = None
+        self._last_projection = None
 
     def update_from_response(self, usage: dict[str, Any]) -> None:
         self.last_prompt_tokens = int(usage.get("prompt_tokens", usage.get("input_tokens", 0)) or 0)
@@ -161,6 +176,21 @@ class AceContextEngine(ContextEngine):
         if effective_budget <= 0:
             self._abort(request_id, "INSUFFICIENT_CONTEXT_BUDGET")
 
+        request_key = hashlib.sha256(json.dumps(
+            {
+                "sessionId": self._session_id,
+                "workspaceId": self._workspace_id,
+                "budgetTokens": effective_budget,
+                "messages": request_messages,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")).hexdigest()
+        if request_key == self._last_request_key and self._last_projection is not None:
+            return copy.deepcopy(self._last_projection)
+
         bridge_request = {
             "type": "transform",
             "schemaVersion": 1,
@@ -227,6 +257,8 @@ class AceContextEngine(ContextEngine):
             **({"sourceManifestSha256": result["sourceManifestSha256"]}
                if isinstance(result.get("sourceManifestSha256"), str) else {}),
         })
+        self._last_request_key = request_key
+        self._last_projection = copy.deepcopy(projected)
         return projected
 
     def close(self) -> None:

@@ -135,6 +135,45 @@ class ContextEngineTests(unittest.TestCase):
         self.assertIn("ACE context", result[0]["content"][-1]["text"])
         self.assertEqual(request[0]["content"], [{"type": "text", "text": "find this"}])
 
+    def test_exact_provider_retry_reuses_projection_and_receipt_identity(self):
+        bridge = FakeBridge({
+            "type": "transform_result",
+            "ok": True,
+            "result": {
+                "status": "ready",
+                "contextText": "stable ACE context",
+                "receiptId": "receipt-stable",
+                "selectedEvidenceIds": ["ev-1"],
+                "omittedEvidenceIds": [],
+                "estimatedTokens": 4,
+                "limitations": [],
+            },
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            receipt_path = Path(directory) / "receipts.jsonl"
+            engine = AceContextEngine(
+                bridge=bridge,
+                workspace_id="workspace-1",
+                session_id="session-1",
+                receipt_path=receipt_path,
+                bridge_digest="a" * 64,
+                plugin_digest="b" * 64,
+            )
+            request = [{"role": "user", "content": "same provider request"}]
+            first = engine.select_context(request, budget_tokens=10000)
+            second = engine.select_context(request, budget_tokens=10000)
+
+            self.assertEqual(first, second)
+            self.assertIsNot(first, second)
+            self.assertEqual(len(bridge.requests), 1)
+            receipts = receipt_path.read_text().strip().splitlines()
+            self.assertEqual(len(receipts), 1)
+            self.assertEqual(json.loads(receipts[0])["receiptId"], "receipt-stable")
+
+            changed = [{"role": "user", "content": "next request after a tool/result change"}]
+            engine.select_context(changed, budget_tokens=10000)
+            self.assertEqual(len(bridge.requests), 2)
+
     def test_clone_for_agent_avoids_deepcopying_lock_state(self):
         engine = AceContextEngine(
             bridge=FakeBridge({"ok": False}),
