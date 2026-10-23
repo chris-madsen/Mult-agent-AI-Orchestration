@@ -15,8 +15,9 @@ import {
 } from '../src/domain/feedback-loop-experiment.js';
 import {
   dockerImageMatchesDigest,
-  feedbackAceMcpCommand,
+  feedbackAceContextBridgeCommand,
   feedbackHermesAgentImportPath,
+  feedbackHermesContextPluginPath,
   feedbackHermesVersion,
   validateFeedbackHarborJob,
   validateMatchingFeedbackHarborJobs,
@@ -350,6 +351,7 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
   await mkdir(source);
   await mkdir(join(ace, 'dist', 'bin'), { recursive: true });
   await mkdir(join(ace, 'scripts'), { recursive: true });
+  await mkdir(join(ace, 'integrations', 'hermes', 'ace_context_engine'), { recursive: true });
   const git = (cwd: string, ...args: string[]): string =>
     execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
   const sha = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -392,8 +394,10 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
     tasks: tasks.slice(0, 10), holdout: tasks.slice(10),
   }));
   await writeFile(join(ace, 'scripts', 'harbor_hermes_codex_oauth.py'), '# pinned Hermes adapter\n');
-  await writeFile(join(ace, 'scripts', 'harbor-ace-mcp.sh'), '#!/usr/bin/env bash\nexec node /ace/dist/bin/ace-mcp.js\n');
-  await writeFile(join(ace, 'dist', 'bin', 'ace-mcp.js'), 'console.log("mock executable");\n');
+  await writeFile(join(ace, 'scripts', 'harbor-ace-context-bridge.sh'), '#!/usr/bin/env bash\nexec node /ace/dist/bin/ace-context-bridge.js\n');
+  await writeFile(join(ace, 'dist', 'bin', 'ace-context-bridge.js'), 'console.log("mock executable");\n');
+  await writeFile(join(ace, 'integrations', 'hermes', 'ace_context_engine', '__init__.py'), '# ContextEngine plugin\n');
+  await writeFile(join(ace, 'integrations', 'hermes', 'ace_context_engine', 'engine.py'), '# engine\n');
   git(ace, 'add', '.');
   git(ace, 'commit', '-q', '-m', 'pin ACE');
   const dockerBin = join(root, 'bin');
@@ -422,14 +426,16 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
   assert.equal(job.agents[0].model_name, 'openai-codex/test-model');
   assert.equal(job.agents[0].kwargs.version, feedbackHermesVersion);
   assert.equal(job.agents[0].kwargs.reasoning_effort, 'medium');
-  assert.deepEqual(job.agents[0].mcp_servers, [{ name: 'ace', transport: 'stdio', command: feedbackAceMcpCommand, args: [] }]);
+  assert.equal(job.agents[0].kwargs.ace_context_enabled, true);
+  assert.equal('mcp_servers' in job.agents[0], false);
   const runner = await readFile(join(firstOutput, 'run-ace-optional.sh'), 'utf8');
   assert.match(runner, /PYTHONPATH/u);
   assert.match(runner, /--mounts/u);
   assert.match(runner, /read_only/u);
   assert.equal(prepared.agent, 'hermes');
   assert.equal(prepared.agentVersion, feedbackHermesVersion);
-  assert.equal(prepared.aceMcpEntrypoint, feedbackAceMcpCommand);
+  assert.equal(prepared.aceContextBridge, feedbackAceContextBridgeCommand);
+  assert.equal(prepared.contextPlugin, feedbackHermesContextPluginPath);
   assert.equal(prepared.verifiedSourceDigest, sourceDigest);
   await writeFile(join(source, 'tasks', 'task-1', 'test.txt'), 'tampered task\n');
   const secondOutput = join(root, 'second');
@@ -486,8 +492,7 @@ test('RepoBench Parquet converter rejects an unpinned digest before importing a 
 const hermesAgent = (withAce: boolean, overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
   import_path: feedbackHermesAgentImportPath,
   model_name: 'openai-codex/gpt-5.6-luna',
-  kwargs: { version: feedbackHermesVersion, reasoning_effort: 'high' },
-  ...(withAce ? { mcp_servers: [{ name: 'ace', transport: 'stdio', command: feedbackAceMcpCommand, args: [] }] } : {}),
+  kwargs: { version: feedbackHermesVersion, reasoning_effort: 'high', ace_context_enabled: withAce },
   ...overrides,
 });
 
@@ -507,7 +512,8 @@ test('feedback Harbor identity pins Hermes, ChatGPT OAuth model routing and ACE 
     assert.equal(checked.value.agentVersion, feedbackHermesVersion);
     assert.equal(checked.value.model, 'openai-codex/gpt-5.6-luna');
     assert.equal(checked.value.reasoningEffort, 'high');
-    assert.equal(checked.value.aceMcpCommand, feedbackAceMcpCommand);
+    assert.equal(checked.value.hasAceContextEngine, false);
+    assert.equal(checked.value.aceContextBridgeCommand, feedbackAceContextBridgeCommand);
   }
   assert.equal(validateMatchingFeedbackHarborJobs(harborJob(), harborJob())._tag, 'Err');
   assert.equal(validateMatchingFeedbackHarborJobs(harborJob(true), harborJob(true))._tag, 'Err');
@@ -556,7 +562,8 @@ test('feedback experiment manifest rejects contradictory single-image and task-i
     imageDigest: `sha256:${digest('b')}`,
     taskImages: [{ reference: 'registry.example/task:1', digest: `sha256:${digest('c')}` }],
     agentAdapterSha256: digest('d'),
-    aceMcpEntrypointSha256: digest('e'),
+    aceContextBridgeSha256: digest('e'),
+    contextPluginSha256: digest('f'),
     seed: 'unknown',
     mode: 'cold',
     nConcurrentTrials: 1,
@@ -582,7 +589,8 @@ test('feedback experiment manifest accepts pinned per-task Docker images for mul
       { reference: 'registry.example/simple-login:1', digest: `sha256:${digest('c')}` },
     ],
     agentAdapterSha256: digest('d'),
-    aceMcpEntrypointSha256: digest('e'),
+    aceContextBridgeSha256: digest('e'),
+    contextPluginSha256: digest('f'),
     seed: 'unknown',
     mode: 'cold',
     nConcurrentTrials: 1,
@@ -603,7 +611,8 @@ test('feedback experiment manifest accepts pinned per-task Docker images for mul
     harborVersion: '0.24.0',
     taskImages: [{ reference: 'registry.example/calypso:1', digest: 'not-a-digest' }],
     agentAdapterSha256: digest('d'),
-    aceMcpEntrypointSha256: digest('e'),
+    aceContextBridgeSha256: digest('e'),
+    contextPluginSha256: digest('f'),
     seed: 'unknown',
     mode: 'cold',
     nConcurrentTrials: 1,

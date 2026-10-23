@@ -6,7 +6,8 @@ export type FeedbackReasoningEffort = 'low' | 'medium' | 'high';
 export const feedbackHermesAgentImportPath = 'scripts.harbor_hermes_codex_oauth:HermesCodexOAuth' as const;
 export const feedbackHermesVersion = 'v0.22.3' as const;
 export const feedbackHermesProviderPrefix = 'openai-codex/' as const;
-export const feedbackAceMcpCommand = '/ace/scripts/harbor-ace-mcp.sh' as const;
+export const feedbackAceContextBridgeCommand = '/ace/scripts/harbor-ace-context-bridge.sh' as const;
+export const feedbackHermesContextPluginPath = '/ace/integrations/hermes/ace_context_engine' as const;
 
 export interface FeedbackHarborJobIdentity {
   readonly agent: 'hermes';
@@ -16,11 +17,11 @@ export interface FeedbackHarborJobIdentity {
   readonly nConcurrentTrials: 1;
   readonly nAttempts: 1;
   readonly taskPaths: readonly string[];
-  readonly hasAceMcp: boolean;
+  readonly hasAceContextEngine: boolean;
 }
 
 export interface FeedbackHarborPairIdentity extends FeedbackHarborJobIdentity {
-  readonly aceMcpCommand: typeof feedbackAceMcpCommand;
+  readonly aceContextBridgeCommand: typeof feedbackAceContextBridgeCommand;
 }
 
 type JsonObject = Readonly<Record<string, unknown>>;
@@ -36,17 +37,11 @@ const reasoningEffort = (value: unknown): value is FeedbackReasoningEffort =>
 
 export const dockerImageDigestPattern = /^sha256:[a-f0-9]{64}$/u;
 
-const validateAceMcp = (value: unknown, path: string): Result<boolean, DomainError> => {
-  if (value === undefined) return ok(false);
-  if (!Array.isArray(value)) return invalid(path, 'Hermes MCP servers must be an array when present');
-  if (value.length === 0) return ok(false);
-  if (value.length !== 1) return invalid(path, 'feedback jobs may expose only the ACE MCP server');
-  const server = object(value[0]);
-  if (server?.name !== 'ace' || server.transport !== 'stdio' || server.command !== feedbackAceMcpCommand
-    || !Array.isArray(server.args) || server.args.length !== 0) {
-    return invalid(`${path}[0]`, 'ACE MCP server identity must be pinned to the read-only /ace runtime');
-  }
-  return ok(true);
+const validateContextEngine = (kwargs: JsonObject, path: string): Result<boolean, DomainError> => {
+  const enabled = kwargs.ace_context_enabled;
+  if (enabled === undefined) return ok(false);
+  if (typeof enabled !== 'boolean') return invalid(`${path}.ace_context_enabled`, 'ace_context_enabled must be boolean');
+  return ok(enabled);
 };
 
 export const validateFeedbackHarborJob = (
@@ -80,8 +75,9 @@ export const validateFeedbackHarborJob = (
     return invalid(`${path}.agents[0].kwargs.version`, `Hermes version must be pinned to ${feedbackHermesVersion}`);
   }
   if (!reasoningEffort(effort)) return invalid(`${path}.agents[0].kwargs.reasoning_effort`, 'reasoning effort must be low, medium or high');
-  const aceMcp = validateAceMcp(agent.mcp_servers, `${path}.agents[0].mcp_servers`);
-  if (aceMcp._tag === 'Err') return aceMcp;
+  if (agent?.mcp_servers !== undefined) return invalid(`${path}.agents[0].mcp_servers`, 'primary feedback jobs must not use MCP for ACE context injection');
+  const contextEngine = validateContextEngine(kwargs ?? {}, `${path}.agents[0].kwargs`);
+  if (contextEngine._tag === 'Err') return contextEngine;
   if (root.n_concurrent_trials !== 1) return invalid(`${path}.n_concurrent_trials`, 'feedback jobs must be serial');
   if (root.n_attempts !== 1) return invalid(`${path}.n_attempts`, 'feedback jobs must use one attempt per task');
   return ok({
@@ -92,7 +88,7 @@ export const validateFeedbackHarborJob = (
     nConcurrentTrials: 1,
     nAttempts: 1,
     taskPaths,
-    hasAceMcp: aceMcp.value,
+    hasAceContextEngine: contextEngine.value,
   });
 };
 
@@ -112,9 +108,9 @@ export const validateMatchingFeedbackHarborJobs = (
   if (JSON.stringify(nativeIdentity.value.taskPaths) !== JSON.stringify(aceIdentity.value.taskPaths)) {
     return invalid('harbor_jobs.tasks', 'native and ACE optional jobs must pin the same frozen task paths in the same order');
   }
-  if (nativeIdentity.value.hasAceMcp) return invalid('native_job.agents[0].mcp_servers', 'native Hermes baseline must not expose ACE');
-  if (!aceIdentity.value.hasAceMcp) return invalid('ace_optional_job.agents[0].mcp_servers', 'ACE optional Hermes job must expose the pinned ACE MCP server');
-  return ok({ ...nativeIdentity.value, aceMcpCommand: feedbackAceMcpCommand });
+  if (nativeIdentity.value.hasAceContextEngine) return invalid('native_job.agents[0].kwargs.ace_context_enabled', 'native Hermes baseline must not enable ACE ContextEngine');
+  if (!aceIdentity.value.hasAceContextEngine) return invalid('ace_optional_job.agents[0].kwargs.ace_context_enabled', 'ACE optional Hermes job must enable the pinned ContextEngine plugin');
+  return ok({ ...nativeIdentity.value, aceContextBridgeCommand: feedbackAceContextBridgeCommand });
 };
 
 export const dockerImageMatchesDigest = (digest: string, inspection: unknown): boolean => {

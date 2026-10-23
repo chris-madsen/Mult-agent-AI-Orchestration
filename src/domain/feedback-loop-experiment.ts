@@ -44,7 +44,8 @@ export interface FeedbackExperimentManifest {
     readonly digest: string;
   }[];
   readonly agentAdapterSha256: string;
-  readonly aceMcpEntrypointSha256: string;
+  readonly aceContextBridgeSha256: string;
+  readonly contextPluginSha256: string;
   readonly seed: string | 'unknown';
   readonly mode: FeedbackMode;
   readonly nConcurrentTrials: 1;
@@ -319,7 +320,7 @@ export const validateFeedbackExperimentManifest = (value: unknown): Result<Feedb
     || root.agent !== 'hermes' || !nonEmpty(root.agentVersion)
     || !sha256Hex(root.taskManifestSha256) || !nonEmpty(root.model) || !root.model.startsWith('openai-codex/')
     || (effort !== 'low' && effort !== 'medium' && effort !== 'high') || !nonEmpty(root.harborVersion)
-    || !sha256Hex(root.agentAdapterSha256) || !sha256Hex(root.aceMcpEntrypointSha256)
+    || !sha256Hex(root.agentAdapterSha256) || !sha256Hex(root.aceContextBridgeSha256) || !sha256Hex(root.contextPluginSha256)
     || !(seed === 'unknown' || nonEmpty(seed))
     || (root.mode !== 'cold' && root.mode !== 'warm') || root.nConcurrentTrials !== 1 || root.nAttempts !== 1
     || !nonEmpty(root.authenticationRoute)) {
@@ -341,7 +342,8 @@ export const validateFeedbackExperimentManifest = (value: unknown): Result<Feedb
     ...(hasSingleImage ? { imageDigest } : {}),
     taskImages,
     agentAdapterSha256: root.agentAdapterSha256,
-    aceMcpEntrypointSha256: root.aceMcpEntrypointSha256,
+    aceContextBridgeSha256: root.aceContextBridgeSha256,
+    contextPluginSha256: root.contextPluginSha256,
     seed,
     mode: root.mode,
     nConcurrentTrials: 1,

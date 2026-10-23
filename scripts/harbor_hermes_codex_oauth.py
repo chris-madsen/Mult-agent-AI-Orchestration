@@ -32,6 +32,10 @@ class HermesCodexOAuthOptions(HermesOptions):
         default="high",
         description="Reasoning effort forwarded to Hermes openai-codex.",
     )
+    ace_context_enabled: bool = Field(
+        default=False,
+        description="Enable the direct ACE Hermes ContextEngine plugin.",
+    )
 
 
 class HermesCodexOAuth(Hermes):
@@ -104,7 +108,7 @@ class HermesCodexOAuth(Hermes):
                 temp_path.unlink()
 
     @staticmethod
-    def _provider_config(base_yaml: str, reasoning_effort: str) -> str:
+    def _provider_config(base_yaml: str, reasoning_effort: str, ace_context_enabled: bool) -> str:
         config = yaml.safe_load(base_yaml)
         if not isinstance(config, dict):
             raise RuntimeError("Hermes generated an invalid base config")
@@ -114,7 +118,20 @@ class HermesCodexOAuth(Hermes):
             agent = {}
         agent["reasoning_effort"] = reasoning_effort
         config["agent"] = agent
+        if ace_context_enabled:
+            config["context"] = {"engine": "ace_context_engine"}
         return yaml.dump(config, default_flow_style=False)
+
+    async def _stage_context_engine(self, environment: BaseEnvironment) -> None:
+        await self.exec_as_agent(
+            environment,
+            command=(
+                "rm -rf /tmp/hermes/plugins/ace_context_engine && "
+                "mkdir -p /tmp/hermes/plugins/ace_context_engine && "
+                "cp -r /ace/integrations/hermes/ace_context_engine/. /tmp/hermes/plugins/ace_context_engine/"
+            ),
+            timeout_sec=10,
+        )
 
     @with_prompt_template
     @override
@@ -128,9 +145,17 @@ class HermesCodexOAuth(Hermes):
 
         await self._stage_hermes_auth(environment)
         env = {"HERMES_HOME": "/tmp/hermes", "TERMINAL_ENV": "local", "HARBOR_INSTRUCTION": instruction}
+        if self.options.ace_context_enabled:
+            await self._stage_context_engine(environment)
+            env.update({
+                "ACE_CONTEXT_WORKSPACE_ID": "00000000-0000-4000-8000-000000000001",
+                "ACE_CONTEXT_BRIDGE_COMMAND": "/ace/scripts/harbor-ace-context-bridge.sh",
+                "ACE_CONTEXT_RECEIPT_FILE": "/logs/artifacts/hermes-context-receipts.jsonl",
+            })
         config_yaml = self._provider_config(
             self._build_config_yaml(model, self.options.max_turns),
             self.options.reasoning_effort,
+            self.options.ace_context_enabled,
         )
         await self.exec_as_agent(
             environment,

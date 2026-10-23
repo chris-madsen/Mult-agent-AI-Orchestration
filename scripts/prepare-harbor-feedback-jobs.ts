@@ -6,8 +6,9 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import {
   dockerImageDigestPattern,
   dockerImageMatchesDigest,
-  feedbackAceMcpCommand,
+  feedbackAceContextBridgeCommand,
   feedbackHermesAgentImportPath,
+  feedbackHermesContextPluginPath,
   feedbackHermesProviderPrefix,
   feedbackHermesVersion,
 } from '../src/domain/feedback-harbor-config.js';
@@ -173,8 +174,8 @@ const main = async (): Promise<void> => {
       return absolute;
     });
     const aceRoot = resolve(aceRootArg);
-    const aceRuntime = join(aceRoot, 'dist', 'bin', 'ace-mcp.js');
-    if (!existsSync(aceRuntime)) throw new Error(`BLOCKED: compiled ACE runtime is missing: ${aceRuntime}`);
+    const aceRuntime = join(aceRoot, 'dist', 'bin', 'ace-context-bridge.js');
+    if (!existsSync(aceRuntime)) throw new Error(`BLOCKED: compiled ACE context bridge is missing: ${aceRuntime}`);
     const reasoning = reasoningArg;
     if (!['low', 'medium', 'high'].includes(reasoning)) throw new Error('BLOCKED: reasoning effort must be low, medium or high');
     const taskImageReferences = [...new Set(await Promise.all(taskPaths.map((path) => dockerImageReference(path))))];
@@ -197,9 +198,11 @@ const main = async (): Promise<void> => {
     const taskImages = taskImageReferences.map((reference) => ({ reference, digest: explicitTaskImageDigests.get(reference)! }));
     const imageDigest = taskImages.length === 1 ? taskImages[0]!.digest : undefined;
     const agentAdapter = join(aceRoot, 'scripts', 'harbor_hermes_codex_oauth.py');
-    const aceMcpEntrypoint = join(aceRoot, 'scripts', 'harbor-ace-mcp.sh');
+    const aceContextBridge = join(aceRoot, 'scripts', 'harbor-ace-context-bridge.sh');
+    const contextPlugin = join(aceRoot, 'integrations', 'hermes', 'ace_context_engine');
     if (!existsSync(agentAdapter)) throw new Error(`BLOCKED: Hermes Harbor adapter is missing: ${agentAdapter}`);
-    if (!existsSync(aceMcpEntrypoint)) throw new Error(`BLOCKED: ACE MCP entrypoint is missing: ${aceMcpEntrypoint}`);
+    if (!existsSync(aceContextBridge)) throw new Error(`BLOCKED: ACE context bridge is missing: ${aceContextBridge}`);
+    if (!existsSync(contextPlugin)) throw new Error(`BLOCKED: Hermes ContextEngine plugin is missing: ${contextPlugin}`);
     const requestedModel = modelArg.trim().replace(/^openai-codex\//u, '');
     if (requestedModel.length === 0 || requestedModel.includes('/')) {
       throw new Error('BLOCKED: model must be one explicit OpenAI model name without a provider prefix');
@@ -212,12 +215,17 @@ const main = async (): Promise<void> => {
     if (!/^[a-f0-9]{40,64}$/iu.test(aceSourceCommit)) throw new Error('BLOCKED: ACE checkout did not provide a pinned source commit');
     const aceRuntimeSha256 = sha256(await readFile(aceRuntime));
     const agentAdapterSha256 = sha256(await readFile(agentAdapter));
-    const aceMcpEntrypointSha256 = sha256(await readFile(aceMcpEntrypoint));
+    const aceContextBridgeSha256 = sha256(await readFile(aceContextBridge));
+    const contextPluginSha256 = frozenTreeDigest(
+      'hermes-ace-context-plugin',
+      aceSourceCommit,
+      frozenTreeEntries(aceRoot, aceSourceCommit, 'integrations/hermes/ace_context_engine'),
+    );
     const agent = {
       import_path: feedbackHermesAgentImportPath,
       model_name: model,
       override_setup_timeout_sec: 1200,
-      kwargs: { version: feedbackHermesVersion, reasoning_effort: reasoning },
+      kwargs: { version: feedbackHermesVersion, reasoning_effort: reasoning, ace_context_enabled: false },
     } as const;
     const common = {
       tasks: taskPaths.map((path) => ({ path })),
@@ -239,7 +247,7 @@ const main = async (): Promise<void> => {
       job_name: `${runId}-ace-optional`,
       agents: [{
         ...agent,
-        mcp_servers: [{ name: 'ace', transport: 'stdio', command: feedbackAceMcpCommand, args: [] }],
+        kwargs: { ...agent.kwargs, ace_context_enabled: true },
       }],
       environment: {},
       jobs_dir: join(artifactsRoot, runId, 'raw-agent-ace'),
@@ -273,7 +281,8 @@ const main = async (): Promise<void> => {
       ...(imageDigest === undefined ? {} : { imageDigest }),
       taskImages,
       agentAdapterSha256,
-      aceMcpEntrypointSha256,
+      aceContextBridgeSha256,
+      contextPluginSha256,
       seed: 'unknown' as const,
       mode: 'cold' as const,
       nConcurrentTrials: 1 as const,
@@ -290,14 +299,16 @@ const main = async (): Promise<void> => {
       artifactsRoot,
       aceRoot,
       aceSourceCommit,
-      aceRuntime: '/ace/dist/bin/ace-mcp.js',
+      aceRuntime: '/ace/dist/bin/ace-context-bridge.js',
       aceRuntimeSha256,
       agent: 'hermes',
       agentVersion: feedbackHermesVersion,
       agentAdapter: 'scripts/harbor_hermes_codex_oauth.py',
       agentAdapterSha256,
-      aceMcpEntrypoint: feedbackAceMcpCommand,
-      aceMcpEntrypointSha256,
+      aceContextBridge: feedbackAceContextBridgeCommand,
+      aceContextBridgeSha256,
+      contextPlugin: feedbackHermesContextPluginPath,
+      contextPluginSha256,
       taskSourceRevision: sourceRevision,
       verifiedSourceDigest: sourceDigest,
       taskManifestSha256: sha256(taskManifestBytes),

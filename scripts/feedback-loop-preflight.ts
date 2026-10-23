@@ -54,7 +54,31 @@ interface PreflightManifest {
   };
 }
 
-const sha256 = (value: string): string => createHash('sha256').update(value, 'utf8').digest('hex');
+const sha256 = (value: string | Uint8Array): string => {
+  const hash = createHash('sha256');
+  if (typeof value === 'string') hash.update(value, 'utf8');
+  else hash.update(value);
+  return hash.digest('hex');
+};
+
+const gitBytes = (root: string, args: readonly string[]): Buffer => execFileSync('git', ['-C', root, ...args]);
+const gitText = (root: string, args: readonly string[]): string => gitBytes(root, args).toString('utf8').trim();
+
+const contextPluginDigest = (root: string, revision: string): string => {
+  const paths = gitText(root, [
+    'ls-tree', '-r', '-z', '--name-only', revision, 'integrations/hermes/ace_context_engine/',
+  ]).split('\0').filter((path) => path.length > 0).sort((left, right) => left.localeCompare(right));
+  const entries = paths.map((path) => {
+    const bytes = gitBytes(root, ['show', `${revision}:${path}`]);
+    return { path, sizeBytes: bytes.byteLength, sha256: sha256(bytes) };
+  });
+  return sha256(Buffer.from(JSON.stringify({
+    schemaVersion: 1,
+    identity: 'hermes-ace-context-plugin',
+    revision,
+    entries,
+  }, null, 2) + '\n', 'utf8'));
+};
 
 const command = (name: string, args: readonly string[], environment?: Readonly<Record<string, string>>): PreflightCheck => {
   const result = spawnSync(name, args, {
@@ -133,7 +157,7 @@ const sourceCheckout = (): { readonly check: PreflightCheck; readonly commit: st
 
 const compiledRuntime = async (): Promise<PreflightCheck> => {
   const runtimeRoot = resolve('.');
-  const executable = resolve(runtimeRoot, 'dist/bin/ace-mcp.js');
+  const executable = resolve(runtimeRoot, 'dist/bin/ace-context-bridge.js');
   if (!existsSync(executable)) return { status: 'not_ready', reason: 'compiled ACE runtime is missing' };
   const verified = await verifyCompiledRuntimeProvenance(runtimeRoot, executable);
   return verified._tag === 'Err'
@@ -148,16 +172,19 @@ const compiledRuntime = async (): Promise<PreflightCheck> => {
 const agentRuntimeDigestCheck = async (
   experiment: FeedbackExperimentManifest | undefined,
 ): Promise<PreflightCheck> => {
-  if (experiment === undefined) return { status: 'not_ready', reason: 'Hermes adapter/MCP digests require an experiment manifest' };
+  if (experiment === undefined) return { status: 'not_ready', reason: 'Hermes adapter/bridge/plugin digests require an experiment manifest' };
   try {
     const adapter = createHash('sha256').update(await readFile('scripts/harbor_hermes_codex_oauth.py')).digest('hex');
-    const mcp = createHash('sha256').update(await readFile('scripts/harbor-ace-mcp.sh')).digest('hex');
-    if (adapter !== experiment.agentAdapterSha256 || mcp !== experiment.aceMcpEntrypointSha256) {
-      return { status: 'not_ready', reason: 'Hermes adapter or ACE MCP entrypoint digest does not match experiment manifest' };
+    const bridge = createHash('sha256').update(await readFile('scripts/harbor-ace-context-bridge.sh')).digest('hex');
+    const plugin = contextPluginDigest(resolve('.'), experiment.sourceCommit);
+    if (adapter !== experiment.agentAdapterSha256
+      || bridge !== experiment.aceContextBridgeSha256
+      || plugin !== experiment.contextPluginSha256) {
+      return { status: 'not_ready', reason: 'Hermes adapter, ContextEngine bridge or plugin digest does not match experiment manifest' };
     }
-    return { status: 'ready', reason: 'Hermes OAuth adapter and ACE MCP entrypoint match experiment digests', identity: `${adapter}:${mcp}` };
+    return { status: 'ready', reason: 'Hermes adapter, ContextEngine bridge and plugin match experiment digests', identity: `${adapter}:${bridge}:${plugin}` };
   } catch {
-    return { status: 'not_ready', reason: 'Hermes adapter or ACE MCP entrypoint could not be read' };
+    return { status: 'not_ready', reason: 'Hermes adapter, ContextEngine bridge or plugin could not be read' };
   }
 };
 const qdrant = async (url: string): Promise<PreflightCheck> => {

@@ -54,27 +54,26 @@ test('real Stage0 keeps evidence outside frozen source and revalidates source id
   assert.match(stage0, /finalSource\.manifestSha256 !== source\.manifestSha256/u);
 });
 
-test('feedback jobs use Hermes openai-codex OAuth and native MCP registration', async () => {
+test('feedback jobs use Hermes openai-codex OAuth and native ContextEngine registration', async () => {
   const preflight = await readFile('scripts/feedback-loop-preflight.ts', 'utf8');
   const jobs = await readFile('scripts/prepare-harbor-feedback-jobs.ts', 'utf8');
   const adapter = await readFile('scripts/harbor_hermes_codex_oauth.py', 'utf8');
-  const wrapper = await readFile('scripts/harbor-ace-mcp.sh', 'utf8');
+  const wrapper = await readFile('scripts/harbor-ace-context-bridge.sh', 'utf8');
   assert.doesNotMatch(jobs, /OPENAI_API_KEY|OPENROUTER_API_KEY/u);
   assert.match(jobs, /feedbackHermesAgentImportPath/u);
   assert.match(jobs, /feedbackHermesVersion/u);
-  assert.match(jobs, /mcp_servers/u);
-  assert.match(jobs, /feedbackAceMcpCommand/u);
+  assert.match(jobs, /ace_context_enabled/u);
+  assert.match(jobs, /feedbackAceContextBridgeCommand/u);
   assert.match(adapter, /--provider openai-codex/u);
-  assert.match(adapter, /\.hermes.*auth\.json/u);
+  assert.match(adapter, /context.*ace_context_engine/u);
+  assert.match(adapter, /ACE_CONTEXT_BRIDGE_COMMAND/u);
   assert.match(adapter, /HERMES_HOME/u);
   assert.match(adapter, /download_file\("\/tmp\/hermes\/auth\.json"/u);
   assert.doesNotMatch(adapter, /Path\.home\(\)\s*\/\s*["']\.codex["']|HERMES_CODEX_AUTH_JSON_PATH|\$HOME\/\.codex/u);
   assert.doesNotMatch(adapter, /OPENAI_API_KEY|OPENROUTER_API_KEY/u);
-  assert.match(wrapper, /ACE_WORKSPACE_ROOT="\/app"/u);
-  assert.match(wrapper, /ACE_ALLOWED_ROOTS="\/app"/u);
-  assert.match(wrapper, /ACE_WORKSPACE_ID="00000000-0000-4000-8000-000000000001"/u);
+  assert.match(wrapper, /ACE_CONTEXT_BRIDGE_MODE="true"/u);
+  assert.match(wrapper, /ACE_WORKSPACE_ROOT="\$\{ACE_WORKSPACE_ROOT:-\/app\}"/u);
   assert.match(wrapper, /fastembed==0\.7\.4/u);
-  assert.match(wrapper, /'fastembed==0\.7\.4' 1>&2/u);
   assert.doesNotMatch(preflight, /command\('codex'/u);
   assert.match(preflight, /hermesCodexAuth/u);
   assert.match(preflight, /agentRuntimeDigest/u);
@@ -184,5 +183,6 @@ test('exact-current preflight requires a clean checkout, compiled runtime proven
   assert.match(preflight, /status', '--porcelain=v1'/u);
   assert.match(preflight, /verifyCompiledRuntimeProvenance/u);
   assert.match(preflight, /agentAdapterSha256/u);
-  assert.match(preflight, /aceMcpEntrypointSha256/u);
+  assert.match(preflight, /aceContextBridgeSha256/u);
+  assert.match(preflight, /contextPluginSha256/u);
 });
