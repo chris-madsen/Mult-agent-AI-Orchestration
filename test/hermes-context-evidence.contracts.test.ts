@@ -73,6 +73,7 @@ test('JSONL parser validates each Hermes transformation receipt', async () => {
 
 
 test('ready transformation cannot claim provider correlation without providerRequestId', () => {
-  const { providerRequestId: _unused, ...withoutTrace } = valid();
+  const receipt = valid();
+  const withoutTrace = { ...receipt, providerRequestId: undefined };
   assert.equal(validateHermesContextEvidence(withoutTrace)._tag, 'Err');
 });
