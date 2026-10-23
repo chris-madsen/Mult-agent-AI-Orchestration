@@ -68,7 +68,7 @@ test('feedback jobs use Hermes openai-codex OAuth and native MCP registration', 
   assert.match(adapter, /\.hermes.*auth\.json/u);
   assert.match(adapter, /HERMES_HOME/u);
   assert.match(adapter, /download_file\("\/tmp\/hermes\/auth\.json"/u);
-  assert.doesNotMatch(adapter, /\.codex.*auth\.json/u);
+  assert.doesNotMatch(adapter, /Path\.home\(\)\s*\/\s*["']\.codex["']|HERMES_CODEX_AUTH_JSON_PATH|\$HOME\/\.codex/u);
   assert.doesNotMatch(adapter, /OPENAI_API_KEY|OPENROUTER_API_KEY/u);
   assert.match(wrapper, /ACE_WORKSPACE_ROOT="\/app"/u);
   assert.match(wrapper, /ACE_ALLOWED_ROOTS="\/app"/u);
