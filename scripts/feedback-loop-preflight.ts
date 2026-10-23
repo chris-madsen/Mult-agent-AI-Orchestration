@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, realpathSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import {
   dockerImageDigestPattern,
   dockerImageMatchesDigest,
@@ -149,13 +149,25 @@ const aceConfigDigestCheck = async (
   if (jobs === undefined || experiment === undefined) {
     return { status: 'not_ready', reason: 'ACE config digest requires frozen Harbor jobs and experiment manifest' };
   }
-  if (!jobs.aceConfigPath.startsWith('/ace/')) {
-    return { status: 'not_ready', reason: 'ACE job config path is not inside the mounted /ace checkout' };
+  const runtimeRoot = realpathSync(resolve('.'));
+  let hostPath: string;
+  try {
+    // Harbor reads kwargs.config on the host before the task container exists.
+    // Accept the generated absolute host path, while retaining compatibility
+    // with older frozen jobs that recorded the mounted /ace path.
+    if (jobs.aceConfigPath.startsWith('/ace/')) {
+      hostPath = realpathSync(resolve(runtimeRoot, jobs.aceConfigPath.slice('/ace/'.length)));
+    } else {
+      if (!isAbsolute(jobs.aceConfigPath)) {
+        return { status: 'not_ready', reason: 'ACE job config path must be an absolute host path or a mounted /ace path' };
+      }
+      hostPath = realpathSync(jobs.aceConfigPath);
+    }
+  } catch {
+    return { status: 'not_ready', reason: 'ACE job config path could not be resolved' };
   }
-  const runtimeRoot = resolve('.');
-  const hostPath = resolve(runtimeRoot, jobs.aceConfigPath.slice('/ace/'.length));
   const containment = relative(runtimeRoot, hostPath);
-  if (isAbsolute(containment) || containment === '..' || containment.startsWith('../')) {
+  if (isAbsolute(containment) || containment === '..' || containment.startsWith(`..${sep}`)) {
     return { status: 'not_ready', reason: 'ACE job config path escapes the current checkout' };
   }
   try {

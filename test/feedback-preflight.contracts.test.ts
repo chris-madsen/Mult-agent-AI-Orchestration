@@ -80,12 +80,28 @@ test('real Stage0 keeps evidence outside frozen source and revalidates source id
 test('feedback jobs use the Codex OAuth route and do not require the legacy API-key route', async () => {
   const preflight = await readFile('scripts/feedback-loop-preflight.ts', 'utf8');
   const jobs = await readFile('scripts/prepare-harbor-feedback-jobs.ts', 'utf8');
+  const sweAtlasConfig = await readFile('benchmarks/harbor/ace-swe-atlas-codex-config.toml', 'utf8');
+  const sweAtlasWrapper = await readFile('scripts/harbor-ace-mcp.sh', 'utf8');
   assert.doesNotMatch(preflight, /OPENAI_API_KEY|OPENAI_API_BASE/u);
   assert.match(preflight, /authenticationRoute: codexAuthenticationRoute/u);
   assert.match(preflight, /fastembed-sparse-worker\.sh'\], sparseEmbeddingEnvironment/u);
   assert.match(jobs, /CODEX_FORCE_AUTH_JSON:\s*'1'/u);
   assert.match(jobs, /CODEX_AUTH_JSON_PATH:\s*''/u);
   assert.doesNotMatch(jobs, /OPENAI_API_KEY|OPENAI_API_BASE/u);
+  assert.match(sweAtlasConfig, /cwd = "\/app"/u);
+  assert.match(sweAtlasConfig, /ACE_WORKSPACE_ROOT = "\/app"/u);
+  assert.match(sweAtlasConfig, /ACE_ALLOWED_ROOTS = "\/app"/u);
+  assert.match(sweAtlasConfig, /ACE_WORKSPACE_ID = "00000000-0000-4000-8000-000000000001"/u);
+  assert.match(sweAtlasConfig, /GIT_CONFIG_VALUE_0 = "\/ace"/u);
+  assert.match(sweAtlasConfig, /GIT_CONFIG_VALUE_1 = "\/app"/u);
+  assert.match(sweAtlasConfig, /command = "\/ace\/scripts\/harbor-ace-mcp\.sh"/u);
+  assert.match(sweAtlasWrapper, /fastembed==0\.7\.4/u);
+  assert.match(sweAtlasWrapper, /'fastembed==0\.7\.4' 1>&2/u);
+  assert.match(sweAtlasWrapper, /ACE_EMBEDDING_PYTHON=.*python_launcher/u);
+  assert.match(sweAtlasWrapper, /ACE_SPARSE_EMBEDDING_PYTHON=.*python_launcher/u);
+  assert.match(jobs, /config: aceConfig/u);
+  assert.match(preflight, /isAbsolute\(jobs\.aceConfigPath\)/u);
+  assert.match(preflight, /realpathSync\(jobs\.aceConfigPath\)/u);
 });
 
 

@@ -57,6 +57,31 @@ test('workspace snapshot exposes branch and staged/unstaged/untracked/deleted pa
   }
 });
 
+test('workspace snapshot retains large Git path metadata instead of truncating it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-working-context-large-'));
+  try {
+    await exec('git', ['init', '-b', 'ace-large-test'], { cwd: root });
+    await exec('git', ['config', 'user.email', 'ace@example.invalid'], { cwd: root });
+    await exec('git', ['config', 'user.name', 'ACE Test'], { cwd: root });
+    const generated = join(root, 'generated');
+    await mkdir(generated, { recursive: true });
+    for (let index = 0; index < 6_000; index += 1) {
+      await writeFile(join(generated, `${String(index).padStart(5, '0')}-${'x'.repeat(220)}.txt`), 'generated\n');
+    }
+    await exec('git', ['add', '.'], { cwd: root });
+    await exec('git', ['commit', '-m', 'large fixture'], { cwd: root, maxBuffer: 64 * 1024 * 1024 });
+
+    const port = makeNodeWorkspacePort({ allowedRoots: [root] });
+    const canonical = mustOk(await Effect.runPromise(port.canonicalizeRoot(root)));
+    const snapshot = mustOk(await Effect.runPromise(port.snapshot(canonical, 1234)));
+
+    assert.equal(snapshot.gitStatus, 'available');
+    assert.equal(snapshot.files.length, 6_000);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 const workspaceId = mustOk(makeWorkspaceId('working-prior-fixture'));
 const candidate = (id: string, path: string, score: number): RankedCandidate => ({
   candidate: mustOk(makeCodeCandidate({

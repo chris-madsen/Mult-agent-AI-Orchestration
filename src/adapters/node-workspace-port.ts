@@ -12,6 +12,7 @@ import type { DomainError } from '../domain/errors.js';
 import { recoverResult } from '../application/effect-result.js';
 
 const execFileAsync = promisify(execFile);
+const gitMetadataMaxBuffer = 64 * 1024 * 1024;
 
 const isWithin = (root: string, candidate: string): boolean => {
   const relation = relative(root, candidate);
@@ -80,7 +81,14 @@ const gitList = async (rootPath: string, args: readonly string[]): Promise<Set<s
   // Git errors inside a repository are not equivalent to a non-Git directory.
   // Failing closed prevents corrupt/permission-denied metadata from masquerading
   // as an empty tracked/deleted set.
-  const result = await execFileAsync('git', [...args], { cwd: rootPath, encoding: 'utf8' });
+  const result = await execFileAsync('git', [...args], {
+    cwd: rootPath,
+    encoding: 'utf8',
+    // Large real repositories can exceed Node's 1 MiB execFile default for
+    // NUL-delimited path lists. Keep the bound finite, but large enough to
+    // observe a pinned worktree without treating metadata truncation as empty.
+    maxBuffer: gitMetadataMaxBuffer,
+  });
   return new Set(result.stdout.split('\0').filter((value) => value.length > 0));
 };
 
