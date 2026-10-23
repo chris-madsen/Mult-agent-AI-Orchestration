@@ -32,6 +32,12 @@ class HermesCodexOAuthOptions(HermesOptions):
         default="high",
         description="Reasoning effort forwarded to Hermes openai-codex.",
     )
+    ace_context_enabled: bool = Field(
+        default=False,
+        description="Enable the direct ACE Hermes ContextEngine plugin.",
+    )
+    ace_context_bridge_sha256: str = ""
+    context_plugin_sha256: str = ""
 
 
 class HermesCodexOAuth(Hermes):
@@ -72,9 +78,17 @@ class HermesCodexOAuth(Hermes):
     def _validate_auth_store(path: Path) -> None:
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
-            state = value["providers"]["openai-codex"]
-            tokens = state["tokens"]
-            if state.get("auth_mode") != "chatgpt" or not tokens.get("access_token") or not tokens.get("refresh_token"):
+            providers = value.get("providers") if isinstance(value, dict) else None
+            legacy = providers.get("openai-codex") if isinstance(providers, dict) else None
+            tokens = legacy.get("tokens") if isinstance(legacy, dict) else None
+            pool = value.get("credential_pool") if isinstance(value, dict) else None
+            entries = pool.get("openai-codex") if isinstance(pool, dict) else None
+            current = entries[0] if isinstance(entries, list) and entries and isinstance(entries[0], dict) else None
+            legacy_valid = isinstance(legacy, dict) and legacy.get("auth_mode") == "chatgpt" \
+                and isinstance(tokens, dict) and tokens.get("access_token") and tokens.get("refresh_token")
+            current_valid = isinstance(current, dict) and current.get("auth_type") == "oauth" \
+                and current.get("access_token") and current.get("refresh_token")
+            if not (legacy_valid or current_valid):
                 raise ValueError("missing openai-codex ChatGPT OAuth state")
         except Exception as exc:
             raise RuntimeError(f"Hermes OAuth store is malformed: {path}") from exc
@@ -104,7 +118,7 @@ class HermesCodexOAuth(Hermes):
                 temp_path.unlink()
 
     @staticmethod
-    def _provider_config(base_yaml: str, reasoning_effort: str) -> str:
+    def _provider_config(base_yaml: str, reasoning_effort: str, ace_context_enabled: bool) -> str:
         config = yaml.safe_load(base_yaml)
         if not isinstance(config, dict):
             raise RuntimeError("Hermes generated an invalid base config")
@@ -114,7 +128,20 @@ class HermesCodexOAuth(Hermes):
             agent = {}
         agent["reasoning_effort"] = reasoning_effort
         config["agent"] = agent
+        if ace_context_enabled:
+            config["context"] = {"engine": "ace_context_engine"}
         return yaml.dump(config, default_flow_style=False)
+
+    async def _stage_context_engine(self, environment: BaseEnvironment) -> None:
+        await self.exec_as_agent(
+            environment,
+            command=(
+                "rm -rf /tmp/hermes/plugins/ace_context_engine && "
+                "mkdir -p /tmp/hermes/plugins/ace_context_engine && "
+                "cp -r /ace/integrations/hermes/ace_context_engine/. /tmp/hermes/plugins/ace_context_engine/"
+            ),
+            timeout_sec=10,
+        )
 
     @with_prompt_template
     @override
@@ -128,9 +155,19 @@ class HermesCodexOAuth(Hermes):
 
         await self._stage_hermes_auth(environment)
         env = {"HERMES_HOME": "/tmp/hermes", "TERMINAL_ENV": "local", "HARBOR_INSTRUCTION": instruction}
+        if self.options.ace_context_enabled:
+            await self._stage_context_engine(environment)
+            env.update({
+                "ACE_CONTEXT_WORKSPACE_ID": "00000000-0000-4000-8000-000000000001",
+                "ACE_CONTEXT_BRIDGE_COMMAND": "/ace/scripts/harbor-ace-context-bridge.sh",
+                "ACE_CONTEXT_RECEIPT_FILE": "/logs/artifacts/hermes-context-receipts.jsonl",
+                "ACE_CONTEXT_BRIDGE_SHA256": self.options.ace_context_bridge_sha256,
+                "ACE_CONTEXT_PLUGIN_SHA256": self.options.context_plugin_sha256,
+            })
         config_yaml = self._provider_config(
             self._build_config_yaml(model, self.options.max_turns),
             self.options.reasoning_effort,
+            self.options.ace_context_enabled,
         )
         await self.exec_as_agent(
             environment,
@@ -154,7 +191,13 @@ class HermesCodexOAuth(Hermes):
         cli_parts.extend(['-q "$HARBOR_INSTRUCTION"', "-Q", f"--model {shlex.quote(model)}", "--provider openai-codex"])
         if self.options.toolsets:
             cli_parts.append(f"--toolsets {shlex.quote(str(self.options.toolsets))}")
-        run_cmd = f"{cli_parts[0]} && {' '.join(cli_parts[1:])} 2>&1 | stdbuf -oL tee /logs/agent/hermes.txt"
+        # Do not pipe Hermes directly into tee: without a guaranteed pipefail
+        # shell, tee can turn a blocked/non-zero Hermes exit into apparent success.
+        # Capture the agent status first, replay the log, then return that exact code.
+        run_cmd = (
+            f"{cli_parts[0]} && {' '.join(cli_parts[1:])} > /logs/agent/hermes.txt 2>&1; "
+            'status=$?; cat /logs/agent/hermes.txt; exit "$status"'
+        )
 
         try:
             await self.exec_as_agent(environment, command=run_cmd, env=env)

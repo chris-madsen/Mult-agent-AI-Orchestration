@@ -21,15 +21,23 @@ export const inspectHermesAuthJson = (authPath: string, contents: string): Herme
   }
   const root = object(parsed);
   const providers = object(root?.providers);
-  const codex = object(providers?.['openai-codex']);
-  const tokens = object(codex?.tokens);
-  const hasAccessToken = nonEmpty(tokens?.access_token);
-  const hasRefreshToken = nonEmpty(tokens?.refresh_token);
-  const refreshMetadata = codex?.last_refresh;
+  const legacy = object(providers?.['openai-codex']);
+  const legacyTokens = object(legacy?.tokens);
+  const pool = object(root?.credential_pool);
+  const currentEntries = Array.isArray(pool?.['openai-codex']) ? pool?.['openai-codex'] : [];
+  const current = currentEntries.map(object).find((entry): entry is JsonObject => entry !== undefined);
+  const currentAccess = nonEmpty(current?.access_token);
+  const currentRefresh = nonEmpty(current?.refresh_token);
+  const legacyAccess = nonEmpty(legacyTokens?.access_token);
+  const legacyRefresh = nonEmpty(legacyTokens?.refresh_token);
+  const authModeValid = legacy?.auth_mode === 'chatgpt' || current?.auth_type === 'oauth';
+  const hasAccessToken = currentAccess || legacyAccess;
+  const hasRefreshToken = currentRefresh || legacyRefresh;
+  const refreshMetadata = current?.last_refresh ?? legacy?.last_refresh;
   const hasRefreshMetadata = nonEmpty(refreshMetadata)
     && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(refreshMetadata)
     && Number.isFinite(Date.parse(refreshMetadata));
-  if (codex?.auth_mode !== 'chatgpt' || !hasAccessToken || !hasRefreshToken || !hasRefreshMetadata) {
+  if (!authModeValid || !hasAccessToken || !hasRefreshToken || !hasRefreshMetadata) {
     return {
       status: 'not_ready',
       reason: 'Hermes auth file does not contain a complete independent openai-codex ChatGPT OAuth session',

@@ -1,9 +1,9 @@
 schema: spec-driven
 context: |
-  Project: Adaptive Context Engine (ACE), external harness for Codex.
-  Source of truth: docs/docs/references/PRD-v1.0.md and accepted ADR-000..ADR-014.
+  Project: Adaptive Context Engine (ACE), agent-neutral context engine with Hermes request-time integration and Codex comparison support.
+  Source of truth: docs/docs/references/PRD-v1.0.md and accepted ADR-000..ADR-016.
   DDD architecture and contracts: docs/docs/architecture/01..07. BC boundaries do not imply microservices.
-  Accepted constraints: one logical MCP facade; local code Qdrant with dense+sparse/RRF retrieval;
+  Accepted constraints: one logical MCP facade for explicit tools/expansion; Hermes ContextEngine request-time transformation for mandatory ACE context;
   Tree-sitter/ast-grep structural facts; an evidence-selected language-service provider;
   explicitly authorized Vertex documentation; Graphiti plus an immutable raw session archive;
   local-first Kubernetes deployment; Harbor for paired agent benchmarks.

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { readHarborFeedbackTrialObservations } from '../src/adapters/harbor-feedback-trial-evidence.js';
+import { readHermesContextEvidenceJsonl } from '../src/adapters/hermes-context-evidence.js';
 import {
   reconcileFeedbackTrials,
   validateFeedbackExperimentManifest,
@@ -160,6 +161,12 @@ const observationsFor = async (
     const destination = join(outputRoot, arm === 'native' ? 'raw-agent-native' : 'raw-agent-ace', safeTaskDirectory);
     const artifacts = await copyDirectory(directory, destination);
     const result = await readJson(join(directory, 'result.json'));
+    const contextEvidenceFiles = (await walkFiles(directory)).filter((path) => basename(path) === 'hermes-context-receipts.jsonl');
+    const hermesContextEvidence = [];
+    for (const evidenceFile of contextEvidenceFiles) {
+      hermesContextEvidence.push(...await readHermesContextEvidenceJsonl(evidenceFile));
+    }
+    const contextTransformRequestIds = [...new Set(hermesContextEvidence.map((item) => item.requestId))];
     const traceFiles = await providerTraceFiles(directory);
     for (const traceFile of traceFiles) providerTraceLines.push(await readFile(traceFile, 'utf8'));
     const observedRequestIds = [...new Set(trial.successfulRequestIds)];
@@ -174,9 +181,11 @@ const observationsFor = async (
       usage: rawUsage(result),
       ...(trial.latencyMs === null ? {} : { durationMs: trial.latencyMs }),
       ...(trial.nativeFileReads === null ? {} : { nativeFileReads: trial.nativeFileReads }),
-      observedAceCalls: arm === 'native' ? 0 : trial.observedAceCalls,
+      observedAceCalls: arm === 'native' ? 0 : trial.observedAceCalls + contextTransformRequestIds.length,
       observedAceContextCalls: arm === 'native' ? 0 : trial.observedAceContextCalls,
       observedAceRequestIds: arm === 'native' ? [] : observedRequestIds,
+      ...(arm === 'native' || contextTransformRequestIds.length === 0 ? {} : { contextTransformRequestIds }),
+      ...(arm === 'native' || hermesContextEvidence.length === 0 ? {} : { hermesContextEvidence }),
       providerTraceRequestIds: arm === 'native' ? [] : await providerTraceRequestIds(directory),
       rawArtifactHashes: artifacts,
     });

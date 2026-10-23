@@ -54,7 +54,31 @@ interface PreflightManifest {
   };
 }
 
-const sha256 = (value: string): string => createHash('sha256').update(value, 'utf8').digest('hex');
+const sha256 = (value: string | Uint8Array): string => {
+  const hash = createHash('sha256');
+  if (typeof value === 'string') hash.update(value, 'utf8');
+  else hash.update(value);
+  return hash.digest('hex');
+};
+
+const gitBytes = (root: string, args: readonly string[]): Buffer => execFileSync('git', ['-C', root, ...args]);
+const gitText = (root: string, args: readonly string[]): string => gitBytes(root, args).toString('utf8').trim();
+
+const contextPluginDigest = (root: string, revision: string): string => {
+  const paths = gitText(root, [
+    'ls-tree', '-r', '-z', '--name-only', revision, 'integrations/hermes/ace_context_engine/',
+  ]).split('\0').filter((path) => path.length > 0).sort((left, right) => left.localeCompare(right));
+  const entries = paths.map((path) => {
+    const bytes = gitBytes(root, ['show', `${revision}:${path}`]);
+    return { path, sizeBytes: bytes.byteLength, sha256: sha256(bytes) };
+  });
+  return sha256(Buffer.from(JSON.stringify({
+    schemaVersion: 1,
+    identity: 'hermes-ace-context-plugin',
+    revision,
+    entries,
+  }, null, 2) + '\n', 'utf8'));
+};
 
 const command = (name: string, args: readonly string[], environment?: Readonly<Record<string, string>>): PreflightCheck => {
   const result = spawnSync(name, args, {
@@ -148,16 +172,21 @@ const compiledRuntime = async (): Promise<PreflightCheck> => {
 const agentRuntimeDigestCheck = async (
   experiment: FeedbackExperimentManifest | undefined,
 ): Promise<PreflightCheck> => {
-  if (experiment === undefined) return { status: 'not_ready', reason: 'Hermes adapter/MCP digests require an experiment manifest' };
+  if (experiment === undefined) return { status: 'not_ready', reason: 'Hermes adapter/bridge/plugin digests require an experiment manifest' };
   try {
     const adapter = createHash('sha256').update(await readFile('scripts/harbor_hermes_codex_oauth.py')).digest('hex');
-    const mcp = createHash('sha256').update(await readFile('scripts/harbor-ace-mcp.sh')).digest('hex');
-    if (adapter !== experiment.agentAdapterSha256 || mcp !== experiment.aceMcpEntrypointSha256) {
-      return { status: 'not_ready', reason: 'Hermes adapter or ACE MCP entrypoint digest does not match experiment manifest' };
+    // The Harbor command is a source-bound shell wrapper, but the executable
+    // provider path is dist/bin/ace-context-bridge.js. Verify those exact bytes.
+    const bridge = createHash('sha256').update(await readFile('dist/bin/ace-context-bridge.js')).digest('hex');
+    const plugin = contextPluginDigest(resolve('.'), experiment.sourceCommit);
+    if (adapter !== experiment.agentAdapterSha256
+      || bridge !== experiment.aceContextBridgeSha256
+      || plugin !== experiment.contextPluginSha256) {
+      return { status: 'not_ready', reason: 'Hermes adapter, ContextEngine bridge or plugin digest does not match experiment manifest' };
     }
-    return { status: 'ready', reason: 'Hermes OAuth adapter and ACE MCP entrypoint match experiment digests', identity: `${adapter}:${mcp}` };
+    return { status: 'ready', reason: 'Hermes adapter, ContextEngine bridge and plugin match experiment digests', identity: `${adapter}:${bridge}:${plugin}` };
   } catch {
-    return { status: 'not_ready', reason: 'Hermes adapter or ACE MCP entrypoint could not be read' };
+    return { status: 'not_ready', reason: 'Hermes adapter, ContextEngine bridge or plugin could not be read' };
   }
 };
 const qdrant = async (url: string): Promise<PreflightCheck> => {
@@ -236,7 +265,7 @@ const parseArgs = (): {
 } => {
   const args = process.argv.slice(2);
   let outputDirectory = process.env.ACE_FEEDBACK_OUTPUT?.trim() || 'artifacts/feedback/preflight';
-  let embeddingPython = process.env.ACE_EMBEDDING_PYTHON?.trim() || '.venv-embedding-fast/bin/python';
+  let embeddingPython = resolve(process.env.ACE_EMBEDDING_PYTHON?.trim() || '.venv-embedding-fast/bin/python');
   let embeddingLibraryPath = process.env.ACE_EMBEDDING_LD_LIBRARY_PATH?.trim();
   let qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
   let nativeJobPath: string | undefined;

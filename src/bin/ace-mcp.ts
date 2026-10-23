@@ -58,6 +58,8 @@ import { observeWorkspace, registerWorkspace } from '../application/workspace-se
 import { readVerifiedSemanticSnapshot, semanticSnapshotIdentity } from '../application/semantic-snapshot.js';
 import { verifyCompiledRuntimeProvenance } from '../application/runtime-provenance.js';
 import { makeMcpGateway, type CapabilityReadiness } from '../gateway/mcp-gateway.js';
+import { makeContextTransformService } from '../application/context-transform-service.js';
+import { runContextBridgeStdio } from '../transport/context-bridge-stdio.js';
 import { runMcpSdkStdio } from '../transport/mcp-sdk-stdio.js';
 
 const required = (name: string): string => {
@@ -849,8 +851,27 @@ const main = async (): Promise<void> => {
     ...(memory === undefined ? {} : { memory }),
     readiness: () => ({ ...readiness }),
   });
+  const contextBridge = context === undefined
+    ? undefined
+    : makeContextTransformService({
+      ids: ports.ids,
+      store,
+      context,
+      providerIdentities: {
+        dense: process.env.ACE_EMBEDDING_PROVIDER?.trim() || 'fastembed/onnx',
+        sparse: process.env.ACE_SPARSE_EMBEDDING_MODEL?.trim() || 'Qdrant/bm25',
+        qdrant: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
+        structural: process.env.ACE_AST_GREP_VERSION?.trim() || 'ast-grep/0.51.0',
+        semantic: process.env.ACE_LSP_VERSION?.trim() || 'typescript-language-server/6.0.2',
+      },
+    });
   try {
-    await runMcpSdkStdio(gateway, benchmarkTrace === undefined ? {} : { benchmarkTrace });
+    if (process.env.ACE_CONTEXT_BRIDGE_MODE === 'true') {
+      if (contextBridge === undefined) throw new Error('ACE context bridge requires a ready context provider');
+      await runContextBridgeStdio(contextBridge);
+    } else {
+      await runMcpSdkStdio(gateway, benchmarkTrace === undefined ? {} : { benchmarkTrace });
+    }
   } finally {
     let cleanupError: unknown;
     try {
