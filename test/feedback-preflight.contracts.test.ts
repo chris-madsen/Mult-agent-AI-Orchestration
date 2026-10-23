@@ -3,67 +3,44 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import {
   hermesCodexAuthenticationRoute,
-  inspectCodexAuthJson,
+  inspectHermesAuthJson,
 } from '../src/domain/feedback-preflight.js';
 import * as feedbackPreflight from '../src/domain/feedback-preflight.js';
 
 const validAuth = JSON.stringify({
-  auth_mode: 'chatgpt',
-  OPENAI_API_KEY: null,
-  tokens: {
-    access_token: 'oauth-access-token',
-    refresh_token: 'oauth-refresh-token',
-    id_token: 'e30.e30.signature',
-    account_id: 'account-id',
+  providers: {
+    'openai-codex': {
+      auth_mode: 'chatgpt',
+      tokens: {
+        access_token: 'oauth-access-token',
+        refresh_token: 'oauth-refresh-token',
+      },
+      last_refresh: '2026-10-22T16:00:00Z',
+    },
   },
-  last_refresh: '2026-10-22T16:00:00Z',
 });
 
 test('Hermes ChatGPT/Codex OAuth is ready without a manually supplied API key', () => {
-  const observed = inspectCodexAuthJson('/home/test/.codex/auth.json', validAuth);
+  const observed = inspectHermesAuthJson('/home/test/.hermes/auth.json', validAuth);
   assert.equal(observed.status, 'ready');
   assert.equal(observed.authenticationRoute, hermesCodexAuthenticationRoute);
-  assert.equal(observed.identity, '/home/test/.codex/auth.json');
+  assert.equal(observed.identity, '/home/test/.hermes/auth.json');
   assert.doesNotMatch(JSON.stringify(observed), /oauth-access-token|oauth-refresh-token|oauth-id-token/u);
 });
 
 test('Hermes Codex-OAuth preflight rejects missing or malformed OAuth state', () => {
-  assert.equal(inspectCodexAuthJson('/tmp/auth.json', '').status, 'not_ready');
-  assert.equal(inspectCodexAuthJson('/tmp/auth.json', '{"auth_mode":"chatgpt"}').status, 'not_ready');
-  assert.equal(inspectCodexAuthJson('/tmp/auth.json', '{"tokens":{"access_token":"x"}}').status, 'not_ready');
-  assert.equal(inspectCodexAuthJson('/tmp/auth.json', '{not-json').status, 'not_ready');
-  assert.equal(inspectCodexAuthJson('/tmp/auth.json', '{"auth_mode":"api_key","tokens":{"access_token":"x"}}').status, 'not_ready');
-  assert.equal(inspectCodexAuthJson('/tmp/auth.json', JSON.stringify({
-    auth_mode: 'chatgpt',
-    tokens: { id_token: 'identity-only' },
-    last_refresh: '2026-10-22T16:00:00Z',
+  assert.equal(inspectHermesAuthJson('/tmp/auth.json', '').status, 'not_ready');
+  assert.equal(inspectHermesAuthJson('/tmp/auth.json', '{}').status, 'not_ready');
+  assert.equal(inspectHermesAuthJson('/tmp/auth.json', JSON.stringify({
+    providers: { 'openai-codex': { auth_mode: 'chatgpt', tokens: { access_token: 'access-only' }, last_refresh: '2026-10-22T16:00:00Z' } },
   })).status, 'not_ready');
-  assert.equal(inspectCodexAuthJson('/tmp/auth.json', JSON.stringify({
-    auth_mode: 'chatgpt',
-    tokens: { access_token: 'access-only' },
-    last_refresh: '2026-10-22T16:00:00Z',
+  assert.equal(inspectHermesAuthJson('/tmp/auth.json', JSON.stringify({
+    providers: { 'openai-codex': { auth_mode: 'api_key', tokens: { access_token: 'access', refresh_token: 'refresh' }, last_refresh: '2026-10-22T16:00:00Z' } },
   })).status, 'not_ready');
-  assert.equal(inspectCodexAuthJson('/tmp/auth.json', JSON.stringify({
-    auth_mode: 'chatgpt',
-    tokens: { access_token: 'access', refresh_token: 'refresh' },
-  })).status, 'not_ready');
-  assert.equal(inspectCodexAuthJson('/tmp/auth.json', JSON.stringify({
-    auth_mode: 'chatgpt',
-    tokens: { access_token: 'access', refresh_token: 'refresh' },
-    last_refresh: 'not-a-date',
-  })).status, 'not_ready');
-  assert.equal(inspectCodexAuthJson('/tmp/auth.json', JSON.stringify({
-    auth_mode: 'chatgpt',
-    tokens: { access_token: 'access', refresh_token: 'refresh' },
-    last_refresh: '2026-10-22T16:00:00Z',
-  })).status, 'not_ready');
-  assert.equal(inspectCodexAuthJson('/tmp/auth.json', JSON.stringify({
-    auth_mode: 'chatgpt',
-    tokens: { access_token: 'access', refresh_token: 'refresh', id_token: 'not-a-jwt' },
-    last_refresh: '2026-10-22T16:00:00Z',
+  assert.equal(inspectHermesAuthJson('/tmp/auth.json', JSON.stringify({
+    providers: { 'openai-codex': { auth_mode: 'chatgpt', tokens: { access_token: 'access', refresh_token: 'refresh' }, last_refresh: 'not-a-date' } },
   })).status, 'not_ready');
 });
-
 test('real Stage0 requires source-root to be the actual Git checkout root', async () => {
   const stage0 = await readFile('scripts/feedback-loop-stage0.ts', 'utf8');
   assert.match(stage0, /rev-parse', '--show-toplevel/u);
@@ -88,7 +65,10 @@ test('feedback jobs use Hermes openai-codex OAuth and native MCP registration', 
   assert.match(jobs, /mcp_servers/u);
   assert.match(jobs, /feedbackAceMcpCommand/u);
   assert.match(adapter, /--provider openai-codex/u);
-  assert.match(adapter, /\.codex.*auth\.json/u);
+  assert.match(adapter, /\.hermes.*auth\.json/u);
+  assert.match(adapter, /HERMES_HOME/u);
+  assert.match(adapter, /download_file\("\/tmp\/hermes\/auth\.json"/u);
+  assert.doesNotMatch(adapter, /\.codex.*auth\.json/u);
   assert.doesNotMatch(adapter, /OPENAI_API_KEY|OPENROUTER_API_KEY/u);
   assert.match(wrapper, /ACE_WORKSPACE_ROOT="\/app"/u);
   assert.match(wrapper, /ACE_ALLOWED_ROOTS="\/app"/u);
@@ -190,10 +170,12 @@ test('explicit image digest cannot contradict experiment task-image provenance',
 });
 
 
-test('OAuth preflight inspects the host auth.json that Hermes openai-codex imports', async () => {
+test('OAuth preflight inspects the dedicated Hermes auth store, not Codex CLI state', async () => {
   const preflight = await readFile('scripts/feedback-loop-preflight.ts', 'utf8');
-  assert.doesNotMatch(preflight, /process\.env\.CODEX_HOME/u);
-  assert.match(preflight, /process\.env\.HOME/u);
+  assert.doesNotMatch(preflight, /CODEX_HOME|\.codex.*auth\.json/u);
+  assert.match(preflight, /HERMES_AUTH_JSON_PATH/u);
+  assert.match(preflight, /HERMES_HOME/u);
+  assert.match(preflight, /\.hermes/u);
 });
 
 

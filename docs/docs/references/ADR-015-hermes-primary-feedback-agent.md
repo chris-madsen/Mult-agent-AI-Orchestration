@@ -14,7 +14,7 @@ ACE задуман agent-neutral и должен передавать прове
 ## Решение
 
 1. **Hermes — primary agent для текущего Harbor feedback loop.** Native и ACE-optional arms используют один и тот же Hermes version, модель, reasoning effort, task image, source revision, timeout и один attempt.
-2. **GPT подключается через Hermes `openai-codex`.** Источник аутентификации — уже существующий host `~/.codex/auth.json`. Credential bytes копируются только в ephemeral Harbor task container, не попадают в manifest/log artifacts и удаляются после run.
+2. **GPT подключается через Hermes `openai-codex`.** Источник аутентификации — отдельный Hermes-owned store `~/.hermes/auth.json`, созданный `hermes auth add openai-codex`. Benchmark не заимствует `~/.codex/auth.json`: Hermes upstream разделяет эти refresh-token chains, чтобы Codex CLI/VS Code и Hermes не инвалидировали OAuth друг друга. Store копируется только в `HERMES_HOME=/tmp/hermes` ephemeral task container; после serial trial обновлённый OAuth state атомарно синхронизируется обратно в host Hermes store. Credential bytes не попадают в manifest/log artifacts.
 3. **ACE подключается как native Hermes MCP server.** Baseline arm не получает ACE; ACE-optional arm получает ровно один server `ace` через stdio с entrypoint `/ace/scripts/harbor-ace-mcp.sh`.
 4. **Harbor 0.24.0 сохраняется.** До появления upstream-поддержки `openai-codex` используется минимальный custom Harbor adapter `scripts.harbor_hermes_codex_oauth:HermesCodexOAuth`, основанный на штатном Harbor Hermes runtime.
 5. **Hermes version должен быть pinned в experiment/job evidence.** На момент принятия решения feedback loop закрепляет `v0.22.3`; обновление требует нового provenance/evidence, а не молчаливого `latest`.
@@ -40,7 +40,7 @@ ACE задуман agent-neutral и должен передавать прове
 
 Цена:
 
-- До upstream-поддержки Harbor нужен небольшой adapter boundary.
+- До upstream-поддержки Harbor нужен небольшой adapter boundary, который stage/sync-ит Hermes-owned OAuth store и не касается Codex CLI credentials.
 - Предыдущий Codex smoke/preflight не является Hermes E2E proof.
 - Token/cache fields зависят от того, что реально экспортируют Hermes/Harbor/provider; недоступные поля должны оставаться unknown.
 

@@ -10,7 +10,7 @@
 
 **Architecture:** preserve the existing MCP facade, exact-source reread, provider receipts, source-coverage semantics, OAuth auth-file route, and fail-closed statuses. Do not replace an unavailable provider with a mock or lexical success.
 
-**Auth decision:** Harbor Hermes jobs use Hermes provider `openai-codex` and import the existing host `~/.codex/auth.json` into the ephemeral task container. A manually supplied `OPENAI_API_KEY` or `OPENROUTER_API_KEY` is not required for this subscription route. A task-specific remote verifier may declare its own requirement; that is separate from agent authentication.
+**Auth decision:** Harbor Hermes jobs use Hermes provider `openai-codex` with a dedicated host Hermes OAuth store (`~/.hermes/auth.json`, or the explicitly configured `HERMES_HOME` / `HERMES_AUTH_JSON_PATH`). The benchmark never borrows `~/.codex/auth.json`; Hermes owns and refreshes its own token chain. The store is staged into `HERMES_HOME=/tmp/hermes` inside the ephemeral task container and synchronized back atomically after each serial trial. A manually supplied `OPENAI_API_KEY` or `OPENROUTER_API_KEY` is not required for this subscription route. A task-specific remote verifier may declare its own requirement; that is separate from agent authentication.
 
 ---
 
@@ -32,7 +32,7 @@
 |---|---|---|
 | Provider implementation | **IMPLEMENTED/CONTRACT-TESTED** | MCP, ast-grep, LSP, FastEmbed, Qdrant, receipts, and fail-closed reporting exist. This is not agent-E2E evidence. |
 | CST to LSP | **REAL STAGE-0 PASS / LIMITED COVERAGE** | A real source checkout produced one current/direct LSP-confirmed class symbol through MCP. Three optional arrow-function cases remain unconfirmed because the provider did not expose an exact name anchor; they are not counted as direct evidence. |
-| Hermes authentication | **IMPLEMENTED / REAL HERMES SMOKE PENDING** | Exact-current preflight validates host `~/.codex/auth.json`; the Harbor adapter imports it for Hermes `openai-codex` without API-key fallback. Credentials are not retained in manifests or logs. |
+| Hermes authentication | **IMPLEMENTED / REAL HERMES SMOKE PENDING** | Exact-current preflight validates the dedicated host Hermes store `~/.hermes/auth.json` (or explicit Hermes auth path); the Harbor adapter stages it into the trial and synchronizes refreshed OAuth state back after the serial run. `~/.codex/auth.json` is deliberately not shared. Credentials are not retained in manifests or logs. |
 | Local provider stack | **LOCAL PROVIDERS READY / HERMES HARBOR SMOKE PENDING** | Node/npm, ast-grep, TypeScript LSP, dense/sparse FastEmbed, Qdrant, Harbor and Docker remain required. Host Codex CLI is no longer a runtime prerequisite for the Hermes route; ChatGPT OAuth state is imported directly. A new real Hermes smoke is required after this agent change. |
 | Harbor natural-use feedback | **NOT RUN — INPUTS FROZEN** | Twenty source-bound SWE-Atlas task identities and main/holdout selection are frozen, but job generation/smoke cannot pass the local image/verifier gate. No natural, forced, zero-call, paired, repeat, or holdout result is accepted. |
 | RepoBench-R | **BLOCKED — NO SOURCE COMMIT MAPPING** | The pinned official records expose repository/file/context data but no exact source commits. Acquisition stopped before download or synthetic checkout creation. |
@@ -71,14 +71,14 @@ AUTH-01 OAuth-first preflight
 
 **Files:** `scripts/feedback-loop-preflight.ts`, `src/domain/feedback-preflight.ts`, and the existing preflight contract owner.
 
-- Validate `~/.codex/auth.json` metadata and OAuth token presence without logging token bytes.
+- Validate the Hermes-owned `~/.hermes/auth.json` (or explicit Hermes auth path) and its `providers.openai-codex` OAuth state without logging token bytes.
 - Record the Hermes `openai-codex` authentication route and pin the custom Harbor adapter plus MCP entrypoint digests.
 - Do not require `OPENAI_API_KEY`, `OPENAI_API_BASE` or `OPENROUTER_API_KEY` for the agent route.
 - Remove the global API verifier from the required base checks.
 - Check a remote verifier only when the selected Harbor task explicitly requires one.
 - Emit preflight manifest schema version 2 and reject stale schema-1 manifests for current trials.
 
-**Tests:** valid ChatGPT auth with no API key is ready; missing/malformed auth is blocked; generated jobs carry `CODEX_FORCE_AUTH_JSON=1`; manifests contain no credentials.
+**Tests:** valid Hermes `providers.openai-codex` OAuth state with no API key is ready; missing/malformed auth is blocked; generated jobs use the pinned Hermes adapter and native MCP registration; the adapter never reads `~/.codex/auth.json`; manifests contain no credentials.
 
 **Done:** focused tests and typecheck pass, and the preflight distinguishes OAuth agent authentication from task-specific verifier readiness.
 
@@ -92,7 +92,7 @@ Prepare a clean disposable checkout at the exact commit under test and verify:
 - Qdrant reachable from both host and Harbor container;
 - Harbor version, `harbor run --help`, and dataset registry;
 - Docker and task image inspection;
-- Hermes adapter provenance and ChatGPT/Codex OAuth auth file;
+- Hermes adapter provenance and dedicated Hermes ChatGPT/Codex OAuth store;
 - built runtime/source manifest identity.
 
 Run the OAuth-first preflight and save:

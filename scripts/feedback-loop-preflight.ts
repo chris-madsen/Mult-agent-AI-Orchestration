@@ -12,7 +12,7 @@ import {
 } from '../src/domain/feedback-harbor-config.js';
 import {
   hermesCodexAuthenticationRoute,
-  inspectCodexAuthJson,
+  inspectHermesAuthJson,
   validateFeedbackImageOverride,
   validateFeedbackPreflightBinding,
 } from '../src/domain/feedback-preflight.js';
@@ -97,15 +97,16 @@ const harborDataset = (): PreflightCheck => {
 };
 
 const hermesCodexAuth = async (): Promise<PreflightCheck> => {
-  // Harbor's CODEX_FORCE_AUTH_JSON route resolves Path.home()/.codex/auth.json
-  // on the host. Do not inspect CODEX_HOME here unless the generated job also
-  // switches to CODEX_AUTH_JSON_PATH.
-  const authPath = resolve(process.env.HOME ?? '/', '.codex', 'auth.json');
-  if (!existsSync(authPath)) return { status: 'not_ready', reason: 'Codex auth file is unavailable' };
+  const configured = process.env.HERMES_AUTH_JSON_PATH?.trim();
+  const hermesHome = process.env.HERMES_HOME?.trim();
+  const authPath = configured && configured.length > 0
+    ? resolve(configured)
+    : resolve(hermesHome && hermesHome.length > 0 ? hermesHome : resolve(process.env.HOME ?? '/', '.hermes'), 'auth.json');
+  if (!existsSync(authPath)) return { status: 'not_ready', reason: 'Hermes auth file is unavailable' };
   try {
-    return inspectCodexAuthJson(authPath, await readFile(authPath, 'utf8'));
+    return inspectHermesAuthJson(authPath, await readFile(authPath, 'utf8'));
   } catch {
-    return { status: 'not_ready', reason: 'Codex auth file could not be read' };
+    return { status: 'not_ready', reason: 'Hermes auth file could not be read' };
   }
 };
 
