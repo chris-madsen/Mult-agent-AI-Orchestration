@@ -47,9 +47,12 @@ const parseArgs = (): {
     else if (name === '--holdout-only-id' && value !== undefined) holdoutOnlyIds.push(value);
     else return usage();
   }
-  const smokeSelection = smokeId !== undefined;
-  const mainSelection = mainIds.length === 10 && holdoutIds.length === 10;
-  const holdoutSelection = holdoutOnlyIds.length === 10;
+  const smokeSelection = smokeId !== undefined
+    && mainIds.length === 0 && holdoutIds.length === 0 && holdoutOnlyIds.length === 0;
+  const mainSelection = smokeId === undefined
+    && mainIds.length === 10 && holdoutIds.length === 10 && holdoutOnlyIds.length === 0;
+  const holdoutSelection = smokeId === undefined
+    && mainIds.length === 0 && holdoutIds.length === 0 && holdoutOnlyIds.length === 10;
   if (tasksPath === undefined || datasetRevision === undefined || datasetSha256 === undefined || outputDirectory === undefined
     || [smokeSelection, mainSelection, holdoutSelection].filter(Boolean).length !== 1) return usage();
   const selectedIds = smokeSelection ? [smokeId!] : mainSelection ? [...mainIds, ...holdoutIds] : holdoutOnlyIds;

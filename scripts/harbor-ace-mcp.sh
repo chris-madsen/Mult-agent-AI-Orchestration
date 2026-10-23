@@ -9,11 +9,13 @@ marker="$package_root/.fastembed-0.7.4.ready"
 python_launcher="$package_root/python"
 mkdir -p "$package_root"
 if [[ ! -f "$marker" ]]; then
+  # MCP stdio reserves stdout for JSON-RPC. Keep bootstrap diagnostics on
+  # stderr so pip progress cannot corrupt the Codex <-> ACE handshake.
   python3 -m pip install \
     --disable-pip-version-check \
     --no-input \
     --target "$package_root" \
-    'fastembed==0.7.4'
+    'fastembed==0.7.4' 1>&2
   : > "$marker"
 fi
 

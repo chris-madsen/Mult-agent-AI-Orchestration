@@ -263,6 +263,27 @@ test('freeze CLI creates a provenance-bound one-task smoke manifest', async () =
   assert.equal(validateFeedbackTaskManifest(frozen)._tag, 'Ok');
 });
 
+test('freeze CLI rejects mixed selection modes instead of silently ignoring extra IDs', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-feedback-mixed-freeze-'));
+  const tasksPath = join(root, 'task-identities.jsonl');
+  const output = join(root, 'frozen');
+  await writeFile(tasksPath, `${JSON.stringify({
+    ...manifest.tasks[0],
+    taskPath: 'tasks/task-1',
+  })}\n`);
+  const run = spawnSync(resolve('node_modules/.bin/tsx'), [
+    'scripts/freeze-feedback-task-manifest.ts',
+    '--tasks', tasksPath,
+    '--dataset-revision', revision,
+    '--dataset-sha256', digest('b'),
+    '--output', output,
+    '--smoke-id', 'task-1',
+    '--main-id', 'task-1',
+  ], { cwd: resolve('.'), encoding: 'utf8', timeout: 120_000 });
+  assert.notEqual(run.status, 0);
+  assert.match(run.stderr, /Usage:/u);
+});
+
 test('freeze CLI creates a provenance-bound holdout-only manifest', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ace-feedback-holdout-freeze-'));
   const tasksPath = join(root, 'task-identities.jsonl');
