@@ -39,3 +39,19 @@ remain open and are documented in `docs/docs/spikes/SPIKE-HARBOR.md`.
 
 **Architecture correction:** existing successful smoke results establish only test harness mechanics. They cannot establish ACE retrieval savings when no ACE calls occur or when forced calls address a trivial replacement task.
 - [ ] Retrieval-demanding paired Codex trials with traced ACE calls and real-provider attribution (DBC-12); keep all failed runs and external costs.
+
+
+---
+
+## Hermes migration gates — owner decision 2026-10-23
+
+Historical completed Codex tasks above remain historical evidence and are not relabeled.
+
+- [x] Replace current feedback-loop job identity with pinned Hermes `v0.22.3` and `openai-codex/<model>`.
+- [x] Add a narrow Harbor 0.24.0 Hermes adapter that imports existing ChatGPT/Codex OAuth from host `~/.codex/auth.json` without requiring OpenAI/OpenRouter API keys.
+- [x] Expose ACE only on the optional arm through Hermes native stdio MCP; move the container-specific ACE environment into the pinned MCP wrapper.
+- [x] Update collector compatibility so Hermes `hermes-session.jsonl` MCP calls can be correlated while legacy Codex evidence remains readable.
+- [x] Pin adapter and MCP entrypoint digests in experiment/preflight provenance.
+- [ ] Run a one-task real Hermes native vs Hermes+ACE smoke with the same GPT model/reasoning and retain raw Hermes session/provider evidence.
+- [ ] Require successful verifier outcomes and correlated ACE calls before starting the 10-task paired run.
+- [ ] Run repeats and untouched holdout only after the Hermes smoke gate passes.

@@ -6,9 +6,9 @@ Harbor baseline, complete usage and comparative evidence.
 
 ## ADDED Requirements
 
-### Requirement: Strong native Codex baseline
+### Requirement: Strong native Hermes baseline
 
-The system SHALL run the unmodified Codex baseline with normal code-search, shell, tests, caching and compaction available.
+The system SHALL run a native Hermes baseline with normal shell, code-search and test capabilities available and no ACE MCP server. The paired ACE-optional arm SHALL use the same pinned Hermes version, `openai-codex` model, reasoning effort, task input and permissions, adding only the ACE MCP server.
 
 #### Scenario: Baseline preparation
 
@@ -31,7 +31,7 @@ The system SHALL use Harbor to run reproducible tasks in isolated environments w
 
 ### Requirement: Correct provider-reported usage
 
-The system SHALL capture available Codex provider-reported token usage and SHALL distinguish cumulative snapshots from per-step deltas.
+The system SHALL capture usage exported by the pinned Hermes/Harbor/provider runtime when available. Missing fields, including cached-input counters not exposed by the route, SHALL remain unknown rather than being reconstructed from estimates.
 
 #### Scenario: Cached and reasoning subsets
 
@@ -73,9 +73,9 @@ The system SHALL support versioned exploratory and frozen holdout suites and rep
 
 ### Requirement: Other provider costs
 
-The system SHALL record the attributable cost of Vertex, embeddings, memory extraction, Jev and indexing separately from Codex tokens.
+The system SHALL record the attributable cost of Vertex, embeddings, memory extraction, Jev and indexing separately from agent/model tokens.
 
-#### Scenario: External work saved no Codex tokens
+#### Scenario: External work saved no agent/model tokens
 
 - **WHEN** a run used third-party model calls
 - **THEN** their provider usage/cost is included in the cost ledger rather than omitted
@@ -88,7 +88,7 @@ The system SHALL separate measured token differences from demonstrated ACE-cause
 
 #### Scenario: DBC-12 zero ACE calls
 
-- **WHEN** ACE-enabled Codex uses fewer tokens than baseline but invokes zero ACE tools
+- **WHEN** ACE-enabled Hermes uses fewer tokens than the native Hermes baseline but invokes zero ACE tools
 - **THEN** the report records the difference and SHALL explicitly deny attribution to ACE retrieval
 
 #### Scenario: Trivial forced tool smoke

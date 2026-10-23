@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, realpathSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { resolve } from 'node:path';
 import {
   dockerImageDigestPattern,
   dockerImageMatchesDigest,
@@ -11,7 +11,7 @@ import {
   type FeedbackHarborPairIdentity,
 } from '../src/domain/feedback-harbor-config.js';
 import {
-  codexAuthenticationRoute,
+  hermesCodexAuthenticationRoute,
   inspectCodexAuthJson,
   validateFeedbackImageOverride,
   validateFeedbackPreflightBinding,
@@ -36,9 +36,11 @@ interface PreflightManifest {
   readonly generatedAt: string;
   readonly sourceCommit: string;
   readonly runtimeRoot: string;
-  readonly authenticationRoute: typeof codexAuthenticationRoute;
+  readonly authenticationRoute: typeof hermesCodexAuthenticationRoute;
   readonly checks: Readonly<Record<string, PreflightCheck>>;
   readonly runtime?: {
+    readonly agent: 'hermes';
+    readonly agentVersion: string;
     readonly model: string;
     readonly reasoningEffort: FeedbackHarborJobIdentity['reasoningEffort'];
     readonly harborVersion: string;
@@ -47,7 +49,7 @@ interface PreflightManifest {
     readonly mode: 'cold';
     readonly nConcurrentTrials: 1;
     readonly nAttempts: 1;
-    readonly authenticationRoute: typeof codexAuthenticationRoute;
+    readonly authenticationRoute: typeof hermesCodexAuthenticationRoute;
     readonly embeddingLibraryPath?: string;
   };
 }
@@ -94,7 +96,7 @@ const harborDataset = (): PreflightCheck => {
     : { status: 'not_ready', reason: 'pinned scale-ai/swe-atlas-qna is not listed by the Harbor registry' };
 };
 
-const codexAuth = async (): Promise<PreflightCheck> => {
+const hermesCodexAuth = async (): Promise<PreflightCheck> => {
   // Harbor's CODEX_FORCE_AUTH_JSON route resolves Path.home()/.codex/auth.json
   // on the host. Do not inspect CODEX_HOME here unless the generated job also
   // switches to CODEX_AUTH_JSON_PATH.
@@ -142,44 +144,21 @@ const compiledRuntime = async (): Promise<PreflightCheck> => {
     };
 };
 
-const aceConfigDigestCheck = async (
-  jobs: FeedbackHarborPairIdentity | undefined,
+const agentRuntimeDigestCheck = async (
   experiment: FeedbackExperimentManifest | undefined,
 ): Promise<PreflightCheck> => {
-  if (jobs === undefined || experiment === undefined) {
-    return { status: 'not_ready', reason: 'ACE config digest requires frozen Harbor jobs and experiment manifest' };
-  }
-  const runtimeRoot = realpathSync(resolve('.'));
-  let hostPath: string;
+  if (experiment === undefined) return { status: 'not_ready', reason: 'Hermes adapter/MCP digests require an experiment manifest' };
   try {
-    // Harbor reads kwargs.config on the host before the task container exists.
-    // Accept the generated absolute host path, while retaining compatibility
-    // with older frozen jobs that recorded the mounted /ace path.
-    if (jobs.aceConfigPath.startsWith('/ace/')) {
-      hostPath = realpathSync(resolve(runtimeRoot, jobs.aceConfigPath.slice('/ace/'.length)));
-    } else {
-      if (!isAbsolute(jobs.aceConfigPath)) {
-        return { status: 'not_ready', reason: 'ACE job config path must be an absolute host path or a mounted /ace path' };
-      }
-      hostPath = realpathSync(jobs.aceConfigPath);
+    const adapter = createHash('sha256').update(await readFile('scripts/harbor_hermes_codex_oauth.py')).digest('hex');
+    const mcp = createHash('sha256').update(await readFile('scripts/harbor-ace-mcp.sh')).digest('hex');
+    if (adapter !== experiment.agentAdapterSha256 || mcp !== experiment.aceMcpEntrypointSha256) {
+      return { status: 'not_ready', reason: 'Hermes adapter or ACE MCP entrypoint digest does not match experiment manifest' };
     }
+    return { status: 'ready', reason: 'Hermes OAuth adapter and ACE MCP entrypoint match experiment digests', identity: `${adapter}:${mcp}` };
   } catch {
-    return { status: 'not_ready', reason: 'ACE job config path could not be resolved' };
-  }
-  const containment = relative(runtimeRoot, hostPath);
-  if (isAbsolute(containment) || containment === '..' || containment.startsWith(`..${sep}`)) {
-    return { status: 'not_ready', reason: 'ACE job config path escapes the current checkout' };
-  }
-  try {
-    const actual = createHash('sha256').update(await readFile(hostPath)).digest('hex');
-    return actual === experiment.aceConfigDigest
-      ? { status: 'ready', reason: 'ACE job config bytes match the experiment digest', identity: actual }
-      : { status: 'not_ready', reason: 'ACE job config digest does not match experiment manifest' };
-  } catch {
-    return { status: 'not_ready', reason: 'ACE job config bytes could not be read' };
+    return { status: 'not_ready', reason: 'Hermes adapter or ACE MCP entrypoint could not be read' };
   }
 };
-
 const qdrant = async (url: string): Promise<PreflightCheck> => {
   try {
     const response = await fetch(`${url.replace(/\/$/u, '')}/collections`, { signal: AbortSignal.timeout(3000) });
@@ -339,12 +318,11 @@ const main = async (): Promise<void> => {
     harborRun: command('harbor', ['run', '--help']),
     harborDatasets: command('harbor', ['datasets', 'list']),
     harborDatasetPinned: harborDataset(),
-    codex: command('codex', ['--version']),
-    codexAuth: await codexAuth(),
+    hermesCodexAuth: await hermesCodexAuth(),
     docker: command('docker', ['--version']),
     harborJobs: harborJobs.check,
     harborImageDigest: dockerImages(effectiveImageDigest, manifestTaskImages),
-    aceConfigDigest: await aceConfigDigestCheck(harborJobs.identity, experimentManifest),
+    agentRuntimeDigest: await agentRuntimeDigestCheck(experimentManifest),
   };
   const harborVersion = checks.harbor.identity;
   if (experimentManifest === undefined) {
@@ -356,7 +334,9 @@ const main = async (): Promise<void> => {
       ...validateFeedbackPreflightBinding({
         currentSourceCommit,
         actualHarborVersion: harborVersion,
-        expectedAuthenticationRoute: codexAuthenticationRoute,
+        expectedAuthenticationRoute: hermesCodexAuthenticationRoute,
+        jobAgent: harborJobs.identity.agent,
+        jobAgentVersion: harborJobs.identity.agentVersion,
         jobModel: harborJobs.identity.model,
         jobReasoningEffort: harborJobs.identity.reasoningEffort,
         experiment: experimentManifest,
@@ -371,8 +351,8 @@ const main = async (): Promise<void> => {
   checks.embeddingCache = await embeddingCache();
   const required = [
     'sourceCheckout', 'runtimeProvenance', 'node', 'npm', 'astGrep', 'typescriptLanguageServer',
-    'embeddingPython', 'sparseEmbedding', 'harbor', 'harborRun', 'harborDatasetPinned', 'codex',
-    'codexAuth', 'docker', 'harborJobs', 'harborImageDigest', 'aceConfigDigest', 'experimentBinding',
+    'embeddingPython', 'sparseEmbedding', 'harbor', 'harborRun', 'harborDatasetPinned',
+    'hermesCodexAuth', 'docker', 'harborJobs', 'harborImageDigest', 'agentRuntimeDigest', 'experimentBinding',
     'embeddingCache', 'qdrant',
   ];
   const blocked = required.filter((name) => checks[name]?.status !== 'ready');
@@ -382,11 +362,13 @@ const main = async (): Promise<void> => {
     generatedAt: new Date().toISOString(),
     sourceCommit: currentSourceCommit,
     runtimeRoot: resolve('.'),
-    authenticationRoute: codexAuthenticationRoute,
+    authenticationRoute: hermesCodexAuthenticationRoute,
     checks,
     ...(blocked.length === 0 && harborJobs.identity !== undefined && (effectiveImageDigest !== undefined || manifestTaskImages !== undefined)
       ? {
         runtime: {
+          agent: harborJobs.identity.agent,
+          agentVersion: harborJobs.identity.agentVersion,
           model: harborJobs.identity.model,
           reasoningEffort: harborJobs.identity.reasoningEffort,
           harborVersion: checks.harbor.identity ?? 'unknown',
@@ -395,7 +377,7 @@ const main = async (): Promise<void> => {
           mode: 'cold' as const,
           nConcurrentTrials: 1 as const,
           nAttempts: 1 as const,
-          authenticationRoute: codexAuthenticationRoute,
+          authenticationRoute: hermesCodexAuthenticationRoute,
           ...(args.embeddingLibraryPath === undefined ? {} : { embeddingLibraryPath: args.embeddingLibraryPath }),
         },
       }

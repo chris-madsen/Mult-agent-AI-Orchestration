@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import {
-  codexAuthenticationRoute,
+  hermesCodexAuthenticationRoute,
   inspectCodexAuthJson,
 } from '../src/domain/feedback-preflight.js';
 import * as feedbackPreflight from '../src/domain/feedback-preflight.js';
@@ -19,15 +19,15 @@ const validAuth = JSON.stringify({
   last_refresh: '2026-10-22T16:00:00Z',
 });
 
-test('Codex ChatGPT auth is ready without a manually supplied API key', () => {
+test('Hermes ChatGPT/Codex OAuth is ready without a manually supplied API key', () => {
   const observed = inspectCodexAuthJson('/home/test/.codex/auth.json', validAuth);
   assert.equal(observed.status, 'ready');
-  assert.equal(observed.authenticationRoute, codexAuthenticationRoute);
+  assert.equal(observed.authenticationRoute, hermesCodexAuthenticationRoute);
   assert.equal(observed.identity, '/home/test/.codex/auth.json');
   assert.doesNotMatch(JSON.stringify(observed), /oauth-access-token|oauth-refresh-token|oauth-id-token/u);
 });
 
-test('Codex auth preflight rejects missing or malformed OAuth state', () => {
+test('Hermes Codex-OAuth preflight rejects missing or malformed OAuth state', () => {
   assert.equal(inspectCodexAuthJson('/tmp/auth.json', '').status, 'not_ready');
   assert.equal(inspectCodexAuthJson('/tmp/auth.json', '{"auth_mode":"chatgpt"}').status, 'not_ready');
   assert.equal(inspectCodexAuthJson('/tmp/auth.json', '{"tokens":{"access_token":"x"}}').status, 'not_ready');
@@ -77,33 +77,28 @@ test('real Stage0 keeps evidence outside frozen source and revalidates source id
   assert.match(stage0, /finalSource\.manifestSha256 !== source\.manifestSha256/u);
 });
 
-test('feedback jobs use the Codex OAuth route and do not require the legacy API-key route', async () => {
+test('feedback jobs use Hermes openai-codex OAuth and native MCP registration', async () => {
   const preflight = await readFile('scripts/feedback-loop-preflight.ts', 'utf8');
   const jobs = await readFile('scripts/prepare-harbor-feedback-jobs.ts', 'utf8');
-  const sweAtlasConfig = await readFile('benchmarks/harbor/ace-swe-atlas-codex-config.toml', 'utf8');
-  const sweAtlasWrapper = await readFile('scripts/harbor-ace-mcp.sh', 'utf8');
-  assert.doesNotMatch(preflight, /OPENAI_API_KEY|OPENAI_API_BASE/u);
-  assert.match(preflight, /authenticationRoute: codexAuthenticationRoute/u);
-  assert.match(preflight, /fastembed-sparse-worker\.sh'\], sparseEmbeddingEnvironment/u);
-  assert.match(jobs, /CODEX_FORCE_AUTH_JSON:\s*'1'/u);
-  assert.match(jobs, /CODEX_AUTH_JSON_PATH:\s*''/u);
-  assert.doesNotMatch(jobs, /OPENAI_API_KEY|OPENAI_API_BASE/u);
-  assert.match(sweAtlasConfig, /cwd = "\/app"/u);
-  assert.match(sweAtlasConfig, /ACE_WORKSPACE_ROOT = "\/app"/u);
-  assert.match(sweAtlasConfig, /ACE_ALLOWED_ROOTS = "\/app"/u);
-  assert.match(sweAtlasConfig, /ACE_WORKSPACE_ID = "00000000-0000-4000-8000-000000000001"/u);
-  assert.match(sweAtlasConfig, /GIT_CONFIG_VALUE_0 = "\/ace"/u);
-  assert.match(sweAtlasConfig, /GIT_CONFIG_VALUE_1 = "\/app"/u);
-  assert.match(sweAtlasConfig, /command = "\/ace\/scripts\/harbor-ace-mcp\.sh"/u);
-  assert.match(sweAtlasWrapper, /fastembed==0\.7\.4/u);
-  assert.match(sweAtlasWrapper, /'fastembed==0\.7\.4' 1>&2/u);
-  assert.match(sweAtlasWrapper, /ACE_EMBEDDING_PYTHON=.*python_launcher/u);
-  assert.match(sweAtlasWrapper, /ACE_SPARSE_EMBEDDING_PYTHON=.*python_launcher/u);
-  assert.match(jobs, /config: aceConfig/u);
-  assert.match(preflight, /isAbsolute\(jobs\.aceConfigPath\)/u);
-  assert.match(preflight, /realpathSync\(jobs\.aceConfigPath\)/u);
+  const adapter = await readFile('scripts/harbor_hermes_codex_oauth.py', 'utf8');
+  const wrapper = await readFile('scripts/harbor-ace-mcp.sh', 'utf8');
+  assert.doesNotMatch(jobs, /OPENAI_API_KEY|OPENROUTER_API_KEY/u);
+  assert.match(jobs, /feedbackHermesAgentImportPath/u);
+  assert.match(jobs, /feedbackHermesVersion/u);
+  assert.match(jobs, /mcp_servers/u);
+  assert.match(jobs, /feedbackAceMcpCommand/u);
+  assert.match(adapter, /--provider openai-codex/u);
+  assert.match(adapter, /\.codex.*auth\.json/u);
+  assert.doesNotMatch(adapter, /OPENAI_API_KEY|OPENROUTER_API_KEY/u);
+  assert.match(wrapper, /ACE_WORKSPACE_ROOT="\/app"/u);
+  assert.match(wrapper, /ACE_ALLOWED_ROOTS="\/app"/u);
+  assert.match(wrapper, /ACE_WORKSPACE_ID="00000000-0000-4000-8000-000000000001"/u);
+  assert.match(wrapper, /fastembed==0\.7\.4/u);
+  assert.match(wrapper, /'fastembed==0\.7\.4' 1>&2/u);
+  assert.doesNotMatch(preflight, /command\('codex'/u);
+  assert.match(preflight, /hermesCodexAuth/u);
+  assert.match(preflight, /agentRuntimeDigest/u);
 });
-
 
 test('exact-current preflight binds experiment identity to checkout, jobs, Harbor and auth route', () => {
   const module = feedbackPreflight as unknown as {
@@ -111,10 +106,14 @@ test('exact-current preflight binds experiment identity to checkout, jobs, Harbo
       readonly currentSourceCommit: string;
       readonly actualHarborVersion: string;
       readonly expectedAuthenticationRoute: string;
+      readonly jobAgent: 'hermes';
+      readonly jobAgentVersion: string;
       readonly jobModel: string;
       readonly jobReasoningEffort: 'low' | 'medium' | 'high';
       readonly experiment: {
         readonly sourceCommit: string;
+        readonly agent: 'hermes';
+        readonly agentVersion: string;
         readonly model: string;
         readonly reasoningEffort: 'low' | 'medium' | 'high';
         readonly harborVersion: string;
@@ -127,15 +126,19 @@ test('exact-current preflight binds experiment identity to checkout, jobs, Harbo
   const base = {
     currentSourceCommit: 'a'.repeat(40),
     actualHarborVersion: 'harbor 0.24.0',
-    expectedAuthenticationRoute: codexAuthenticationRoute,
-    jobModel: 'gpt-5.6-luna',
+    expectedAuthenticationRoute: hermesCodexAuthenticationRoute,
+    jobAgent: 'hermes' as const,
+    jobAgentVersion: 'v0.22.3',
+    jobModel: 'openai-codex/gpt-5.6-luna',
     jobReasoningEffort: 'high' as const,
     experiment: {
       sourceCommit: 'a'.repeat(40),
-      model: 'gpt-5.6-luna',
+      agent: 'hermes' as const,
+      agentVersion: 'v0.22.3',
+      model: 'openai-codex/gpt-5.6-luna',
       reasoningEffort: 'high' as const,
       harborVersion: 'harbor 0.24.0',
-      authenticationRoute: codexAuthenticationRoute,
+      authenticationRoute: hermesCodexAuthenticationRoute,
     },
   };
   assert.deepEqual(module.validateFeedbackPreflightBinding(base), []);
@@ -145,7 +148,11 @@ test('exact-current preflight binds experiment identity to checkout, jobs, Harbo
   }), ['sourceCommit']);
   assert.deepEqual(module.validateFeedbackPreflightBinding({
     ...base,
-    experiment: { ...base.experiment, model: 'different-model' },
+    experiment: { ...base.experiment, agentVersion: 'v0.0.0' },
+  }), ['agentVersion']);
+  assert.deepEqual(module.validateFeedbackPreflightBinding({
+    ...base,
+    experiment: { ...base.experiment, model: 'openai-codex/different-model' },
   }), ['model']);
   assert.deepEqual(module.validateFeedbackPreflightBinding({
     ...base,
@@ -183,16 +190,17 @@ test('explicit image digest cannot contradict experiment task-image provenance',
 });
 
 
-test('OAuth preflight inspects the same default auth.json path Harbor uses for CODEX_FORCE_AUTH_JSON', async () => {
+test('OAuth preflight inspects the host auth.json that Hermes openai-codex imports', async () => {
   const preflight = await readFile('scripts/feedback-loop-preflight.ts', 'utf8');
   assert.doesNotMatch(preflight, /process\.env\.CODEX_HOME/u);
   assert.match(preflight, /process\.env\.HOME/u);
 });
 
 
-test('exact-current preflight requires a clean checkout, compiled runtime provenance and ACE config digest', async () => {
+test('exact-current preflight requires a clean checkout, compiled runtime provenance and Hermes/MCP digests', async () => {
   const preflight = await readFile('scripts/feedback-loop-preflight.ts', 'utf8');
   assert.match(preflight, /status', '--porcelain=v1'/u);
   assert.match(preflight, /verifyCompiledRuntimeProvenance/u);
-  assert.match(preflight, /aceConfigDigest/u);
+  assert.match(preflight, /agentAdapterSha256/u);
+  assert.match(preflight, /aceMcpEntrypointSha256/u);
 });

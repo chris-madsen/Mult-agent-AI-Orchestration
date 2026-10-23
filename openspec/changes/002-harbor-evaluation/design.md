@@ -4,7 +4,7 @@
 
 ## Context
 
-Token improvement must be established against a strong current Codex baseline before large retrieval engineering investments.
+Token improvement must be established against a strong current Hermes baseline before large retrieval engineering investments. The underlying GPT model is routed through Hermes `openai-codex` with the same ChatGPT/Codex OAuth identity in both paired arms.
 
 Read `docs/architecture/01-strategic-ddd.md` through `05-contracts-and-deployment.md` plus PRD/ADRs before implementation.
 
@@ -17,9 +17,11 @@ Read `docs/architecture/01-strategic-ddd.md` through `05-contracts-and-deploymen
 ## Decisions / Design Approach
 
 1. Harbor is external evaluation infrastructure, not a required Kubernetes workload.
-2. Codex `exec --json`/SDK usage is authoritative only after installed-version contract verification; never use model token estimates instead of reported usage.
-3. Distinguish cumulative usage from per-turn delta and dedupe by source-event identity.
-4. Retain aborted/failed attempts in population; report matched-success separately from all-run pass rate.
+2. Hermes is the primary agent runtime for the current feedback loop. Pin Hermes version, `openai-codex` model/reasoning, Harbor version, source/task/image identity and the custom OAuth adapter digest.
+3. ACE is registered through Hermes native MCP only on the ACE-optional arm; baseline and ACE-optional otherwise remain matched.
+4. Usage exported by Hermes/Harbor/provider is authoritative when present; unavailable token/cache/cost fields remain explicit `unknown` rather than estimated.
+5. Distinguish cumulative usage from per-turn delta and dedupe by source-event identity.
+6. Retain aborted/failed attempts in population; report matched-success separately from all-run pass rate.
 
 ## DDD ownership and boundaries
 
@@ -46,3 +48,8 @@ Read `docs/architecture/01-strategic-ddd.md` through `05-contracts-and-deploymen
 ## Open Questions / Blocking Spikes
 
 Refer to `docs/architecture/05-contracts-and-deployment.md` §11. Do not silently settle undecided providers, transports or mount patterns. Escalate material choices to the owner through a new ADR.
+
+
+## Owner decision update — 2026-10-23
+
+ADR-015 supersedes the Codex-specific primary-agent choice for this change. Harbor remains the orchestrator, but the current feedback loop uses Hermes with native MCP and the `openai-codex` ChatGPT OAuth route. Historical Codex evidence remains historical and does not close Hermes E2E gates.

@@ -3,7 +3,15 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { dockerImageDigestPattern, dockerImageMatchesDigest } from '../src/domain/feedback-harbor-config.js';
+import {
+  dockerImageDigestPattern,
+  dockerImageMatchesDigest,
+  feedbackAceMcpCommand,
+  feedbackHermesAgentImportPath,
+  feedbackHermesProviderPrefix,
+  feedbackHermesVersion,
+} from '../src/domain/feedback-harbor-config.js';
+import { hermesCodexAuthenticationRoute } from '../src/domain/feedback-preflight.js';
 import { validateFeedbackTaskManifest, type FeedbackTaskManifest } from '../src/domain/feedback-loop-experiment.js';
 
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -42,7 +50,7 @@ const frozenTreeDigest = (identity: string, revision: string, entries: ReturnTyp
 const shellQuote = (value: string): string => "'" + value.replaceAll("'", "'\\''") + "'";
 
 const usage = (): never => {
-  throw new Error('Usage: tsx scripts/prepare-harbor-feedback-jobs.ts --task-manifest <path> --source-root <checkout> --ace-root <checkout> --output <dir> [--artifacts-root <external-dir>] --run-id <id> --model <model> --reasoning <low|medium|high> [--image-digest sha256:<64hex> | --task-image-digest <image>=sha256:<64hex> ...] --ace-config <path>');
+  throw new Error('Usage: tsx scripts/prepare-harbor-feedback-jobs.ts --task-manifest <path> --source-root <checkout> --ace-root <checkout> --output <dir> [--artifacts-root <external-dir>] --run-id <id> --model <model> --reasoning <low|medium|high> [--image-digest sha256:<64hex> | --task-image-digest <image>=sha256:<64hex> ...]');
 };
 
 interface ParsedArgs {
@@ -61,7 +69,7 @@ const parseArgs = (): ParsedArgs => {
     if (name === '--task-image-digest') taskImageDigests.push(value);
     else result[name] = value;
   }
-  const required = ['--task-manifest', '--source-root', '--ace-root', '--output', '--run-id', '--model', '--reasoning', '--ace-config'];
+  const required = ['--task-manifest', '--source-root', '--ace-root', '--output', '--run-id', '--model', '--reasoning'];
   if (required.some((name) => result[name] === undefined)) return usage();
   return { values: result, taskImageDigests };
 };
@@ -126,7 +134,6 @@ const main = async (): Promise<void> => {
   const modelArg = requiredArg(args, '--model');
   const reasoningArg = requiredArg(args, '--reasoning');
   const imageDigestArg = args['--image-digest'];
-  const aceConfigArg = requiredArg(args, '--ace-config');
   const output = resolve(requiredArg(args, '--output'));
   try {
     const taskManifestBytes = await readFile(resolve(taskManifestPath));
@@ -189,35 +196,28 @@ const main = async (): Promise<void> => {
     for (const reference of taskImageReferences) verifyDockerImageReference(reference, explicitTaskImageDigests.get(reference)!);
     const taskImages = taskImageReferences.map((reference) => ({ reference, digest: explicitTaskImageDigests.get(reference)! }));
     const imageDigest = taskImages.length === 1 ? taskImages[0]!.digest : undefined;
-    const aceConfig = resolve(aceConfigArg);
-    if (!existsSync(aceConfig)) throw new Error(`BLOCKED: ACE Codex config is missing: ${aceConfig}`);
-    const aceConfigContainment = relative(aceRoot, aceConfig);
-    if (isAbsolute(aceConfigContainment) || aceConfigContainment === '..' || aceConfigContainment.startsWith('../')) {
-      throw new Error('BLOCKED: ACE Codex config must be inside the mounted ACE checkout');
+    const agentAdapter = join(aceRoot, 'scripts', 'harbor_hermes_codex_oauth.py');
+    const aceMcpEntrypoint = join(aceRoot, 'scripts', 'harbor-ace-mcp.sh');
+    if (!existsSync(agentAdapter)) throw new Error(`BLOCKED: Hermes Harbor adapter is missing: ${agentAdapter}`);
+    if (!existsSync(aceMcpEntrypoint)) throw new Error(`BLOCKED: ACE MCP entrypoint is missing: ${aceMcpEntrypoint}`);
+    const requestedModel = modelArg.trim().replace(/^openai-codex\//u, '');
+    if (requestedModel.length === 0 || requestedModel.includes('/')) {
+      throw new Error('BLOCKED: model must be one explicit OpenAI model name without a provider prefix');
     }
-    const model = modelArg.trim();
-    if (model.length === 0) throw new Error('BLOCKED: model must be explicit and non-empty');
+    const model = `${feedbackHermesProviderPrefix}${requestedModel}`;
     if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/u.test(runId) || runId === '..') {
       throw new Error('BLOCKED: run ID must be a safe, portable identifier');
     }
     const aceSourceCommit = assertCleanCheckout(aceRoot, 'ACE runtime');
     if (!/^[a-f0-9]{40,64}$/iu.test(aceSourceCommit)) throw new Error('BLOCKED: ACE checkout did not provide a pinned source commit');
     const aceRuntimeSha256 = sha256(await readFile(aceRuntime));
-    const aceConfigSha256 = sha256(await readFile(aceConfig));
-    // Harbor constructs the Codex agent on the host before it starts the task
-    // container, so kwargs.config must be a host-readable path. Harbor uploads
-    // the parsed effective TOML into CODEX_HOME inside the container; the
-    // config itself keeps /ace paths for the mounted ACE runtime.
-    const aceConfigContainerPath = join('/ace', relative(aceRoot, aceConfig).split('\\').join('/'));
+    const agentAdapterSha256 = sha256(await readFile(agentAdapter));
+    const aceMcpEntrypointSha256 = sha256(await readFile(aceMcpEntrypoint));
     const agent = {
-      name: 'codex',
+      import_path: feedbackHermesAgentImportPath,
       model_name: model,
-      override_setup_timeout_sec: 900,
-      // Harbor gives CODEX_AUTH_JSON_PATH precedence over CODEX_FORCE_AUTH_JSON.
-      // Pin an explicit empty override so ambient host state cannot redirect the
-      // frozen job away from the default ~/.codex/auth.json route.
-      env: { CODEX_AUTH_JSON_PATH: '', CODEX_FORCE_AUTH_JSON: '1' },
-      kwargs: { reasoning_effort: reasoning },
+      override_setup_timeout_sec: 1200,
+      kwargs: { version: feedbackHermesVersion, reasoning_effort: reasoning },
     } as const;
     const common = {
       tasks: taskPaths.map((path) => ({ path })),
@@ -237,7 +237,10 @@ const main = async (): Promise<void> => {
     const aceJob = {
       ...common,
       job_name: `${runId}-ace-optional`,
-      agents: [{ ...agent, kwargs: { reasoning_effort: reasoning, config: aceConfig } }],
+      agents: [{
+        ...agent,
+        mcp_servers: [{ name: 'ace', transport: 'stdio', command: feedbackAceMcpCommand, args: [] }],
+      }],
       environment: {},
       jobs_dir: join(artifactsRoot, runId, 'raw-agent-ace'),
     };
@@ -249,8 +252,9 @@ const main = async (): Promise<void> => {
     // Harbor supplies mounts through the CLI --mounts option, not JobConfig.environment.
     // Embed fully shell-quoted arguments so the checkout path cannot inject commands.
     const mounts = JSON.stringify([{ type: 'bind', source: aceRoot, target: '/ace', read_only: true }]);
-    const nativeCommand = `exec harbor run --config ${shellQuote(nativeJobPath)} --env docker`;
-    const aceCommand = `exec harbor run --config ${shellQuote(aceJobPath)} --env docker --mounts ${shellQuote(mounts)}`;
+    const pythonPathPrefix = `export PYTHONPATH=${shellQuote(aceRoot)}:` + '${PYTHONPATH:-}' + '\n';
+    const nativeCommand = `${pythonPathPrefix}exec harbor run --config ${shellQuote(nativeJobPath)} --env docker`;
+    const aceCommand = `${pythonPathPrefix}exec harbor run --config ${shellQuote(aceJobPath)} --env docker --mounts ${shellQuote(mounts)}`;
     await writeFile(resolve(output, 'run-native.sh'), `#!/usr/bin/env bash\nset -euo pipefail\n${nativeCommand}\n`, 'utf8');
     await writeFile(resolve(output, 'run-ace-optional.sh'), `#!/usr/bin/env bash\nset -euo pipefail\n${aceCommand}\n`, 'utf8');
     await chmod(resolve(output, 'run-native.sh'), 0o755);
@@ -261,17 +265,20 @@ const main = async (): Promise<void> => {
       sourceCommit: aceSourceCommit,
       taskSourceCommit: sourceRevision,
       taskManifestSha256: sha256(taskManifestBytes),
+      agent: 'hermes' as const,
+      agentVersion: feedbackHermesVersion,
       model,
       reasoningEffort: reasoning as 'low' | 'medium' | 'high',
       harborVersion: execFileSync('harbor', ['--version'], { encoding: 'utf8' }).trim().split(/\r?\n/u)[0]?.trim() ?? 'unknown',
       ...(imageDigest === undefined ? {} : { imageDigest }),
       taskImages,
-      aceConfigDigest: aceConfigSha256,
+      agentAdapterSha256,
+      aceMcpEntrypointSha256,
       seed: 'unknown' as const,
       mode: 'cold' as const,
       nConcurrentTrials: 1 as const,
       nAttempts: 1 as const,
-      authenticationRoute: 'CODEX_FORCE_AUTH_JSON=1 with the host Codex auth route; credentials are not retained',
+      authenticationRoute: hermesCodexAuthenticationRoute,
     };
     await writeFile(resolve(output, 'experiment-manifest.json'), `${JSON.stringify(experimentManifest, null, 2)}\n`, 'utf8');
     await writeFile(resolve(output, 'job-manifest.json'), `${JSON.stringify({
@@ -285,7 +292,12 @@ const main = async (): Promise<void> => {
       aceSourceCommit,
       aceRuntime: '/ace/dist/bin/ace-mcp.js',
       aceRuntimeSha256,
-      aceConfigContainerPath,
+      agent: 'hermes',
+      agentVersion: feedbackHermesVersion,
+      agentAdapter: 'scripts/harbor_hermes_codex_oauth.py',
+      agentAdapterSha256,
+      aceMcpEntrypoint: feedbackAceMcpCommand,
+      aceMcpEntrypointSha256,
       taskSourceRevision: sourceRevision,
       verifiedSourceDigest: sourceDigest,
       taskManifestSha256: sha256(taskManifestBytes),
@@ -294,8 +306,6 @@ const main = async (): Promise<void> => {
       harborVersion: experimentManifest.harborVersion,
       ...(imageDigest === undefined ? {} : { imageDigest }),
       taskImages,
-      aceConfig: aceConfig,
-      aceConfigSha256,
       experimentManifest: resolve(output, 'experiment-manifest.json'),
       selection: taskManifest.selection,
       mode: 'cold',

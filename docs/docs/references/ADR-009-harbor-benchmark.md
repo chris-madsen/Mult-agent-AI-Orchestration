@@ -9,6 +9,8 @@
 
 > **Граница документа:** ADR фиксирует решение, альтернативы, мотивы и критерии пересмотра. Конкретные классы, схемы БД, API-контракты, Kubernetes manifests и топология будут определяться в последующем Architecture Design.
 
+> **Superseded agent-specific clauses (2026-10-23):** выбор Harbor, quality-first benchmarking и правила учёта остаются Accepted, но Codex-специфичный primary baseline/auth path для текущего feedback loop заменён решением ADR-015: Hermes + native MCP + `openai-codex` ChatGPT OAuth. Исторические Codex evidence/result artifacts не переименовываются и сохраняют исходный смысл.
+
 ## Контекст
 
 Для CV и для отбора решений нужен честный измеримый эффект, а не оценка по размеру одного MCP-ответа. Codex уже сообщает токены; требуется готовый фреймворк для повторяемых задач, изоляции и сравнения конфигураций.

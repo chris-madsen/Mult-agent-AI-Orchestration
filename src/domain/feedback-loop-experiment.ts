@@ -32,6 +32,8 @@ export interface FeedbackExperimentManifest {
   readonly runId: string;
   readonly sourceCommit: string;
   readonly taskManifestSha256: string;
+  readonly agent: 'hermes';
+  readonly agentVersion: string;
   readonly model: string;
   readonly reasoningEffort: 'low' | 'medium' | 'high';
   readonly harborVersion: string;
@@ -41,7 +43,8 @@ export interface FeedbackExperimentManifest {
     readonly reference: string;
     readonly digest: string;
   }[];
-  readonly aceConfigDigest: string;
+  readonly agentAdapterSha256: string;
+  readonly aceMcpEntrypointSha256: string;
   readonly seed: string | 'unknown';
   readonly mode: FeedbackMode;
   readonly nConcurrentTrials: 1;
@@ -313,12 +316,14 @@ export const validateFeedbackExperimentManifest = (value: unknown): Result<Feedb
     return invalid('experiment_manifest.imageDigest', 'imageDigest must be a Docker sha256 digest');
   }
   if (root.schemaVersion !== 1 || !nonEmpty(root.runId) || !revision(root.sourceCommit)
-    || !sha256Hex(root.taskManifestSha256) || !nonEmpty(root.model) || (effort !== 'low' && effort !== 'medium' && effort !== 'high')
-    || !nonEmpty(root.harborVersion)
-    || !sha256Hex(root.aceConfigDigest) || !(seed === 'unknown' || nonEmpty(seed))
+    || root.agent !== 'hermes' || !nonEmpty(root.agentVersion)
+    || !sha256Hex(root.taskManifestSha256) || !nonEmpty(root.model) || !root.model.startsWith('openai-codex/')
+    || (effort !== 'low' && effort !== 'medium' && effort !== 'high') || !nonEmpty(root.harborVersion)
+    || !sha256Hex(root.agentAdapterSha256) || !sha256Hex(root.aceMcpEntrypointSha256)
+    || !(seed === 'unknown' || nonEmpty(seed))
     || (root.mode !== 'cold' && root.mode !== 'warm') || root.nConcurrentTrials !== 1 || root.nAttempts !== 1
     || !nonEmpty(root.authenticationRoute)) {
-    return invalid('experiment_manifest', 'experiment requires explicit model/reasoning, image/config digests and serial one-attempt limits');
+    return invalid('experiment_manifest', 'experiment requires pinned Hermes/model/reasoning, agent/MCP digests and serial one-attempt limits');
   }
   if (/(?:bearer|api[_-]?key|access[_-]?token|password|secret)\s*[:=]/iu.test(root.authenticationRoute)) {
     return err(domainError('SECRET_DETECTED', 'experiment_manifest.authenticationRoute', 'authentication route must not contain credentials'));
@@ -328,12 +333,15 @@ export const validateFeedbackExperimentManifest = (value: unknown): Result<Feedb
     runId: root.runId,
     sourceCommit: root.sourceCommit,
     taskManifestSha256: root.taskManifestSha256,
+    agent: 'hermes',
+    agentVersion: root.agentVersion,
     model: root.model,
     reasoningEffort: effort,
     harborVersion: root.harborVersion,
     ...(hasSingleImage ? { imageDigest } : {}),
     taskImages,
-    aceConfigDigest: root.aceConfigDigest,
+    agentAdapterSha256: root.agentAdapterSha256,
+    aceMcpEntrypointSha256: root.aceMcpEntrypointSha256,
     seed,
     mode: root.mode,
     nConcurrentTrials: 1,

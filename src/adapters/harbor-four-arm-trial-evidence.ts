@@ -1,11 +1,12 @@
 import { readFile, readdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import {
-  isObservedAceContextJsonLine,
-  isObservedAceToolJsonLine,
-  isSuccessfulAceContextJsonLine,
-  isSuccessfulAceToolJsonLine,
-  successfulAceContextRequestIdJsonLine,
+  isObservedAceContextEvent,
+  isObservedAceToolEvent,
+  isSuccessfulAceContextEvent,
+  isSuccessfulAceToolEvent,
+  successfulAceContextRequestId,
 } from '../domain/harbor-mcp-evidence.js';
 import type { HarborFourArmName } from '../domain/harbor-four-arm.js';
 import type { HarborFourArmTrialObservation } from '../domain/harbor-four-arm-evidence.js';
@@ -95,6 +96,106 @@ const metricsSum = (
     : null;
 };
 
+const hermesContentText = (value: unknown): string | undefined => {
+  if (typeof value === 'string') return value;
+  if (!Array.isArray(value)) return undefined;
+  const text = value
+    .map((part) => object(part))
+    .filter((part): part is JsonObject => part !== undefined)
+    .filter((part) => part.type === 'text' && typeof part.text === 'string')
+    .map((part) => part.text as string)
+    .join('');
+  return text.length === 0 ? undefined : text;
+};
+
+const hermesToolResult = (value: unknown): JsonObject | undefined => {
+  const direct = object(value);
+  if (direct !== undefined) {
+    const structured = object(direct.structured_content) ?? object(direct.structuredContent);
+    return structured === undefined ? { structured_content: direct } : { ...direct, structured_content: structured };
+  }
+  const text = hermesContentText(value);
+  if (text === undefined) return undefined;
+  try {
+    const parsed = object(JSON.parse(text) as unknown);
+    if (parsed === undefined) return undefined;
+    const structured = object(parsed.structured_content) ?? object(parsed.structuredContent);
+    return structured === undefined ? { structured_content: parsed } : { ...parsed, structured_content: structured };
+  } catch {
+    return undefined;
+  }
+};
+
+const hermesAceTool = (name: unknown): 'ace_context' | 'ace_expand' | undefined => {
+  if (name === 'ace_context' || name === 'mcp_ace_ace_context') return 'ace_context';
+  if (name === 'ace_expand' || name === 'mcp_ace_ace_expand') return 'ace_expand';
+  return undefined;
+};
+
+const hermesSessionEvents = async (path: string): Promise<readonly unknown[]> => {
+  const messages: JsonObject[] = [];
+  for (const line of (await readFile(path, 'utf8')).split(/\r?\n/u)) {
+    if (line.trim().length === 0) continue;
+    const parsed = object(JSON.parse(line) as unknown);
+    if (parsed === undefined) continue;
+    if (Array.isArray(parsed.messages)) {
+      messages.push(...parsed.messages.map(object).filter((item): item is JsonObject => item !== undefined));
+    } else {
+      messages.push(parsed);
+    }
+  }
+  const responses = new Map<string, JsonObject>();
+  for (const message of messages) {
+    if (message.role !== 'tool') continue;
+    const callId = nonEmptyString(message.tool_call_id);
+    if (callId !== undefined) responses.set(callId, message);
+  }
+  const events: unknown[] = [];
+  for (const message of messages) {
+    if (message.role !== 'assistant' || !Array.isArray(message.tool_calls)) continue;
+    for (const rawCall of message.tool_calls) {
+      const call = object(rawCall);
+      const fn = object(call?.function);
+      const tool = hermesAceTool(fn?.name);
+      if (tool === undefined) continue;
+      const callId = nonEmptyString(call?.id);
+      const response = callId === undefined ? undefined : responses.get(callId);
+      const result = response === undefined ? undefined : hermesToolResult(response.content);
+      events.push({
+        type: 'item.completed',
+        item: {
+          type: 'mcp_tool_call',
+          server: 'ace',
+          tool,
+          status: response === undefined ? 'failed' : 'completed',
+          error: response === undefined ? 'missing Hermes tool response' : null,
+          ...(result === undefined ? {} : { result }),
+        },
+      });
+    }
+  }
+  return events;
+};
+
+const agentEvidenceEvents = async (
+  directory: string,
+): Promise<{ readonly path: string; readonly events: readonly unknown[] }> => {
+  const agentDir = join(directory, 'agent');
+  const hermesPath = join(agentDir, 'hermes-session.jsonl');
+  if (existsSync(hermesPath)) return { path: hermesPath, events: await hermesSessionEvents(hermesPath) };
+  const codexPath = join(agentDir, 'codex.txt');
+  if (!existsSync(codexPath)) throw new Error(`BLOCKED: missing Hermes/Codex agent evidence under ${agentDir}`);
+  const events = (await readFile(codexPath, 'utf8')).split('\n').flatMap((line) => {
+    if (line.trim().length === 0) return [];
+    try {
+      return [JSON.parse(line) as unknown];
+    } catch {
+      return [];
+    }
+  });
+  return { path: codexPath, events };
+};
+
 const readTrial = async (arm: HarborFourArmName, directory: string): Promise<HarborFourArmTrialObservation> => {
   const resultPath = join(directory, 'result.json');
   const trial = await readJson(resultPath);
@@ -116,30 +217,22 @@ const readTrial = async (arm: HarborFourArmName, directory: string): Promise<Har
   const latencyMs = Number.isFinite(startedAt) && Number.isFinite(finishedAt) && finishedAt >= startedAt
     ? finishedAt - startedAt
     : null;
-  const logPath = join(directory, 'agent', 'codex.txt');
-  const log = await readFile(logPath, 'utf8');
-  const lines = log.split('\n').filter((line) => line.trim().length > 0);
-  const parsedEvents = lines.flatMap((line) => {
-    try {
-      return [JSON.parse(line) as unknown];
-    } catch {
-      return [];
-    }
-  });
-  const observedAceCalls = lines.filter(isObservedAceContextJsonLine).length;
-  const observedAceToolCalls = lines.filter(isObservedAceToolJsonLine).length;
-  const successfulAceCalls = lines.filter(isSuccessfulAceContextJsonLine).length;
-  const successfulAceToolCalls = lines.filter(isSuccessfulAceToolJsonLine).length;
-  const successfulRequestIds = lines
-    .map(successfulAceContextRequestIdJsonLine)
+  const agentEvidence = await agentEvidenceEvents(directory);
+  const parsedEvents = agentEvidence.events;
+  const observedAceCalls = parsedEvents.filter(isObservedAceContextEvent).length;
+  const observedAceToolCalls = parsedEvents.filter(isObservedAceToolEvent).length;
+  const successfulAceCalls = parsedEvents.filter(isSuccessfulAceContextEvent).length;
+  const successfulAceToolCalls = parsedEvents.filter(isSuccessfulAceToolEvent).length;
+  const successfulRequestIds = parsedEvents
+    .map(successfulAceContextRequestId)
     .filter((value): value is string => value !== undefined);
   // ace_context carries the provider requestId. ace_expand is an exact local
   // artifact read and intentionally has no new provider requestId, so it is
   // counted but cannot silently establish provider correlation.
   if (successfulRequestIds.length !== successfulAceCalls) {
-    throw new Error(`BLOCKED: successful ACE calls are missing request correlation: ${logPath}`);
+    throw new Error(`BLOCKED: successful ACE calls are missing request correlation: ${agentEvidence.path}`);
   }
-  const successfulEvents = parsedEvents.filter((event) => isSuccessfulAceContextJsonLine(JSON.stringify(event)));
+  const successfulEvents = parsedEvents.filter(isSuccessfulAceContextEvent);
   const evidenceReceiptIds = [...new Set(successfulEvents.flatMap((event) => structuredEvidenceReceiptIds(event).all))];
   const reusedReceiptIds = [...new Set(successfulEvents.flatMap((event) => structuredEvidenceReceiptIds(event).reused))];
   const metrics = successfulEvents.map(deliveryMetrics);
@@ -164,7 +257,7 @@ const readTrial = async (arm: HarborFourArmName, directory: string): Promise<Har
     rawInputTokens: integerOrNull(agentResult?.n_input_tokens),
     rawOutputTokens: integerOrNull(agentResult?.n_output_tokens),
     cachedInputTokens: integerOrNull(agentResult?.n_cache_tokens),
-    // Current Harbor/Codex traces do not carry a native-read counter. Never
+    // Current Harbor agent traces do not carry a native-read counter. Never
     // infer zero from the absence of an ACE expand call.
     nativeFileReads: null,
     ...metricValues,
