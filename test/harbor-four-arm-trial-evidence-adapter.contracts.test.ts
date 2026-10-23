@@ -129,3 +129,45 @@ test('raw Harbor adapter keeps four-arm context correlation stable while recordi
   assert.equal(observation?.successfulRequestIds.length, 1);
   assert.equal(observation?.uniqueContextBytes, 10, 'ace_expand delivery metrics must not erase context metrics');
 });
+
+
+test('raw Harbor adapter reads Hermes MCP session calls and preserves ACE correlation', async () => {
+  const root = await mkdtemp('/tmp/ace-harbor-hermes-adapter-');
+  const aggregatePath = join(root, 'result.json');
+  const trialDirectory = join(root, 'trial-0');
+  await mkdir(join(trialDirectory, 'agent'), { recursive: true });
+  await writeFile(aggregatePath, '{}\n', 'utf8');
+  await writeFile(join(trialDirectory, 'result.json'), JSON.stringify({
+    trial_id: 'trial-hermes',
+    task_name: 'task-a',
+    exception_info: null,
+    verifier_result: { rewards: { reward: 1 } },
+    agent_result: { n_input_tokens: 21, n_output_tokens: 5 },
+    started_at: '2026-10-23T10:00:00.000Z',
+    finished_at: '2026-10-23T10:00:02.000Z',
+  }) + '\n', 'utf8');
+  const structured = {
+    complete: true,
+    requestId: 'hermes-request-1',
+    delivery_metrics: { uniqueContentBytes: 12, newContextBytes: 12, reusedContextBytes: 0, duplicateContextBytesAvoided: 0 },
+    evidence: [{ source: 'code', freshness: 'current', proofClass: 'direct', receiptId: 'hermes-receipt-1', reusedContentBytes: 0 }],
+  };
+  const session = {
+    id: 'session-1',
+    messages: [
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ id: 'call-1', function: { name: 'mcp_ace_ace_context', arguments: '{"query":"where"}' } }],
+      },
+      { role: 'tool', tool_call_id: 'call-1', content: JSON.stringify({ structured_content: structured }) },
+    ],
+  };
+  await writeFile(join(trialDirectory, 'agent', 'hermes-session.jsonl'), JSON.stringify(session) + '\n', 'utf8');
+
+  const [observation] = await readHarborFourArmTrialObservations('dense', aggregatePath);
+  assert.equal(observation?.observedAceCalls, 1);
+  assert.equal(observation?.successfulAceCalls, 1);
+  assert.deepEqual(observation?.successfulRequestIds, ['hermes-request-1']);
+  assert.equal(observation?.uniqueContextBytes, 12);
+});

@@ -1,68 +1,60 @@
-export const codexAuthenticationRoute = 'CODEX_FORCE_AUTH_JSON=1 with the host Codex auth route; credentials are not retained';
+export const hermesCodexAuthenticationRoute = 'Hermes openai-codex uses a dedicated host ~/.hermes/auth.json and synchronizes refreshed OAuth state back after each serial Harbor trial; credentials are not retained in benchmark artifacts';
 
-export type CodexAuthenticationCheck = {
+export type HermesAuthenticationCheck = {
   readonly status: 'ready' | 'not_ready';
   readonly reason: string;
   readonly identity?: string;
-  readonly authenticationRoute?: typeof codexAuthenticationRoute;
+  readonly authenticationRoute?: typeof hermesCodexAuthenticationRoute;
 };
 
 type JsonObject = Readonly<Record<string, unknown>>;
-
 const object = (value: unknown): JsonObject | undefined =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? value as JsonObject : undefined;
-
 const nonEmpty = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
 
-const codexIdTokenIsLoadable = (value: unknown): boolean => {
-  if (!nonEmpty(value)) return false;
-  const parts = value.split('.');
-  if (parts.length !== 3 || parts.some((part) => part.length === 0)) return false;
-  try {
-    const payload = JSON.parse(Buffer.from(parts[1] as string, 'base64url').toString('utf8')) as unknown;
-    return object(payload) !== undefined;
-  } catch {
-    return false;
-  }
-};
-
-export const inspectCodexAuthJson = (authPath: string, contents: string): CodexAuthenticationCheck => {
+export const inspectHermesAuthJson = (authPath: string, contents: string): HermesAuthenticationCheck => {
   let parsed: unknown;
   try {
     parsed = JSON.parse(contents) as unknown;
   } catch {
-    return { status: 'not_ready', reason: 'Codex auth file is not valid JSON' };
+    return { status: 'not_ready', reason: 'Hermes auth file is not valid JSON' };
   }
   const root = object(parsed);
-  const tokens = object(root?.tokens);
-  const authMode = root?.auth_mode;
+  const providers = object(root?.providers);
+  const codex = object(providers?.['openai-codex']);
+  const tokens = object(codex?.tokens);
   const hasAccessToken = nonEmpty(tokens?.access_token);
   const hasRefreshToken = nonEmpty(tokens?.refresh_token);
-  const hasLoadableIdToken = codexIdTokenIsLoadable(tokens?.id_token);
-  const refreshMetadata = root?.last_refresh;
+  const refreshMetadata = codex?.last_refresh;
   const hasRefreshMetadata = nonEmpty(refreshMetadata)
     && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(refreshMetadata)
     && Number.isFinite(Date.parse(refreshMetadata));
-  if (authMode !== 'chatgpt' || !hasAccessToken || !hasRefreshToken || !hasLoadableIdToken || !hasRefreshMetadata) {
-    return { status: 'not_ready', reason: 'Codex auth file does not contain complete ChatGPT OAuth access/refresh state' };
+  if (codex?.auth_mode !== 'chatgpt' || !hasAccessToken || !hasRefreshToken || !hasRefreshMetadata) {
+    return {
+      status: 'not_ready',
+      reason: 'Hermes auth file does not contain a complete independent openai-codex ChatGPT OAuth session',
+    };
   }
   return {
     status: 'ready',
-    reason: 'Codex ChatGPT OAuth auth file is present; token bytes are not retained',
+    reason: 'Dedicated Hermes ChatGPT OAuth state is ready; token bytes are not retained',
     identity: authPath,
-    authenticationRoute: codexAuthenticationRoute,
+    authenticationRoute: hermesCodexAuthenticationRoute,
   };
 };
-
 
 export interface FeedbackPreflightBindingInput {
   readonly currentSourceCommit: string;
   readonly actualHarborVersion: string;
   readonly expectedAuthenticationRoute: string;
+  readonly jobAgent: 'hermes';
+  readonly jobAgentVersion: string;
   readonly jobModel: string;
   readonly jobReasoningEffort: 'low' | 'medium' | 'high';
   readonly experiment: {
     readonly sourceCommit: string;
+    readonly agent: 'hermes';
+    readonly agentVersion: string;
     readonly model: string;
     readonly reasoningEffort: 'low' | 'medium' | 'high';
     readonly harborVersion: string;
@@ -70,11 +62,11 @@ export interface FeedbackPreflightBindingInput {
   };
 }
 
-export const validateFeedbackPreflightBinding = (
-  input: FeedbackPreflightBindingInput,
-): readonly string[] => {
+export const validateFeedbackPreflightBinding = (input: FeedbackPreflightBindingInput): readonly string[] => {
   const failures: string[] = [];
   if (input.experiment.sourceCommit !== input.currentSourceCommit) failures.push('sourceCommit');
+  if (input.experiment.agent !== input.jobAgent) failures.push('agent');
+  if (input.experiment.agentVersion !== input.jobAgentVersion) failures.push('agentVersion');
   if (input.experiment.model !== input.jobModel) failures.push('model');
   if (input.experiment.reasoningEffort !== input.jobReasoningEffort) failures.push('reasoningEffort');
   if (input.experiment.harborVersion !== input.actualHarborVersion) failures.push('harborVersion');
@@ -88,8 +80,6 @@ export const validateFeedbackImageOverride = (
   taskImages: readonly { readonly reference: string; readonly digest: string }[],
 ): readonly string[] => {
   if (requested === undefined) return [];
-  if (taskImages.length > 0) {
-    return taskImages.length === 1 && taskImages[0]?.digest === requested ? [] : ['imageDigest'];
-  }
+  if (taskImages.length > 0) return taskImages.length === 1 && taskImages[0]?.digest === requested ? [] : ['imageDigest'];
   return experimentImageDigest === undefined || experimentImageDigest === requested ? [] : ['imageDigest'];
 };

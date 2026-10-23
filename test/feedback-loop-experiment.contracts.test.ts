@@ -15,6 +15,9 @@ import {
 } from '../src/domain/feedback-loop-experiment.js';
 import {
   dockerImageMatchesDigest,
+  feedbackAceMcpCommand,
+  feedbackHermesAgentImportPath,
+  feedbackHermesVersion,
   validateFeedbackHarborJob,
   validateMatchingFeedbackHarborJobs,
 } from '../src/domain/feedback-harbor-config.js';
@@ -346,6 +349,7 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
   const ace = join(root, 'ace');
   await mkdir(source);
   await mkdir(join(ace, 'dist', 'bin'), { recursive: true });
+  await mkdir(join(ace, 'scripts'), { recursive: true });
   const git = (cwd: string, ...args: string[]): string =>
     execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
   const sha = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -387,8 +391,8 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
     dataset: { id: 'scale-ai/swe-atlas-qna', revision: revisionValue, rawSha256: 'b'.repeat(64) },
     tasks: tasks.slice(0, 10), holdout: tasks.slice(10),
   }));
-  const aceConfig = join(ace, 'codex.toml');
-  await writeFile(aceConfig, 'model = "test-model"\n');
+  await writeFile(join(ace, 'scripts', 'harbor_hermes_codex_oauth.py'), '# pinned Hermes adapter\n');
+  await writeFile(join(ace, 'scripts', 'harbor-ace-mcp.sh'), '#!/usr/bin/env bash\nexec node /ace/dist/bin/ace-mcp.js\n');
   await writeFile(join(ace, 'dist', 'bin', 'ace-mcp.js'), 'console.log("mock executable");\n');
   git(ace, 'add', '.');
   git(ace, 'commit', '-q', '-m', 'pin ACE');
@@ -405,7 +409,6 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
     '--task-manifest', manifestPath, '--source-root', source, '--ace-root', ace,
     '--output', output, '--run-id', 'frozen-test', '--model', 'test-model',
     '--reasoning', 'medium', '--image-digest', 'sha256:' + 'a'.repeat(64),
-    '--ace-config', aceConfig,
   ], { cwd: resolve('.'), encoding: 'utf8', timeout: 120_000, env: { ...process.env, PATH: `${dockerBin}:${process.env.PATH ?? ''}` } });
   const firstOutput = join(root, 'first');
   const first = run(firstOutput);
@@ -415,11 +418,18 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
   assert.equal(prepared.taskImages[0].reference, 'registry.example/feedback:1');
   const job = JSON.parse(await readFile(join(firstOutput, 'ace-optional-job.json'), 'utf8'));
   assert.equal('mounts' in job.environment, false);
-  assert.equal(job.agents[0].kwargs.config, aceConfig);
+  assert.equal(job.agents[0].import_path, feedbackHermesAgentImportPath);
+  assert.equal(job.agents[0].model_name, 'openai-codex/test-model');
+  assert.equal(job.agents[0].kwargs.version, feedbackHermesVersion);
+  assert.equal(job.agents[0].kwargs.reasoning_effort, 'medium');
+  assert.deepEqual(job.agents[0].mcp_servers, [{ name: 'ace', transport: 'stdio', command: feedbackAceMcpCommand, args: [] }]);
   const runner = await readFile(join(firstOutput, 'run-ace-optional.sh'), 'utf8');
+  assert.match(runner, /PYTHONPATH/u);
   assert.match(runner, /--mounts/u);
   assert.match(runner, /read_only/u);
-  assert.equal(prepared.aceConfigContainerPath, '/ace/codex.toml');
+  assert.equal(prepared.agent, 'hermes');
+  assert.equal(prepared.agentVersion, feedbackHermesVersion);
+  assert.equal(prepared.aceMcpEntrypoint, feedbackAceMcpCommand);
   assert.equal(prepared.verifiedSourceDigest, sourceDigest);
   await writeFile(join(source, 'tasks', 'task-1', 'test.txt'), 'tampered task\n');
   const secondOutput = join(root, 'second');
@@ -473,61 +483,55 @@ test('RepoBench Parquet converter rejects an unpinned digest before importing a 
   assert.match(run.stderr, /digest/u);
 });
 
-const harborJob = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+const hermesAgent = (withAce: boolean, overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+  import_path: feedbackHermesAgentImportPath,
+  model_name: 'openai-codex/gpt-5.6-luna',
+  kwargs: { version: feedbackHermesVersion, reasoning_effort: 'high' },
+  ...(withAce ? { mcp_servers: [{ name: 'ace', transport: 'stdio', command: feedbackAceMcpCommand, args: [] }] } : {}),
+  ...overrides,
+});
+
+const harborJob = (withAce = false, overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
   tasks: [{ path: '/frozen/task-a' }],
-  agents: [{ name: 'codex', model_name: 'gpt-5.6-luna', kwargs: { reasoning_effort: 'high' } }],
+  agents: [hermesAgent(withAce)],
   n_concurrent_trials: 1,
   n_attempts: 1,
   ...overrides,
 });
 
-test('feedback Harbor identity comes from frozen jobs, not CODEX environment variables', () => {
-  const checked = validateMatchingFeedbackHarborJobs(harborJob(), harborJob({
-    environment: { type: 'docker' },
-    agents: [{
-      name: 'codex',
-      model_name: 'gpt-5.6-luna',
-      kwargs: { reasoning_effort: 'high', config: '/ace/benchmarks/harbor/ace-retrieval-codex-config.toml' },
-    }],
-  }));
+test('feedback Harbor identity pins Hermes, ChatGPT OAuth model routing and ACE only on optional arm', () => {
+  const checked = validateMatchingFeedbackHarborJobs(harborJob(), harborJob(true));
   assert.equal(checked._tag, 'Ok');
   if (checked._tag === 'Ok') {
-    assert.equal(checked.value.model, 'gpt-5.6-luna');
+    assert.equal(checked.value.agent, 'hermes');
+    assert.equal(checked.value.agentVersion, feedbackHermesVersion);
+    assert.equal(checked.value.model, 'openai-codex/gpt-5.6-luna');
     assert.equal(checked.value.reasoningEffort, 'high');
-    assert.equal(checked.value.nConcurrentTrials, 1);
-    assert.equal(checked.value.nAttempts, 1);
+    assert.equal(checked.value.aceMcpCommand, feedbackAceMcpCommand);
   }
-});
-
-test('feedback Harbor identity requires ACE config only on the ACE optional arm', () => {
-  const aceJob = harborJob({
-    agents: [{
-      name: 'codex',
-      model_name: 'gpt-5.6-luna',
-      kwargs: { reasoning_effort: 'high', config: '/ace/benchmarks/harbor/ace-retrieval-codex-config.toml' },
-    }],
-  });
-  assert.equal(validateMatchingFeedbackHarborJobs(harborJob(), aceJob)._tag, 'Ok');
   assert.equal(validateMatchingFeedbackHarborJobs(harborJob(), harborJob())._tag, 'Err');
-  assert.equal(validateMatchingFeedbackHarborJobs(aceJob, aceJob)._tag, 'Err');
+  assert.equal(validateMatchingFeedbackHarborJobs(harborJob(true), harborJob(true))._tag, 'Err');
 });
 
-test('feedback Harbor identity rejects different frozen task sets between arms', () => {
-  const aceJob = harborJob({
-    tasks: [{ path: '/frozen/task-b' }],
-    agents: [{
-      name: 'codex',
-      model_name: 'gpt-5.6-luna',
-      kwargs: { reasoning_effort: 'high', config: '/ace/benchmarks/harbor/ace-retrieval-codex-config.toml' },
-    }],
-  });
-  assert.equal(validateMatchingFeedbackHarborJobs(harborJob(), aceJob)._tag, 'Err');
+test('feedback Harbor identity rejects different frozen task sets between Hermes arms', () => {
+  assert.equal(validateMatchingFeedbackHarborJobs(
+    harborJob(),
+    harborJob(true, { tasks: [{ path: '/frozen/task-b' }] }),
+  )._tag, 'Err');
 });
 
-test('feedback Harbor identity rejects model/reasoning drift and non-serial jobs', () => {
-  assert.equal(validateMatchingFeedbackHarborJobs(harborJob(), harborJob({ agents: [{ name: 'codex', model_name: 'other', kwargs: { reasoning_effort: 'high' } }] }))._tag, 'Err');
-  assert.equal(validateFeedbackHarborJob(harborJob({ n_concurrent_trials: 2 }))._tag, 'Err');
-  assert.equal(validateFeedbackHarborJob(harborJob({ n_attempts: 2 }))._tag, 'Err');
+test('feedback Harbor identity rejects agent/model/version drift and non-serial jobs', () => {
+  assert.equal(validateFeedbackHarborJob(harborJob(false, {
+    agents: [hermesAgent(false, { import_path: 'harbor.agents.installed.hermes:Hermes' })],
+  }))._tag, 'Err');
+  assert.equal(validateFeedbackHarborJob(harborJob(false, {
+    agents: [hermesAgent(false, { model_name: 'openrouter/gpt-5.6-luna' })],
+  }))._tag, 'Err');
+  assert.equal(validateFeedbackHarborJob(harborJob(false, {
+    agents: [hermesAgent(false, { kwargs: { version: 'latest', reasoning_effort: 'high' } })],
+  }))._tag, 'Err');
+  assert.equal(validateFeedbackHarborJob(harborJob(false, { n_concurrent_trials: 2 }))._tag, 'Err');
+  assert.equal(validateFeedbackHarborJob(harborJob(false, { n_attempts: 2 }))._tag, 'Err');
 });
 
 test('Docker feedback image identity accepts a local image ID or matching repository digest only', () => {
@@ -544,17 +548,20 @@ test('feedback experiment manifest rejects contradictory single-image and task-i
     runId: 'smoke-1',
     sourceCommit: revision,
     taskManifestSha256: digest('a'),
-    model: 'gpt-5.6-luna',
+    agent: 'hermes',
+    agentVersion: feedbackHermesVersion,
+    model: 'openai-codex/gpt-5.6-luna',
     reasoningEffort: 'high',
     harborVersion: '0.24.0',
     imageDigest: `sha256:${digest('b')}`,
     taskImages: [{ reference: 'registry.example/task:1', digest: `sha256:${digest('c')}` }],
-    aceConfigDigest: digest('d'),
+    agentAdapterSha256: digest('d'),
+    aceMcpEntrypointSha256: digest('e'),
     seed: 'unknown',
     mode: 'cold',
     nConcurrentTrials: 1,
     nAttempts: 1,
-    authenticationRoute: 'CODEX_FORCE_AUTH_JSON=1',
+    authenticationRoute: 'Hermes openai-codex OAuth',
   });
   assert.equal(checked._tag, 'Err');
 });
@@ -565,19 +572,22 @@ test('feedback experiment manifest accepts pinned per-task Docker images for mul
     runId: 'main-serial-1',
     sourceCommit: revision,
     taskManifestSha256: digest('a'),
-    model: 'gpt-5.6-luna',
+    agent: 'hermes',
+    agentVersion: feedbackHermesVersion,
+    model: 'openai-codex/gpt-5.6-luna',
     reasoningEffort: 'high',
     harborVersion: '0.24.0',
     taskImages: [
       { reference: 'registry.example/calypso:1', digest: `sha256:${digest('b')}` },
       { reference: 'registry.example/simple-login:1', digest: `sha256:${digest('c')}` },
     ],
-    aceConfigDigest: digest('d'),
+    agentAdapterSha256: digest('d'),
+    aceMcpEntrypointSha256: digest('e'),
     seed: 'unknown',
     mode: 'cold',
     nConcurrentTrials: 1,
     nAttempts: 1,
-    authenticationRoute: 'CODEX_FORCE_AUTH_JSON=1',
+    authenticationRoute: 'Hermes openai-codex OAuth',
   });
   assert.equal(checked._tag, 'Ok');
   if (checked._tag === 'Ok') assert.equal(checked.value.taskImages.length, 2);
@@ -586,15 +596,18 @@ test('feedback experiment manifest accepts pinned per-task Docker images for mul
     runId: 'main-serial-1',
     sourceCommit: revision,
     taskManifestSha256: digest('a'),
-    model: 'gpt-5.6-luna',
+    agent: 'hermes',
+    agentVersion: feedbackHermesVersion,
+    model: 'openai-codex/gpt-5.6-luna',
     reasoningEffort: 'high',
     harborVersion: '0.24.0',
     taskImages: [{ reference: 'registry.example/calypso:1', digest: 'not-a-digest' }],
-    aceConfigDigest: digest('d'),
+    agentAdapterSha256: digest('d'),
+    aceMcpEntrypointSha256: digest('e'),
     seed: 'unknown',
     mode: 'cold',
     nConcurrentTrials: 1,
     nAttempts: 1,
-    authenticationRoute: 'CODEX_FORCE_AUTH_JSON=1',
+    authenticationRoute: 'Hermes openai-codex OAuth',
   })._tag, 'Err');
 });

@@ -6,7 +6,7 @@ These instructions apply to **all work in this repository** (`src/`, `test/`, `s
 
 ## 1. Mission and source of authority
 
-- ACE is an **agent-neutral Adaptive Context Engine**, exposed through one logical MCP facade. Codex is the first client, not the only supported client.
+- ACE is an **agent-neutral Adaptive Context Engine**, exposed through one logical MCP facade. **Hermes is the primary agent-facing client for the current feedback/benchmark loop** because it preserves native MCP context injection; Codex remains a supported comparison/compatibility client rather than a privileged architecture boundary.
 - Optimize accurate **end-to-end context delivery and task success**. The target of **at least 5× fewer agent tokens per accepted task** is a hypothesis to measure against a strong unmodified baseline, **never an assumed achievement**. Protect correctness, confidentiality, total cost and latency.
 - Respect the accepted PRD and ADRs as architecture decisions. The relevant OpenSpec capability specs and Meyer contracts define observable acceptance. Implementation notes, spikes, review reports and execution plans contain evidence or work instructions; they do **not** override accepted ADRs.
 - Resolve conflicting guidance in this order: **current explicit owner decision → Accepted ADR → applicable OpenSpec capability/acceptance contract → repository/nested AGENTS.md → current implementation and tests as evidence of what exists → execution plans/reviews/spikes as historical or temporary guidance**. If an unresolved material architecture choice remains, propose an ADR rather than deciding silently.
@@ -80,7 +80,7 @@ Evidence used to close a gate must identify, as applicable, the **source commit,
 
 ## 7. Benchmarks and reporting
 
-- Use Harbor for **paired, pinned, retrieval-demanding real agent tasks** against a strong native Codex baseline. Verify actual ACE MCP call counts and attributed provider usage; zero ACE calls cannot establish ACE-caused benefit.
+- Use Harbor for **paired, pinned, retrieval-demanding real agent tasks** against a strong native Hermes baseline for the current feedback loop, with the same underlying model/provider/reasoning identity across arms. Codex may remain a matched comparison harness. Verify actual ACE MCP call counts and attributed provider usage; zero ACE calls cannot establish ACE-caused benefit.
 - Compare accepted task quality first, then total input/output/cached tokens without double counting, external embedding/LLM/indexing costs, latency, source integrity and failures. Cost components must be reported as **measured, estimated or unknown**; unknown is never zero and must not be called complete telemetry. Preserve raw trials and independent holdouts; do not tune on frozen holdouts.
 - A measured result below 5× (or a regression) must be reported honestly; **the performance target is not a prerequisite to running experiments or benchmarks**. Do not assert savings from a forced trivial task.
 - Do not fabricate test runs, relax assertions to hide defects, suppress failed provider attempts, or mark a production criterion passed from mock-only evidence.
