@@ -215,7 +215,9 @@ const main = async (): Promise<void> => {
     if (!/^[a-f0-9]{40,64}$/iu.test(aceSourceCommit)) throw new Error('BLOCKED: ACE checkout did not provide a pinned source commit');
     const aceRuntimeSha256 = sha256(await readFile(aceRuntime));
     const agentAdapterSha256 = sha256(await readFile(agentAdapter));
-    const aceContextBridgeSha256 = sha256(await readFile(aceContextBridge));
+    // Bind evidence to the compiled bridge executable that Node actually runs.
+    // The shell entrypoint itself is source-bound by the clean ACE checkout.
+    const aceContextBridgeSha256 = aceRuntimeSha256;
     const contextPluginSha256 = frozenTreeDigest(
       'hermes-ace-context-plugin',
       aceSourceCommit,

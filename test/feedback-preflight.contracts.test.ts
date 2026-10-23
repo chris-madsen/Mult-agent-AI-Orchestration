@@ -200,5 +200,6 @@ test('exact-current preflight requires a clean checkout, compiled runtime proven
   assert.match(preflight, /verifyCompiledRuntimeProvenance/u);
   assert.match(preflight, /agentAdapterSha256/u);
   assert.match(preflight, /aceContextBridgeSha256/u);
+  assert.match(preflight, /dist\/bin\/ace-context-bridge\.js/u);
   assert.match(preflight, /contextPluginSha256/u);
 });

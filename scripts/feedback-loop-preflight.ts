@@ -175,7 +175,9 @@ const agentRuntimeDigestCheck = async (
   if (experiment === undefined) return { status: 'not_ready', reason: 'Hermes adapter/bridge/plugin digests require an experiment manifest' };
   try {
     const adapter = createHash('sha256').update(await readFile('scripts/harbor_hermes_codex_oauth.py')).digest('hex');
-    const bridge = createHash('sha256').update(await readFile('scripts/harbor-ace-context-bridge.sh')).digest('hex');
+    // The Harbor command is a source-bound shell wrapper, but the executable
+    // provider path is dist/bin/ace-context-bridge.js. Verify those exact bytes.
+    const bridge = createHash('sha256').update(await readFile('dist/bin/ace-context-bridge.js')).digest('hex');
     const plugin = contextPluginDigest(resolve('.'), experiment.sourceCommit);
     if (adapter !== experiment.agentAdapterSha256
       || bridge !== experiment.aceContextBridgeSha256

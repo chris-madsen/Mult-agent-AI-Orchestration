@@ -466,6 +466,8 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
   assert.equal(prepared.agent, 'hermes');
   assert.equal(prepared.agentVersion, feedbackHermesVersion);
   assert.equal(prepared.aceContextBridge, feedbackAceContextBridgeCommand);
+  assert.equal(prepared.aceContextBridgeSha256, sha(Buffer.from('console.log("mock executable");\n')));
+  assert.equal(prepared.aceRuntimeSha256, prepared.aceContextBridgeSha256);
   assert.equal(prepared.contextPlugin, feedbackHermesContextPluginPath);
   assert.equal(prepared.verifiedSourceDigest, sourceDigest);
   await writeFile(join(source, 'tasks', 'task-1', 'test.txt'), 'tampered task\n');
