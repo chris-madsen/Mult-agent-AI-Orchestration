@@ -88,7 +88,7 @@ for (const image of imageRefs) {
     `export PYTHONPATH=${target}:/ace/scripts`,
     'python3 -c',
     shellQuote('import fastembed, onnxruntime; print(f"fastembed={fastembed.__version__} onnxruntime={onnxruntime.__version__}")'),
-  ].join(' ')], { stdio: 'inherit' });
+  ].join(' && ')], { stdio: 'inherit' });
 }
 
 const prefetchImage = `${imageRefs[0].reference}@${imageRefs[0].digest}`;
@@ -99,7 +99,7 @@ run('docker', ['run', '--rm', '--entrypoint', 'sh', '-v', `${output}:/ace`, pref
   'export FASTEMBED_CACHE_PATH=/ace/runtime/model-cache',
   'python3 -c',
   shellQuote('from fastembed import TextEmbedding, SparseTextEmbedding; TextEmbedding(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"); SparseTextEmbedding(model_name="Qdrant/bm25"); print("models_ready")'),
-].join(' ')], { stdio: 'inherit' });
+].join(' && ')], { stdio: 'inherit' });
 
 const walk = async (root, current = root) => {
   const entries = [];
