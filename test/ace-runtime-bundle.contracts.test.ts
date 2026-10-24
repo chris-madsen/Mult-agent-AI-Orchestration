@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -73,4 +74,42 @@ test('verifies bundle bytes rather than accepting an unverified manifest digest'
   const tampered = await verifyAceRuntimeBundle(root, bundleSha256);
   assert.equal(tampered.status, 'not_ready');
   assert.match(tampered.reason, /bytes do not match/u);
+});
+
+test('Docker runtime uses the same valid NumPy pin as the Harbor bundle contract', async () => {
+  const dockerfile = await readFile('Dockerfile.ace', 'utf8');
+  assert.match(dockerfile, /numpy==2\\.2\\.6/u);
+  assert.doesNotMatch(dockerfile, /numpy==2\\.5\\.4/u);
+});
+
+test('Hermes runtime probe missing-Python guard executes under POSIX sh', async () => {
+  const script = await readFile('scripts/harbor-ace-runtime-probe.mjs', 'utf8');
+  const guard = script.match(/if [^\\n]*hermes_python[^\\n]*; then/u)?.[0];
+  assert.ok(guard, 'the missing-Hermes-Python guard is present');
+  const result = spawnSync('sh', ['-c', `hermes_python=; ${guard} exit 71; fi`], { encoding: 'utf8' });
+  assert.equal(result.status, 71, result.stderr);
+});
+
+test('Harbor bundle builder refuses to delete the source checkout or a symlinked parent', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'ace-harbor-builder-'));
+  const checkout = join(parent, 'source');
+  const alias = join(parent, 'source-alias');
+  await mkdir(checkout);
+  await writeFile(join(checkout, 'sentinel'), 'must survive');
+  await symlink(checkout, alias, 'dir');
+  try {
+    for (const output of [checkout, parent, join(alias, 'bundle')]) {
+      const result = spawnSync(process.execPath, [
+        'scripts/build-harbor-ace-runtime.mjs',
+        '--source-root', checkout,
+        '--output', output,
+        '--task-image', `example/task@sha256:${'a'.repeat(64)}`,
+      ], { encoding: 'utf8' });
+      assert.notEqual(result.status, 0, 'overlapping output must fail');
+      assert.match(result.stderr, /BLOCKED: --output overlaps the source checkout/u);
+      assert.equal(await readFile(join(checkout, 'sentinel'), 'utf8'), 'must survive');
+    }
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
 });

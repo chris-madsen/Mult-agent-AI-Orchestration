@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmod, cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
-import { join, relative, resolve } from 'node:path';
+import { chmod, cp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 const FASTEMBED = '0.7.4';
 const ONNXRUNTIME = '1.31.0';
@@ -40,6 +40,34 @@ if (values.sourceRoot === undefined || values.output === undefined || values.tas
 
 const sourceRoot = resolve(values.sourceRoot);
 const output = resolve(values.output);
+
+// Resolve symlinked parents before any recursive deletion. --output must never
+// replace all or part of the source checkout, including through an alias.
+const canonicalTarget = async (target) => {
+  const suffix = [];
+  let ancestor = target;
+  while (true) {
+    try {
+      return resolve(await realpath(ancestor), ...suffix);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      const parent = dirname(ancestor);
+      if (parent === ancestor) throw error;
+      suffix.unshift(basename(ancestor));
+      ancestor = parent;
+    }
+  }
+};
+const containsPath = (parent, child) => {
+  const path = relative(parent, child);
+  return path === '' || (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path));
+};
+const sourceCanonical = await canonicalTarget(sourceRoot);
+const outputCanonical = await canonicalTarget(output);
+if (containsPath(sourceCanonical, outputCanonical) || containsPath(outputCanonical, sourceCanonical)) {
+  throw new Error('BLOCKED: --output overlaps the source checkout; refusing recursive deletion');
+}
+
 const dockerDigest = /^(.+)@sha256:([a-f0-9]{64})$/u;
 const imageRefs = values.taskImages.map((value) => {
   const match = dockerDigest.exec(value);
