@@ -55,6 +55,19 @@ class BridgeClientTests(unittest.TestCase):
             client.transform({"requestId": "request-1"})
         client.close()
 
+    def test_partial_ready_line_cannot_bypass_startup_deadline(self) -> None:
+        command = [
+            sys.executable,
+            "-c",
+            "import sys,time; sys.stdout.write(chr(123)+chr(34)+'type'+chr(34)+':'); sys.stdout.flush(); time.sleep(3)",
+        ]
+        client = BridgeClient(command=command, startup_timeout_seconds=0.05, request_timeout_seconds=1)
+        try:
+            with self.assertRaises(TimeoutError):
+                client.transform({"requestId": "request-1"})
+        finally:
+            client.close()
+
     def test_startup_timeout_is_separate_from_request_timeout(self) -> None:
         command = [
             sys.executable,

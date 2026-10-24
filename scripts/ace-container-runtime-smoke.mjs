@@ -37,6 +37,7 @@ const mount = `${bundleRoot}:/ace:ro`;
 const run = (command, commandArgs) => execFileSync(command, commandArgs, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 try {
   const effectProbe = run('docker', ['run', '--rm', '--entrypoint', 'node', '-v', mount, image, '-e', 'import("file:///ace/dist/transport/context-bridge-stdio.js").then(() => process.stdout.write("effect=READY\\n"))']);
+  if (!effectProbe.includes('effect=READY')) throw new Error('Effect runtime import did not confirm READY');
   const qdrantProbe = run('docker', ['run', '--rm', '--network', 'host', '--entrypoint', 'node', '-v', mount, image, '-e',
     `fetch(${JSON.stringify(`${qdrantUrl.replace(/\/$/u, '')}/collections`)}).then((response) => { if (!response.ok) process.exit(2); })`]);
   const bridgeProbe = run('docker', [
@@ -52,6 +53,10 @@ try {
   ]);
   const ready = bridgeProbe.split(/\r?\n/u).find((line) => line.includes('bridge_ready'));
   if (ready === undefined) throw new Error('bridge_ready was not observed');
+  const readyRecord = JSON.parse(ready);
+  if (readyRecord.type !== 'bridge_ready' || readyRecord.schemaVersion !== 1 || readyRecord.runtimeId !== manifest.runtimeId) {
+    throw new Error('bridge_ready identity does not match runtime manifest');
+  }
   process.stdout.write(`${JSON.stringify({ status: 'READY', effectImport: effectProbe.includes('effect=READY'), bridgeReady: true, qdrantReachable: true, runtimeId: manifest.runtimeId, bundleSha256: manifest.bundleSha256 })}\n`);
 } catch (error) {
   const detail = error instanceof Error ? error.message.split('\n')[0] : 'container runtime smoke failed';

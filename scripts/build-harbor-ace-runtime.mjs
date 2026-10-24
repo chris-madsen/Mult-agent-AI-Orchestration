@@ -74,23 +74,24 @@ run('npm', ['ci', '--omit=dev', '--ignore-scripts'], { cwd: output, stdio: 'inhe
 
 const pythonVersions = new Set();
 for (const image of imageRefs) {
-  const pythonVersion = run('docker', ['run', '--rm', '--entrypoint', 'python3', image.reference, '-c', 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")']).trim();
+  const pinnedImage = `${image.reference}@${image.digest}`;
+  const pythonVersion = run('docker', ['run', '--rm', '--entrypoint', 'python3', pinnedImage, '-c', 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")']).trim();
   if (pythonVersion !== '3.10' && pythonVersion !== '3.11') {
-    throw new Error(`BLOCKED: unsupported task-image Python ${pythonVersion} in ${image.reference}`);
+    throw new Error(`BLOCKED: unsupported task-image Python ${pythonVersion} in ${pinnedImage}`);
   }
   pythonVersions.add(pythonVersion);
   const target = `/ace/runtime/python/${pythonVersion}/site-packages`;
   await mkdir(join(output, 'runtime/python', pythonVersion, 'site-packages'), { recursive: true });
-  run('docker', ['run', '--rm', '--entrypoint', 'sh', '-v', `${output}:/ace`, image.reference, '-lc',
+  run('docker', ['run', '--rm', '--entrypoint', 'sh', '-v', `${output}:/ace`, pinnedImage, '-lc',
     `python3 -m pip install --disable-pip-version-check --no-input --target ${shellQuote(target)} fastembed==${FASTEMBED} onnxruntime==${ONNXRUNTIME} numpy==${NUMPY} huggingface-hub==${HUGGINGFACE_HUB}`], { stdio: 'inherit' });
-  run('docker', ['run', '--rm', '--entrypoint', 'sh', '-v', `${output}:/ace:ro`, image.reference, '-lc', [
+  run('docker', ['run', '--rm', '--entrypoint', 'sh', '-v', `${output}:/ace:ro`, pinnedImage, '-lc', [
     `export PYTHONPATH=${target}:/ace/scripts`,
     'python3 -c',
     shellQuote('import fastembed, onnxruntime; print(f"fastembed={fastembed.__version__} onnxruntime={onnxruntime.__version__}")'),
   ].join(' ')], { stdio: 'inherit' });
 }
 
-const prefetchImage = imageRefs[0].reference;
+const prefetchImage = `${imageRefs[0].reference}@${imageRefs[0].digest}`;
 const prefetchPython = [...pythonVersions][0];
 const prefetchTarget = `/ace/runtime/python/${prefetchPython}/site-packages`;
 run('docker', ['run', '--rm', '--entrypoint', 'sh', '-v', `${output}:/ace`, prefetchImage, '-lc', [

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import selectors
+import time
 import shlex
 import subprocess
 import threading
@@ -26,30 +27,41 @@ class BridgeClient:
         self.timeout_seconds = self.request_timeout_seconds
         self._process: subprocess.Popen[str] | None = None
         self._lock = threading.Lock()
+        self._stdout_buffer = b''
 
     def _read_line(self, process: subprocess.Popen[str], timeout: float) -> str:
         if process.stdout is None:
             raise RuntimeError("ACE context bridge stdout is unavailable")
+        # readline() blocks on a partial pipe line even after select() succeeds.
+        # Keep a byte buffer and apply one deadline to the entire JSONL record.
+        deadline = time.monotonic() + timeout
         selector = selectors.DefaultSelector()
         try:
             selector.register(process.stdout, selectors.EVENT_READ)
-            events = selector.select(timeout=timeout)
-            if not events:
-                self.close()
-                raise TimeoutError("ACE context bridge timed out")
-            line = process.stdout.readline()
+            while True:
+                newline = self._stdout_buffer.find(b"\n")
+                if newline >= 0:
+                    line = self._stdout_buffer[:newline + 1]
+                    self._stdout_buffer = self._stdout_buffer[newline + 1:]
+                    return line.decode("utf-8")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not selector.select(remaining):
+                    self.close()
+                    raise TimeoutError("ACE context bridge timed out")
+                chunk = os.read(process.stdout.fileno(), 65536)
+                if not chunk:
+                    self.close()
+                    raise RuntimeError("ACE context bridge exited before returning a response")
+                self._stdout_buffer += chunk
         finally:
             selector.close()
-        if not line:
-            self.close()
-            raise RuntimeError("ACE context bridge exited before returning a response")
-        return line
 
     def _ensure_process(self) -> subprocess.Popen[str]:
         if self._process is not None and self._process.poll() is None:
             return self._process
         env = os.environ.copy()
         env.setdefault("ACE_CONTEXT_BRIDGE_MODE", "true")
+        self._stdout_buffer = b''
         self._process = subprocess.Popen(
             self.command,
             stdin=subprocess.PIPE,
@@ -60,7 +72,11 @@ class BridgeClient:
             env=env,
             bufsize=1,
         )
-        ready = json.loads(self._read_line(self._process, self.startup_timeout_seconds))
+        try:
+            ready = json.loads(self._read_line(self._process, self.startup_timeout_seconds))
+        except (ValueError, UnicodeDecodeError):
+            self.close()
+            raise RuntimeError("ACE context bridge returned malformed bridge_ready JSON") from None
         if not isinstance(ready, dict) or ready.get("type") != "bridge_ready" or ready.get("schemaVersion") != 1:
             self.close()
             raise RuntimeError("ACE context bridge did not emit a valid bridge_ready record")
@@ -85,6 +101,7 @@ class BridgeClient:
     def close(self) -> None:
         process = self._process
         self._process = None
+        self._stdout_buffer = b''
         if process is None:
             return
         try:
