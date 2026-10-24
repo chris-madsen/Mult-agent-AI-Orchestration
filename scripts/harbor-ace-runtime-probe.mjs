@@ -34,6 +34,9 @@ if (!existsSync(manifestPath)) {
 }
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 const pythonProbe = [
+  'import sys',
+  'sys.path.insert(0, "/ace")',
+  'sys.path.insert(0, "/root/.hermes/hermes-agent")',
   'import inspect, json',
   'from agent.context_engine import ContextEngine',
   'from integrations.hermes.ace_context_engine.engine import AceContextEngine',
@@ -48,7 +51,9 @@ try {
     'set -e',
     'export PATH="$HOME/.local/bin:$PATH"',
     'if ! command -v hermes >/dev/null 2>&1; then curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup --branch v0.22.3; fi',
-    `PYTHONPATH=/ace python3 -c ${shellQuote(pythonProbe)}`,
+    'hermes_python="$(find "$HOME/.hermes/tools" -type f -path "*/bin/python3" -print -quit)"',
+    'if [[ -z "$hermes_python" ]]; then printf "Hermes Python runtime was not installed\\n" >&2; exit 1; fi',
+    `"$hermes_python" -I -c ${shellQuote(pythonProbe)}`,
   ].join(' && ');
   const output = execFileSync('docker', [
     'run', '--rm', '--network', 'host',
