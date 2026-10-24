@@ -4,7 +4,9 @@
 
 ## 1. Инварианты границ
 
-1. Unified MCP — единственный логический внешний фасад ACE для Codex; future agent через ACL.
+**Current architecture (ADR-016/017, 2026-10-24):** LangGraph or another external orchestrator owns agent coordination. For agents supporting configurable LLM endpoints, Bifrost is the **selected future model-bound context delivery path** through a thin Go connector and versioned ACE projection API; implementation and provider-wire conformance are **not yet complete**. Hermes already has a native ContextEngine bridge. MCP remains a separate existing **explicit tool-call interface**, not mandatory for context injection.
+
+1. **Раздельные плоскости:** model-bound context via planned Bifrost → ACE Gateway Projection API (ADR-017) or existing native Hermes ContextEngine (ADR-016); MCP — only existing explicit tool calls, not mandatory LLM context injection. LangGraph schedules agents externally.
 2. Выполнение кодовых правок и контроль Git остаются за Codex; ACE **read-only** относительно файлов проекта (кроме своих индексов/архивов).
 3. Порты не импортируют типы Qdrant/Vertex/Graphiti в домен.
 4. `RepoPath` не может выйти из разрешённого root после canonicalization (включая symlinks).
@@ -12,7 +14,7 @@
 6. Все большие оригиналы доступны без потерь; handles должны быть неугадываемыми/access-scoped и протухать/перепроверяться.
 7. Evidence provenance и certainty сохраняются в каждом переходе; LLM-generated summary не становится `source`.
 
-## 2. MCP Tool Surface (предлагаемые имена)
+## 2. MCP Tool Surface — explicit tool calls (not automatic model-context injection)
 
 | Tool | Аргументы | Результат | Контроль |
 |---|---|---|---|
@@ -103,7 +105,7 @@ Security logs: `occurred_at, correlation_id, component, category, policy_version
 
 ## 6. Sync / async boundaries
 
-**Sync within MCP request:** workspace/policy check, retrieval planning, candidate fetch, live hash check, selective AST/LSP resolve, merge and bundle delivery. При конфликте файлов состояние маркируется.
+**Sync within authorized context request (native, planned gateway or explicit MCP tool):** workspace/policy check, retrieval planning, candidate fetch, live hash check, selective AST/LSP resolve, merge and bundle delivery. При конфликте файлов состояние маркируется.
 
 **Async outside request:** index construction/refresh, session import, Graphiti projection, Harbor run aggregation. Event retry idempotent; не ждать Graphiti ingestion во время каждого `ace_context`.
 
@@ -113,13 +115,18 @@ Security logs: `occurred_at, correlation_id, component, category, policy_version
 
 ```mermaid
 flowchart TB
-  C["Codex on workstation"] -->|MCP transport TBD| A["ACE modular monolith - local K8s"]
-  A -->|local| Q["Qdrant - stateful"]
-  A -->|local adapter| T["AST/LSP toolchain"]
-  A -->|local backend| G["Raw archive + Graphiti"]
-  A -->|allowed HTTPS| V["Vertex RAG docs"]
-  C -.->|Working-tree access mechanism TBD| A
-  H["Harbor test runner - isolated environment"] -.->|benchmark config| C
+  LG["LangGraph external orchestrator"] --> AG["Coding agents"]
+  AG -->|"LLM endpoint: planned"| BF["Bifrost + thin Go ACE connector: planned"]
+  BF -->|"Projection API: planned"| ACE["ACE modular monolith / TS+Effect"]
+  BF -->|"Provider request"| LLM["LLM provider"]
+  AG -.->|"Explicit MCP tools: existing"| MCP["ACE MCP tool facade"]
+  MCP --> ACE
+  HE["Hermes ContextEngine: existing"] -->|"Native JSONL bridge"| ACE
+  ACE --> Q["Qdrant"]
+  ACE --> T["ast-grep / LSP"]
+  ACE --> G["Archive / Graphiti"]
+  ACE -->|"Authorized docs"| V["Vertex RAG"]
+  H["Harbor runner"] -.-> AG
 ```
 
 - **Deployment choice accepted:** existing local Kubernetes, modular monolith (ADR-008).
