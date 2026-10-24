@@ -107,7 +107,7 @@ const dockerImageReference = async (taskPath: string): Promise<string> => {
   if (match?.[1] === undefined || match[1].trim().length === 0) {
     throw new Error(`BLOCKED: frozen task is missing an explicit docker_image: ${taskPath}`);
   }
-  return match[1].trim();
+  return match[1].trim().replace(/@sha256:[a-f0-9]{64}$/u, '');
 };
 
 const verifyDockerImageReference = (reference: string, digest: string): void => {
