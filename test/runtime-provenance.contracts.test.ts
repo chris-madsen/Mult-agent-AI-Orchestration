@@ -28,22 +28,25 @@ const sourceFiles: readonly RuntimeSourceManifestEntry[] = [{
   sizeBytes: 10,
 }];
 const base: RuntimeProvenanceManifest = {
-  schemaVersion: 1,
-  runtimeRoot: '/repo',
+  schemaVersion: 2,
+  runtimeId: 'ace-harbor-runtime-v1',
   executablePath: 'dist/bin/ace-mcp.js',
   executableSha256: 'b'.repeat(64),
   sourceCommit: 'c'.repeat(40),
-  sourceClean: true,
+  sourceCleanAtBuild: true,
   dirtyRelevantPaths: [],
   sourceManifestSha256: sourceManifestSha256(sourceFiles),
   sourceFiles,
-  runtime,
+  buildRuntime: runtime,
+  supportedNodeVersions: ['v18.19.0', 'v22.9.0', 'v24.15.0'],
+  bundleManifestSha256: 'f'.repeat(64),
 };
 const observed: RuntimeProvenanceObservation = {
   runtimeRoot: '/repo',
+  runtimeId: base.runtimeId,
   executableSha256: base.executableSha256,
   sourceCommit: base.sourceCommit,
-  sourceClean: true,
+  sourceCleanAtBuild: true,
   sourceManifestSha256: base.sourceManifestSha256,
   runtime,
 };
@@ -56,7 +59,7 @@ test('tracked source changes invalidate the bound manifest', () => {
   const changedSource = [{ ...sourceFiles[0], sha256: 'd'.repeat(64) }];
   const failures = validateRuntimeProvenance(base, {
     ...observed,
-    sourceClean: false,
+    sourceCleanAtBuild: false,
     sourceManifestSha256: sourceManifestSha256(changedSource),
   }, sourceManifestSha256);
   assert.ok(failures.includes('source_worktree_dirty'));
@@ -66,7 +69,7 @@ test('tracked source changes invalidate the bound manifest', () => {
 test('relevant untracked source is not treated as an absent change', () => {
   assert.equal(runtimeRelevantPath('src/untracked-runtime.ts'), true);
   assert.equal(runtimeRelevantPath('docs/untracked-note.md'), false);
-  const failures = validateRuntimeProvenance(base, { ...observed, sourceClean: false }, sourceManifestSha256);
+  const failures = validateRuntimeProvenance(base, { ...observed, sourceCleanAtBuild: false }, sourceManifestSha256);
   assert.ok(failures.includes('source_worktree_dirty'));
 });
 
@@ -78,12 +81,29 @@ test('stale or replaced dist executable fails the digest binding', () => {
   assert.ok(failures.includes('executable_digest_mismatch'));
 });
 
-test('a runtime root mismatch cannot reuse another root manifest', () => {
+test('a relocated runtime root does not invalidate the logical bundle identity', () => {
   const failures = validateRuntimeProvenance(base, {
     ...observed,
     runtimeRoot: '/different-root',
   }, sourceManifestSha256);
-  assert.ok(failures.includes('runtime_root_mismatch'));
+  assert.deepEqual(failures, []);
+});
+
+test('unsupported execution Node is rejected independently of the build Node', () => {
+  const failures = validateRuntimeProvenance(base, {
+    ...observed,
+    runtime: { ...runtime, node: 'v25.0.0' },
+  }, sourceManifestSha256);
+  assert.ok(failures.includes('unsupported_node_runtime'));
+});
+
+test('runtime identity mismatch is reported without requiring the build Node to match', () => {
+  const failures = validateRuntimeProvenance(base, {
+    ...observed,
+    runtime: { ...runtime, node: 'v18.19.0', typescript: 'other' },
+  }, sourceManifestSha256);
+  assert.ok(failures.includes('runtime_identity_mismatch'));
+  assert.ok(!failures.includes('unsupported_node_runtime'));
 });
 
 test('executing a binary from another checkout cannot reuse a clean manifest', async () => {

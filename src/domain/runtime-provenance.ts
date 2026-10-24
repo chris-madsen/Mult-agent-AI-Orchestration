@@ -13,23 +13,26 @@ export interface RuntimeIdentity {
 }
 
 export interface RuntimeProvenanceManifest {
-  readonly schemaVersion: 1;
-  readonly runtimeRoot: string;
+  readonly schemaVersion: 2;
+  readonly runtimeId: 'ace-harbor-runtime-v1';
   readonly executablePath: 'dist/bin/ace-mcp.js';
   readonly executableSha256: string;
   readonly sourceCommit: string;
-  readonly sourceClean: boolean;
+  readonly sourceCleanAtBuild: boolean;
   readonly dirtyRelevantPaths: readonly string[];
   readonly sourceManifestSha256: string;
   readonly sourceFiles: readonly RuntimeSourceManifestEntry[];
-  readonly runtime: RuntimeIdentity;
+  readonly buildRuntime: RuntimeIdentity;
+  readonly supportedNodeVersions: readonly string[];
+  readonly bundleManifestSha256: string;
 }
 
 export interface RuntimeProvenanceObservation {
   readonly runtimeRoot: string;
+  readonly runtimeId: string;
   readonly executableSha256: string;
   readonly sourceCommit: string;
-  readonly sourceClean: boolean;
+  readonly sourceCleanAtBuild: boolean;
   readonly sourceManifestSha256: string;
   readonly runtime: RuntimeIdentity;
 }
@@ -54,14 +57,16 @@ export const validateRuntimeProvenance = (
   manifestDigest: (entries: readonly RuntimeSourceManifestEntry[]) => string,
 ): readonly string[] => {
   const failures: string[] = [];
-  if (manifest.schemaVersion !== 1) failures.push('manifest_schema_invalid');
-  if (manifest.runtimeRoot !== observed.runtimeRoot) failures.push('runtime_root_mismatch');
+  if (manifest.schemaVersion !== 2) failures.push('manifest_schema_invalid');
+  if (manifest.runtimeId !== 'ace-harbor-runtime-v1' || observed.runtimeId !== manifest.runtimeId) {
+    failures.push('runtime_id_mismatch');
+  }
   if (manifest.executablePath !== 'dist/bin/ace-mcp.js' || !sha256(manifest.executableSha256)) {
     failures.push('executable_identity_invalid');
   }
   if (manifest.executableSha256 !== observed.executableSha256) failures.push('executable_digest_mismatch');
   if (!commit(manifest.sourceCommit) || manifest.sourceCommit !== observed.sourceCommit) failures.push('source_commit_mismatch');
-  if (manifest.sourceClean !== true || observed.sourceClean !== true) failures.push('source_worktree_dirty');
+  if (manifest.sourceCleanAtBuild !== true || observed.sourceCleanAtBuild !== true) failures.push('source_worktree_dirty');
   if (!sha256(manifest.sourceManifestSha256) || manifest.sourceManifestSha256 !== observed.sourceManifestSha256) {
     failures.push('source_manifest_mismatch');
   }
@@ -71,11 +76,14 @@ export const validateRuntimeProvenance = (
   } else if (manifestDigest(manifest.sourceFiles) !== manifest.sourceManifestSha256) {
     failures.push('manifest_content_digest_mismatch');
   }
-  if (manifest.runtime.acePackage !== observed.runtime.acePackage
-    || manifest.runtime.node !== observed.runtime.node
-    || manifest.runtime.typescript !== observed.runtime.typescript
-    || manifest.runtime.mcpClientSdk !== observed.runtime.mcpClientSdk
-    || manifest.runtime.mcpServerSdk !== observed.runtime.mcpServerSdk) {
+  if (!manifest.supportedNodeVersions.includes(observed.runtime.node)) {
+    failures.push('unsupported_node_runtime');
+  }
+  if (!sha256(manifest.bundleManifestSha256)) failures.push('bundle_manifest_invalid');
+  if (manifest.buildRuntime.acePackage !== observed.runtime.acePackage
+    || manifest.buildRuntime.typescript !== observed.runtime.typescript
+    || manifest.buildRuntime.mcpClientSdk !== observed.runtime.mcpClientSdk
+    || manifest.buildRuntime.mcpServerSdk !== observed.runtime.mcpServerSdk) {
     failures.push('runtime_identity_mismatch');
   }
   return failures;
