@@ -98,6 +98,7 @@ run('docker', ['run', '--rm', '--entrypoint', 'sh', '-v', `${output}:/ace`, pref
   'export FASTEMBED_CACHE_PATH=/ace/runtime/model-cache',
   `python3 -c ${shellQuote('from fastembed import TextEmbedding, SparseTextEmbedding; TextEmbedding(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"); SparseTextEmbedding(model_name="Qdrant/bm25"); print("models_ready")')}`,
 ].join(' && ')], { stdio: 'inherit' });
+run('docker', ['run', '--rm', '--entrypoint', 'sh', '-v', `${output}:/ace`, prefetchImage, '-lc', 'chmod -R a+rX /ace/runtime'], { stdio: 'inherit' });
 
 const walk = async (root, current = root) => {
   const entries = [];
