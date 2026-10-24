@@ -4,6 +4,14 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 default_python="${root}/.venv-embedding-fast/bin/python"
 python_command="${ACE_SPARSE_EMBEDDING_PYTHON:-${default_python}}"
+runtime_root="${ACE_RUNTIME_ROOT:-$root}"
+if [[ -d "${runtime_root}/runtime/python" ]]; then
+  python_version="$(${python_command} -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+  package_root="${runtime_root}/runtime/python/${python_version}/site-packages"
+  if [[ -d "$package_root" ]]; then
+    export PYTHONPATH="$package_root:${runtime_root}/scripts${PYTHONPATH:+:$PYTHONPATH}"
+  fi
+fi
 model="${ACE_SPARSE_EMBEDDING_MODEL:-Qdrant/bm25}"
 export FASTEMBED_CACHE_PATH="${FASTEMBED_CACHE_PATH:-${root}/.cache/ace-fastembed}"
 export PYTHONDONTWRITEBYTECODE="${PYTHONDONTWRITEBYTECODE:-1}"
