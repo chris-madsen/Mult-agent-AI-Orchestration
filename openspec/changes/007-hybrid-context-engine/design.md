@@ -2,6 +2,8 @@
 
 **Normative ADR:** ADR-014.
 
+**Transport clarification (2026-10-24):** This specification governs ACE retrieval/projection semantics, not a mandatory MCP model-context path. Bifrost is selected but not implemented for gateway delivery (ADR-017), Hermes native ContextEngine exists (ADR-016), and MCP is an explicit tools interface.
+
 ## Retrieval pipeline
 
 ```text
@@ -53,7 +55,7 @@ The reranker, when approved, only reorders the fused shortlist.
 
 ## Working-state priors
 
-ACE independently observes Git/worktree state. MCP clients MAY supply focus/open-file/range hints.
+ACE independently observes Git/worktree state. Authorized native/gateway adapters and explicit MCP tool clients MAY supply focus/open-file/range hints.
 
 Working-state values influence ranking and context assembly but never override:
 - exact source digest verification;
@@ -66,7 +68,7 @@ ContextBundle evidence has stable identities. A client can provide known bundle/
 
 This is distinct from embedding cache reuse:
 - embedding reuse reduces indexing compute;
-- context delta delivery reduces repeated MCP/model input bytes.
+- context delta delivery reduces repeated context-transfer/model input bytes on the authorized adapter, including explicit MCP tool responses where applicable.
 
 ## Failure semantics
 

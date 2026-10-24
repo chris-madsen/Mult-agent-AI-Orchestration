@@ -6,7 +6,9 @@
 
 ## 1. Domain vision и ценностное предложение
 
-**Adaptive Context Engine (ACE)** — внешний агентонезависимый слой для Codex, который по смысловому запросу поставляет релевантный, текущий, проверяемый и при необходимости исторический контекст. Продукт не пишет код самостоятельно, не управляет скрытой памятью Codex и не заменяет инструменты coding-агента.
+**Current architecture (ADR-016/017, 2026-10-24):** LangGraph or another external orchestrator owns agent coordination. For agents supporting configurable LLM endpoints, Bifrost is the **selected future model-bound context delivery path** through a thin Go connector and versioned ACE projection API; implementation and provider-wire conformance are **not yet complete**. Hermes already has a native ContextEngine bridge. MCP remains a separate existing **explicit tool-call interface**, not mandatory for context injection.
+
+**Adaptive Context Engine (ACE)** — внешний агентонезависимый слой для coding-агентов (включая управляемых LangGraph), который по смысловому запросу поставляет релевантный, текущий, проверяемый и при необходимости исторический контекст. Продукт не пишет код самостоятельно, не управляет скрытой памятью Codex и не заменяет инструменты coding-агента.
 
 **North Star:** `end-to-end baseline total tokens / ACE total tokens >= 5` на заранее зафиксированном наборе задач при качестве не ниже baseline. 5× — цель, а не уже достигнутый результат. Отдельно измеряются денежная себестоимость, latency, фактические ошибки и долговременная память. Цифры публикуются с конфигурацией и ограничениями.
 
@@ -23,7 +25,7 @@
 | `VerifiedCurrent` | Проверена идентичность наблюдаемого содержания в момент проверки. Не гарантия отсутствия последующей конкурентной правки. |
 | `SemanticFact` | Определение/тип/reference из live language service в пределах его модели языка. |
 | `UnknownDynamicEdge` | Связь, потенциально скрытая DI/reflection/dynamic dispatch/runtime; отсутствие references не доказывает отсутствие вызовов. |
-| `ContextRequest` | Пользовательская задача/вопрос, переданный внешнему MCP-харнессу. |
+| `ContextRequest` | Авторизованный запрос на контекст из native/gateway adapter либо явного MCP tool call; не обязательно MCP. |
 | `RetrievalPlan` | План обращения к одному/нескольким источникам; Jev пока исследовательский кандидат. |
 | `ContextBundle` | Набор evidence, excerpts, отношений и предупреждений с disclosure-ссылками; не patch и не сохранённый файл. |
 | `SessionEpisode` | Неизменённый фрагмент оригинальной сессии Codex с provenance и временными метками. |
@@ -44,7 +46,7 @@
 | **Semantic Code Intelligence** | Supporting | AST, LSP, definitions, refs, types, structural queries и ограниченность статического анализа. |
 | **Documentation Knowledge** | Supporting | Поиск в разрешённых документах через Vertex AI RAG Engine. |
 | **Trust & Data Policy** | Generic / critical | Разрешения, data residency, secret filtering, fail-closed решения, безопасное журналирование. |
-| **Agent Access** | Generic / interface | MCP boundary, адаптер Codex, остальные клиенты потом. |
+| **Agent Access** | Generic / interface | Planned Bifrost projection, existing native Hermes bridge, and separate explicit MCP tools. |
 | **Experimentation & Evaluation** | **Core для продукта/портфолио** | Harbor, воспроизводимые сравнения, реальный usage, качество, статистика. |
 
 ## 4. Bounded Contexts (BC)
@@ -65,29 +67,31 @@
 
 **BC-08 Evaluation**: формирует reproducible experimental record, контролирует baseline и holdout, собирает provider-reported токены. Harbor — runner, а не источник бизнес-истины.
 
-**Agent Access (ACL)** — поддерживающий adapter/module, **не самостоятельный Core BC**: переводит MCP-вызовы Codex во внутренние команды, а ответы — в MCP. Системные состояния не управляются из Model-generated snippets.
+**Agent Access (ACL)** — supporting adapter/module, **не отдельный Core BC**: переводит запросы к отдельным native/gateway projection и explicit MCP tool endpoints во внутренние команды ACE. Bifrost connector — planned, Hermes native и MCP tools — existing. Системные состояния не управляются из model-generated snippets.
 
 ## 5. Context Map
 
 ```mermaid
 flowchart TB
-    Codex["Codex / будущий агент"] -->|MCP: Published Language| ACL["Agent Access ACL"]
-    ACL -->|ContextRequest| ORCH["BC-06 Context Orchestration / CORE"]
-    ORCH -->|Authorize| POL["BC-07 Trust & Policy"]
-    ORCH -->|Snapshot query| WS["BC-01 Workspace Truth"]
-    ORCH -->|Candidate query| CD["BC-02 Code Discovery"]
-    ORCH -->|Symbol resolution| SEM["BC-03 Semantic Intelligence"]
-    ORCH -->|Doc query| DOC["BC-04 Documentation Knowledge"]
-    ORCH -->|History query| MEM["BC-05 Engineering Memory"]
-    WS -->|WorkspaceChanged / ACL event| CD
-    WS -->|WorkspaceChanged / ACL event| SEM
-    Codex -.->|Session export / adapter| MEM
-    CD -->|Qdrant Port| Q["Qdrant - local"]
-    SEM -->|Parser / LSP Port| L["Tree-sitter, ast-grep, LSP"]
-    DOC -->|ACL| V["Google Vertex RAG"]
-    MEM -->|ACL| G["Original archive + Graphiti"]
-    EVAL["BC-08 Evaluation / CORE for proof"] -->|Harbor ACL| H["Harbor + Codex runs"]
-    EVAL -.->|Benchmark traces/metrics, no business coupling| ORCH
+  LG["LangGraph external orchestrator"] --> AG["Existing coding agents"]
+  AG -->|"LLM endpoint: planned"| BF["Bifrost gateway + thin Go connector: planned"]
+  BF -->|"ACE projection API: planned"| ACL["ACE Gateway projection adapter"]
+  AG -.->|"Explicit MCP tools: existing"| MCP["ACE MCP tool facade"]
+  HE["Hermes native ContextEngine: existing"] --> J["Direct ACE JSONL bridge"]
+  ACL --> O["BC-06 Context Orchestration / CORE"]
+  MCP --> O
+  J --> O
+  O --> P["BC-07 Trust & Policy"]
+  O --> W["BC-01 Workspace Truth"]
+  O --> C["BC-02 Code Discovery"]
+  O --> S["BC-03 Semantic Intelligence"]
+  O --> D["BC-04 Documentation Knowledge"]
+  O --> M["BC-05 Engineering Memory"]
+  C --> Q["Qdrant - local"]
+  S --> L["ast-grep + LSP"]
+  D --> V["Authorized Vertex RAG"]
+  M --> G["Archive + Graphiti"]
+  E["BC-08 Evaluation"] --> H["Harbor runs"]
 ```
 
 ### Relationship types / ownership
@@ -100,7 +104,7 @@ flowchart TB
 | Documentation Knowledge → Orchestration | **ACL к внешнему SaaS** | DocEvidence: document_id/version/section, authorisation marker, excerpt. |
 | Engineering Memory → Orchestration | **Published Language + ACL** | MemoryEvidence со ссылкой на original episode и статусом решения. |
 | Trust & Policy → все внешние I/O | **Conformist to mandatory policy API** | Allowed/Denied + reason code; отсутствие решения = Denied. |
-| Orchestration → Agent Access | **Published Language** | ContextBundle; наружу не просачиваются DTO Qdrant/Graphiti/Vertex. |
+| Context Orchestration → Agent Access | **Published Language** | ContextBundle/Projection with distinct gateway/native model-delivery and MCP tool transports; no Qdrant/Graphiti/Vertex DTO leakage. |
 | Evaluation → Harbor | **Anti-Corruption Layer** | Internal BenchmarkRun ↔ pinned Harbor execution/result. |
 
 BC **не** является Kubernetes Deployment. Предложение: один modular-monolith process для собственных модулей + готовые stateful зависимости (Qdrant, backend Graphiti) и внешний Vertex. Не проектировать 8 микросервисов.

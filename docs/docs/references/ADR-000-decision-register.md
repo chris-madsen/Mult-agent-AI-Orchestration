@@ -10,6 +10,8 @@
 
 ## Матрица ответов владельца проекта
 
+> **2026-10-24 precedence:** MCP-first rows and the Hermes MCP injection text below are dated historical decisions. ADR-017 now governs planned Bifrost model-bound delivery, ADR-016 documents native Hermes, and MCP remains explicit tools only. LangGraph orchestration is external to ACE.
+
 | № вопроса | Решение пользователя | Где зафиксировано |
 |---|---|---|
 | 1 | C — независимое ядро; сначала Codex | ADR-001 |
@@ -73,3 +75,11 @@
 - Модель/подписка не меняются автоматически вместе с harness: GPT подключается через Hermes provider `openai-codex` с Hermes-owned OAuth store `~/.hermes/auth.json` (либо явно заданным `HERMES_HOME` / `HERMES_AUTH_JSON_PATH`); `~/.codex/auth.json` не переиспользуется, отдельный OpenAI/OpenRouter API key не является требованием этого маршрута.
 - ACE остаётся agent-neutral MCP-сервисом. В ACE-optional arm Hermes получает `ace_context`/`ace_expand` через native MCP registration; baseline arm не получает ACE.
 - Исторические Codex benchmark artifacts остаются историческими Codex artifacts и не используются как доказательство Hermes E2E.
+
+
+## Owner clarification — 2026-10-24: Bifrost and MCP roles
+
+- Bifrost is the accepted **planned** LLM model-request gateway for configurable-endpoint agents; thin Go ACE Connector, ACE Gateway Projection API and final provider-wire proof remain unimplemented/unapproved (ADR-017).
+- Native Hermes ContextEngine/JSONL bridge already exists (ADR-016), and must not double-project a Bifrost-transformed request.
+- MCP is the existing **explicit tools plane** (`ace_expand`, status, diagnostics, optional search), not a required route for automatic model-context injection. Previous MCP-first statements are retained only as dated historical records.
+- Multi-agent scheduling using LangGraph stays outside ACE.
