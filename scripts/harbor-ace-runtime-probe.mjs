@@ -24,6 +24,7 @@ if (image === undefined || bundle === undefined || !/^.+@sha256:[a-f0-9]{64}$/u.
   process.exitCode = 2;
   process.exit();
 }
+const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
 const bundleRoot = resolve(bundle);
 const manifestPath = resolve(bundleRoot, 'runtime-manifest.json');
 if (!existsSync(manifestPath)) {
@@ -43,13 +44,18 @@ const pythonProbe = [
   'print(json.dumps({"status":"READY","python":".".join(map(str, __import__("sys").version_info[:3])),"hermesVersion":hermes,"contextEngineSignature":signature,"pluginImport":True,"bridgeImport":True}))',
 ].join('\n');
 try {
+  const hermesProbe = [
+    'set -e',
+    'export PATH="$HOME/.local/bin:$PATH"',
+    'if ! command -v hermes >/dev/null 2>&1; then curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup --branch v0.22.3; fi',
+    `PYTHONPATH=/ace python3 -c ${shellQuote(pythonProbe)}`,
+  ].join(' && ');
   const output = execFileSync('docker', [
     'run', '--rm', '--network', 'host',
     '-v', `${bundleRoot}:/ace:ro`,
-    '-e', 'PYTHONPATH=/ace',
-    '--entrypoint', 'python3',
+    '--entrypoint', 'sh',
     image,
-    '-c', pythonProbe,
+    '-lc', hermesProbe,
   ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   const result = JSON.parse(output.trim().split(/\r?\n/u).at(-1));
   const node = execFileSync('docker', ['run', '--rm', '--entrypoint', 'node', '-v', `${bundleRoot}:/ace:ro`, image, '--version'], { encoding: 'utf8' }).trim();
