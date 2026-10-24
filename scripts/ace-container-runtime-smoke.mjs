@@ -43,8 +43,8 @@ try {
     `fetch(${JSON.stringify(`${qdrantUrl.replace(/\/$/u, '')}/collections`)}).then((response) => { if (!response.ok) process.exit(2); })`]);
   const bridgeProbe = run('docker', [
     'run', '--rm', '--network', 'host', '-i', '-v', mount,
-    '-e', 'ACE_WORKSPACE_ROOT=/tmp',
-    '-e', 'ACE_ALLOWED_ROOTS=/tmp',
+    '-e', 'ACE_WORKSPACE_ROOT=/ace',
+    '-e', 'ACE_ALLOWED_ROOTS=/ace',
     '-e', 'ACE_RUNTIME_ROOT=/ace',
     '-e', 'ACE_RUNTIME_ID=ace-harbor-runtime-v1',
     '-e', `ACE_QDRANT_URL=${qdrantUrl}`,
