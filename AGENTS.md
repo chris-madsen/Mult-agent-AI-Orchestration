@@ -6,7 +6,7 @@ These instructions apply to **all work in this repository** (`src/`, `test/`, `s
 
 ## 1. Mission and source of authority
 
-- ACE is an **agent-neutral Adaptive Context Engine**, exposed through one logical MCP facade. **Hermes is the primary agent-facing client for the current feedback/benchmark loop** because it preserves native MCP context injection; Codex remains a supported comparison/compatibility client rather than a privileged architecture boundary.
+- ACE is an **agent-neutral Adaptive Context Engine**, independent of external LangGraph multi-agent orchestration. For configurable-endpoint agents, **Bifrost is the selected future model-bound LLM gateway**, but its connector and provider-wire proofs are not implemented/approved (ADR-017). **MCP is the existing explicit tool-call plane**, not the primary means of model-context injection. Hermes already has a native ContextEngine/JSONL bridge (ADR-016), not native MCP context injection. Codex remains a comparison client.
 - Optimize accurate **end-to-end context delivery and task success**. The target of **at least 5× fewer agent tokens per accepted task** is a hypothesis to measure against a strong unmodified baseline, **never an assumed achievement**. Protect correctness, confidentiality, total cost and latency.
 - Respect the accepted PRD and ADRs as architecture decisions. The relevant OpenSpec capability specs and Meyer contracts define observable acceptance. Implementation notes, spikes, review reports and execution plans contain evidence or work instructions; they do **not** override accepted ADRs.
 - Resolve conflicting guidance in this order: **current explicit owner decision → Accepted ADR → applicable OpenSpec capability/acceptance contract → repository/nested AGENTS.md → current implementation and tests as evidence of what exists → execution plans/reviews/spikes as historical or temporary guidance**. If an unresolved material architecture choice remains, propose an ADR rather than deciding silently.
@@ -17,7 +17,7 @@ These instructions apply to **all work in this repository** (`src/`, `test/`, `s
 
 - **TypeScript / Node.js** is the primary implementation language and runtime. Keep core domain, application and runtime-composition logic in the existing TypeScript architecture unless a measured need and an approved architecture decision justify otherwise.
 - **Effect** is the primary application/runtime composition framework. Preserve typed effects, explicit dependencies and typed failure semantics rather than introducing ad-hoc hidden global state.
-- Use the official maintained **MCP TypeScript SDK** for production MCP client/server transport and protocol integration.
+- Use the official maintained **MCP TypeScript SDK** for explicit tools only. A model-bound Bifrost projection uses the separate versioned ACE Gateway Projection API (ADR-017).
 - **Python is allowed at explicit tooling/provider boundaries** where mature libraries are materially better suited, including embedding/model workers, Tree-sitter-related helpers, experiments and benchmark tooling. Do not move core ACE domain/application logic into Python without an architectural reason.
 - Treat every Python/native subprocess as a real provider boundary: use a typed/versioned protocol, effective runtime/model identity, bounded timeouts, cancellation, safe stderr/logging and explicit failure semantics.
 - **Shell scripts** are for reproducible bootstrap, orchestration and evidence collection, not core business logic.
@@ -72,7 +72,7 @@ For changes affecting a user-visible capability, define **observable**:
 - **Frame conditions**: user worktree, original bytes, protected branches and immutable benchmark holdouts remain unchanged by the capability.
 - **Exceptional postconditions**: distinguish provider outage, policy denial, stale/raced inputs, cancellation and retries without false success.
 
-Use `docs/docs/architecture/07-architecture-fitness-contracts.md` and applicable OpenSpec capability specs for contract IDs and scenarios. **A domain port, adapter file, pure mock test, green compiler or passing protocol smoke is not proof of agent-facing production behavior.** Verify the runtime entrypoint calls real configured providers through the actual MCP client.
+Use `docs/docs/architecture/07-architecture-fitness-contracts.md` and applicable OpenSpec capability specs for contract IDs and scenarios. **A domain port, adapter file, pure mock test, green compiler or passing protocol smoke is not proof of agent-facing production behavior.** Verify each selected integration end to end: MCP SDK client for explicit tools, native Hermes ContextEngine for its existing request-local bridge, and future Bifrost ingress/ACE projection/**final provider egress** for model-bound delivery. Tool-call success is not proof of automatic context injection.
 
 Keep evidence stages separate: `contract-designed` → `adapter-implemented` → `real-provider-tested` → `agent-E2E-tested` → `benchmark-evaluated` → `owner-approved`. **Never collapse these states into one `done` flag.** Unpassed mandatory checks remain unchecked; a controlled exception explains a blocker but never closes a production gate.
 
@@ -80,7 +80,7 @@ Evidence used to close a gate must identify, as applicable, the **source commit,
 
 ## 7. Benchmarks and reporting
 
-- Use Harbor for **paired, pinned, retrieval-demanding real agent tasks** against a strong native Hermes baseline for the current feedback loop, with the same underlying model/provider/reasoning identity across arms. Codex may remain a matched comparison harness. Verify actual ACE MCP call counts and attributed provider usage; zero ACE calls cannot establish ACE-caused benefit.
+- Use Harbor for **paired, pinned, retrieval-demanding real agent tasks** against a strong native Hermes baseline for the current feedback loop, with the same underlying model/provider/reasoning identity across arms. Codex may remain a matched comparison harness. Verify actual model-bound ACE projection calls, receipts, provider egress and usage for the selected route; MCP tool-call counts alone do not establish ACE-caused context savings.
 - Compare accepted task quality first, then total input/output/cached tokens without double counting, external embedding/LLM/indexing costs, latency, source integrity and failures. Cost components must be reported as **measured, estimated or unknown**; unknown is never zero and must not be called complete telemetry. Preserve raw trials and independent holdouts; do not tune on frozen holdouts.
 - A measured result below 5× (or a regression) must be reported honestly; **the performance target is not a prerequisite to running experiments or benchmarks**. Do not assert savings from a forced trivial task.
 - Do not fabricate test runs, relax assertions to hide defects, suppress failed provider attempts, or mark a production criterion passed from mock-only evidence.

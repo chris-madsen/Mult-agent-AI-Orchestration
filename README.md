@@ -1,33 +1,30 @@
 # Adaptive Context Engine (ACE) Harness
 
-ACE is an **agent-neutral, MCP-exposed, Cursor-inspired multi-layer hybrid
-context/RAG engine for agentic software development**. Codex is the first
-client, not an architectural dependency. ACE is **not** a multi-agent task
-scheduler: it retrieves, verifies, and progressively supplies the project
-context that coding agents need, without repeatedly sending unchanged content.
+ACE is an **agent-neutral hybrid context/RAG engine**, not an agent scheduler. LangGraph or another external orchestrator owns multi-agent workflows. ACE supplies verified context to model requests. For configurable-endpoint agents, **Bifrost is the selected, not-yet-implemented LLM context gateway** (ADR-017). **MCP is an explicit tool interface, not the primary route for model-bound context injection.** Hermes already has a native ContextEngine/JSONL bridge (ADR-016).
+
 
 ## Architecture at a glance
 
 ```text
-Codex / Claude Code / Gemini CLI / any compatible MCP agent
-                         |
-                    ACE MCP facade
-                         |
-       current worktree + optional client focus hints
-                         |
-       code: ast-grep structural units
-             + dense embedding + sparse/BM25
-             + Qdrant native RRF fusion
-             + optional evidence-gated reranking + LSP
-       docs: authorized Vertex AI RAG
-       memory: immutable session archive + Graphiti/FalkorDB
-       history: explicit, provenance-backed Git source
-                         |
-            verified source-aware ContextBundle
-                         |
-           compact initial delivery + receipt/delta
-                         |
-                 ace_expand exact bytes
+LangGraph / other external orchestrator -> existing agents
+                        | configured LLM endpoint
+                        v
+              Bifrost LLM Gateway (PLANNED)
+                 |               |
+       Go ACE Connector          +--> LLM provider
+             (PLANNED)
+                 |
+       ACE Gateway Projection API (PLANNED)
+                 |
+         ACE Core (TS + Effect)
+           |-- code: Qdrant dense/sparse RRF + ast-grep/LSP
+           |-- docs: authorized Vertex RAG
+           |-- memory: Graphiti/archive
+           +-- verified context / receipts
+
+Existing separate integrations:
+  agent -- MCP explicit tool call --> ACE tools (search/expand/status)
+  Hermes -- native ContextEngine --> ACE direct JSONL bridge
 ```
 
 Private source and conversations remain local by default; Vertex is a
@@ -35,7 +32,7 @@ Private source and conversations remain local by default; Vertex is a
 for private code. Current verified source bytes outrank stale index data,
 derived memory and documentation when determining actual program behavior.
 The 5× accepted-task token reduction is a benchmark hypothesis, not a reported
-achievement. See [Accepted ADR-014](docs/docs/references/ADR-014-hybrid-context-engine.md),
+achievement. See [ADR-017](docs/docs/references/ADR-017-bifrost-unified-llm-gateway.md), [ADR-014](docs/docs/references/ADR-014-hybrid-context-engine.md),
 [OpenSpec 007](openspec/changes/007-hybrid-context-engine/),
 and the [2026-10-21 targeted code review](docs/reviews/2026-10-21-hybrid-context-static-code-review.md).
 
@@ -67,7 +64,7 @@ The TypeScript + Effect modular monolith now implements substantial slices acros
   temporal memory search and confirmation-gated decision FSM;
 - deterministic multi-source routing with an explicit, opt-in Jev boundary and
   required-source quality comparison;
-- one ACE gateway using the maintained official MCP TypeScript SDK over stdio,
+- one existing **MCP tool facade** (not the LLM context gateway) using the maintained official MCP TypeScript SDK over stdio,
   with `ace_context`, `ace_expand`, `ace_workspace_status` and
   `ace_memory_search` tool contracts;
 - typed local context/memory provider wiring; `not_ready` is returned only when
@@ -77,7 +74,7 @@ The TypeScript + Effect modular monolith now implements substantial slices acros
 - typed Qdrant/Vertex/Graphiti/Jev HTTP boundaries and a Harbor CLI runner with
   policy-gated requests, response validation and retained failed-run evidence.
 
-Run the MCP stdio process with `ACE_WORKSPACE_ROOT=/path/to/repo npm run mcp:stdio`.
+For explicit MCP tool access, run the MCP stdio process with `ACE_WORKSPACE_ROOT=/path/to/repo npm run mcp:stdio`.
 Without the real retrieval provider it exposes an honest `not_ready` status,
 not a simulated production search. For the **experimental** local retrieval
 path, forward the local k3s Qdrant port and configure:
