@@ -78,13 +78,13 @@ test('verifies bundle bytes rather than accepting an unverified manifest digest'
 
 test('Docker runtime uses the same valid NumPy pin as the Harbor bundle contract', async () => {
   const dockerfile = await readFile('Dockerfile.ace', 'utf8');
-  assert.match(dockerfile, /numpy==2\\.2\\.6/u);
-  assert.doesNotMatch(dockerfile, /numpy==2\\.5\\.4/u);
+  assert.ok(dockerfile.includes('numpy==2.2.6'));
+  assert.ok(!dockerfile.includes('numpy==2.5.4'));
 });
 
 test('Hermes runtime probe missing-Python guard executes under POSIX sh', async () => {
   const script = await readFile('scripts/harbor-ace-runtime-probe.mjs', 'utf8');
-  const guard = script.match(/if [^\\n]*hermes_python[^\\n]*; then/u)?.[0];
+  const guard = script.split('\n').find((line) => line.trimStart().startsWith('if ') && line.includes('hermes_python'));
   assert.ok(guard, 'the missing-Hermes-Python guard is present');
   const result = spawnSync('sh', ['-c', `hermes_python=; ${guard} exit 71; fi`], { encoding: 'utf8' });
   assert.equal(result.status, 71, result.stderr);
