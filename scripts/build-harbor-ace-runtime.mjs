@@ -6,7 +6,7 @@ import { join, relative, resolve } from 'node:path';
 
 const FASTEMBED = '0.7.4';
 const ONNXRUNTIME = '1.31.0';
-const NUMPY = '2.5.4';
+const NUMPY = '2.2.6';
 const HUGGINGFACE_HUB = '1.33.0';
 const embeddingModelRevision = process.env.ACE_EMBEDDING_MODEL_REVISION || 'e8f8c211226b894fcb81acc59f3b34ba3efd5f42';
 const embeddingArtifactRevision = process.env.ACE_EMBEDDING_ARTIFACT_REVISION || 'faf4aa4225822f3bc6376869cb1164e8e3feedd0';

@@ -7,7 +7,7 @@ export interface AceRuntimeBundleManifest {
   readonly pythonVersions: readonly ('3.10' | '3.11')[];
   readonly fastembed: '0.7.4';
   readonly onnxruntime: '1.31.0';
-  readonly numpy: '2.5.4';
+  readonly numpy: '2.2.6';
   readonly huggingfaceHub: '1.33.0';
   readonly embeddingModelRevision: string;
   readonly embeddingArtifactRevision: string;
@@ -54,7 +54,7 @@ export const validateAceRuntimeBundleManifest = (value: unknown): readonly strin
   for (const [field, expected] of [
     ['fastembed', '0.7.4'],
     ['onnxruntime', '1.31.0'],
-    ['numpy', '2.5.4'],
+    ['numpy', '2.2.6'],
     ['huggingfaceHub', '1.33.0'],
   ] as const) {
     if (manifest[field] !== expected) failures.push(`${field}_pin_invalid`);

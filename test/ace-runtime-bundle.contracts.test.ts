@@ -18,7 +18,7 @@ const validManifest = {
   pythonVersions: ['3.10', '3.11'],
   fastembed: '0.7.4',
   onnxruntime: '1.31.0',
-  numpy: '2.5.4',
+  numpy: '2.2.6',
   huggingfaceHub: '1.33.0',
   embeddingModelRevision: 'd'.repeat(40),
   embeddingArtifactRevision: 'e'.repeat(40),
