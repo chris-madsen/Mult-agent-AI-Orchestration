@@ -7,6 +7,8 @@
 
 ## Контекст
 
+> **Superseded delivery detail (owner decisions 2026-10-23/24):** This ADR retains the historical Hermes-as-benchmark-agent and OAuth decision. **Its ACE-via-native-MCP injection assumption is obsolete.** ADR-016 documents the implemented request-local Hermes `ContextEngine` / direct JSONL bridge, with MCP reserved for explicit tools. ADR-017 selects planned Bifrost → ACE projection for configurable-endpoint agents. Neither a registered MCP server nor an MCP call proves model-bound context delivery. LangGraph orchestrates agents outside ACE.
+
 ACE задуман agent-neutral и должен передавать проверенный контекст через MCP, а не зависеть от особенностей одной агентной оболочки. Текущий feedback loop был собран вокруг Codex, но практическая цель этого контура — проверить, улучшает ли ACE работу агента при естественном использовании контекста. Для этой цели владелец выбрал Hermes: у него есть native MCP integration и более подходящая для эксперимента модель подмешивания контекста.
 
 При этом менять underlying GPT-модель или уходить на отдельный API billing не требуется. Hermes поддерживает provider `openai-codex`, который использует ChatGPT/Codex OAuth state. Harbor 0.24.0 умеет запускать Hermes и передавать MCP servers, но его встроенный Hermes adapter не поддерживает этот OAuth provider, поэтому для benchmark runtime нужен узкий адаптер.
@@ -54,4 +56,6 @@ ACE задуман agent-neutral и должен передавать прове
 - ADR-006 — structured Context Bundle / progressive disclosure
 - ADR-009 — Harbor benchmarking (agent-specific Codex clauses superseded here)
 - ADR-014 — Hybrid Context Engine
+- ADR-016 — implemented Hermes native request-time projection (supersedes MCP injection here)
+- ADR-017 — planned Bifrost model-bound gateway for configurable-endpoint agents
 - OpenSpec change `002-harbor-evaluation`

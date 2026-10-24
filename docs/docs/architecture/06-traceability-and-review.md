@@ -47,9 +47,11 @@
 
 ## 2. ADR → design consequences
 
+> **Current delivery precedence (ADR-016/017, 2026-10-24):** the old ADR-001 `unified MCP` line below describes only the explicit tools facade. It is not an instruction to inject model context through MCP. Hermes-native ContextEngine is implemented; Bifrost gateway projection is selected but unimplemented and must pass provider-wire/agent E2E. LangGraph orchestration is outside ACE.
+
 | Accepted ADR | Realized by |
 |---|---|
-| ADR-001 agent-neutral core + unified MCP | Agent Access ACL + BC-06, change 001 |
+| ADR-001 agent-neutral core + existing MCP explicit tools | MCP tools ACL + BC-06, change 001; model delivery superseded by ADR-016/017 |
 | ADR-002 Jev proposed | Change 005 **experiment**, not runtime dependency |
 | ADR-003 Qdrant code + Vertex docs | BC-02 + BC-04, change 003 |
 | ADR-004 Tree-sitter/ast-grep + LSP spike + fresh overlay | BC-01/02/03, changes 001/003 |

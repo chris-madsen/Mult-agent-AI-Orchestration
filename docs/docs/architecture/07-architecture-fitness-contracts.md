@@ -4,35 +4,41 @@
 
 ## 1. The architectural mistake we are preventing
 
+> **Integration correction (ADR-016/017, 2026-10-24):** MCP conformance remains required for **explicit tools**, not for automatic model-bound context injection. Hermes native ContextEngine is implemented; Bifrost provider-facing gateway + ACE projection connector are planned and not approved. LangGraph orchestrates agents outside ACE. Existing Codex/MCP test cases below are tool-plane-specific historical gates, not proof of request-local gateway transformation.
+
 We chose mature engines for *actual behavior*, but the implementation can satisfy isolated interface/adapter tests while the executable MCP composes a regex/whole-file lexical fallback. **Port implemented ≠ port injected ≠ provider working ≠ feature delivered ≠ 5× proved**. This document defines observable composition and user-result contracts.
 
 ### Runtime component map (production target)
 
 ```mermaid
 flowchart LR
-    Agent[Codex native client] --> MCP[Official MCP TypeScript SDK facade]
-    MCP --> Gate[Workspace authorization / Data Policy]
-    Gate --> Orchestrate[Context Orchestration / Effect]
-    Orchestrate --> Plan[Deterministic route policy]
-    Plan --> Q[Qdrant local code discovery + approved embeddings]
-    Plan --> AST[Tree-sitter / ast-grep structural facts]
-    Plan --> LS[Approved Serena or TS language service]
-    Plan --> Docs[Vertex AI RAG for authorized docs]
-    Plan --> Mem[Raw Codex archive + Graphiti projection]
-    Q --> Verify[Exact source digest/span verification]
-    AST --> Verify
-    LS --> Verify
-    Verify --> Bundle[Ranked relevant ContextBundle + exact expansion]
-    Docs --> Bundle
-    Mem --> Bundle
-    Bundle --> MCP
+  LG["LangGraph or other external orchestrator"] --> A["Existing coding agents"]
+  A -->|"LLM endpoint - planned"| B["Bifrost gateway + ACE Go connector: planned"]
+  B -->|"projection API - planned"| Gate["ACE authorization / data policy"]
+  B -->|"model-bound requests"| P["LLM providers"]
+  A -.->|"explicit MCP tools - existing"| MCP["ACE MCP tool facade"]
+  MCP --> Gate
+  H["Hermes native ContextEngine: existing"] -->|"direct JSONL bridge"| Gate
+  Gate --> O["Context Orchestration / Effect"]
+  O --> Plan["Deterministic retrieval routing"]
+  Plan --> Q["Qdrant dense + sparse"]
+  Plan --> AST["ast-grep structural facts"]
+  Plan --> LS["Language service / LSP"]
+  Plan --> Docs["Authorized Vertex docs"]
+  Plan --> Mem["Archive + Graphiti memory"]
+  Q --> V["Exact source verification"]
+  AST --> V
+  LS --> V
+  V --> Bundle["Verified ContextBundle / projection"]
+  Docs --> Bundle
+  Mem --> Bundle
 ```
 
 This **does not** require executing every provider for every query. Selection depends on request and permissions. A fallback may exist for outages; it must be labelled as such and cannot silently masquerade as production RAG or LSP evidence.
 
 ## 2. Meyer contract vocabulary
 
-For every contract specify `require` (preconditions), `ensure` (postconditions), `invariant` (always true, including after failure), `frame` (what does not change), and `rescue/exception` (typed degraded/denied results). Contracts apply at the **observable agent/MCP boundary**, not just constructors or mocked functions.
+For every contract specify `require` (preconditions), `ensure` (postconditions), `invariant` (always true, including after failure), `frame` (what does not change), and `rescue/exception` (typed degraded/denied results). Contracts apply at the **observable selected adapter boundary** (MCP for explicit tools, Hermes native for request-local projection, future Bifrost provider-wire for gateway delivery), not just constructors or mocked functions.
 
 - `require`: validated workspace ID/root, authorized read-only code, pinned source fixture, provider capabilities explicitly approved and reachable for integration tests.
 - `ensure`: data actually came from selected, instrumented real provider; correct symbol span and current digest; ranked precise excerpt with citation; full exact expansion available.
@@ -96,7 +102,7 @@ ContextRequest.resolve(request, workspace, policy)
 
 1. **Unit/contract**: pure domain rules; helper/fixture doubles permitted. Output: `contract-pass:isolated`.
 2. **Integration**: real pinned provider and wiring; down/up/outage/race. Output: `provider-pass`.
-3. **Agent E2E**: actual Codex client calls ACE via MCP, answer quality inspected. Output: `agent-e2e-pass`.
+3. **Agent E2E**: use the actual selected delivery path: Codex/MCP only tests explicit tools; Hermes native tests request-local context; future Bifrost tests verified provider-bound wire. Inspect answer/task quality, receipts and route identity. Output: `agent-e2e-pass` only for the tested path.
 4. **Benchmark**: paired Harbor retrieval-demanding tasks; real ACE calls and separate total tokens, costs, success/latency. Output: `evaluation-pass`.
 5. **Owner gate**: unresolved provider/license/K8s decisions approved and no outstanding mandatory contracts. Output: `production-ready` only then.
 
