@@ -137,7 +137,7 @@ Do not make blanket claims such as "Bifrost supports lossless Responses". Versio
 | G1 | `CONTEXT_ASSIST` | MCP/skills/explicit tools; agent chooses what goes into context |
 | G0 | `OBSERVE_ONLY` | Logs/metrics/ingestion only, no substitution |
 
-A route may be `structured` (typed Bifrost request + conversion) or `native_passthrough` (original provider-native body). A flag named "raw" does **not** establish G3. `native_passthrough` may still rewrite ``thread`, `model`, `max_tokens`, signed billing fields or unsupported structures, so require an allowlist of permissible changes plus evidence.
+A route may be `structured` (typed Bifrost request + conversion) or `native_passthrough` (original provider-native body). A flag named "raw" does **not** establish G3. `native_passthrough` may still rewrite `thread`, `model`, `max_tokens`, signed billing fields or unsupported structures, so require an allowlist of permissible changes plus evidence.
 
 **Block strict G3** when:
 - Response continuation refers to hidden provider-side state (`previous_response_id`, provider-managed thread, etc.) and no authorized complete history is available.
@@ -211,7 +211,7 @@ Receipt fields (all request-bound, no raw prompt/code/keys):
 - `requestId`, `agentSessionId`, `turnId` if known, `attemptIndex`, `attemptGroupId`, `projectionId`, effective model/provider/protocol, authentication scope;
 - original body SHA-256, returned projected body SHA-256, **captured effective outbound body SHA-256** and named **permitted wire rewrites**;
 - source workspace revision, selected evidence IDs/digests and source freshness, capability level, policy decision/status, timestamps/deadline;
-- model request and response correlation IDs, actual usage provenance (input/output/cached tokens) with ``measured` / `estimated` / `unknown`, latency and failure reason.
+- model request and response correlation IDs, actual usage provenance (input/output/cached tokens) with `measured` / `estimated` / `unknown`, latency and failure reason.
 
 **No fake proof:** A plugin's statement "I applied the projection" is `adapter-implemented` evidence, **not** `provider-wire-tested`. The latter requires mock upstream capture and byte/semantic comparison at the actual final network boundary. A post-hook receipt that is never linked to a real upstream attempt must be `not_delivered` or `unknown`.
 
