@@ -25,10 +25,10 @@ const bundleEntries = async (root: string, current = root): Promise<readonly Bun
     if (info.isDirectory()) {
       entries.push(...await bundleEntries(root, path));
     } else if (info.isFile()) {
-      const name = relative(root, path).split('\\').join('/');
-      if (name === 'runtime-manifest.json' || name === 'dist/runtime-provenance.json') continue;
+      const relPath = relative(root, path).split('\\').join('/');
+      if (relPath === 'runtime-manifest.json' || relPath === 'dist/runtime-provenance.json') continue;
       const bytes = await readFile(path);
-      entries.push({ path: name, sha256: sha256(bytes), sizeBytes: info.size });
+      entries.push({ path: relPath, sha256: sha256(bytes), sizeBytes: info.size });
     }
   }
   return entries;
