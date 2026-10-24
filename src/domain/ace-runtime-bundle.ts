@@ -6,7 +6,7 @@ export interface AceRuntimeBundleManifest {
   readonly taskImages: readonly { readonly reference: string; readonly digest: string }[];
   readonly pythonVersions: readonly ('3.10' | '3.11')[];
   readonly fastembed: '0.7.4';
-  readonly onnxruntime: '1.31.0';
+  readonly onnxruntime: '1.23.2';
   readonly numpy: '2.2.6';
   readonly huggingfaceHub: '1.33.0';
   readonly embeddingModelRevision: string;
@@ -53,7 +53,7 @@ export const validateAceRuntimeBundleManifest = (value: unknown): readonly strin
   }
   for (const [field, expected] of [
     ['fastembed', '0.7.4'],
-    ['onnxruntime', '1.31.0'],
+    ['onnxruntime', '1.23.2'],
     ['numpy', '2.2.6'],
     ['huggingfaceHub', '1.33.0'],
   ] as const) {

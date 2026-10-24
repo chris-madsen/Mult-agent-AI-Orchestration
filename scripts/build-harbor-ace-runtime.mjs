@@ -5,7 +5,7 @@ import { chmod, cp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } fr
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 const FASTEMBED = '0.7.4';
-const ONNXRUNTIME = '1.31.0';
+const ONNXRUNTIME = '1.23.2';
 const NUMPY = '2.2.6';
 const HUGGINGFACE_HUB = '1.33.0';
 const embeddingModelRevision = process.env.ACE_EMBEDDING_MODEL_REVISION || 'e8f8c211226b894fcb81acc59f3b34ba3efd5f42';

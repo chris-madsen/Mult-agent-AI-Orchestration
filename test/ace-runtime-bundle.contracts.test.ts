@@ -18,7 +18,7 @@ const validManifest = {
   taskImages: [{ reference: 'example/task:1', digest: `sha256:${'c'.repeat(64)}` }],
   pythonVersions: ['3.10', '3.11'],
   fastembed: '0.7.4',
-  onnxruntime: '1.31.0',
+  onnxruntime: '1.23.2',
   numpy: '2.2.6',
   huggingfaceHub: '1.33.0',
   embeddingModelRevision: 'd'.repeat(40),
@@ -79,6 +79,7 @@ test('verifies bundle bytes rather than accepting an unverified manifest digest'
 test('Docker runtime uses the same valid NumPy pin as the Harbor bundle contract', async () => {
   const dockerfile = await readFile('Dockerfile.ace', 'utf8');
   assert.ok(dockerfile.includes('numpy==2.2.6'));
+  assert.ok(dockerfile.includes('onnxruntime==1.23.2'));
   assert.ok(!dockerfile.includes('numpy==2.5.4'));
 });
 
