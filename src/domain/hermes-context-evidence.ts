@@ -7,7 +7,8 @@ export interface HermesContextEvidence {
   readonly schemaVersion: 1;
   readonly requestId: string;
   readonly sessionId: string;
-  readonly turnId: string;
+  /** Optional because Hermes select_context does not expose a canonical turn ID. */
+  readonly turnId?: string;
   readonly status: HermesContextTransformStatus;
   readonly receiptId: string;
   /** Provider trace correlation ID, distinct from requestId on the local bridge. */
@@ -39,7 +40,7 @@ export const validateHermesContextEvidence = (value: unknown): Result<HermesCont
   if (input.schemaVersion !== 1
     || !nonEmpty(input.requestId)
     || !nonEmpty(input.sessionId)
-    || !nonEmpty(input.turnId)
+    || (input.turnId !== undefined && !nonEmpty(input.turnId))
     || !['ready', 'partial', 'not_ready', 'blocked'].includes(String(input.status))
     || !nonEmpty(input.receiptId)
     || !uniqueStrings(input.selectedEvidenceIds)
