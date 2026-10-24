@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFile } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const usage = () => process.stdout.write('Usage: node scripts/harbor-ace-runtime-probe.mjs --image <image>@sha256:<64hex> --bundle <bundle-dir>\n');
