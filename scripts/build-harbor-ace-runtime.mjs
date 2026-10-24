@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
-import { join, relative, resolve } from 'node:path';
+import { chmod, cp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 const FASTEMBED = '0.7.4';
-const ONNXRUNTIME = '1.31.0';
-const NUMPY = '2.5.4';
+const ONNXRUNTIME = '1.23.2';
+const NUMPY = '2.2.6';
 const HUGGINGFACE_HUB = '1.33.0';
 const embeddingModelRevision = process.env.ACE_EMBEDDING_MODEL_REVISION || 'e8f8c211226b894fcb81acc59f3b34ba3efd5f42';
 const embeddingArtifactRevision = process.env.ACE_EMBEDDING_ARTIFACT_REVISION || 'faf4aa4225822f3bc6376869cb1164e8e3feedd0';
@@ -40,6 +40,34 @@ if (values.sourceRoot === undefined || values.output === undefined || values.tas
 
 const sourceRoot = resolve(values.sourceRoot);
 const output = resolve(values.output);
+
+// Resolve symlinked parents before any recursive deletion. --output must never
+// replace all or part of the source checkout, including through an alias.
+const canonicalTarget = async (target) => {
+  const suffix = [];
+  let ancestor = target;
+  while (true) {
+    try {
+      return resolve(await realpath(ancestor), ...suffix);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      const parent = dirname(ancestor);
+      if (parent === ancestor) throw error;
+      suffix.unshift(basename(ancestor));
+      ancestor = parent;
+    }
+  }
+};
+const containsPath = (parent, child) => {
+  const path = relative(parent, child);
+  return path === '' || (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path));
+};
+const sourceCanonical = await canonicalTarget(sourceRoot);
+const outputCanonical = await canonicalTarget(output);
+if (containsPath(sourceCanonical, outputCanonical) || containsPath(outputCanonical, sourceCanonical)) {
+  throw new Error('BLOCKED: --output overlaps the source checkout; refusing recursive deletion');
+}
+
 const dockerDigest = /^(.+)@sha256:([a-f0-9]{64})$/u;
 const imageRefs = values.taskImages.map((value) => {
   const match = dockerDigest.exec(value);
@@ -68,6 +96,9 @@ await mkdir(output, { recursive: true });
 for (const path of ['dist', 'src', 'scripts', 'integrations/hermes/ace_context_engine', 'package.json', 'package-lock.json', 'tsconfig.json']) {
   await cp(join(sourceRoot, path), join(output, path), { recursive: true });
 }
+for (const path of ['scripts/harbor-ace-context-bridge.sh', 'scripts/fastembed-worker.sh', 'scripts/fastembed-sparse-worker.sh']) {
+  await chmod(join(output, path), 0o755);
+}
 await mkdir(join(output, 'runtime/python'), { recursive: true });
 await mkdir(join(output, 'runtime/model-cache'), { recursive: true });
 run('npm', ['ci', '--omit=dev', '--ignore-scripts'], { cwd: output, stdio: 'inherit' });
@@ -86,9 +117,8 @@ for (const image of imageRefs) {
     `python3 -m pip install --disable-pip-version-check --no-input --target ${shellQuote(target)} fastembed==${FASTEMBED} onnxruntime==${ONNXRUNTIME} numpy==${NUMPY} huggingface-hub==${HUGGINGFACE_HUB}`], { stdio: 'inherit' });
   run('docker', ['run', '--rm', '--entrypoint', 'sh', '-v', `${output}:/ace:ro`, pinnedImage, '-lc', [
     `export PYTHONPATH=${target}:/ace/scripts`,
-    'python3 -c',
-    shellQuote('import fastembed, onnxruntime; print(f"fastembed={fastembed.__version__} onnxruntime={onnxruntime.__version__}")'),
-  ].join(' ')], { stdio: 'inherit' });
+    `python3 -c ${shellQuote('import fastembed, onnxruntime; print(f"fastembed={fastembed.__version__} onnxruntime={onnxruntime.__version__}")')}`,
+  ].join(' && ')], { stdio: 'inherit' });
 }
 
 const prefetchImage = `${imageRefs[0].reference}@${imageRefs[0].digest}`;
@@ -97,9 +127,9 @@ const prefetchTarget = `/ace/runtime/python/${prefetchPython}/site-packages`;
 run('docker', ['run', '--rm', '--entrypoint', 'sh', '-v', `${output}:/ace`, prefetchImage, '-lc', [
   `export PYTHONPATH=${prefetchTarget}:/ace/scripts`,
   'export FASTEMBED_CACHE_PATH=/ace/runtime/model-cache',
-  'python3 -c',
-  shellQuote('from fastembed import TextEmbedding, SparseTextEmbedding; TextEmbedding(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"); SparseTextEmbedding(model_name="Qdrant/bm25"); print("models_ready")'),
-].join(' ')], { stdio: 'inherit' });
+  `python3 -c ${shellQuote('from fastembed import TextEmbedding, SparseTextEmbedding; TextEmbedding(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"); SparseTextEmbedding(model_name="Qdrant/bm25"); print("models_ready")')}`,
+].join(' && ')], { stdio: 'inherit' });
+run('docker', ['run', '--rm', '--entrypoint', 'sh', '-v', `${output}:/ace`, prefetchImage, '-lc', 'chmod -R a+rX /ace/runtime'], { stdio: 'inherit' });
 
 const walk = async (root, current = root) => {
   const entries = [];

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFile } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const usage = () => process.stdout.write('Usage: node scripts/harbor-ace-runtime-probe.mjs --image <image>@sha256:<64hex> --bundle <bundle-dir>\n');
@@ -23,6 +24,7 @@ if (image === undefined || bundle === undefined || !/^.+@sha256:[a-f0-9]{64}$/u.
   process.exitCode = 2;
   process.exit();
 }
+const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
 const bundleRoot = resolve(bundle);
 const manifestPath = resolve(bundleRoot, 'runtime-manifest.json');
 if (!existsSync(manifestPath)) {
@@ -32,6 +34,9 @@ if (!existsSync(manifestPath)) {
 }
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 const pythonProbe = [
+  'import sys',
+  'sys.path.insert(0, "/ace")',
+  'sys.path.insert(0, "/root/.hermes/hermes-agent")',
   'import inspect, json',
   'from agent.context_engine import ContextEngine',
   'from integrations.hermes.ace_context_engine.engine import AceContextEngine',
@@ -42,13 +47,20 @@ const pythonProbe = [
   'print(json.dumps({"status":"READY","python":".".join(map(str, __import__("sys").version_info[:3])),"hermesVersion":hermes,"contextEngineSignature":signature,"pluginImport":True,"bridgeImport":True}))',
 ].join('\n');
 try {
+  const hermesProbe = [
+    'set -e',
+    'export PATH="$HOME/.local/bin:$PATH"',
+    'if ! command -v hermes >/dev/null 2>&1; then curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup --branch v0.22.3; fi',
+    'hermes_python="$(find "$HOME/.hermes/tools" -path "*/bin/python3" -print -quit)"',
+    'if [ -z "$hermes_python" ]; then printf "Hermes Python runtime was not installed\\n" >&2; exit 1; fi',
+    `"$hermes_python" -I -c ${shellQuote(pythonProbe)}`,
+  ].join(' && ');
   const output = execFileSync('docker', [
     'run', '--rm', '--network', 'host',
     '-v', `${bundleRoot}:/ace:ro`,
-    '-e', 'PYTHONPATH=/ace',
-    '--entrypoint', 'python3',
+    '--entrypoint', 'sh',
     image,
-    '-c', pythonProbe,
+    '-lc', hermesProbe,
   ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   const result = JSON.parse(output.trim().split(/\r?\n/u).at(-1));
   const node = execFileSync('docker', ['run', '--rm', '--entrypoint', 'node', '-v', `${bundleRoot}:/ace:ro`, image, '--version'], { encoding: 'utf8' }).trim();

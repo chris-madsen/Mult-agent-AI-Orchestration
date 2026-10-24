@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFile } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const usage = () => process.stdout.write('Usage: node scripts/ace-container-runtime-smoke.mjs --image <image>@sha256:<64hex> --bundle <bundle-dir> [--qdrant-url <url>]\n');
@@ -42,14 +43,14 @@ try {
     `fetch(${JSON.stringify(`${qdrantUrl.replace(/\/$/u, '')}/collections`)}).then((response) => { if (!response.ok) process.exit(2); })`]);
   const bridgeProbe = run('docker', [
     'run', '--rm', '--network', 'host', '-i', '-v', mount,
-    '-e', 'ACE_WORKSPACE_ROOT=/tmp',
-    '-e', 'ACE_ALLOWED_ROOTS=/tmp',
+    '-e', 'ACE_WORKSPACE_ROOT=/tmp/ace-smoke-workspace',
+    '-e', 'ACE_ALLOWED_ROOTS=/tmp/ace-smoke-workspace',
     '-e', 'ACE_RUNTIME_ROOT=/ace',
     '-e', 'ACE_RUNTIME_ID=ace-harbor-runtime-v1',
     '-e', `ACE_QDRANT_URL=${qdrantUrl}`,
     '--entrypoint', 'sh',
     image,
-    '-lc', 'printf "{\\"type\\":\\"invalid\\"}\\n" | /ace/scripts/harbor-ace-context-bridge.sh 2>/dev/null',
+    '-lc', 'mkdir -p /tmp/ace-smoke-workspace && printf "export const aceSmoke = 1;\\n" > /tmp/ace-smoke-workspace/smoke.ts && printf "{\\"type\\":\\"invalid\\"}\\n" | /ace/scripts/harbor-ace-context-bridge.sh 2>/dev/null',
   ]);
   const ready = bridgeProbe.split(/\r?\n/u).find((line) => line.includes('bridge_ready'));
   if (ready === undefined) throw new Error('bridge_ready was not observed');
