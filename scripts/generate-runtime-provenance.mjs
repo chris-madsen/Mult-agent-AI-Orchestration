@@ -61,7 +61,7 @@ process.stdout.write(JSON.stringify({
   output: relative(root, output).split('\\').join('/'),
   sourceCommit: manifest.sourceCommit,
   sourceManifestSha256: manifest.sourceManifestSha256,
-  sourceClean: manifest.sourceClean,
+  sourceCleanAtBuild: manifest.sourceCleanAtBuild,
   executableSha256: manifest.executableSha256,
   dirtyRelevantPaths: manifest.dirtyRelevantPaths,
 }) + '\n');
