@@ -43,14 +43,14 @@ try {
     `fetch(${JSON.stringify(`${qdrantUrl.replace(/\/$/u, '')}/collections`)}).then((response) => { if (!response.ok) process.exit(2); })`]);
   const bridgeProbe = run('docker', [
     'run', '--rm', '--network', 'host', '-i', '-v', mount,
-    '-e', 'ACE_WORKSPACE_ROOT=/ace',
-    '-e', 'ACE_ALLOWED_ROOTS=/ace',
+    '-e', 'ACE_WORKSPACE_ROOT=/tmp/ace-smoke-workspace',
+    '-e', 'ACE_ALLOWED_ROOTS=/tmp/ace-smoke-workspace',
     '-e', 'ACE_RUNTIME_ROOT=/ace',
     '-e', 'ACE_RUNTIME_ID=ace-harbor-runtime-v1',
     '-e', `ACE_QDRANT_URL=${qdrantUrl}`,
     '--entrypoint', 'sh',
     image,
-    '-lc', 'printf "{\\"type\\":\\"invalid\\"}\\n" | /ace/scripts/harbor-ace-context-bridge.sh 2>/dev/null',
+    '-lc', 'mkdir -p /tmp/ace-smoke-workspace && printf "export const aceSmoke = 1;\\n" > /tmp/ace-smoke-workspace/smoke.ts && printf "{\\"type\\":\\"invalid\\"}\\n" | /ace/scripts/harbor-ace-context-bridge.sh 2>/dev/null',
   ]);
   const ready = bridgeProbe.split(/\r?\n/u).find((line) => line.includes('bridge_ready'));
   if (ready === undefined) throw new Error('bridge_ready was not observed');
