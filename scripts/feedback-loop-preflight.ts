@@ -21,7 +21,7 @@ import {
   type FeedbackExperimentManifest,
 } from '../src/domain/feedback-loop-experiment.js';
 import { verifyCompiledRuntimeProvenance } from '../src/application/runtime-provenance.js';
-import { missingAceRuntimeBundlePaths } from '../src/application/ace-runtime-bundle.js';
+import { verifyAceRuntimeBundle } from '../src/application/ace-runtime-bundle.js';
 
 type CheckStatus = 'ready' | 'not_ready' | 'unknown';
 
@@ -60,22 +60,7 @@ const aceRuntimeBundle = async (
   expectedDigest: string | undefined,
 ): Promise<PreflightCheck> => {
   if (bundlePath === undefined) return { status: 'not_ready', reason: 'ACE runtime bundle is required for container preflight' };
-  const root = resolve(bundlePath);
-  try {
-    const manifest = JSON.parse(await readFile(resolve(root, 'runtime-manifest.json'), 'utf8')) as Record<string, unknown>;
-    if (manifest.runtimeId !== 'ace-harbor-runtime-v1' || typeof manifest.bundleSha256 !== 'string') {
-      return { status: 'not_ready', reason: 'ACE runtime bundle manifest identity is invalid' };
-    }
-    if (expectedDigest !== undefined && manifest.bundleSha256 !== expectedDigest) {
-      return { status: 'not_ready', reason: 'ACE runtime bundle digest does not match experiment manifest' };
-    }
-    const missing = missingAceRuntimeBundlePaths(root);
-    return missing.length === 0
-      ? { status: 'ready', reason: 'ACE runtime bundle contains pinned production dependencies and provider artifacts', identity: manifest.bundleSha256 }
-      : { status: 'not_ready', reason: `ACE runtime bundle is incomplete: ${missing.join(',')}` };
-  } catch (error) {
-    return { status: 'not_ready', reason: error instanceof Error ? error.message : 'ACE runtime bundle could not be read' };
-  }
+  return verifyAceRuntimeBundle(bundlePath, expectedDigest);
 };
 
 const taskRuntimeProbe = (

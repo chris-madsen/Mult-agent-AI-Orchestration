@@ -107,9 +107,8 @@ const walk = async (root, current = root) => {
     const path = join(current, name);
     const info = await stat(path);
     if (info.isDirectory()) {
-      if (name === 'node_modules' || name === 'runtime-manifest.json' || name === 'runtime-provenance.json') {
-        if (name === 'node_modules') continue;
-      }
+      // Include installed production dependencies: a package-lock pin is not proof
+      // that the mounted node_modules content has not changed after npm ci.
       entries.push(...await walk(root, path));
     } else if (info.isFile() && relative(root, path) !== 'runtime-manifest.json' && relative(root, path) !== 'dist/runtime-provenance.json') {
       entries.push({ path: relative(root, path).split('\\').join('/'), sha256: await fileDigest(path), sizeBytes: info.size });

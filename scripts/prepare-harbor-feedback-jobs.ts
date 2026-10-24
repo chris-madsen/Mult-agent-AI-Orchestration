@@ -1,3 +1,4 @@
+import { verifyAceRuntimeBundle } from '../src/application/ace-runtime-bundle.js';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { chmod, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
@@ -193,15 +194,13 @@ const main = async (): Promise<void> => {
       const runtimeManifestPath = join(aceRoot, 'runtime-manifest.json');
       if (!existsSync(runtimeManifestPath)) throw new Error(`BLOCKED: ACE runtime bundle manifest is missing: ${runtimeManifestPath}`);
       runtimeManifest = JSON.parse(await readFile(runtimeManifestPath, 'utf8')) as Record<string, unknown>;
-      if (runtimeManifest.runtimeId !== 'ace-harbor-runtime-v1'
-        || typeof runtimeManifest.sourceCommit !== 'string'
-        || typeof runtimeManifest.bundleSha256 !== 'string'
-        || !/^[a-f0-9]{64}$/u.test(runtimeManifest.bundleSha256)) {
-        throw new Error('BLOCKED: ACE runtime bundle manifest identity is invalid');
-      }
       const requestedBundleDigest = args['--ace-runtime-bundle-sha256'];
-      if (requestedBundleDigest !== undefined && requestedBundleDigest !== runtimeManifest.bundleSha256) {
-        throw new Error('BLOCKED: requested ACE runtime bundle digest does not match runtime-manifest.json');
+      const verified = await verifyAceRuntimeBundle(
+        aceRoot,
+        requestedBundleDigest === undefined ? undefined : requestedBundleDigest,
+      );
+      if (verified.status !== 'ready') {
+        throw new Error(`BLOCKED: ${verified.reason}`);
       }
     }
     const aceRuntime = join(aceRoot, 'dist', 'bin', 'ace-context-bridge.js');
