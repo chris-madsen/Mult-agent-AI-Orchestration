@@ -84,8 +84,9 @@ test('Docker runtime uses the same valid NumPy pin as the Harbor bundle contract
 
 test('Hermes runtime probe missing-Python guard executes under POSIX sh', async () => {
   const script = await readFile('scripts/harbor-ace-runtime-probe.mjs', 'utf8');
-  const guard = script.split('\n').find((line) => line.trimStart().startsWith('if ') && line.includes('hermes_python'));
-  assert.ok(guard, 'the missing-Hermes-Python guard is present');
+  const line = script.split('\n').find((candidate) => candidate.trimStart().startsWith("'if ") && candidate.includes('hermes_python'));
+  assert.ok(line, 'the missing-Hermes-Python guard is present');
+  const guard = line.trim().slice(1, -2); // Unquote the JavaScript string passed to sh -lc.
   const result = spawnSync('sh', ['-c', `hermes_python=; ${guard} exit 71; fi`], { encoding: 'utf8' });
   assert.equal(result.status, 71, result.stderr);
 });
