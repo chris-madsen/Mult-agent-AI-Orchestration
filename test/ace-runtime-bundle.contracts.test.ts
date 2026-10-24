@@ -30,6 +30,11 @@ test('validates a pinned runtime bundle manifest', () => {
   assert.deepEqual(validateAceRuntimeBundleManifest(validManifest), []);
 });
 
+test('rejects non-Git source commit identities in bundle manifests', () => {
+  const failures = validateAceRuntimeBundleManifest({ ...validManifest, sourceCommit: 'not-a-git-commit' });
+  assert.ok(failures.includes('source_commit_invalid'));
+});
+
 test('rejects a bundle manifest with missing image or provider pins', () => {
   const failures = validateAceRuntimeBundleManifest({
     ...validManifest,
@@ -63,6 +68,13 @@ test('verifies bundle bytes rather than accepting an unverified manifest digest'
       await writeFile(target, 'original');
     }
   }
+  for (const version of validManifest.pythonVersions) {
+    for (const packageName of ['fastembed', 'onnxruntime']) {
+      const target = join(root, 'runtime/python', version, 'site-packages', packageName, '__init__.py');
+      await mkdir(join(target, '..'), { recursive: true });
+      await writeFile(target, 'original');
+    }
+  }
   const bundleSha256 = await computeAceRuntimeBundleDigest(root);
   await writeFile(join(root, 'runtime-manifest.json'), JSON.stringify({ ...validManifest, bundleSha256 }));
   await writeFile(join(root, 'dist/runtime-provenance.json'), JSON.stringify({
@@ -70,6 +82,12 @@ test('verifies bundle bytes rather than accepting an unverified manifest digest'
     sourceCommit: validManifest.sourceCommit,
   }));
   assert.equal((await verifyAceRuntimeBundle(root, bundleSha256)).status, 'ready');
+  const missingPythonFile = join(root, 'runtime/python/3.10/site-packages/onnxruntime/__init__.py');
+  await rm(missingPythonFile);
+  const missingPython = await verifyAceRuntimeBundle(root, bundleSha256);
+  assert.equal(missingPython.status, 'not_ready');
+  assert.match(missingPython.reason, /missing Python packages/u);
+  await writeFile(missingPythonFile, 'original');
   await writeFile(join(root, 'dist/bin/ace-mcp.js'), 'modified');
   const tampered = await verifyAceRuntimeBundle(root, bundleSha256);
   assert.equal(tampered.status, 'not_ready');

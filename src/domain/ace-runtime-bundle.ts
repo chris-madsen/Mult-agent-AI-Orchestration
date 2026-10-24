@@ -40,6 +40,7 @@ export const validateAceRuntimeBundleManifest = (value: unknown): readonly strin
   if (manifest.schemaVersion !== 1) failures.push('manifest_schema_invalid');
   if (manifest.runtimeId !== 'ace-harbor-runtime-v1') failures.push('runtime_id_mismatch');
   if (!nonEmpty(manifest.sourceCommit)) failures.push('source_commit_missing');
+  else if (!/^[a-f0-9]{40,64}$/iu.test(manifest.sourceCommit)) failures.push('source_commit_invalid');
   if (!isSha256(manifest.bundleSha256)) failures.push('bundle_digest_invalid');
   if (!Array.isArray(taskImages) || taskImages.length === 0) failures.push('task_images_missing');
   else if (taskImages.some((item) => typeof item !== 'object' || item === null
