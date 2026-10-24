@@ -11,9 +11,13 @@ export interface AceTransformRequest {
   readonly schemaVersion: 1;
   readonly requestId: string;
   readonly sessionId: string;
+  readonly turnId: string;
   readonly workspaceId: string;
   readonly query: string;
   readonly budgetTokens: number;
+  readonly sourceObligations: {
+    readonly required: readonly ['code'];
+  };
   readonly intent?: string;
   readonly workingContext?: {
     readonly focusedPath?: string;
@@ -28,6 +32,7 @@ export interface AceTransformResult {
   readonly schemaVersion: 1;
   readonly requestId: string;
   readonly sessionId: string;
+  readonly turnId: string;
   readonly workspaceId: WorkspaceId;
   readonly status: 'ready' | 'partial' | 'not_ready' | 'blocked';
   readonly contextText: string;
@@ -61,6 +66,15 @@ const nonEmpty = (value: string, path: string): Result<string, DomainError> =>
   value.trim().length === 0
     ? err(domainError('INVALID_INPUT', path, `${path} must not be empty`))
     : ok(value.trim());
+
+const sourceObligationsFor = (
+  value: AceTransformRequest['sourceObligations'],
+): Result<AceTransformRequest['sourceObligations'], DomainError> => {
+  if (!Array.isArray(value.required) || value.required.length !== 1 || value.required[0] !== 'code') {
+    return err(domainError('INVALID_INPUT', 'sourceObligations.required', 'the Harbor smoke currently requires exactly the code source class'));
+  }
+  return ok({ required: ['code'] });
+};
 
 const workingContextFor = (
   value: AceTransformRequest['workingContext'],
@@ -128,11 +142,15 @@ export const makeContextTransformService = (ports: ContextTransformPorts): Conte
     if (requestId._tag === 'Err') return requestId;
     const sessionId = nonEmpty(request.sessionId, 'sessionId');
     if (sessionId._tag === 'Err') return sessionId;
+    const turnId = nonEmpty(request.turnId, 'turnId');
+    if (turnId._tag === 'Err') return turnId;
     const query = nonEmpty(request.query, 'query');
     if (query._tag === 'Err') return query;
     if (!Number.isSafeInteger(request.budgetTokens) || request.budgetTokens <= 0) {
       return err(domainError('INVALID_INPUT', 'budgetTokens', 'budgetTokens must be a positive safe integer'));
     }
+    const sourceObligations = sourceObligationsFor(request.sourceObligations);
+    if (sourceObligations._tag === 'Err') return sourceObligations;
     const workspaceId = makeWorkspaceId(request.workspaceId);
     if (workspaceId._tag === 'Err') return workspaceId;
     const workspace = yield* ports.store.get(workspaceId.value);
@@ -181,6 +199,7 @@ export const makeContextTransformService = (ports: ContextTransformPorts): Conte
       schemaVersion: 1,
       requestId: requestId.value,
       sessionId: sessionId.value,
+      turnId: turnId.value,
       workspaceId: workspaceId.value,
       status,
       contextText: bounded.text,

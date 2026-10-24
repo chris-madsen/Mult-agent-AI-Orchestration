@@ -15,6 +15,13 @@ export interface ContextBridgeService {
 }
 
 export type ContextBridgeResponse =
+  | {
+    readonly type: 'bridge_ready';
+    readonly schemaVersion: 1;
+    readonly runtimeId: 'ace-harbor-runtime-v1';
+    readonly node: string;
+    readonly providerIdentities: Readonly<Record<string, string>>;
+  }
   | { readonly type: 'transform_result'; readonly requestId: string; readonly ok: true; readonly result: AceTransformResult }
   | { readonly type: 'transform_error'; readonly requestId: string | null; readonly ok: false; readonly error: DomainError };
 
@@ -37,7 +44,7 @@ const decodeRequest = (value: unknown): Result<AceTransformRequest, DomainError>
   if (input === undefined) return { _tag: 'Err', error: domainError('INVALID_INPUT', 'request', 'bridge request must be an object') };
   if (input.type !== 'transform') return { _tag: 'Err', error: domainError('INVALID_INPUT', 'type', 'bridge message type must be transform') };
   if (input.schemaVersion !== 1) return { _tag: 'Err', error: domainError('INVALID_INPUT', 'schemaVersion', 'unsupported bridge schema version') };
-  const stringFields = ['requestId', 'sessionId', 'workspaceId', 'query'] as const;
+  const stringFields = ['requestId', 'sessionId', 'turnId', 'workspaceId', 'query'] as const;
   for (const field of stringFields) {
     if (typeof input[field] !== 'string' || input[field].trim().length === 0) {
       return { _tag: 'Err', error: domainError('INVALID_INPUT', field, `${field} must be a non-empty string`) };
@@ -46,6 +53,11 @@ const decodeRequest = (value: unknown): Result<AceTransformRequest, DomainError>
   if (typeof input.budgetTokens !== 'number' || !Number.isSafeInteger(input.budgetTokens) || input.budgetTokens <= 0) {
     return { _tag: 'Err', error: domainError('INVALID_INPUT', 'budgetTokens', 'budgetTokens must be a positive safe integer') };
   }
+  const sourceObligations = object(input.sourceObligations);
+  if (sourceObligations === undefined || !Array.isArray(sourceObligations.required)
+    || sourceObligations.required.length !== 1 || sourceObligations.required[0] !== 'code') {
+    return { _tag: 'Err', error: domainError('INVALID_INPUT', 'sourceObligations.required', 'the bridge requires exactly the code source class') };
+  }
   const workingContext = object(input.workingContext);
   return {
     _tag: 'Ok',
@@ -53,9 +65,11 @@ const decodeRequest = (value: unknown): Result<AceTransformRequest, DomainError>
       schemaVersion: 1,
       requestId: input.requestId as string,
       sessionId: input.sessionId as string,
+      turnId: input.turnId as string,
       workspaceId: input.workspaceId as string,
       query: input.query as string,
       budgetTokens: input.budgetTokens,
+      sourceObligations: { required: ['code'] },
       ...(typeof input.intent === 'string' ? { intent: input.intent } : {}),
       ...(workingContext === undefined
         ? {}
@@ -121,6 +135,18 @@ export const runContextBridgeStdio = async (
   input: NodeJS.ReadableStream = process.stdin,
   output: NodeJS.WritableStream = process.stdout,
 ): Promise<void> => {
+  const ready: ContextBridgeResponse = {
+    type: 'bridge_ready',
+    schemaVersion: 1,
+    runtimeId: 'ace-harbor-runtime-v1',
+    node: process.version,
+    providerIdentities: {
+      embedding: process.env.ACE_EMBEDDING_PROVIDER?.trim() || 'fastembed/onnx',
+      model: process.env.ACE_EMBEDDING_MODEL?.trim() || 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2',
+      qdrant: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/unknown',
+    },
+  };
+  output.write(`${JSON.stringify(ready)}\n`);
   const lines = createInterface({ input });
   for await (const line of lines) {
     if (line.trim().length === 0) continue;

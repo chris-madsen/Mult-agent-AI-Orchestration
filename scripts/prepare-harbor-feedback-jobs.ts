@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { existsSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import {
@@ -48,10 +48,22 @@ const frozenTreeEntries = (root: string, revision: string, prefix?: string): rea
 
 const frozenTreeDigest = (identity: string, revision: string, entries: ReturnType<typeof frozenTreeEntries>): string =>
   sha256(Buffer.from(`${JSON.stringify({ schemaVersion: 1, identity, revision, entries }, null, 2)}\n`, 'utf8'));
+const filesystemTreeEntries = async (root: string, prefix: string): Promise<readonly { readonly path: string; readonly sizeBytes: number; readonly sha256: string }[]> => {
+  const absolute = join(root, prefix);
+  const entries: { path: string; sizeBytes: number; sha256: string }[] = [];
+  for (const name of (await readdir(absolute)).sort((left, right) => left.localeCompare(right))) {
+    const path = join(absolute, name);
+    const info = await stat(path);
+    const relativePath = join(prefix, name).split('\\').join('/');
+    if (info.isDirectory()) entries.push(...await filesystemTreeEntries(root, relativePath));
+    else if (info.isFile()) entries.push({ path: relativePath, sizeBytes: info.size, sha256: sha256(await readFile(path)) });
+  }
+  return entries;
+};
 const shellQuote = (value: string): string => "'" + value.replaceAll("'", "'\\''") + "'";
 
 const usage = (): never => {
-  throw new Error('Usage: tsx scripts/prepare-harbor-feedback-jobs.ts --task-manifest <path> --source-root <checkout> --ace-root <checkout> --output <dir> [--artifacts-root <external-dir>] --run-id <id> --model <model> --reasoning <low|medium|high> [--image-digest sha256:<64hex> | --task-image-digest <image>=sha256:<64hex> ...]');
+  throw new Error('Usage: tsx scripts/prepare-harbor-feedback-jobs.ts --task-manifest <path> --source-root <checkout> --ace-runtime-bundle <bundle> --output <dir> [--artifacts-root <external-dir>] --run-id <id> --model <model> --reasoning <low|medium|high> [--image-digest sha256:<64hex> | --task-image-digest <image>=sha256:<64hex> ...]');
 };
 
 interface ParsedArgs {
@@ -70,7 +82,7 @@ const parseArgs = (): ParsedArgs => {
     if (name === '--task-image-digest') taskImageDigests.push(value);
     else result[name] = value;
   }
-  const required = ['--task-manifest', '--source-root', '--ace-root', '--output', '--run-id', '--model', '--reasoning'];
+  const required = ['--task-manifest', '--source-root', '--output', '--run-id', '--model', '--reasoning'];
   if (required.some((name) => result[name] === undefined)) return usage();
   return { values: result, taskImageDigests };
 };
@@ -130,7 +142,8 @@ const main = async (): Promise<void> => {
   const args = parsedArgs.values;
   const taskManifestPath = requiredArg(args, '--task-manifest');
   const sourceRootArg = requiredArg(args, '--source-root');
-  const aceRootArg = requiredArg(args, '--ace-root');
+  const aceRootArg = args['--ace-runtime-bundle'] ?? args['--ace-root'];
+  if (aceRootArg === undefined) throw new Error('BLOCKED: --ace-runtime-bundle is required');
   const runId = requiredArg(args, '--run-id');
   const modelArg = requiredArg(args, '--model');
   const reasoningArg = requiredArg(args, '--reasoning');
@@ -174,8 +187,26 @@ const main = async (): Promise<void> => {
       return absolute;
     });
     const aceRoot = resolve(aceRootArg);
+    const runtimeBundleMode = args['--ace-runtime-bundle'] !== undefined;
+    let runtimeManifest: Record<string, unknown> | undefined;
+    if (runtimeBundleMode) {
+      const runtimeManifestPath = join(aceRoot, 'runtime-manifest.json');
+      if (!existsSync(runtimeManifestPath)) throw new Error(`BLOCKED: ACE runtime bundle manifest is missing: ${runtimeManifestPath}`);
+      runtimeManifest = JSON.parse(await readFile(runtimeManifestPath, 'utf8')) as Record<string, unknown>;
+      if (runtimeManifest.runtimeId !== 'ace-harbor-runtime-v1'
+        || typeof runtimeManifest.sourceCommit !== 'string'
+        || typeof runtimeManifest.bundleSha256 !== 'string'
+        || !/^[a-f0-9]{64}$/u.test(runtimeManifest.bundleSha256)) {
+        throw new Error('BLOCKED: ACE runtime bundle manifest identity is invalid');
+      }
+      const requestedBundleDigest = args['--ace-runtime-bundle-sha256'];
+      if (requestedBundleDigest !== undefined && requestedBundleDigest !== runtimeManifest.bundleSha256) {
+        throw new Error('BLOCKED: requested ACE runtime bundle digest does not match runtime-manifest.json');
+      }
+    }
     const aceRuntime = join(aceRoot, 'dist', 'bin', 'ace-context-bridge.js');
     if (!existsSync(aceRuntime)) throw new Error(`BLOCKED: compiled ACE context bridge is missing: ${aceRuntime}`);
+    if (runtimeBundleMode && !existsSync(join(aceRoot, 'node_modules', 'effect', 'package.json'))) throw new Error('BLOCKED: ACE runtime bundle is missing production dependency effect');
     const reasoning = reasoningArg;
     if (!['low', 'medium', 'high'].includes(reasoning)) throw new Error('BLOCKED: reasoning effort must be low, medium or high');
     const taskImageReferences = [...new Set(await Promise.all(taskPaths.map((path) => dockerImageReference(path))))];
@@ -211,7 +242,8 @@ const main = async (): Promise<void> => {
     if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/u.test(runId) || runId === '..') {
       throw new Error('BLOCKED: run ID must be a safe, portable identifier');
     }
-    const aceSourceCommit = assertCleanCheckout(aceRoot, 'ACE runtime');
+    const aceSourceCommit = runtimeManifest?.sourceCommit as string | undefined
+      ?? assertCleanCheckout(aceRoot, 'ACE runtime');
     if (!/^[a-f0-9]{40,64}$/iu.test(aceSourceCommit)) throw new Error('BLOCKED: ACE checkout did not provide a pinned source commit');
     const aceRuntimeSha256 = sha256(await readFile(aceRuntime));
     const agentAdapterSha256 = sha256(await readFile(agentAdapter));
@@ -221,7 +253,9 @@ const main = async (): Promise<void> => {
     const contextPluginSha256 = frozenTreeDigest(
       'hermes-ace-context-plugin',
       aceSourceCommit,
-      frozenTreeEntries(aceRoot, aceSourceCommit, 'integrations/hermes/ace_context_engine'),
+      runtimeBundleMode
+        ? await filesystemTreeEntries(aceRoot, 'integrations/hermes/ace_context_engine')
+        : frozenTreeEntries(aceRoot, aceSourceCommit, 'integrations/hermes/ace_context_engine'),
     );
     const agent = {
       import_path: feedbackHermesAgentImportPath,
@@ -267,9 +301,8 @@ const main = async (): Promise<void> => {
     // Harbor supplies mounts through the CLI --mounts option, not JobConfig.environment.
     // Embed fully shell-quoted arguments so the checkout path cannot inject commands.
     const mounts = JSON.stringify([{ type: 'bind', source: aceRoot, target: '/ace', read_only: true }]);
-    const pythonPathPrefix = `export PYTHONPATH=${shellQuote(aceRoot)}:` + '${PYTHONPATH:-}' + '\n';
-    const nativeCommand = `${pythonPathPrefix}exec harbor run --config ${shellQuote(nativeJobPath)} --env docker`;
-    const aceCommand = `${pythonPathPrefix}exec harbor run --config ${shellQuote(aceJobPath)} --env docker --mounts ${shellQuote(mounts)}`;
+    const nativeCommand = `exec harbor run --config ${shellQuote(nativeJobPath)} --env docker`;
+    const aceCommand = `export PYTHONPATH=/ace:` + '${PYTHONPATH:-}' + '\n' + `exec harbor run --config ${shellQuote(aceJobPath)} --env docker --mounts ${shellQuote(mounts)}`;
     await writeFile(resolve(output, 'run-native.sh'), `#!/usr/bin/env bash\nset -euo pipefail\n${nativeCommand}\n`, 'utf8');
     await writeFile(resolve(output, 'run-ace-optional.sh'), `#!/usr/bin/env bash\nset -euo pipefail\n${aceCommand}\n`, 'utf8');
     await chmod(resolve(output, 'run-native.sh'), 0o755);
@@ -290,6 +323,7 @@ const main = async (): Promise<void> => {
       agentAdapterSha256,
       aceContextBridgeSha256,
       contextPluginSha256,
+      ...(runtimeManifest?.bundleSha256 === undefined ? {} : { aceRuntimeBundleSha256: runtimeManifest.bundleSha256 as string }),
       seed: 'unknown' as const,
       mode: 'cold' as const,
       nConcurrentTrials: 1 as const,
@@ -308,6 +342,7 @@ const main = async (): Promise<void> => {
       aceSourceCommit,
       aceRuntime: '/ace/dist/bin/ace-context-bridge.js',
       aceRuntimeSha256,
+      ...(runtimeManifest?.bundleSha256 === undefined ? {} : { aceRuntimeBundleSha256: runtimeManifest.bundleSha256 as string }),
       agent: 'hermes',
       agentVersion: feedbackHermesVersion,
       agentAdapter: 'scripts/harbor_hermes_codex_oauth.py',

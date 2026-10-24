@@ -25,6 +25,8 @@
     "test:memory-process": "npm run build && node scripts/memory-process-e2e.mjs",
     "test:real-semantic": "npm run build && node scripts/real-semantic-retrieval-e2e.mjs",
     "preflight:feedback-loop": "tsx scripts/feedback-loop-preflight.ts",
+    "build:harbor-runtime": "node scripts/build-harbor-ace-runtime.mjs",
+    "test:ace-container-runtime": "node scripts/ace-container-runtime-smoke.mjs",
     "test:feedback-stage0": "npm run build && tsx scripts/feedback-loop-stage0.ts",
     "acquire:repobench-r": "tsx scripts/repobench-r-acquire.ts",
     "convert:repobench-r": "python3 scripts/repobench-r-pickle-to-json.py",

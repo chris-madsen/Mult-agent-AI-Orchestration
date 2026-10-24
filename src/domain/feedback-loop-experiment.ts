@@ -47,6 +47,7 @@ export interface FeedbackExperimentManifest {
   readonly agentAdapterSha256: string;
   readonly aceContextBridgeSha256: string;
   readonly contextPluginSha256: string;
+  readonly aceRuntimeBundleSha256?: string;
   readonly seed: string | 'unknown';
   readonly mode: FeedbackMode;
   readonly nConcurrentTrials: 1;
@@ -321,6 +322,9 @@ export const validateFeedbackExperimentManifest = (value: unknown): Result<Feedb
   if (imageDigest !== undefined && !hasSingleImage) {
     return invalid('experiment_manifest.imageDigest', 'imageDigest must be a Docker sha256 digest');
   }
+  if (root.aceRuntimeBundleSha256 !== undefined && !sha256Hex(root.aceRuntimeBundleSha256)) {
+    return invalid('experiment_manifest.aceRuntimeBundleSha256', 'ACE runtime bundle must be a SHA-256 digest');
+  }
   if (root.schemaVersion !== 1 || !nonEmpty(root.runId) || !revision(root.sourceCommit)
     || root.agent !== 'hermes' || !nonEmpty(root.agentVersion)
     || !sha256Hex(root.taskManifestSha256) || !nonEmpty(root.model) || !root.model.startsWith('openai-codex/')
@@ -349,6 +353,7 @@ export const validateFeedbackExperimentManifest = (value: unknown): Result<Feedb
     agentAdapterSha256: root.agentAdapterSha256,
     aceContextBridgeSha256: root.aceContextBridgeSha256,
     contextPluginSha256: root.contextPluginSha256,
+    ...(root.aceRuntimeBundleSha256 === undefined ? {} : { aceRuntimeBundleSha256: root.aceRuntimeBundleSha256 }),
     seed,
     mode: root.mode,
     nConcurrentTrials: 1,

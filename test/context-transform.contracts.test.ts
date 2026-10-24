@@ -30,9 +30,11 @@ const request: AceTransformRequest = {
   schemaVersion: 1,
   requestId: 'request-1',
   sessionId: 'session-1',
+  turnId: 'turn-1',
   workspaceId: workspaceId.value,
   query: 'find the context transform service',
   budgetTokens: 200,
+  sourceObligations: { required: ['code'] },
 };
 
 const bundle = (overrides: Partial<ContextBundle> = {}): ContextBundle => ({

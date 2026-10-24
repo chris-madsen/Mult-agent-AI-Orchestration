@@ -9,6 +9,7 @@ import { runtimeRelevantPath, sourceManifestBytes } from '../dist/domain/runtime
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const sourceManifestDigest = (entries) => digest(Buffer.from(sourceManifestBytes(entries), 'utf8'));
+const bundleManifestDigest = (entries) => digest(Buffer.from(JSON.stringify(entries, null, 2) + '\n', 'utf8'));
 const git = (args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
 const paths = git(['ls-files', '--cached', '--others', '--exclude-standard'])
   .split('\n')
@@ -29,23 +30,31 @@ const dependencies = packageJson.dependencies ?? {};
 const executablePath = 'dist/bin/ace-mcp.js';
 const executableBytes = await readFile(join(root, executablePath));
 const manifest = {
-  schemaVersion: 1,
-  runtimeRoot: root,
+  schemaVersion: 2,
+  runtimeId: 'ace-harbor-runtime-v1',
   executablePath,
   executableSha256: digest(executableBytes),
   sourceCommit: git(['rev-parse', 'HEAD']),
-  sourceClean: dirtyRelevantPaths.length === 0,
+  sourceCleanAtBuild: dirtyRelevantPaths.length === 0,
   dirtyRelevantPaths: [...new Set(dirtyRelevantPaths)].sort(),
   sourceManifestSha256: sourceManifestDigest(sourceFiles),
   sourceFiles,
-  runtime: {
+  buildRuntime: {
     acePackage: `${packageJson.name ?? 'unknown'}@${packageJson.version ?? 'unknown'}`,
     node: process.version,
     typescript: dependencies.typescript ?? 'unknown',
     mcpClientSdk: dependencies['@modelcontextprotocol/client'] ?? 'unknown',
     mcpServerSdk: dependencies['@modelcontextprotocol/server'] ?? 'unknown',
   },
+  supportedNodeVersions: ['v18.19.0', 'v22.9.0', 'v24.15.0'],
 };
+manifest.bundleManifestSha256 = bundleManifestDigest({
+  runtimeId: manifest.runtimeId,
+  sourceCommit: manifest.sourceCommit,
+  sourceManifestSha256: manifest.sourceManifestSha256,
+  executableSha256: manifest.executableSha256,
+  packageLockSha256: digest(await readFile(join(root, 'package-lock.json'))),
+});
 const output = join(root, 'dist/runtime-provenance.json');
 await writeFile(output, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 process.stdout.write(JSON.stringify({

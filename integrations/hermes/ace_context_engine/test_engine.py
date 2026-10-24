@@ -44,6 +44,7 @@ class FakeBridge:
             reply["requestId"] = request["requestId"]
             reply["result"]["requestId"] = request["requestId"]
             reply["result"]["sessionId"] = request["sessionId"]
+            reply["result"]["turnId"] = request["turnId"]
             reply["result"]["workspaceId"] = request["workspaceId"]
             reply["result"]["providerRequestId"] = "retrieval-1"
         return reply

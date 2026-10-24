@@ -5,7 +5,7 @@ import hashlib
 import json
 import os
 import uuid
-from typing import Any
+from typing import Any, NoReturn
 
 from agent.context_engine import ContextEngine
 
@@ -67,6 +67,7 @@ class AceContextEngine(ContextEngine):
         # new identity or receive different context.
         self._last_request_key: str | None = None
         self._last_projection: list[dict[str, Any]] | None = None
+        self._turn_id: str | None = None
 
     @property
     def name(self) -> str:
@@ -80,7 +81,11 @@ class AceContextEngine(ContextEngine):
         ContextEngine's default deepcopy implementation cannot be used safely.
         """
         bridge = (
-            BridgeClient(command=list(self._bridge.command), timeout_seconds=self._bridge.timeout_seconds)
+            BridgeClient(
+                command=list(self._bridge.command),
+                startup_timeout_seconds=self._bridge.startup_timeout_seconds,
+                request_timeout_seconds=self._bridge.request_timeout_seconds,
+            )
             if isinstance(self._bridge, BridgeClient)
             else self._bridge
         )
@@ -99,11 +104,13 @@ class AceContextEngine(ContextEngine):
             self._session_id = session_id.strip()
         self._last_request_key = None
         self._last_projection = None
+        self._turn_id = None
 
     def on_turn_complete(self, messages: list[dict[str, Any]], **kwargs: Any) -> None:
         """Never reuse a retry projection across completed user turns."""
         self._last_request_key = None
         self._last_projection = None
+        self._turn_id = None
 
     def update_from_response(self, usage: dict[str, Any]) -> None:
         self.last_prompt_tokens = int(usage.get("prompt_tokens", usage.get("input_tokens", 0)) or 0)
@@ -116,7 +123,7 @@ class AceContextEngine(ContextEngine):
     def compress(self, messages: list[dict[str, Any]], current_tokens: int | None = None, **kwargs: Any) -> list[dict[str, Any]]:
         return messages
 
-    def _abort(self, request_id: str, code: str) -> None:
+    def _abort(self, request_id: str, code: str) -> NoReturn:
         """Abort BEFORE provider send, even on Hermes v0.22.3.
 
         Hermes's _apply_context_engine_selection catches Exception and
@@ -128,6 +135,7 @@ class AceContextEngine(ContextEngine):
                 "schemaVersion": 1,
                 "requestId": request_id,
                 "sessionId": self._session_id,
+                "turnId": self._turn_id or "unknown",
                 "status": "blocked",
                 "receiptId": "blocked-" + request_id,
                 "selectedEvidenceIds": [],
@@ -150,6 +158,8 @@ class AceContextEngine(ContextEngine):
         budget_tokens: int = 0,
     ) -> list[dict[str, Any]]:
         request_id = str(uuid.uuid4())
+        if self._turn_id is None:
+            self._turn_id = str(uuid.uuid4())
         try:
             return self._select_context_strict(
                 request_id,
@@ -208,6 +218,7 @@ class AceContextEngine(ContextEngine):
         request_key = hashlib.sha256(json.dumps(
             {
                 "sessionId": self._session_id,
+                "turnId": self._turn_id,
                 "workspaceId": self._workspace_id,
                 "budgetTokens": effective_budget,
                 "messages": request_messages,
@@ -225,9 +236,11 @@ class AceContextEngine(ContextEngine):
             "schemaVersion": 1,
             "requestId": request_id,
             "sessionId": self._session_id,
+            "turnId": self._turn_id,
             "workspaceId": self._workspace_id,
             "query": query,
             "budgetTokens": effective_budget,
+            "sourceObligations": {"required": ["code"]},
         }
         try:
             response = self._bridge.transform(bridge_request)
@@ -241,6 +254,7 @@ class AceContextEngine(ContextEngine):
             self._abort(request_id, "BRIDGE_RESPONSE_ID_MISMATCH")
         if (result.get("requestId") != request_id
                 or result.get("sessionId") != self._session_id
+                or result.get("turnId") != self._turn_id
                 or result.get("workspaceId") != self._workspace_id):
             self._abort(request_id, "TRANSFORM_IDENTITY_MISMATCH")
         if result.get("status") not in {"ready", "partial"}:
@@ -272,6 +286,7 @@ class AceContextEngine(ContextEngine):
             "schemaVersion": 1,
             "requestId": request_id,
             "sessionId": self._session_id,
+            "turnId": self._turn_id,
             "status": result["status"],
             "receiptId": receipt_id,
             "providerRequestId": provider_request_id,

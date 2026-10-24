@@ -92,7 +92,8 @@ test('feedback jobs use Hermes openai-codex OAuth and native ContextEngine regis
   assert.doesNotMatch(adapter, /OPENAI_API_KEY|OPENROUTER_API_KEY/u);
   assert.match(wrapper, /ACE_CONTEXT_BRIDGE_MODE="true"/u);
   assert.match(wrapper, /ACE_WORKSPACE_ROOT="\$\{ACE_WORKSPACE_ROOT:-\/app\}"/u);
-  assert.match(wrapper, /fastembed==0\.7\.4/u);
+  assert.doesNotMatch(wrapper, /pip install/u);
+  assert.match(wrapper, /runtime\/python\/\$\{python_version\}\/site-packages/u);
   assert.doesNotMatch(preflight, /command\('codex'/u);
   assert.match(preflight, /hermesCodexAuth/u);
   assert.match(preflight, /agentRuntimeDigest/u);

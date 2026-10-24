@@ -21,6 +21,7 @@ import {
   type FeedbackExperimentManifest,
 } from '../src/domain/feedback-loop-experiment.js';
 import { verifyCompiledRuntimeProvenance } from '../src/application/runtime-provenance.js';
+import { missingAceRuntimeBundlePaths } from '../src/application/ace-runtime-bundle.js';
 
 type CheckStatus = 'ready' | 'not_ready' | 'unknown';
 
@@ -53,6 +54,56 @@ interface PreflightManifest {
     readonly embeddingLibraryPath?: string;
   };
 }
+
+const aceRuntimeBundle = async (
+  bundlePath: string | undefined,
+  expectedDigest: string | undefined,
+): Promise<PreflightCheck> => {
+  if (bundlePath === undefined) return { status: 'not_ready', reason: 'ACE runtime bundle is required for container preflight' };
+  const root = resolve(bundlePath);
+  try {
+    const manifest = JSON.parse(await readFile(resolve(root, 'runtime-manifest.json'), 'utf8')) as Record<string, unknown>;
+    if (manifest.runtimeId !== 'ace-harbor-runtime-v1' || typeof manifest.bundleSha256 !== 'string') {
+      return { status: 'not_ready', reason: 'ACE runtime bundle manifest identity is invalid' };
+    }
+    if (expectedDigest !== undefined && manifest.bundleSha256 !== expectedDigest) {
+      return { status: 'not_ready', reason: 'ACE runtime bundle digest does not match experiment manifest' };
+    }
+    const missing = missingAceRuntimeBundlePaths(root);
+    return missing.length === 0
+      ? { status: 'ready', reason: 'ACE runtime bundle contains pinned production dependencies and provider artifacts', identity: manifest.bundleSha256 }
+      : { status: 'not_ready', reason: `ACE runtime bundle is incomplete: ${missing.join(',')}` };
+  } catch (error) {
+    return { status: 'not_ready', reason: error instanceof Error ? error.message : 'ACE runtime bundle could not be read' };
+  }
+};
+
+const taskRuntimeProbe = (
+  bundlePath: string | undefined,
+  taskImages: readonly { readonly reference: string; readonly digest: string }[] | undefined,
+): PreflightCheck => {
+  if (bundlePath === undefined || taskImages === undefined || taskImages.length === 0) {
+    return { status: 'not_ready', reason: 'task runtime probe requires the ACE bundle and task image manifest' };
+  }
+  const identities: string[] = [];
+  for (const image of taskImages) {
+    const result = spawnSync('node', ['scripts/harbor-ace-runtime-probe.mjs', '--image', `${image.reference}@${image.digest}`, '--bundle', resolve(bundlePath)], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    if (result.error !== undefined || result.status !== 0) return { status: 'not_ready', reason: `task runtime probe failed for ${image.reference}` };
+    try {
+      const output = JSON.parse(result.stdout.trim().split(/\r?\n/u).at(-1) ?? '{}') as Record<string, unknown>;
+      if (output.status !== 'READY' || output.pluginImport !== true || output.bridgeImport !== true || output.effectImport !== true) {
+        return { status: 'not_ready', reason: `task runtime probe returned a non-ready result for ${image.reference}` };
+      }
+      identities.push(`${image.reference}@${image.digest}:${String(output.node)}:${String(output.python)}:${String(output.hermesVersion)}`);
+    } catch {
+      return { status: 'not_ready', reason: `task runtime probe returned malformed JSON for ${image.reference}` };
+    }
+  }
+  return { status: 'ready', reason: 'the real Hermes plugin and ContextEngine loaded inside every task image', identity: identities.join(',') };
+};
 
 const sha256 = (value: string | Uint8Array): string => {
   const hash = createHash('sha256');
@@ -260,6 +311,7 @@ const parseArgs = (): {
   readonly qdrantUrl: string;
   readonly nativeJobPath?: string;
   readonly aceJobPath?: string;
+  readonly aceRuntimeBundlePath?: string;
   readonly imageDigest?: string;
   readonly experimentManifestPath?: string;
 } => {
@@ -270,6 +322,7 @@ const parseArgs = (): {
   let qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
   let nativeJobPath: string | undefined;
   let aceJobPath: string | undefined;
+  let aceRuntimeBundlePath: string | undefined;
   let imageDigest: string | undefined;
   let experimentManifestPath: string | undefined;
   while (args.length > 0) {
@@ -281,9 +334,10 @@ const parseArgs = (): {
     else if (current === '--qdrant-url' && value !== undefined) qdrantUrl = value;
     else if (current === '--native-job' && value !== undefined) nativeJobPath = resolve(value);
     else if (current === '--ace-job' && value !== undefined) aceJobPath = resolve(value);
+    else if (current === '--ace-runtime-bundle' && value !== undefined) aceRuntimeBundlePath = resolve(value);
     else if (current === '--image-digest' && value !== undefined) imageDigest = value.trim();
     else if (current === '--experiment-manifest' && value !== undefined) experimentManifestPath = resolve(value);
-    else throw new Error('Usage: tsx scripts/feedback-loop-preflight.ts [--output dir] [--embedding-python path] [--embedding-library-path path] [--qdrant-url url] [--native-job path] [--ace-job path] [--image-digest sha256:<64hex>] [--experiment-manifest path]');
+    else throw new Error('Usage: tsx scripts/feedback-loop-preflight.ts [--output dir] [--embedding-python path] [--embedding-library-path path] [--qdrant-url url] [--native-job path] [--ace-job path] [--ace-runtime-bundle path] [--image-digest sha256:<64hex>] [--experiment-manifest path]');
   }
   return {
     outputDirectory: resolve(outputDirectory),
@@ -292,6 +346,7 @@ const parseArgs = (): {
     qdrantUrl,
     ...(nativeJobPath === undefined ? {} : { nativeJobPath }),
     ...(aceJobPath === undefined ? {} : { aceJobPath }),
+    ...(aceRuntimeBundlePath === undefined ? {} : { aceRuntimeBundlePath }),
     ...(imageDigest === undefined ? {} : { imageDigest }),
     ...(experimentManifestPath === undefined ? {} : { experimentManifestPath }),
   };
@@ -353,6 +408,8 @@ const main = async (): Promise<void> => {
     harborJobs: harborJobs.check,
     harborImageDigest: dockerImages(effectiveImageDigest, manifestTaskImages),
     agentRuntimeDigest: await agentRuntimeDigestCheck(experimentManifest),
+    aceRuntimeBundle: await aceRuntimeBundle(args.aceRuntimeBundlePath, experimentManifest?.aceRuntimeBundleSha256),
+    taskRuntimeProbe: taskRuntimeProbe(args.aceRuntimeBundlePath, manifestTaskImages),
   };
   const harborVersion = checks.harbor.identity;
   if (experimentManifest === undefined) {
@@ -382,7 +439,7 @@ const main = async (): Promise<void> => {
   const required = [
     'sourceCheckout', 'runtimeProvenance', 'node', 'npm', 'astGrep', 'typescriptLanguageServer',
     'embeddingPython', 'sparseEmbedding', 'harbor', 'harborRun', 'harborDatasetPinned',
-    'hermesCodexAuth', 'docker', 'harborJobs', 'harborImageDigest', 'agentRuntimeDigest', 'experimentBinding',
+    'hermesCodexAuth', 'docker', 'harborJobs', 'harborImageDigest', 'agentRuntimeDigest', 'aceRuntimeBundle', 'taskRuntimeProbe', 'experimentBinding',
     'embeddingCache', 'qdrant',
   ];
   const blocked = required.filter((name) => checks[name]?.status !== 'ready');

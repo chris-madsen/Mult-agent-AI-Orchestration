@@ -1,11 +1,9 @@
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { domainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import {
-  runtimeRelevantPath,
   sourceManifestBytes,
   validateRuntimeProvenance,
   type RuntimeIdentity,
@@ -17,30 +15,6 @@ import {
 const digest = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 const sourceManifestDigest = (entries: readonly RuntimeSourceManifestEntry[]): string =>
   digest(Buffer.from(sourceManifestBytes(entries), 'utf8'));
-
-const gitOutput = (runtimeRoot: string, args: readonly string[]): Result<string, Error> => {
-  try {
-    return ok(execFileSync('git', ['-C', runtimeRoot, ...args], { encoding: 'utf8' }).trim());
-  } catch (cause) {
-    return err(cause instanceof Error ? cause : new Error('git command failed'));
-  }
-};
-
-const relevantPaths = (runtimeRoot: string): Result<readonly string[], Error> => {
-  const output = gitOutput(runtimeRoot, ['ls-files', '--cached', '--others', '--exclude-standard']);
-  if (output._tag === 'Err') return output;
-  return ok(output.value.split('\n').filter((path) => path.length > 0 && runtimeRelevantPath(path)).sort());
-};
-
-const dirtyRelevantPaths = (runtimeRoot: string): Result<readonly string[], Error> => {
-  const output = gitOutput(runtimeRoot, ['status', '--porcelain=v1', '--untracked-files=all']);
-  if (output._tag === 'Err') return output;
-  const paths = output.value.split('\n')
-    .filter((line) => line.length > 0)
-    .map((line) => line.slice(3).split(' -> ').at(-1) ?? '')
-    .filter((path) => runtimeRelevantPath(path));
-  return ok([...new Set(paths)].sort());
-};
 
 const readSourceFiles = async (
   runtimeRoot: string,
@@ -65,20 +39,18 @@ const readRuntimeIdentity = async (runtimeRoot: string): Promise<RuntimeIdentity
   };
 };
 
-const currentObservation = async (runtimeRoot: string): Promise<RuntimeProvenanceObservation> => {
-  const paths = relevantPaths(runtimeRoot);
-  if (paths._tag === 'Err') throw paths.error;
-  const dirty = dirtyRelevantPaths(runtimeRoot);
-  if (dirty._tag === 'Err') throw dirty.error;
-  const sourceFiles = await readSourceFiles(runtimeRoot, paths.value);
+const currentObservation = async (
+  runtimeRoot: string,
+  manifest: RuntimeProvenanceManifest,
+): Promise<RuntimeProvenanceObservation> => {
+  const sourceFiles = await readSourceFiles(runtimeRoot, manifest.sourceFiles.map((entry) => entry.path));
   const executable = await readFile(join(runtimeRoot, 'dist/bin/ace-mcp.js'));
-  const revision = gitOutput(runtimeRoot, ['rev-parse', 'HEAD']);
-  if (revision._tag === 'Err') throw revision.error;
   return {
     runtimeRoot,
+    runtimeId: process.env.ACE_RUNTIME_ID?.trim() || 'ace-harbor-runtime-v1',
     executableSha256: digest(executable),
-    sourceCommit: revision.value,
-    sourceClean: dirty.value.length === 0,
+    sourceCommit: manifest.sourceCommit,
+    sourceCleanAtBuild: manifest.sourceCleanAtBuild,
     sourceManifestSha256: sourceManifestDigest(sourceFiles),
     runtime: await readRuntimeIdentity(runtimeRoot),
   };
@@ -97,7 +69,7 @@ export const verifyCompiledRuntimeProvenance = async (
   try {
     const manifestBytes = await readFile(join(runtimeRoot, 'dist/runtime-provenance.json'));
     const manifest = JSON.parse(manifestBytes.toString('utf8')) as RuntimeProvenanceManifest;
-    const observed = await currentObservation(runtimeRoot);
+    const observed = await currentObservation(runtimeRoot, manifest);
     const failures = validateRuntimeProvenance(manifest, observed, sourceManifestDigest);
     return failures.length === 0
       ? ok(manifest)
