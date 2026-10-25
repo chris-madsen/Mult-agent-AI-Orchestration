@@ -23,6 +23,17 @@ test('sensitive source path policy covers high-confidence credential artifacts w
     '.npmrc',
     'config/credentials.json',
     'config/service-account-prod.yaml',
+    '.aws/credentials',
+    '.kube/config',
+    '.azure/accessTokens.json',
+    '.config/gcloud/application_default_credentials.json',
+    '.docker/config.json',
+    '.gnupg/private-keys-v1.d/key.key',
+    '.envrc',
+    '.vault-token',
+    'terraform.tfstate',
+    'infra/terraform.tfstate.backup',
+    'application_default_credentials.json',
   ]) assert.equal(isSensitiveSourcePath(path), true, path);
 
   for (const path of [
