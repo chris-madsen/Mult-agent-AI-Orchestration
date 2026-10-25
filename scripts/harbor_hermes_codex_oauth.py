@@ -170,16 +170,25 @@ class HermesCodexOAuth(Hermes):
             model_config = {}
         model_config["context_length"] = 128000
         config["model"] = model_config
+        # Both arms use the same built-in Hermes compaction policy. ACE
+        # subclasses ContextCompressor, so selecting the plugin must never
+        # silently disable native summaries or tool-result pruning.
+        config["compression"] = {
+            "enabled": True,
+            "threshold": 0.50,
+            "threshold_tokens": None,
+            "codex_gpt55_autoraise": False,
+            "protect_first_n": 3,
+            "protect_last_n": 20,
+            "target_ratio": 0.20,
+            "micro_compact": False,
+            "proactive_prune_tokens": 0,
+            "idle_compact_after_seconds": 0,
+            "codex_responses_native": False,
+            "codex_app_server_auto": "off",
+        }
         if ace_context_enabled:
             config["context"] = {"engine": "ace_context_engine"}
-            config["compression"] = {
-                "enabled": False,
-                "micro_compact": False,
-                "proactive_prune_tokens": 0,
-                "idle_compact_after_seconds": 0,
-                "codex_responses_native": False,
-                "codex_app_server_auto": "off",
-            }
             plugins = config.get("plugins")
             if not isinstance(plugins, dict):
                 plugins = {}
