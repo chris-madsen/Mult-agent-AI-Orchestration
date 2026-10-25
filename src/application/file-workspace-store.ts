@@ -91,6 +91,8 @@ const parseState = (value: unknown): Result<PersistedState, ReturnType<typeof do
 
 export const makeFileWorkspaceStore = (statePath: string): WorkspaceStore => {
   const lockPath = `${statePath}.write-lock`;
+  const sleep = (milliseconds: number): Promise<void> =>
+    new Promise<void>((resolve) => { setTimeout(resolve, milliseconds); });
   // mkdir is atomic across independent Node processes on the same local FS.
   // Never steal a suspected stale lock: an ambiguous writer must fail closed.
   const withWriteFence = async <T>(operation: () => Promise<T>): Promise<T> => {
@@ -103,7 +105,7 @@ export const makeFileWorkspaceStore = (statePath: string): WorkspaceStore => {
       } catch (cause) {
         if (nodeErrorCode(cause) !== 'EEXIST') throw cause;
         if (Date.now() >= deadline) throw new Error('workspace state write fence remained held');
-        await new Promise<void>((resolve) => { setTimeout(resolve, 30); });
+        await sleep(30);
       }
     }
     try {
