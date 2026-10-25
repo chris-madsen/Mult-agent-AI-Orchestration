@@ -12,4 +12,8 @@ test('Bifrost plugin build is pinned and fail-closed before plugin compilation',
   assert.match(plugin, /ACE host identity attestation is unavailable/u);
   assert.match(plugin, /ACE projection blocked/u);
   assert.match(plugin, /PreLLMHook/u);
+  assert.match(plugin, /LLMPluginShortCircuit/u);
+  assert.match(plugin, /AllowFallbacks:\s*&allowFallbacks/u);
+  assert.match(plugin, /ace\.pre_llm_attempt_seen/u);
+  assert.match(plugin, /len\(fallbacks\) != 0/u);
 });
