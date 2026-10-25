@@ -1,7 +1,7 @@
 import { domainError, type DomainError } from './errors.js';
 import { err, ok, type Result } from './result.js';
 
-export type HermesContextTransformStatus = 'ready' | 'partial' | 'not_ready' | 'blocked';
+export type HermesContextTransformStatus = 'ready' | 'partial' | 'not_ready' | 'blocked' | 'not_beneficial';
 
 export interface HermesContextEvidence {
   readonly schemaVersion: 1;
@@ -18,8 +18,9 @@ export interface HermesContextEvidence {
   readonly bridgeDigest: string;
   readonly pluginDigest: string;
   readonly estimatedTokens?: number;
-  /** ContextEngine v1 is append-only: these are content-character estimates, not provider usage. */
-  readonly deliveryMode?: 'augmentation';
+  /** Content-only estimates, never provider-measured tokens or wire delivery proof. */
+  readonly deliveryMode?: 'augmentation' | 'replacement' | 'no_op';
+  readonly replacedToolOutputs?: number;
   readonly originalEstimatedTokens?: number;
   readonly projectedEstimatedTokens?: number;
   readonly estimatedAddedTokens?: number;
@@ -32,6 +33,8 @@ export interface HermesContextEvidence {
 
 const nonEmpty = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
 const digest = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value);
+const nonNegativeInteger = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 const revision = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{40,64}$/iu.test(value);
 const uniqueStrings = (value: unknown): value is readonly string[] => Array.isArray(value)
   && value.every(nonEmpty)
@@ -48,7 +51,7 @@ export const validateHermesContextEvidence = (value: unknown): Result<HermesCont
     || !nonEmpty(input.requestId)
     || !nonEmpty(input.sessionId)
     || (input.turnId !== undefined && !nonEmpty(input.turnId))
-    || !['ready', 'partial', 'not_ready', 'blocked'].includes(String(input.status))
+    || !['ready', 'partial', 'not_ready', 'blocked', 'not_beneficial'].includes(String(input.status))
     || !nonEmpty(input.receiptId)
     || !uniqueStrings(input.selectedEvidenceIds)
     || !uniqueStrings(input.omittedEvidenceIds)
@@ -72,17 +75,28 @@ export const validateHermesContextEvidence = (value: unknown): Result<HermesCont
     && (typeof input.estimatedTokens !== 'number' || !Number.isSafeInteger(input.estimatedTokens) || input.estimatedTokens < 0)) {
     return invalid('hermes_context_evidence.estimatedTokens', 'estimated tokens must be a non-negative integer');
   }
-  if (input.deliveryMode !== undefined && input.deliveryMode !== 'augmentation') {
+  if (input.deliveryMode !== undefined
+    && !['augmentation', 'replacement', 'no_op'].includes(String(input.deliveryMode))) {
     return invalid('hermes_context_evidence.deliveryMode', 'unsupported projection mode');
   }
   const projectionCounters = [input.originalEstimatedTokens, input.projectedEstimatedTokens, input.estimatedAddedTokens];
-  if (projectionCounters.some((v) => v !== undefined) && (
-    !projectionCounters.every((v) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0)
-    || input.deliveryMode !== 'augmentation'
-    || (input.projectedEstimatedTokens as number) - (input.originalEstimatedTokens as number) !== input.estimatedAddedTokens
-    || (input.estimatedAddedTokens as number) <= 0
-  )) {
-    return invalid('hermes_context_evidence.projection', 'augmentation counters are inconsistent');
+  if (projectionCounters.some((v) => v !== undefined)) {
+    const [original, projected, delta] = projectionCounters;
+    if (typeof original !== 'number' || !Number.isSafeInteger(original) || original < 0
+      || typeof projected !== 'number' || !Number.isSafeInteger(projected) || projected < 0
+      || typeof delta !== 'number' || !Number.isSafeInteger(delta)
+      || projected - original !== delta
+      || !(input.deliveryMode === 'augmentation' && delta > 0
+        || input.deliveryMode === 'replacement' && delta < 0
+        || input.deliveryMode === 'no_op' && delta === 0)) {
+      return invalid('hermes_context_evidence.projection', 'projection counters are inconsistent');
+    }
+  }
+  if (input.replacedToolOutputs !== undefined
+    && (!nonNegativeInteger(input.replacedToolOutputs)
+      || input.deliveryMode === 'replacement' && input.replacedToolOutputs === 0
+      || input.deliveryMode === 'no_op' && input.replacedToolOutputs !== 0)) {
+    return invalid('hermes_context_evidence.replacedToolOutputs', 'replacement count is inconsistent with projection');
   }
   if ((input.originalRequestSha256 !== undefined && !digest(input.originalRequestSha256))
     || (input.projectedRequestSha256 !== undefined && !digest(input.projectedRequestSha256))) {
