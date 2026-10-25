@@ -8,7 +8,7 @@ Current status:
 - `provider-wire-tested`: the pinned Bifrost revision `fe7634a6c828927d05ffdd57c62be0aaab04193f` loaded the plugin and a mock upstream captured the transformed body; retained evidence is in `docs/reviews/2026-10-25-bifrost-gateway-wire-e2e.md`.
 - `agent-E2E-tested`: NOT RUN.
 
-The connector does not implement retrieval, compaction, reranking, policy selection or provider credentials. A Bifrost plugin integration must call `Project` from the authenticated HTTP transport seam and revalidate each effective retry/fallback attempt before provider send.
+The connector does not implement retrieval, compaction, reranking, policy selection or provider credentials. The pinned plugin calls `Project` from the authenticated HTTP transport seam. A strict projected request with a missing receipt or configured fallback is short-circuited before the provider call; a repeated PreLLM attempt is also blocked rather than reusing the ingress receipt. Per-attempt reauthorization, native-plugin rebuild verification at the new revision, and retry/fallback provider-wire evidence remain NOT RUN / NOT IMPLEMENTED. No retry/fallback certification is claimed.
 
 Run the isolated contract tests with:
 
