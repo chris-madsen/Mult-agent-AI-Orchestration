@@ -22,7 +22,7 @@ timeout_sec = 180.0
 [environment]
 network_mode = "public"
 build_timeout_sec = 300.0
-docker_image = "ace-local-hermes:ace-retrieval-impact@sha256:3306c3250ee00ab0c16e511eaf7c39df8507be0fef10f56b9ef7ede59ea18dad"
+docker_image = "ace-local-hermes:ace-local-smoke-paired-fast@sha256:c0529227d3303b66115cd246d39c552cb591eed58c906d412e7883824d294dbc"
 os = "linux"
 mcp_servers = []
 

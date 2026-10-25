@@ -50,7 +50,7 @@ test('local task freezing and image override keep provenance explicit', async ()
   assert.match(jobs, /--task-image <reference>/u);
   assert.match(jobs, /contradicts task\.toml docker_image/u);
   assert.match(jobs, /taskImageOverride/u);
-  assert.match(task, /docker_image = "ace-local-hermes:ace-retrieval-impact@sha256:/u);
+  assert.match(task, /docker_image = "ace-local-hermes:ace-local-smoke-paired-fast@sha256:/u);
 });
 
 test('fast runner preserves ACE_NOT_USED as a non-savings diagnostic outcome', async () => {
