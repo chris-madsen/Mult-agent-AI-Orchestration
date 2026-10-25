@@ -7,6 +7,7 @@ export type FeedbackQuality = 'pass' | 'fail' | 'unknown';
 export type FeedbackStatus = 'PASS' | 'UNKNOWN' | 'BLOCKED' | 'QUALITY_REGRESSION' | 'ACE_NOT_USED';
 export type FeedbackMode = 'cold' | 'warm';
 export type FeedbackSelection = 'smoke' | 'main' | 'holdout';
+export type FeedbackDatasetId = 'scale-ai/swe-atlas-qna' | 'local/ace-suite';
 
 export interface FeedbackTaskIdentity {
   readonly id: string;
@@ -20,7 +21,7 @@ export interface FeedbackTaskManifest {
   readonly schemaVersion: 1;
   readonly selection: FeedbackSelection;
   readonly dataset: {
-    readonly id: 'scale-ai/swe-atlas-qna';
+    readonly id: FeedbackDatasetId;
     readonly revision: string;
     readonly rawSha256: string;
   };
@@ -264,7 +265,8 @@ export const validateFeedbackTaskManifest = (value: unknown): Result<FeedbackTas
     : undefined;
   const selection = root.selection;
   if (root.schemaVersion !== 1 || (selection !== 'smoke' && selection !== 'main' && selection !== 'holdout')
-    || dataset?.id !== 'scale-ai/swe-atlas-qna' || !revision(dataset.revision) || !sha256Hex(dataset.rawSha256)) {
+    || (dataset?.id !== 'scale-ai/swe-atlas-qna' && dataset?.id !== 'local/ace-suite')
+    || !revision(dataset.revision) || !sha256Hex(dataset.rawSha256)) {
     return invalid('task_manifest', 'dataset identity and selection are not pinned');
   }
   const seen = new Set<string>();
@@ -279,7 +281,7 @@ export const validateFeedbackTaskManifest = (value: unknown): Result<FeedbackTas
   return ok({
     schemaVersion: 1,
     selection,
-    dataset: { id: 'scale-ai/swe-atlas-qna', revision: dataset.revision, rawSha256: dataset.rawSha256 },
+    dataset: { id: dataset.id, revision: dataset.revision, rawSha256: dataset.rawSha256 },
     tasks: tasks.value,
     holdout: holdout.value,
   });

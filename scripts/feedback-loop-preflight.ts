@@ -26,7 +26,7 @@ import {
 import { verifyCompiledRuntimeProvenance } from '../src/application/runtime-provenance.js';
 import { verifyAceRuntimeBundle } from '../src/application/ace-runtime-bundle.js';
 
-type CheckStatus = 'ready' | 'not_ready' | 'unknown';
+type CheckStatus = 'ready' | 'not_ready' | 'unknown' | 'not_required';
 
 interface PreflightCheck {
   readonly status: CheckStatus;
@@ -151,7 +151,10 @@ const embeddingCache = async (): Promise<PreflightCheck> => {
   return { status: 'not_ready', reason: 'embedding cache path is not accessible' };
 };
 
-const harborDataset = (): PreflightCheck => {
+const harborDataset = (datasetId: string): PreflightCheck => {
+  if (datasetId === 'local/ace-suite') {
+    return { status: 'not_required', reason: 'local deterministic dataset does not require Harbor registry access', identity: datasetId };
+  }
   const result = spawnSync('harbor', ['datasets', 'list', '--legacy'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   if (result.error !== undefined || result.status !== 0) return { status: 'not_ready', reason: 'Harbor dataset registry could not be queried' };
   return result.stdout.includes('scale-ai/swe-atlas-qna')
@@ -415,9 +418,11 @@ const parseArgs = (): {
 
 const main = async (): Promise<void> => {
   const args = parseArgs();
+  let datasetId = 'scale-ai/swe-atlas-qna';
   if (args.taskManifestPath !== undefined) {
     const taskManifest = validateFeedbackTaskManifest(JSON.parse(await readFile(args.taskManifestPath, 'utf8')) as unknown);
     if (taskManifest._tag === 'Err') throw new Error(`BLOCKED: ${taskManifest.error.path}: ${taskManifest.error.message}`);
+    datasetId = taskManifest.value.dataset.id;
   }
   let experimentManifest: FeedbackExperimentManifest | undefined;
   let manifestTaskImages: readonly { readonly reference: string; readonly digest: string }[] | undefined;
@@ -467,7 +472,7 @@ const main = async (): Promise<void> => {
     harbor: command('harbor', ['--version']),
     harborRun: command('harbor', ['run', '--help']),
     harborDatasets: command('harbor', ['datasets', 'list']),
-    harborDatasetPinned: harborDataset(),
+    harborDatasetPinned: harborDataset(datasetId),
     hermesCodexAuth: await hermesCodexAuth(),
     docker: command('docker', ['--version']),
     harborJobs: harborJobs.check,
@@ -508,7 +513,7 @@ const main = async (): Promise<void> => {
     'hermesCodexAuth', 'docker', 'harborJobs', 'harborImageDigest', 'agentRuntimeDigest', 'aceRuntimeBundle', 'taskRuntimeProbe', 'experimentBinding',
     'embeddingCache', 'qdrant', 'taskVerifier',
   ];
-  const blocked = required.filter((name) => checks[name]?.status !== 'ready');
+  const blocked = required.filter((name) => !['ready', 'not_required'].includes(checks[name]?.status ?? 'not_ready'));
   const manifest: PreflightManifest = {
     schemaVersion: 2,
     status: blocked.length === 0 ? 'READY' : 'BLOCKED',

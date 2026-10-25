@@ -9,7 +9,7 @@ test('raw Harbor adapter reads trial facts and keeps uninstrumented native reads
   const aggregatePath = join(root, 'result.json');
   const trialDirectory = join(root, 'trial-0');
   await mkdir(join(trialDirectory, 'agent'), { recursive: true });
-  await writeFile(aggregatePath, '{}\n', 'utf8');
+  await writeFile(aggregatePath, '{"n_total_trials":1}\n', 'utf8');
   await writeFile(join(trialDirectory, 'result.json'), JSON.stringify({
     trial_id: 'trial-0',
     task_name: 'task-a',
@@ -38,7 +38,7 @@ test('raw Harbor adapter blocks when a trial result has no verifier outcome', as
   const aggregatePath = join(root, 'result.json');
   const trialDirectory = join(root, 'trial-0');
   await mkdir(join(trialDirectory, 'agent'), { recursive: true });
-  await writeFile(aggregatePath, '{}\n', 'utf8');
+  await writeFile(aggregatePath, '{"n_total_trials":1}\n', 'utf8');
   await writeFile(join(trialDirectory, 'result.json'), JSON.stringify({ task_name: 'task-a' }) + '\n', 'utf8');
   await writeFile(join(trialDirectory, 'agent', 'codex.txt'), 'missing verifier\n', 'utf8');
 
@@ -53,7 +53,7 @@ test('raw Harbor adapter keeps verifier timeouts out of quality and savings evid
   const aggregatePath = join(root, 'result.json');
   const trialDirectory = join(root, 'trial-0');
   await mkdir(join(trialDirectory, 'agent'), { recursive: true });
-  await writeFile(aggregatePath, '{}\n', 'utf8');
+  await writeFile(aggregatePath, '{"n_total_trials":1}\n', 'utf8');
   await writeFile(join(trialDirectory, 'result.json'), JSON.stringify({
     task_name: 'task-a',
     exception_info: { type: 'VerifierTimeoutError', message: 'verifier timed out' },
@@ -64,7 +64,7 @@ test('raw Harbor adapter keeps verifier timeouts out of quality and savings evid
 
   await assert.rejects(
     readHarborFourArmTrialObservations('native', aggregatePath),
-    /BLOCKED: missing verifier reward/u,
+    /BLOCKED: Harbor trial timed out/u,
   );
 });
 
@@ -78,9 +78,21 @@ test('raw Harbor adapter rejects a missing aggregate even if trial directories e
   );
 });
 
+test('raw Harbor adapter rejects aggregate results without a matching trial count', async () => {
+  const root = await mkdtemp('/tmp/ace-harbor-trial-count-');
+  const trialDirectory = join(root, 'trial-0');
+  await mkdir(join(trialDirectory, 'agent'), { recursive: true });
+  await writeFile(join(root, 'result.json'), '{}\n', 'utf8');
+  await writeFile(join(trialDirectory, 'result.json'), '{}\n', 'utf8');
+  await assert.rejects(
+    readHarborFourArmTrialObservations('native', join(root, 'result.json')),
+    /missing a positive n_total_trials/u,
+  );
+});
+
 test('raw Harbor adapter orders serial trials by timestamps, not lexical directory names', async () => {
   const root = await mkdtemp('/tmp/ace-harbor-trial-order-');
-  await writeFile(join(root, 'result.json'), '{}\n', 'utf8');
+  await writeFile(join(root, 'result.json'), '{"n_total_trials":2}\n', 'utf8');
   for (const [directory, task, started] of [
     ['trial-10', 'second', '2026-10-22T10:00:02.000Z'],
     ['trial-2', 'first', '2026-10-22T10:00:01.000Z'],
@@ -107,7 +119,7 @@ test('raw Harbor adapter keeps four-arm context correlation stable while recordi
   const aggregatePath = join(root, 'result.json');
   const trialDirectory = join(root, 'trial-0');
   await mkdir(join(trialDirectory, 'agent'), { recursive: true });
-  await writeFile(aggregatePath, '{}\n', 'utf8');
+  await writeFile(aggregatePath, '{"n_total_trials":1}\n', 'utf8');
   await writeFile(join(trialDirectory, 'result.json'), JSON.stringify({
     trial_id: 'trial-expand',
     task_name: 'task-a',
@@ -156,7 +168,7 @@ test('raw Harbor adapter reads Hermes MCP session calls and preserves ACE correl
   const aggregatePath = join(root, 'result.json');
   const trialDirectory = join(root, 'trial-0');
   await mkdir(join(trialDirectory, 'agent'), { recursive: true });
-  await writeFile(aggregatePath, '{}\n', 'utf8');
+  await writeFile(aggregatePath, '{"n_total_trials":1}\n', 'utf8');
   await writeFile(join(trialDirectory, 'result.json'), JSON.stringify({
     trial_id: 'trial-hermes',
     task_name: 'task-a',

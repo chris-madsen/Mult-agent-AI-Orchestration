@@ -272,6 +272,24 @@ test('holdout selection requires ten tasks and no main set', () => {
   assert.equal(result._tag, 'Ok');
 });
 
+test('local deterministic feedback manifests preserve their own dataset identity', () => {
+  const result = validateFeedbackTaskManifest({
+    schemaVersion: 1,
+    selection: 'smoke',
+    dataset: { id: 'local/ace-suite', revision, rawSha256: digest('b') },
+    tasks: [{
+      id: 'ace/ace-local-smoke-paired',
+      sourceRevision: revision,
+      sourceDigest: digest('c'),
+      taskDigest: digest('d'),
+      taskPath: 'benchmarks/harbor/ace-local-smoke-paired',
+    }],
+    holdout: [],
+  });
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Ok') assert.equal(result.value.dataset.id, 'local/ace-suite');
+});
+
 test('freeze CLI creates a provenance-bound one-task smoke manifest', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ace-feedback-smoke-freeze-'));
   const tasksPath = join(root, 'task-identities.jsonl');

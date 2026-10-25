@@ -64,7 +64,7 @@ const filesystemTreeEntries = async (root: string, prefix: string): Promise<read
 const shellQuote = (value: string): string => "'" + value.replaceAll("'", "'\\''") + "'";
 
 const usage = (): never => {
-  throw new Error('Usage: tsx scripts/prepare-harbor-feedback-jobs.ts --task-manifest <path> --source-root <checkout> --ace-runtime-bundle <bundle> --output <dir> [--artifacts-root <external-dir>] --run-id <id> --model <model> --reasoning <low|medium|high> [--image-digest sha256:<64hex> | --task-image-digest <image>=sha256:<64hex> ...]');
+  throw new Error('Usage: tsx scripts/prepare-harbor-feedback-jobs.ts --task-manifest <path> --source-root <checkout> --ace-runtime-bundle <bundle> --output <dir> [--artifacts-root <external-dir>] --run-id <id> --model <model> --reasoning <low|medium|high> [--task-image <reference>] [--image-digest sha256:<64hex> | --task-image-digest <image>=sha256:<64hex> ...]');
 };
 
 interface ParsedArgs {
@@ -101,13 +101,22 @@ const blocked = async (output: string, reason: string): Promise<void> => {
   process.exitCode = 2;
 };
 
-const dockerImageReference = async (taskPath: string): Promise<string> => {
+const dockerImageReference = async (taskPath: string, override: string | undefined): Promise<string> => {
   const taskToml = await readFile(join(taskPath, 'task.toml'), 'utf8');
   const match = /^\s*docker_image\s*=\s*"([^"]+)"\s*$/mu.exec(taskToml);
-  if (match?.[1] === undefined || match[1].trim().length === 0) {
+  const declared = match?.[1]?.trim().replace(/@sha256:[a-f0-9]{64}$/u, '');
+  if (override !== undefined) {
+    const normalized = override.trim().replace(/@sha256:[a-f0-9]{64}$/u, '');
+    if (normalized.length === 0) throw new Error('BLOCKED: --task-image must be a non-empty Docker image reference');
+    if (declared !== undefined && declared !== normalized) {
+      throw new Error(`BLOCKED: --task-image ${normalized} contradicts task.toml docker_image ${declared}`);
+    }
+    return normalized;
+  }
+  if (declared === undefined || declared.length === 0) {
     throw new Error(`BLOCKED: frozen task is missing an explicit docker_image: ${taskPath}`);
   }
-  return match[1].trim().replace(/@sha256:[a-f0-9]{64}$/u, '');
+  return declared;
 };
 
 const verifyDockerImageReference = (reference: string, digest: string): void => {
@@ -208,7 +217,8 @@ const main = async (): Promise<void> => {
     if (runtimeBundleMode && !existsSync(join(aceRoot, 'node_modules', 'effect', 'package.json'))) throw new Error('BLOCKED: ACE runtime bundle is missing production dependency effect');
     const reasoning = reasoningArg;
     if (!['low', 'medium', 'high'].includes(reasoning)) throw new Error('BLOCKED: reasoning effort must be low, medium or high');
-    const taskImageReferences = [...new Set(await Promise.all(taskPaths.map((path) => dockerImageReference(path))))];
+    const taskImageOverride = args['--task-image'];
+    const taskImageReferences = [...new Set(await Promise.all(taskPaths.map((path) => dockerImageReference(path, taskImageOverride))))];
     const explicitTaskImageDigests = new Map<string, string>();
     for (const value of parsedArgs.taskImageDigests) {
       const item = parseTaskImageDigest(value);
@@ -319,6 +329,7 @@ const main = async (): Promise<void> => {
       harborVersion: execFileSync('harbor', ['--version'], { encoding: 'utf8' }).trim().split(/\r?\n/u)[0]?.trim() ?? 'unknown',
       ...(imageDigest === undefined ? {} : { imageDigest }),
       taskImages,
+      ...(taskImageOverride === undefined ? {} : { taskImageOverride }),
       agentAdapterSha256,
       aceContextBridgeSha256,
       contextPluginSha256,
@@ -358,6 +369,7 @@ const main = async (): Promise<void> => {
       harborVersion: experimentManifest.harborVersion,
       ...(imageDigest === undefined ? {} : { imageDigest }),
       taskImages,
+      ...(taskImageOverride === undefined ? {} : { taskImageOverride }),
       experimentManifest: resolve(output, 'experiment-manifest.json'),
       selection: taskManifest.selection,
       mode: 'cold',

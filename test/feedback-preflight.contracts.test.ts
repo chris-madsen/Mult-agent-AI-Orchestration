@@ -90,6 +90,8 @@ test('real Stage0 keeps evidence outside frozen source and revalidates source id
 test('feedback jobs use Hermes openai-codex OAuth and native ContextEngine registration', async () => {
   const preflight = await readFile('scripts/feedback-loop-preflight.ts', 'utf8');
   const jobs = await readFile('scripts/prepare-harbor-feedback-jobs.ts', 'utf8');
+  assert.match(jobs, /--task-image <reference>/u);
+  assert.match(jobs, /taskImageOverride/u);
   const adapter = await readFile('scripts/harbor_hermes_codex_oauth.py', 'utf8');
   const wrapper = await readFile('scripts/harbor-ace-context-bridge.sh', 'utf8');
   const contextPlugin = await readFile('integrations/hermes/ace_context_engine/__init__.py', 'utf8');
@@ -245,6 +247,13 @@ test('exact-current preflight requires a clean checkout, compiled runtime proven
   assert.match(preflight, /taskVerifier/u);
   assert.match(preflight, /local-task-verifier/u);
   assert.match(preflight, /AbortSignal\.timeout\(5_000\)/u);
+});
+
+test('local deterministic preflight makes external dataset registry access not required', async () => {
+  const preflight = await readFile('scripts/feedback-loop-preflight.ts', 'utf8');
+  assert.match(preflight, /local deterministic dataset does not require Harbor registry access/u);
+  assert.match(preflight, /harborDataset\(datasetId\)/u);
+  assert.match(preflight, /\['ready', 'not_required'\]/u);
 });
 
 test('Hermes paired arms have the same context-window configuration regardless of ACE selection', async () => {

@@ -32,10 +32,17 @@ const trialDirectories = async (aggregatePath: string): Promise<readonly string[
   // The CLI accepts an actual Harbor result file, not a directory locator.
   // Previously a non-existent aggregate path silently worked if its parent
   // happened to contain unrelated run directories.
-  await readJson(aggregatePath);
+  const aggregate = await readJson(aggregatePath);
+  const expectedCount = integerOrNull(aggregate.n_total_trials ?? aggregate.nTotalTrials);
+  if (expectedCount === null || expectedCount <= 0) {
+    throw new Error(`BLOCKED: aggregate Harbor result is missing a positive n_total_trials: ${aggregatePath}`);
+  }
   const parent = dirname(resolve(aggregatePath));
   const entries = await readdir(parent, { withFileTypes: true });
   const paths = entries.filter((entry) => entry.isDirectory()).map((entry) => join(parent, entry.name)).sort();
+  if (paths.length !== expectedCount) {
+    throw new Error(`BLOCKED: aggregate n_total_trials=${expectedCount} does not match raw trial directories=${paths.length}: ${aggregatePath}`);
+  }
   const started = await Promise.all(paths.map(async (path) => {
     const raw = await readJson(join(path, 'result.json'));
     const millis = typeof raw.started_at === 'string' ? Date.parse(raw.started_at) : Number.NaN;
@@ -204,6 +211,10 @@ const readTrial = async (arm: HarborFourArmName, directory: string): Promise<Har
   const verifier = trial.verifier_result === null || trial.verifier_result === undefined
     ? undefined
     : object(trial.verifier_result);
+  const exception = object(trial.exception_info);
+  if (exception?.type === 'VerifierTimeoutError' || trial.timed_out === true) {
+    throw new Error(`BLOCKED: Harbor trial timed out: ${resultPath}`);
+  }
   const rewards = object(verifier?.rewards);
   if (typeof rewards?.reward !== 'number' || !Number.isFinite(rewards.reward)) {
     throw new Error(`BLOCKED: missing verifier reward: ${resultPath}`);

@@ -19,6 +19,7 @@ const parseArgs = (): {
   readonly tasksPath: string;
   readonly datasetRevision: string;
   readonly datasetSha256: string;
+  readonly datasetId: string;
   readonly outputDirectory: string;
   readonly smokeId?: string;
   readonly mainIds: readonly string[];
@@ -29,6 +30,7 @@ const parseArgs = (): {
   let tasksPath: string | undefined;
   let datasetRevision: string | undefined;
   let datasetSha256: string | undefined;
+  let datasetId = 'scale-ai/swe-atlas-qna';
   let outputDirectory: string | undefined;
   let smokeId: string | undefined;
   const mainIds: string[] = [];
@@ -40,6 +42,7 @@ const parseArgs = (): {
     if (name === '--tasks') tasksPath = value;
     else if (name === '--dataset-revision') datasetRevision = value;
     else if (name === '--dataset-sha256') datasetSha256 = value;
+    else if (name === '--dataset-id') datasetId = value ?? datasetId;
     else if (name === '--output') outputDirectory = value;
     else if (name === '--smoke-id') smokeId = value;
     else if (name === '--main-id' && value !== undefined) mainIds.push(value);
@@ -54,7 +57,8 @@ const parseArgs = (): {
   const holdoutSelection = smokeId === undefined
     && mainIds.length === 0 && holdoutIds.length === 0 && holdoutOnlyIds.length === 10;
   if (tasksPath === undefined || datasetRevision === undefined || datasetSha256 === undefined || outputDirectory === undefined
-    || [smokeSelection, mainSelection, holdoutSelection].filter(Boolean).length !== 1) return usage();
+    || [smokeSelection, mainSelection, holdoutSelection].filter(Boolean).length !== 1
+    || (datasetId !== 'scale-ai/swe-atlas-qna' && datasetId !== 'local/ace-suite')) return usage();
   const selectedIds = smokeSelection ? [smokeId!] : mainSelection ? [...mainIds, ...holdoutIds] : holdoutOnlyIds;
   if (!revisionPattern.test(datasetRevision) || !digestPattern.test(datasetSha256)
     || new Set(selectedIds).size !== selectedIds.length || selectedIds.some((id) => !nonEmpty(id))) return usage();
@@ -62,6 +66,7 @@ const parseArgs = (): {
     tasksPath: resolve(tasksPath),
     datasetRevision,
     datasetSha256,
+    datasetId,
     outputDirectory: resolve(outputDirectory),
     ...(smokeId === undefined ? {} : { smokeId }),
     mainIds,
@@ -124,7 +129,7 @@ const main = async (): Promise<void> => {
       schemaVersion: 1 as const,
       selection: args.smokeId !== undefined ? 'smoke' as const : args.holdoutOnlyIds.length > 0 ? 'holdout' as const : 'main' as const,
       dataset: {
-        id: 'scale-ai/swe-atlas-qna' as const,
+        id: args.datasetId,
         revision: args.datasetRevision,
         rawSha256: args.datasetSha256,
       },
