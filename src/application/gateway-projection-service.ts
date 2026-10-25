@@ -75,6 +75,7 @@ export const makeGatewayProjectionService = (context: ContextTransformService): 
       return ok({ kind: 'UNCHANGED_AUTHORIZED', receipt: receiptFor(request, 'UNCHANGED_AUTHORIZED') });
     }
     if (request.nativeProjectionActive === true) return block(request, 'DUAL_PROJECTION_OWNER');
+    if (request.attestation.sessionId !== request.agentSessionId) return block(request, 'HOST_SESSION_MISMATCH');
     if (request.deadlineEpochMs <= Date.now()) return block(request, 'DEADLINE_EXCEEDED');
     if (!request.attestation.hostTranscriptAttested) return block(request, 'HOST_CONTEXT_UNATTESTED');
     if (request.attestation.compactionEnabled || request.attestation.hostCompactionEpoch === 'unknown') return block(request, 'HOST_COMPACTION_ACTIVE');
@@ -83,8 +84,19 @@ export const makeGatewayProjectionService = (context: ContextTransformService): 
     if (body._tag === 'Err') return body;
     const transformed = yield* context.transform(transformRequestFor(request));
     if (transformed._tag === 'Err') return block(request, transformed.error.code);
-    const projected = appendContext(body.value, transformed.value);
+    if (request.deadlineEpochMs <= Date.now()) return block(request, 'DEADLINE_EXCEEDED');
+    const result = transformed.value;
+    if (result.requestId !== request.requestId || result.sessionId !== request.agentSessionId
+      || result.turnId !== request.attemptGroupId || result.workspaceId !== request.workspaceId) {
+      return block(request, 'TRANSFORM_IDENTITY_MISMATCH');
+    }
+    if (result.status !== 'ready' || !result.contextText.trim() || result.selectedEvidenceIds.length === 0) {
+      return block(request, 'TRANSFORM_NOT_READY');
+    }
+    const projected = appendContext(body.value, result);
     if (projected._tag === 'Err') return block(request, projected.error.code);
+    if (Buffer.from(projected.value, 'base64').length > 4 * 1024 * 1024) return block(request, 'PROJECTED_BODY_TOO_LARGE');
+    if (request.deadlineEpochMs <= Date.now()) return block(request, 'DEADLINE_EXCEEDED');
     const projectedBodySha256 = bodySha256(projected.value);
     return ok({
       kind: 'APPLY',
