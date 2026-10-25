@@ -131,3 +131,28 @@ func TestProjectRejectsExpiredDeadline(t *testing.T) {
   t.Fatal("expired deadline must be rejected before HTTP")
  }
 }
+
+func TestProjectedResponseHonorsCustomBodyBound(t *testing.T) {
+ original := []byte(`{"messages":[]}`)
+ projected := make([]byte, 65)
+ server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+  _ = json.NewEncoder(writer).Encode(Decision{
+   Kind: "APPLY", BodyBase64: base64.StdEncoding.EncodeToString(projected),
+   Receipt: Receipt{
+    SchemaVersion: SchemaVersion, RequestID: "req-1", AttemptGroupID: "group-1",
+    AttemptIndex: 0, ReceiptID: "receipt-1", Decision: "APPLY",
+    BaseBodySHA256: digest(original), ProjectedBodySHA256: digest(projected),
+    HostCompactionEpoch: 1, ActiveEngineID: "ace_context_engine",
+   },
+  })
+ }))
+ defer server.Close()
+ _, err := (Client{Endpoint: server.URL, MaxBodyBytes: 64}).Project(context.Background(), Request{
+  RequestID: "req-1", AttemptGroupID: "group-1", AgentSessionID: "session-1",
+  WorkspaceID: "workspace-1", DataClass: "private", Protocol: "openai.chat.completions",
+  Provider: "mock", Model: "test", Query: "question", ProjectionMode: "gateway",
+  DeadlineEpochMs: 4102444800000, Body: original,
+  Attestation: json.RawMessage(`{"hostCompactionEpoch":1}`),
+ })
+ if err == nil { t.Fatal("projected response exceeded configured body bound") }
+}
