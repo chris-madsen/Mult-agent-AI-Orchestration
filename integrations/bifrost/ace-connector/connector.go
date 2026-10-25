@@ -154,6 +154,12 @@ func (c Client) Project(ctx context.Context, request Request) (Decision, error) 
 		decision.Receipt.Decision != decision.Kind {
 		return Decision{}, errors.New("ACE projection receipt does not bind the original attempt and decision")
 	}
+	if int64(len(decision.BodyBase64)) > 4*((maxBodyBytes+2)/3) {
+		return Decision{}, errors.New("ACE projected response body exceeds bound")
+	}
+	if decision.Kind == "BLOCK" && decision.BodyBase64 != "" {
+		return Decision{}, errors.New("blocked decision must not include a provider body")
+	}
 	if _, err := Apply(request.Body, decision); err != nil && decision.Kind != "BLOCK" {
 		return Decision{}, fmt.Errorf("invalid ACE projection decision: %w", err)
 	}
