@@ -157,6 +157,12 @@ func (c Client) Project(ctx context.Context, request Request) (Decision, error) 
 	if int64(len(decision.BodyBase64)) > 4*((maxBodyBytes+2)/3) {
 		return Decision{}, errors.New("ACE projected response body exceeds bound")
 	}
+	if decision.Kind == "APPLY" || decision.Kind == "DEGRADED_AUTHORIZED" {
+		decoded, err := base64.StdEncoding.DecodeString(decision.BodyBase64)
+		if err != nil || int64(len(decoded)) > maxBodyBytes {
+			return Decision{}, errors.New("ACE projected body is invalid or exceeds configured bound")
+		}
+	}
 	if decision.Kind == "BLOCK" && decision.BodyBase64 != "" {
 		return Decision{}, errors.New("blocked decision must not include a provider body")
 	}
