@@ -30,9 +30,18 @@ const transformed: AceTransformResult = {
 };
 const context: ContextTransformService = { transform: () => Effect.succeed(ok(transformed)) };
 
-test('gateway request validation binds exact original body bytes', () => {
+test('gateway request validation binds exact original bytes and rejects malformed bounds', () => {
   assert.equal(validateGatewayProjectionRequest(request())._tag, 'Ok');
   assert.equal(validateGatewayProjectionRequest({ ...request(), bodySha256: digest('wrong') })._tag, 'Err');
+  const binary = Buffer.from([0xff, 0x00, 0xfe, 0x80]);
+  const binaryBase64 = binary.toString('base64');
+  assert.equal(sha256Base64(binaryBase64), createHash('sha256').update(binary).digest('hex'));
+  assert.equal(validateGatewayProjectionRequest({
+    ...request(), bodyBase64: binaryBase64, bodySha256: sha256Base64(binaryBase64),
+  })._tag, 'Ok');
+  assert.equal(validateGatewayProjectionRequest({ ...request(), bodyBase64: 'AAAA'.repeat(1_400_000) })._tag, 'Err');
+  assert.equal(validateGatewayProjectionRequest({ ...request(), attestation: { ...attestation, hostCompactionEpoch: -1 } })._tag, 'Err');
+  assert.equal(validateGatewayProjectionRequest({ ...request(), requestedEvidenceIds: ['same', 'same'] })._tag, 'Err');
 });
 
 test('gateway applies request-local context and preserves unknown provider fields', async () => {
@@ -82,5 +91,30 @@ test('gateway blocks simultaneous native projection ownership', async () => {
   if (decision._tag === 'Ok') {
     assert.equal(decision.value.kind, 'BLOCK');
     assert.equal(decision.value.receipt.reasonCode, 'DUAL_PROJECTION_OWNER');
+  }
+});
+
+test('gateway rejects mismatched host session and unverified transform results', async () => {
+  const gateway = makeGatewayProjectionService(context);
+  const wrongSession = await Effect.runPromise(gateway.project(request({
+    attestation: { ...attestation, sessionId: 'other-session' },
+  })));
+  assert.equal(wrongSession._tag, 'Ok');
+  if (wrongSession._tag === 'Ok') {
+    assert.equal(wrongSession.value.kind, 'BLOCK');
+    assert.equal(wrongSession.value.receipt.reasonCode, 'HOST_SESSION_MISMATCH');
+  }
+  for (const result of [
+    { ...transformed, sessionId: 'different-session' },
+    { ...transformed, status: 'partial' as const },
+    { ...transformed, selectedEvidenceIds: [] },
+  ]) {
+    const invalidContext: ContextTransformService = { transform: () => Effect.succeed(ok(result)) };
+    const response = await Effect.runPromise(makeGatewayProjectionService(invalidContext).project(request()));
+    assert.equal(response._tag, 'Ok');
+    if (response._tag === 'Ok') {
+      assert.equal(response.value.kind, 'BLOCK');
+      assert.notEqual(response.value.receipt.reasonCode, undefined);
+    }
   }
 });
