@@ -252,6 +252,8 @@ test('exact-current preflight requires a clean checkout, compiled runtime proven
 test('local deterministic preflight makes external dataset registry access not required', async () => {
   const preflight = await readFile('scripts/feedback-loop-preflight.ts', 'utf8');
   assert.match(preflight, /local deterministic dataset does not require Harbor registry access/u);
+  assert.match(preflight, /--fast-local/u);
+  assert.match(preflight, /host embedding workers/u);
   assert.match(preflight, /harborDataset\(datasetId\)/u);
   assert.match(preflight, /\['ready', 'not_required'\]/u);
 });

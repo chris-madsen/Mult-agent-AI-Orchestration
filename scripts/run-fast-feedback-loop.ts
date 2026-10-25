@@ -191,6 +191,7 @@ const main = async (): Promise<void> => {
     '--native-job', join(jobs, 'native-job.json'),
     '--ace-job', join(jobs, 'ace-optional-job.json'),
     '--ace-runtime-bundle', args.aceRuntimeBundle,
+    '--fast-local',
     '--experiment-manifest', experimentPath,
   ], 45_000);
   if (preflightResult.status !== 'PASS' || await readStatus(join(preflight, 'manifest.json')) !== 'READY') {

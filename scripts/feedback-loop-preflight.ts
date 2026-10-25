@@ -375,6 +375,7 @@ const parseArgs = (): {
   readonly aceRuntimeBundlePath?: string;
   readonly imageDigest?: string;
   readonly experimentManifestPath?: string;
+  readonly fastLocal: boolean;
 } => {
   const args = process.argv.slice(2);
   let outputDirectory = process.env.ACE_FEEDBACK_OUTPUT?.trim() || 'artifacts/feedback/preflight';
@@ -387,8 +388,13 @@ const parseArgs = (): {
   let aceRuntimeBundlePath: string | undefined;
   let imageDigest: string | undefined;
   let experimentManifestPath: string | undefined;
+  let fastLocal = false;
   while (args.length > 0) {
     const current = args.shift();
+    if (current === '--fast-local') {
+      fastLocal = true;
+      continue;
+    }
     const value = args.shift();
     if (current === '--output' && value !== undefined) outputDirectory = value;
     else if (current === '--embedding-python' && value !== undefined) embeddingPython = value;
@@ -400,7 +406,7 @@ const parseArgs = (): {
     else if (current === '--ace-runtime-bundle' && value !== undefined) aceRuntimeBundlePath = resolve(value);
     else if (current === '--image-digest' && value !== undefined) imageDigest = value.trim();
     else if (current === '--experiment-manifest' && value !== undefined) experimentManifestPath = resolve(value);
-    else throw new Error('Usage: tsx scripts/feedback-loop-preflight.ts [--output dir] [--embedding-python path] [--embedding-library-path path] [--qdrant-url url] [--task-manifest path] [--native-job path] [--ace-job path] [--ace-runtime-bundle path] [--image-digest sha256:<64hex>] [--experiment-manifest path]');
+    else throw new Error('Usage: tsx scripts/feedback-loop-preflight.ts [--fast-local] [--output dir] [--embedding-python path] [--embedding-library-path path] [--qdrant-url url] [--task-manifest path] [--native-job path] [--ace-job path] [--ace-runtime-bundle path] [--image-digest sha256:<64hex>] [--experiment-manifest path]');
   }
   return {
     outputDirectory: resolve(outputDirectory),
@@ -413,6 +419,7 @@ const parseArgs = (): {
     ...(aceRuntimeBundlePath === undefined ? {} : { aceRuntimeBundlePath }),
     ...(imageDigest === undefined ? {} : { imageDigest }),
     ...(experimentManifestPath === undefined ? {} : { experimentManifestPath }),
+    fastLocal,
   };
 };
 
@@ -463,10 +470,14 @@ const main = async (): Promise<void> => {
     npm: command('npm', ['--version']),
     astGrep: command('./node_modules/.bin/ast-grep', ['--version']),
     typescriptLanguageServer: command('./node_modules/.bin/typescript-language-server', ['--version']),
-    embeddingPython: existsSync('scripts/fastembed-worker.sh')
+    embeddingPython: args.fastLocal && datasetId === 'local/ace-suite'
+      ? { status: 'not_required', reason: 'fast local smoke does not require host embedding workers; the task image probe is authoritative' }
+      : existsSync('scripts/fastembed-worker.sh')
       ? command('bash', ['scripts/fastembed-worker.sh'], embeddingEnvironment)
       : command(args.embeddingPython, ['-c', 'import fastembed, onnxruntime; print(fastembed.__version__)'], embeddingEnvironment),
-    sparseEmbedding: existsSync('scripts/fastembed-sparse-worker.sh')
+    sparseEmbedding: args.fastLocal && datasetId === 'local/ace-suite'
+      ? { status: 'not_required', reason: 'fast local smoke does not require host sparse embedding workers; the task image probe is authoritative' }
+      : existsSync('scripts/fastembed-sparse-worker.sh')
       ? command('bash', ['scripts/fastembed-sparse-worker.sh'], sparseEmbeddingEnvironment)
       : { status: 'not_ready', reason: 'sparse FastEmbed worker launcher is missing' },
     harbor: command('harbor', ['--version']),
@@ -505,8 +516,12 @@ const main = async (): Promise<void> => {
       ? { status: 'ready', reason: 'experiment identity matches current checkout, Harbor jobs/version, image provenance and OAuth route' }
       : { status: 'not_ready', reason: `experiment identity mismatch: ${[...new Set(failures)].join(', ')}` };
   }
-  checks.qdrant = await qdrant(args.qdrantUrl);
-  checks.embeddingCache = await embeddingCache();
+  checks.qdrant = args.fastLocal && datasetId === 'local/ace-suite'
+    ? { status: 'not_required', reason: 'fast local smoke does not require a host Qdrant service' }
+    : await qdrant(args.qdrantUrl);
+  checks.embeddingCache = args.fastLocal && datasetId === 'local/ace-suite'
+    ? { status: 'not_required', reason: 'fast local smoke does not require a host embedding cache' }
+    : await embeddingCache();
   const required = [
     'sourceCheckout', 'runtimeProvenance', 'node', 'npm', 'astGrep', 'typescriptLanguageServer',
     'embeddingPython', 'sparseEmbedding', 'harbor', 'harborRun', 'harborDatasetPinned',
