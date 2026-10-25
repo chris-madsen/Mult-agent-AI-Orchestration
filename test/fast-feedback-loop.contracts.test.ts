@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { stagePinnedTaskImageOverlay } from '../scripts/feedback-task-image-overlay.js';
 
 test('fast feedback runner is bounded and fail-closed', async () => {
   const runner = await readFile('scripts/run-fast-feedback-loop.ts', 'utf8');
@@ -107,4 +108,26 @@ test('fast report external mode is restricted to its own run output', () => {
   ], { cwd: resolve('.'), encoding: 'utf8', timeout: 30_000 });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /external feedback report must be the sibling report.md/u);
+});
+
+test('pinned-image task overlay selects prebuilt image without touching frozen task', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-harbor-image-overlay-'));
+  const task = join(root, 'source-task');
+  const overlay = join(root, 'generated-task');
+  await mkdir(join(task, 'environment'), { recursive: true });
+  const original = '[task]\nname = "ace/test"\n[environment]\nnetwork_mode = "public"\n';
+  await writeFile(join(task, 'task.toml'), original, 'utf8');
+  await writeFile(join(task, 'environment', 'Dockerfile'), 'FROM scratch\n', 'utf8');
+  const digest = 'sha256:' + 'a'.repeat(64);
+  const result = await stagePinnedTaskImageOverlay(task, overlay, 'ace-image:cached', digest);
+  const generated = await readFile(join(overlay, 'task.toml'), 'utf8');
+  assert.match(generated, new RegExp(`docker_image = "ace-image:cached@${digest}"`, 'u'));
+  assert.equal(existsSync(join(overlay, 'environment', 'Dockerfile')), false);
+  assert.equal(await readFile(join(task, 'task.toml'), 'utf8'), original);
+  assert.equal(existsSync(join(task, 'environment', 'Dockerfile')), true);
+  assert.notEqual(result.sourceTaskTomlSha256, result.effectiveTaskTomlSha256);
+  await assert.rejects(
+    stagePinnedTaskImageOverlay(task, overlay, 'ace-image:cached', digest),
+    /runtime task overlay already exists/u,
+  );
 });
