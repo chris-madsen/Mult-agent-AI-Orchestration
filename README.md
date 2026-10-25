@@ -9,12 +9,12 @@ ACE is an **agent-neutral hybrid context/RAG engine**, not an agent scheduler. L
 LangGraph / other external orchestrator -> existing agents
                         | configured LLM endpoint
                         v
-              Bifrost LLM Gateway (PLANNED)
+              Bifrost LLM Gateway (planned; mock provider-wire conformance is implemented, real-provider approval is not)
                  |               |
        Go ACE Connector          +--> LLM provider
-             (PLANNED)
+             (IMPLEMENTED; mock-wire certified, real-provider approval pending)
                  |
-       ACE Gateway Projection API (PLANNED)
+       ACE Gateway Projection API (contract/application seam and HTTP endpoint implemented; production approval not)
                  |
          ACE Core (TS + Effect)
            |-- code: Qdrant dense/sparse RRF + ast-grep/LSP
@@ -73,6 +73,10 @@ The TypeScript + Effect modular monolith now implements substantial slices acros
   evidence hashes and explicit unknown measurements.
 - typed Qdrant/Vertex/Graphiti/Jev HTTP boundaries and a Harbor CLI runner with
   policy-gated requests, response validation and retained failed-run evidence.
+- versioned `ace.gateway.v1` projection/ownership contracts, deterministic
+  request-local projection tests, a Hermes compaction ownership guard, an
+  isolated Go connector and a pinned Bifrost mock-provider wire proof; real
+  external-provider, agent-E2E and production gates remain separate.
 
 For explicit MCP tool access, run the MCP stdio process with `ACE_WORKSPACE_ROOT=/path/to/repo npm run mcp:stdio`.
 Without the real retrieval provider it exposes an honest `not_ready` status,

@@ -10,6 +10,7 @@ from typing import Any, NoReturn
 from agent.context_engine import ContextEngine
 
 from .bridge import BridgeClient
+from .ownership import host_ownership_from_environment, validate_host_ownership
 from .receipt import ReceiptWriter
 
 
@@ -69,6 +70,9 @@ class AceContextEngine(ContextEngine):
         self._receipts = ReceiptWriter(receipt_path)
         self._bridge_digest = bridge_digest or os.environ.get("ACE_CONTEXT_BRIDGE_SHA256", "")
         self._plugin_digest = plugin_digest or os.environ.get("ACE_CONTEXT_PLUGIN_SHA256", "")
+        self._ownership_required = os.environ.get("ACE_CONTEXT_REQUIRE_HOST_ATTESTATION", "false").lower() == "true"
+        self._ownership = host_ownership_from_environment() if self._ownership_required else None
+        self._ownership_failures = validate_host_ownership(self._ownership) if self._ownership is not None else []
         self.last_prompt_tokens = 0
         self.last_completion_tokens = 0
         self.last_total_tokens = 0
@@ -158,6 +162,7 @@ class AceContextEngine(ContextEngine):
                 "omittedEvidenceIds": [],
                 "bridgeDigest": self._bridge_digest,
                 "pluginDigest": self._plugin_digest,
+                **({"ownership": self._ownership} if self._ownership is not None else {}),
                 "limitations": [code],
             })
         finally:
@@ -204,6 +209,8 @@ class AceContextEngine(ContextEngine):
         projected = copy.deepcopy(request_messages)
         if not self._workspace_id:
             self._abort(request_id, "WORKSPACE_ID_MISSING")
+        if self._ownership_failures:
+            self._abort(request_id, "HOST_OWNERSHIP_UNVERIFIED")
         if not all(
             len(value) == 64 and all(char in "0123456789abcdef" for char in value)
             for value in (self._bridge_digest, self._plugin_digest)
@@ -322,6 +329,14 @@ class AceContextEngine(ContextEngine):
             "originalRequestSha256": _request_digest(request_messages),
             "projectedRequestSha256": _request_digest(projected),
             "limitations": limitations,
+            **({
+                "ownership": {
+                    "activeEngineId": self._ownership["activeEngineId"],
+                    "hostCompactionEpoch": self._ownership["hostCompactionEpoch"],
+                    "durableActiveTranscriptRevision": self._ownership["durableActiveTranscriptRevision"],
+                    "attestorId": self._ownership["attestorId"],
+                },
+            } if self._ownership is not None else {}),
             **({"sourceCommit": result["sourceCommit"]}
                if isinstance(result.get("sourceCommit"), str) else {}),
             **({"sourceManifestSha256": result["sourceManifestSha256"]}

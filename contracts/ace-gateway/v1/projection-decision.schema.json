@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ace.local/contracts/ace-gateway/v1/projection-decision.schema.json",
+  "title": "ACE Gateway Projection Decision v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "receipt"],
+  "properties": {
+    "kind": {"enum": ["APPLY", "UNCHANGED_AUTHORIZED", "DEGRADED_AUTHORIZED", "BLOCK"]},
+    "bodyBase64": {"type": "string", "pattern": "^[A-Za-z0-9+/]+={0,2}$"},
+    "receipt": {"$ref": "#/$defs/receipt"}
+  },
+  "$defs": {
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "requestId", "attemptGroupId", "attemptIndex", "receiptId", "decision", "baseBodySha256", "hostCompactionEpoch", "activeEngineId", "permittedWireRewrites"],
+      "properties": {
+        "schemaVersion": {"const": "ace.gateway.v1"},
+        "requestId": {"type": "string", "minLength": 1},
+        "attemptGroupId": {"type": "string", "minLength": 1},
+        "attemptIndex": {"type": "integer", "minimum": 0},
+        "projectionId": {"type": "string", "minLength": 1},
+        "receiptId": {"type": "string", "minLength": 1},
+        "decision": {"enum": ["APPLY", "UNCHANGED_AUTHORIZED", "DEGRADED_AUTHORIZED", "BLOCK"]},
+        "reasonCode": {"type": "string", "minLength": 1},
+        "baseBodySha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "projectedBodySha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "hostCompactionEpoch": {"oneOf": [{"type": "integer", "minimum": 0}, {"const": "unknown"}]},
+        "activeEngineId": {"type": "string", "minLength": 1},
+        "permittedWireRewrites": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+      }
+    }
+  }
+}

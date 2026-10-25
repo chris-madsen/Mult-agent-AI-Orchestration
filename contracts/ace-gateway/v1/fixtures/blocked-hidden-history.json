@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "ace.gateway.v1",
+  "requestId": "fixture-hidden-history",
+  "attemptGroupId": "fixture-attempt-group",
+  "agentSessionId": "session-1",
+  "workspaceId": "workspace-1",
+  "dataClass": "private",
+  "protocol": "openai.chat.completions",
+  "provider": "mock",
+  "model": "test-model",
+  "bodyBase64": "eyJtb2RlbCI6InRlc3QtbW9kZWwiLCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24ifV19",
+  "bodySha256": "9db838ee441e0cf20b84b20276f89d59d3ffa3fad5dc1fc3f955a984a5dfd6da",
+  "query": "find handler",
+  "projectionMode": "gateway",
+  "deadlineEpochMs": 4102444800000,
+  "attestation": {
+    "hostBuildDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "sessionId": "session-1",
+    "activeEngineId": "ace_context_engine",
+    "effectiveCompressionControlsDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "durableActiveTranscriptRevision": "row-7",
+    "durableActiveTranscriptDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "hostCompactionEpoch": 3,
+    "attestorId": "hermes-attestor",
+    "providerManagedHistoryCapability": "unknown",
+    "hostTranscriptAttested": true,
+    "compactionEnabled": false
+  }
+}

@@ -100,6 +100,12 @@ test('feedback jobs use Hermes openai-codex OAuth and native ContextEngine regis
   assert.match(jobs, /feedbackAceContextBridgeCommand/u);
   assert.match(adapter, /--provider openai-codex/u);
   assert.match(adapter, /context.*ace_context_engine/u);
+  assert.match(adapter, /config\["compression"\]/u);
+  assert.match(adapter, /micro_compact/u);
+  assert.match(adapter, /proactive_prune_tokens/u);
+  assert.match(adapter, /idle_compact_after_seconds/u);
+  assert.match(adapter, /codex_responses_native/u);
+  assert.match(adapter, /codex_app_server_auto/u);
   assert.match(adapter, /get_version_command/u);
   assert.match(adapter, /hermes --version/u);
   assert.match(adapter, /hermes pm repair/u);
