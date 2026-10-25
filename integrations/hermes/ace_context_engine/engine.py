@@ -72,7 +72,7 @@ class AceContextEngine(ContextEngine):
         self._plugin_digest = plugin_digest or os.environ.get("ACE_CONTEXT_PLUGIN_SHA256", "")
         self._ownership_required = os.environ.get("ACE_CONTEXT_REQUIRE_HOST_ATTESTATION", "false").lower() == "true"
         self._ownership = host_ownership_from_environment() if self._ownership_required else None
-        self._ownership_failures = validate_host_ownership(self._ownership) if self._ownership is not None else []
+        self._ownership_failures = validate_host_ownership(self._ownership, self._session_id) if self._ownership is not None else []
         self.last_prompt_tokens = 0
         self.last_completion_tokens = 0
         self.last_total_tokens = 0
@@ -122,6 +122,8 @@ class AceContextEngine(ContextEngine):
         """Bind bridge requests and receipts to Hermes's actual session ID."""
         if isinstance(session_id, str) and session_id.strip():
             self._session_id = session_id.strip()
+        if self._ownership is not None:
+            self._ownership_failures = validate_host_ownership(self._ownership, self._session_id)
         self._last_request_key = None
         self._last_projection = None
         self._turn_id = None
