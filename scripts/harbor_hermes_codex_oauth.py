@@ -156,17 +156,20 @@ class HermesCodexOAuth(Hermes):
             agent = {}
         agent["reasoning_effort"] = reasoning_effort
         config["agent"] = agent
+        # Pair parity: context-window configuration must be IDENTICAL in the
+        # native and ACE arms. Before this fix only ACE changed model settings,
+        # confounding any token or cache comparison.
+        raw_model_config = config.get("model")
+        if isinstance(raw_model_config, str):
+            model_config: dict[str, Any] = {"default": raw_model_config}
+        elif isinstance(raw_model_config, dict):
+            model_config = raw_model_config
+        else:
+            model_config = {}
+        model_config["context_length"] = 128000
+        config["model"] = model_config
         if ace_context_enabled:
             config["context"] = {"engine": "ace_context_engine"}
-            raw_model_config = config.get("model")
-            if isinstance(raw_model_config, str):
-                model_config: dict[str, Any] = {"default": raw_model_config}
-            elif isinstance(raw_model_config, dict):
-                model_config = raw_model_config
-            else:
-                model_config = {}
-            model_config["context_length"] = 128000
-            config["model"] = model_config
             plugins = config.get("plugins")
             if not isinstance(plugins, dict):
                 plugins = {}

@@ -240,3 +240,10 @@ test('exact-current preflight requires a clean checkout, compiled runtime proven
   assert.match(preflight, /local-task-verifier/u);
   assert.match(preflight, /AbortSignal\.timeout\(5_000\)/u);
 });
+
+test('Hermes paired arms have the same context-window configuration regardless of ACE selection', async () => {
+  const adapter = await readFile('scripts/harbor_hermes_codex_oauth.py', 'utf8');
+  const beforeBranch = adapter.split('if ace_context_enabled:')[0];
+  assert.match(beforeBranch, /model_config\["context_length"\] = 128000/u);
+  assert.match(beforeBranch, /config\["model"\] = model_config/u);
+});
