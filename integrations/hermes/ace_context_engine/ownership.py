@@ -25,7 +25,7 @@ def strict_controls_digest() -> str:
     return controls_digest(STRICT_COMPACTION_CONTROLS)
 
 
-def validate_host_ownership(attestation: dict[str, Any]) -> list[str]:
+def validate_host_ownership(attestation: dict[str, Any], expected_session_id: str | None = None) -> list[str]:
     required = (
         "hostBuildDigest",
         "sessionId",
@@ -36,7 +36,16 @@ def validate_host_ownership(attestation: dict[str, Any]) -> list[str]:
         "attestorId",
         "hostCompactionEpoch",
     )
-    failures = [name for name in required if not attestation.get(name)]
+    failures = [
+        name for name in required
+        if name not in attestation or attestation[name] is None
+        or (isinstance(attestation[name], str) and not attestation[name])
+    ]
+    epoch = attestation.get("hostCompactionEpoch")
+    if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch < 0:
+        failures.append("hostCompactionEpoch")
+    if expected_session_id is not None and attestation.get("sessionId") != expected_session_id:
+        failures.append("sessionId")
     if attestation.get("hostCompactionEpoch") == "unknown":
         failures.append("hostCompactionEpoch")
     if attestation.get("hostTranscriptAttested") is not True:
