@@ -34,31 +34,33 @@ const readJson = async (path: string): Promise<JsonObject> => {
 };
 
 const trialDirectories = async (aggregatePath: string): Promise<readonly string[]> => {
-  await readJson(aggregatePath);
+  const aggregate = await readJson(aggregatePath);
+  const count = aggregate.n_total_trials ?? aggregate.nTotalTrials;
+  if (typeof count !== 'number' || !Number.isSafeInteger(count) || count <= 0) {
+    throw new Error(`BLOCKED: aggregate Harbor result is missing a positive n_total_trials: ${aggregatePath}`);
+  }
   const parent = dirname(resolve(aggregatePath));
   const entries = await readdir(parent, { withFileTypes: true });
   const directories = entries.filter((entry) => entry.isDirectory()).map((entry) => join(parent, entry.name));
+  if (directories.length !== count) {
+    throw new Error(`BLOCKED: aggregate n_total_trials=${count} does not match raw trial directories=${directories.length}`);
+  }
+  // Do not silently discard missing/corrupt trial results. Every raw trial
+  // must match the frozen aggregate before reconciliation or token claims.
   const trials = await Promise.all(directories.map(async (directory) => {
-    const resultPath = join(directory, 'result.json');
-    try {
-      const result = await readJson(resultPath);
-      const startedAt = typeof result.started_at === 'string' ? Date.parse(result.started_at) : Number.NaN;
-      const trialId = nonEmpty(result.trial_id) ? result.trial_id : basename(directory);
-      return { directory, trialId, startedAt };
-    } catch {
-      return undefined;
-    }
+    const result = await readJson(join(directory, 'result.json'));
+    const startedAt = typeof result.started_at === 'string' ? Date.parse(result.started_at) : Number.NaN;
+    const trialId = nonEmpty(result.trial_id) ? result.trial_id : basename(directory);
+    return { directory, trialId, startedAt };
   }));
-  const present = trials.filter((item): item is { readonly directory: string; readonly trialId: string; readonly startedAt: number } => item !== undefined);
-  if (present.length === 0) throw new Error(`BLOCKED: no Harbor trial directories beside ${aggregatePath}`);
   const seen = new Set<string>();
-  for (const trial of present) {
+  for (const trial of trials) {
     if (seen.has(trial.trialId)) throw new Error(`BLOCKED: duplicate Harbor trial ID ${trial.trialId}`);
     seen.add(trial.trialId);
   }
-  if (present.every((item) => Number.isFinite(item.startedAt))) present.sort((left, right) => left.startedAt - right.startedAt);
-  else present.sort((left, right) => left.directory.localeCompare(right.directory));
-  return present.map((item) => item.directory);
+  if (trials.every((item) => Number.isFinite(item.startedAt))) trials.sort((left, right) => left.startedAt - right.startedAt);
+  else trials.sort((left, right) => left.directory.localeCompare(right.directory));
+  return trials.map((item) => item.directory);
 };
 
 const walkFiles = async (root: string): Promise<readonly string[]> => {
