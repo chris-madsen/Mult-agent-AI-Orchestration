@@ -35,6 +35,16 @@ class OwnershipTests(unittest.TestCase):
     def test_valid_attestation_is_accepted(self) -> None:
         self.assertEqual(validate_host_ownership(self.attestation()), [])
 
+    def test_zero_epoch_is_valid_and_wrong_session_is_rejected(self) -> None:
+        value = self.attestation()
+        value["hostCompactionEpoch"] = 0
+        self.assertEqual(validate_host_ownership(value, "session-1"), [])
+        self.assertIn("sessionId", validate_host_ownership(value, "other-session"))
+        value["hostCompactionEpoch"] = -1
+        self.assertIn("hostCompactionEpoch", validate_host_ownership(value))
+        value["hostCompactionEpoch"] = True
+        self.assertIn("hostCompactionEpoch", validate_host_ownership(value))
+
     def test_unknown_epoch_or_compaction_is_not_strictly_usable(self) -> None:
         unknown = self.attestation()
         unknown["hostCompactionEpoch"] = "unknown"
