@@ -152,10 +152,44 @@ func HTTPTransportPreHook(ctx *schemas.BifrostContext, req *schemas.HTTPRequest)
 
 func PreRequestHook(_ *schemas.BifrostContext, _ *schemas.BifrostRequest) error { return nil }
 
+// Denials must use a short circuit: PreLLMHook errors alone are non-blocking
+// in the pinned Bifrost plugin pipeline. Never allow an uncertified fallback.
+func blockProviderAttempt(req *schemas.BifrostRequest, reason string) (*schemas.BifrostRequest, *schemas.LLMPluginShortCircuit, error) {
+	status := 409
+	allowFallbacks := false
+	return req, &schemas.LLMPluginShortCircuit{
+		Error: &schemas.BifrostError{
+			IsBifrostError: true,
+			StatusCode: &status,
+			Error: &schemas.ErrorField{Message: reason},
+			AllowFallbacks: &allowFallbacks,
+		},
+	}, nil
+}
+
 func PreLLMHook(ctx *schemas.BifrostContext, req *schemas.BifrostRequest) (*schemas.BifrostRequest, *schemas.LLMPluginShortCircuit, error) {
-	if ctx.Value(schemas.BifrostContextKey("ace.projection.receipt")) == nil && os.Getenv("ACE_GATEWAY_STRICT") == "true" {
-		return req, nil, errors.New("ACE projection receipt is missing")
+	receipt, hasReceipt := ctx.Value(schemas.BifrostContextKey("ace.projection.receipt")).(connector.Receipt)
+	if !hasReceipt && os.Getenv("ACE_GATEWAY_STRICT") != "true" {
+		return req, nil, nil
 	}
+	if !hasReceipt || receipt.SchemaVersion != connector.SchemaVersion || receipt.Decision != "APPLY" {
+		return blockProviderAttempt(req, "ACE projection receipt is missing or not applicable")
+	}
+	if req == nil || req.ChatRequest == nil {
+		return blockProviderAttempt(req, "ACE provider attempt is outside the certified Chat route")
+	}
+	provider, model, fallbacks := req.GetRequestFields()
+	if provider == "" || model == "" || len(fallbacks) != 0 {
+		return blockProviderAttempt(req, "ACE provider route or fallback is not certified")
+	}
+	// Only the initial projected attempt was authorized by HTTPTransportPreHook.
+	// Until per-attempt ACE reauthorization is implemented, a second hook call
+	// cannot reuse the first attempt's receipt.
+	attemptKey := schemas.BifrostContextKey("ace.pre_llm_attempt_seen")
+	if ctx.Value(attemptKey) == true {
+		return blockProviderAttempt(req, "ACE retry or fallback requires fresh authorization")
+	}
+	ctx.SetValue(attemptKey, true)
 	return req, nil, nil
 }
 
