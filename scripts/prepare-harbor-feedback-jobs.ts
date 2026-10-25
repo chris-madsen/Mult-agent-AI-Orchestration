@@ -1,4 +1,5 @@
 import { verifyAceRuntimeBundle } from '../src/application/ace-runtime-bundle.js';
+import { stagePinnedTaskImageOverlay } from './feedback-task-image-overlay.js';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { chmod, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
@@ -266,6 +267,27 @@ const main = async (): Promise<void> => {
         ? await filesystemTreeEntries(aceRoot, 'integrations/hermes/ace_context_engine')
         : frozenTreeEntries(aceRoot, aceSourceCommit, 'integrations/hermes/ace_context_engine'),
     );
+    let runtimeTaskOverlays: readonly Awaited<ReturnType<typeof stagePinnedTaskImageOverlay>>[] = [];
+    if (taskImageOverride !== undefined) {
+      await mkdir(output, { recursive: true });
+      const physicalOutput = realpathSync(output);
+      for (const physicalRoot of [realpathSync(sourceRoot), realpathSync(aceRoot)]) {
+        const pathToOutput = relative(physicalRoot, physicalOutput);
+        if (!isAbsolute(pathToOutput) && pathToOutput !== '..' && !pathToOutput.startsWith('../')) {
+          throw new Error('BLOCKED: runtime task overlays must remain outside both source checkouts');
+        }
+      }
+      runtimeTaskOverlays = await Promise.all(taskPaths.map(async (source, index) => {
+        const task = taskManifest.tasks[index]!;
+        const reference = await dockerImageReference(source, taskImageOverride);
+        const digest = explicitTaskImageDigests.get(reference);
+        if (digest === undefined) throw new Error('BLOCKED: missing pinned runtime image digest');
+        return stagePinnedTaskImageOverlay(source, join(output, 'task-runtime', Buffer.from(task.id).toString('base64url')), reference, digest);
+      }));
+    }
+    const effectiveTaskPaths = runtimeTaskOverlays.length === 0
+      ? taskPaths
+      : runtimeTaskOverlays.map((overlay) => overlay.taskPath);
     const agent = {
       import_path: feedbackHermesAgentImportPath,
       model_name: model,
@@ -273,7 +295,7 @@ const main = async (): Promise<void> => {
       kwargs: { version: feedbackHermesVersion, reasoning_effort: reasoning, ace_context_enabled: false },
     } as const;
     const common = {
-      tasks: taskPaths.map((path) => ({ path })),
+      tasks: effectiveTaskPaths.map((path) => ({ path })),
       agents: [agent],
       // Docker is selected via the generated Harbor CLI invocation.
       // "type", "delete" and "mounts" are NOT EnvironmentConfig fields.
@@ -379,6 +401,8 @@ const main = async (): Promise<void> => {
       nAttempts: 1,
       taskIds: taskManifest.tasks.map((task) => task.id),
       taskPaths,
+      effectiveTaskPaths,
+      runtimeTaskOverlays,
     }, null, 2)}\n`, 'utf8');
     process.stdout.write(`${JSON.stringify({ status: 'READY', output, nativeJob: nativeJobPath, aceJob: aceJobPath, experimentManifest: resolve(output, 'experiment-manifest.json') })}\n`);
   } catch (error) {
