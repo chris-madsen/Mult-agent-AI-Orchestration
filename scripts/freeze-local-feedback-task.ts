@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { validateFeedbackTaskManifest } from '../src/domain/feedback-loop-experiment.js';
 
@@ -74,12 +74,20 @@ const main = async (): Promise<void> => {
     if (!isAbsolute(outputRelative) && outputRelative !== '..' && !outputRelative.startsWith('../')) {
       throw new Error('BLOCKED: frozen local manifest output must remain outside the source checkout');
     }
+    await mkdir(args.output, { recursive: true });
+    const actualOutputRelative = relative(realpathSync(args.sourceRoot), realpathSync(args.output));
+    if (!isAbsolute(actualOutputRelative) && actualOutputRelative !== '..' && !actualOutputRelative.startsWith('../')) {
+      throw new Error('BLOCKED: frozen local manifest output resolves into the source checkout');
+    }
     if (existsSync(join(args.output, 'task-manifest.json'))) throw new Error('BLOCKED: frozen local manifest already exists');
 
     const revision = gitText(args.sourceRoot, ['rev-parse', 'HEAD']);
     if (!/^[a-f0-9]{40,64}$/iu.test(revision)) throw new Error('BLOCKED: source revision is not an exact Git commit');
-    const taskToml = await readFile(join(taskDirectory, 'task.toml'), 'utf8');
-    const taskName = /^\s*name\s*=\s*"([^"]+)"\s*$/mu.exec(taskToml)?.[1];
+    // Freeze exactly the committed task definition, never a symlink target or
+    // a working-tree file that might have changed after the cleanliness check.
+    const taskToml = gitBytes(args.sourceRoot, ['show', `${revision}:${taskPath}/task.toml`]).toString('utf8');
+    const taskSection = /^\[task\]\s*$([\s\S]*?)(?=^\[|$(?![\s\S]))/mu.exec(taskToml)?.[1];
+    const taskName = taskSection === undefined ? undefined : /^\s*name\s*=\s*"([^"]+)"\s*$/mu.exec(taskSection)?.[1];
     if (taskName === undefined || taskName.trim().length === 0) throw new Error('BLOCKED: local task.toml has no [task].name');
 
     const sourceEntries = treeEntries(args.sourceRoot, revision);
