@@ -11,10 +11,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 const SchemaVersion = "ace.gateway.v1"
 const DefaultMaxBodyBytes int64 = 4 * 1024 * 1024
+const maxEnvelopeOverhead int64 = 64 * 1024
+
+func maxEnvelopeBytes(bodyBytes int64) int64 {
+	return 4*((bodyBytes+2)/3) + maxEnvelopeOverhead
+}
 
 type Request struct {
 	RequestID       string
@@ -74,8 +80,12 @@ func (c Client) Project(ctx context.Context, request Request) (Decision, error) 
 	if request.RequestID == "" || request.AttemptGroupID == "" || request.AgentSessionID == "" || request.WorkspaceID == "" {
 		return Decision{}, errors.New("request identity is incomplete")
 	}
-	if len(request.Attestation) == 0 {
-		return Decision{}, errors.New("host attestation is required")
+	var attestation map[string]json.RawMessage
+	if err := json.Unmarshal(request.Attestation, &attestation); err != nil || attestation == nil {
+		return Decision{}, errors.New("host attestation must be a JSON object")
+	}
+	if request.DeadlineEpochMs <= time.Now().UnixMilli() {
+		return Decision{}, errors.New("ACE projection deadline has expired")
 	}
 	bodyDigest := sha256.Sum256(request.Body)
 	payload := map[string]any{
@@ -99,11 +109,20 @@ func (c Client) Project(ctx context.Context, request Request) (Decision, error) 
 	if err != nil {
 		return Decision{}, fmt.Errorf("encode projection request: %w", err)
 	}
+	if int64(len(encoded)) > maxEnvelopeBytes(maxBodyBytes) {
+		return Decision{}, errors.New("ACE projection request envelope exceeds bound")
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	if requested := time.UnixMilli(request.DeadlineEpochMs); requested.Before(deadline) {
+		deadline = requested
+	}
+	boundedCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
 	httpClient := c.HTTPClient
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
-	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Endpoint, bytes.NewReader(encoded))
+	httpRequest, err := http.NewRequestWithContext(boundedCtx, http.MethodPost, c.Endpoint, bytes.NewReader(encoded))
 	if err != nil {
 		return Decision{}, fmt.Errorf("create projection request: %w", err)
 	}
@@ -116,12 +135,27 @@ func (c Client) Project(ctx context.Context, request Request) (Decision, error) 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return Decision{}, fmt.Errorf("ACE projection returned HTTP %d", response.StatusCode)
 	}
+	decoder := json.NewDecoder(io.LimitReader(response.Body, maxEnvelopeBytes(maxBodyBytes)+1))
 	var decision Decision
-	if err := json.NewDecoder(io.LimitReader(response.Body, maxBodyBytes)).Decode(&decision); err != nil {
+	if err := decoder.Decode(&decision); err != nil {
 		return Decision{}, fmt.Errorf("decode ACE projection response: %w", err)
 	}
-	if decision.Receipt.SchemaVersion != SchemaVersion || decision.Receipt.RequestID != request.RequestID || decision.Receipt.BaseBodySHA256 != hex.EncodeToString(bodyDigest[:]) {
-		return Decision{}, errors.New("ACE projection receipt does not bind the original request")
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return Decision{}, errors.New("ACE projection response contains trailing data or exceeds the bound")
+	}
+	if decision.Receipt.SchemaVersion != SchemaVersion ||
+		decision.Receipt.RequestID != request.RequestID ||
+		decision.Receipt.AttemptGroupID != request.AttemptGroupID ||
+		decision.Receipt.AttemptIndex != 0 ||
+		decision.Receipt.ReceiptID == "" ||
+		decision.Receipt.ActiveEngineID == "" ||
+		decision.Receipt.BaseBodySHA256 != hex.EncodeToString(bodyDigest[:]) ||
+		decision.Receipt.Decision != decision.Kind {
+		return Decision{}, errors.New("ACE projection receipt does not bind the original attempt and decision")
+	}
+	if _, err := Apply(request.Body, decision); err != nil && decision.Kind != "BLOCK" {
+		return Decision{}, fmt.Errorf("invalid ACE projection decision: %w", err)
 	}
 	return decision, nil
 }
@@ -131,8 +165,14 @@ func Apply(requestBody []byte, decision Decision) ([]byte, error) {
 	if decision.Receipt.BaseBodySHA256 != hex.EncodeToString(digest[:]) {
 		return nil, errors.New("projection base digest mismatch")
 	}
+	if decision.Receipt.Decision != decision.Kind {
+		return nil, errors.New("projection receipt decision mismatch")
+	}
 	switch decision.Kind {
 	case "UNCHANGED_AUTHORIZED":
+		if decision.BodyBase64 != "" {
+			return nil, errors.New("unchanged decision must not include a projected body")
+		}
 		return append([]byte(nil), requestBody...), nil
 	case "APPLY", "DEGRADED_AUTHORIZED":
 		if decision.BodyBase64 == "" {
@@ -141,6 +181,9 @@ func Apply(requestBody []byte, decision Decision) ([]byte, error) {
 		body, err := base64.StdEncoding.DecodeString(decision.BodyBase64)
 		if err != nil {
 			return nil, fmt.Errorf("decode projected body: %w", err)
+		}
+		if len(body) > int(DefaultMaxBodyBytes) || base64.StdEncoding.EncodeToString(body) != decision.BodyBase64 {
+			return nil, errors.New("projected body exceeds bound or is not canonical Base64")
 		}
 		projectedDigest := sha256.Sum256(body)
 		if decision.Receipt.ProjectedBodySHA256 != hex.EncodeToString(projectedDigest[:]) {
