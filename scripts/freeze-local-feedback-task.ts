@@ -122,8 +122,16 @@ const main = async (): Promise<void> => {
     process.stdout.write(`${JSON.stringify({ status: 'READY', output: join(args.output, 'task-manifest.json'), taskName, sourceRevision: revision, taskManifestSha256: sha256(manifestBytes) })}\n`);
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'local feedback task freeze failed';
-    await mkdir(args.output, { recursive: true });
-    await writeFile(join(args.output, 'manifest.json'), `${JSON.stringify({ schemaVersion: 1, status: 'BLOCKED', reason }, null, 2)}\n`, 'utf8');
+    // Never write even a BLOCKED manifest through a symlink into the source.
+    // The protected checkout is a frame condition on failure paths as well.
+    if (existsSync(args.sourceRoot)) {
+      const physicalRoot = realpathSync(args.sourceRoot);
+      await mkdir(args.output, { recursive: true });
+      const relation = relative(physicalRoot, realpathSync(args.output));
+      if (isAbsolute(relation) || relation === '..' || relation.startsWith('../')) {
+        await writeFile(join(args.output, 'manifest.json'), `${JSON.stringify({ schemaVersion: 1, status: 'BLOCKED', reason }, null, 2)}\n`, 'utf8');
+      }
+    }
     process.stderr.write(`${reason}\n`);
     process.exitCode = 2;
   }
