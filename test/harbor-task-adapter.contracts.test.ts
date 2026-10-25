@@ -18,6 +18,13 @@ test('Harbor adapter builds isolated pinned Codex job config', () => {
   assert.equal(makeHarborJobConfig({ taskPath: 'task', taskName: 'bad', version: '1', language: 'devops', repoBaseCommit: 'x' }, { jobName: 'x', modelName: 'm', reasoningEffort: 'low', jobsDir: 'artifacts', codexConfigPath: '../escape.toml' })._tag, 'Err');
 });
 
+test('local ACE task verifiers accept Hermes agent logs without weakening Codex compatibility', async () => {
+  for (const task of ['ace-retrieval-impact', 'ace-cloud-policy-impact', 'ace-shared-archive-impact']) {
+    const script = await readFile(join('benchmarks/harbor', task, 'tests', 'test.sh'), 'utf8');
+    assert.match(script, /codex\.txt.*hermes\.txt/u);
+  }
+});
+
 test('Harbor reset is restricted to child worktrees and uses non-shell git commands', async () => {
   const calls: string[][] = [];
   const command: CommandPort = { run: async (_executable, args) => { calls.push([...args]); return ok({ exitCode: 0, stdout: '', stderr: '' }); } };

@@ -46,7 +46,7 @@ const manifest = {
     mcpClientSdk: dependencies['@modelcontextprotocol/client'] ?? 'unknown',
     mcpServerSdk: dependencies['@modelcontextprotocol/server'] ?? 'unknown',
   },
-  supportedNodeVersions: ['v18.19.0', 'v22.9.0', 'v24.15.0'],
+  supportedNodeVersions: ['v18.19.0', 'v22.9.0', 'v22.23.4', 'v24.15.0'],
 };
 manifest.bundleManifestSha256 = bundleManifestDigest({
   runtimeId: manifest.runtimeId,

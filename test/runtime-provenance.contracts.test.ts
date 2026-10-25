@@ -38,7 +38,7 @@ const base: RuntimeProvenanceManifest = {
   sourceManifestSha256: sourceManifestSha256(sourceFiles),
   sourceFiles,
   buildRuntime: runtime,
-  supportedNodeVersions: ['v18.19.0', 'v22.9.0', 'v24.15.0'],
+  supportedNodeVersions: ['v18.19.0', 'v22.9.0', 'v22.23.4', 'v24.15.0'],
   bundleManifestSha256: 'f'.repeat(64),
 };
 const observed: RuntimeProvenanceObservation = {
@@ -53,6 +53,14 @@ const observed: RuntimeProvenanceObservation = {
 
 test('runtime provenance accepts a clean source and matching executable', () => {
   assert.deepEqual(validateRuntimeProvenance(base, observed, sourceManifestSha256), []);
+});
+
+test('pinned Harbor task image Node 22.23.4 is accepted at execution time', () => {
+  const failures = validateRuntimeProvenance(base, {
+    ...observed,
+    runtime: { ...runtime, node: 'v22.23.4' },
+  }, sourceManifestSha256);
+  assert.deepEqual(failures, []);
 });
 
 test('tracked source changes invalidate the bound manifest', () => {

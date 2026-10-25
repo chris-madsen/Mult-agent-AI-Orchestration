@@ -25,6 +25,17 @@ if (image === undefined || bundle === undefined || !/^.+@sha256:[a-f0-9]{64}$/u.
   process.exit();
 }
 const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+const imageSeparator = image.lastIndexOf('@');
+const imageReference = image.slice(0, imageSeparator);
+const imageDigest = image.slice(imageSeparator + 1);
+let executionImage = image;
+try {
+  const localId = execFileSync('docker', ['image', 'inspect', '--format', '{{.Id}}', imageReference], { encoding: 'utf8' }).trim();
+  // The local tag may move between inspection and docker run: execute its immutable ID.
+  if (localId === imageDigest) executionImage = localId;
+} catch {
+  // A registry digest is still the correct execution form when no local tag exists.
+}
 const bundleRoot = resolve(bundle);
 const manifestPath = resolve(bundleRoot, 'runtime-manifest.json');
 if (!existsSync(manifestPath)) {
@@ -59,13 +70,13 @@ try {
     'run', '--rm', '--network', 'host',
     '-v', `${bundleRoot}:/ace:ro`,
     '--entrypoint', 'sh',
-    image,
+    executionImage,
     '-lc', hermesProbe,
   ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   const result = JSON.parse(output.trim().split(/\r?\n/u).at(-1));
-  const node = execFileSync('docker', ['run', '--rm', '--entrypoint', 'node', '-v', `${bundleRoot}:/ace:ro`, image, '--version'], { encoding: 'utf8' }).trim();
+  const node = execFileSync('docker', ['run', '--rm', '--entrypoint', 'node', '-v', `${bundleRoot}:/ace:ro`, executionImage, '--version'], { encoding: 'utf8' }).trim();
   const effect = execFileSync('docker', [
-    'run', '--rm', '--entrypoint', 'node', '-v', `${bundleRoot}:/ace:ro`, image,
+    'run', '--rm', '--entrypoint', 'node', '-v', `${bundleRoot}:/ace:ro`, executionImage,
     '-e', 'import("file:///ace/dist/transport/context-bridge-stdio.js")',
   ], { encoding: 'utf8' });
   const ready = {

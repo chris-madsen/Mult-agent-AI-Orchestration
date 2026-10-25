@@ -48,6 +48,26 @@ test('raw Harbor adapter blocks when a trial result has no verifier outcome', as
   );
 });
 
+test('raw Harbor adapter keeps verifier timeouts out of quality and savings evidence', async () => {
+  const root = await mkdtemp('/tmp/ace-harbor-trial-adapter-timeout-');
+  const aggregatePath = join(root, 'result.json');
+  const trialDirectory = join(root, 'trial-0');
+  await mkdir(join(trialDirectory, 'agent'), { recursive: true });
+  await writeFile(aggregatePath, '{}\n', 'utf8');
+  await writeFile(join(trialDirectory, 'result.json'), JSON.stringify({
+    task_name: 'task-a',
+    exception_info: { type: 'VerifierTimeoutError', message: 'verifier timed out' },
+    timed_out: true,
+    agent_result: { n_input_tokens: 100, n_output_tokens: 10 },
+  }) + '\n', 'utf8');
+  await writeFile(join(trialDirectory, 'agent', 'codex.txt'), 'verifier timeout\n', 'utf8');
+
+  await assert.rejects(
+    readHarborFourArmTrialObservations('native', aggregatePath),
+    /BLOCKED: missing verifier reward/u,
+  );
+});
+
 test('raw Harbor adapter rejects a missing aggregate even if trial directories exist', async () => {
   const root = await mkdtemp('/tmp/ace-harbor-missing-aggregate-');
   const trialDirectory = join(root, 'trial-0');

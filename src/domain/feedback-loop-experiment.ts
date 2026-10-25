@@ -455,11 +455,12 @@ const correlationFor = (observation: FeedbackTrialObservation): 'correlated' | '
   const transformIds = observation.contextTransformRequestIds ?? [];
   const providerIds = new Set(observation.providerTraceRequestIds);
   if (transformIds.length > 0) {
-    const receipts = observation.hermesContextEvidence ?? [];
-    if (receipts.length !== transformIds.length || receipts.some((item) => item.status !== 'ready')) return 'UNKNOWN';
-    return receipts.every((item) => typeof item.providerRequestId === 'string'
-      && transformIds.includes(item.requestId) && providerIds.has(item.providerRequestId))
-      ? 'correlated' : 'UNKNOWN';
+    // Hermes receipts and providerTraceRequestIds correlate ACE's INTERNAL
+    // retrieval/search operation. They do NOT attest the model-bound LLM
+    // payload. A 'correlated' result here would falsely mark retrieval as
+    // successful context delivery and allow token-savings claims.
+    // Require separate egress evidence before upgrading this to correlated.
+    return 'UNKNOWN';
   }
   if (observation.observedAceCalls === 0) return 'ACE_NOT_USED';
   const observedContextCalls = observation.observedAceContextCalls ?? observation.observedAceCalls;
@@ -593,13 +594,10 @@ export const reconcileFeedbackTrials = (input: {
     aceCorrelatedCalls: input.ace.reduce((sum, trial) => {
       const providerIds = new Set(trial.providerTraceRequestIds);
       const mcpCorrelated = trial.observedAceRequestIds.filter((id) => providerIds.has(id)).length;
-      const transformIds = new Set(trial.contextTransformRequestIds ?? []);
-      const transformCorrelated = (trial.hermesContextEvidence ?? []).filter((item) =>
-        item.status === 'ready'
-        && transformIds.has(item.requestId)
-        && typeof item.providerRequestId === 'string'
-        && providerIds.has(item.providerRequestId)).length;
-      return sum + mcpCorrelated + transformCorrelated;
+      // A bridge providerRequestId is a retrieval trace ID, NOT an LLM egress ID.
+      // Count only verifiable MCP/backend calls; pending real provider-bound
+      // observation Hermes transforms must not be promoted to correlated.
+      return sum + mcpCorrelated;
     }, 0),
     aceNotUsed,
   });

@@ -81,6 +81,15 @@ const run = (command, commandArgs, options = {}) => execFileSync(command, comman
   stdio: options.stdio || ['ignore', 'pipe', 'pipe'],
   env: { ...process.env, ...(options.env || {}) },
 });
+const executionImage = (image) => {
+  try {
+    const localId = run('docker', ['image', 'inspect', '--format', '{{.Id}}', image.reference]).trim();
+    // Execute the verified immutable IMAGE ID, never a mutable tag that could be retargeted.
+    return localId === image.digest ? localId : `${image.reference}@${image.digest}`;
+  } catch {
+    return `${image.reference}@${image.digest}`;
+  }
+};
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const fileDigest = async (path) => digest(await readFile(path));
 const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
@@ -90,7 +99,21 @@ if (sourceStatus.length > 0) throw new Error('BLOCKED: ACE source checkout is di
 const sourceCommit = run('git', ['-C', sourceRoot, 'rev-parse', 'HEAD']).trim();
 if (!/^[a-f0-9]{40,64}$/iu.test(sourceCommit)) throw new Error('BLOCKED: source checkout has no valid commit');
 
+try {
+  await stat(join(sourceRoot, 'node_modules/.bin/tsc'));
+  await stat(join(sourceRoot, 'node_modules/@types/node'));
+} catch {
+  run('npm', ['ci', '--ignore-scripts'], { cwd: sourceRoot, stdio: 'inherit' });
+}
+
 run('npm', ['run', 'build'], { cwd: sourceRoot, stdio: 'inherit' });
+try {
+  await stat(output);
+  const writableImage = executionImage(imageRefs[0]);
+  run('docker', ['run', '--rm', '--entrypoint', 'sh', '-v', `${output}:/ace`, writableImage, '-lc', 'chmod -R a+rwX /ace'], { stdio: 'inherit' });
+} catch (error) {
+  if (error?.code !== 'ENOENT') throw error;
+}
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
 for (const path of ['dist', 'src', 'scripts', 'integrations/hermes/ace_context_engine', 'package.json', 'package-lock.json', 'tsconfig.json']) {
@@ -105,7 +128,7 @@ run('npm', ['ci', '--omit=dev', '--ignore-scripts'], { cwd: output, stdio: 'inhe
 
 const pythonVersions = new Set();
 for (const image of imageRefs) {
-  const pinnedImage = `${image.reference}@${image.digest}`;
+  const pinnedImage = executionImage(image);
   const pythonVersion = run('docker', ['run', '--rm', '--entrypoint', 'python3', pinnedImage, '-c', 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")']).trim();
   if (pythonVersion !== '3.10' && pythonVersion !== '3.11') {
     throw new Error(`BLOCKED: unsupported task-image Python ${pythonVersion} in ${pinnedImage}`);
@@ -121,7 +144,7 @@ for (const image of imageRefs) {
   ].join(' && ')], { stdio: 'inherit' });
 }
 
-const prefetchImage = `${imageRefs[0].reference}@${imageRefs[0].digest}`;
+const prefetchImage = executionImage(imageRefs[0]);
 const prefetchPython = [...pythonVersions][0];
 const prefetchTarget = `/ace/runtime/python/${prefetchPython}/site-packages`;
 run('docker', ['run', '--rm', '--entrypoint', 'sh', '-v', `${output}:/ace`, prefetchImage, '-lc', [

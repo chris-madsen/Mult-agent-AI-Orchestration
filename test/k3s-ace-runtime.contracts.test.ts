@@ -6,7 +6,7 @@ test('ACE image requires an operator-supplied pinned base and contains pinned lo
   const dockerfile = await readFile('Dockerfile.ace', 'utf8');
   assert.match(dockerfile, /^ARG ACE_NODE_IMAGE\nFROM \$\{ACE_NODE_IMAGE\}/mu);
   assert.match(dockerfile, /ACE_AST_GREP_COMMAND=\/opt\/ace\/node_modules\/\.bin\/ast-grep/u);
-  assert.match(dockerfile, /fastembed==0\.7\.4 onnxruntime==1\.31\.0/u);
+  assert.match(dockerfile, /fastembed==0\.7\.4 onnxruntime==1\.23\.2/u);
   assert.match(dockerfile, /npm ci --ignore-scripts/u);
   assert.match(dockerfile, /npm prune --omit=dev --ignore-scripts/u);
   assert.match(dockerfile, /USER node/u);

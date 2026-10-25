@@ -1,5 +1,62 @@
 export const hermesCodexAuthenticationRoute = 'Hermes openai-codex uses a dedicated host ~/.hermes/auth.json and synchronizes refreshed OAuth state back after each serial Harbor trial; credentials are not retained in benchmark artifacts';
 
+export type FeedbackVerifierReadinessStatus =
+  | 'ready'
+  | 'missing_configuration'
+  | 'invalid_configuration'
+  | 'authentication_rejected'
+  | 'unavailable';
+
+export interface FeedbackVerifierReadiness {
+  readonly status: FeedbackVerifierReadinessStatus;
+  readonly reason: string;
+  readonly identity?: string;
+}
+
+const verifierIdentity = (baseUrl: string, model: string): string =>
+  `${baseUrl.replace(/\/$/u, '')}#model=${model}`;
+
+const placeholder = (value: string): boolean =>
+  value.includes('${') || value === '***' || value === '[REDACTED]' || value === 'changeme';
+
+export const inspectFeedbackVerifierConfiguration = (input: {
+  readonly apiKey?: string;
+  readonly baseUrl?: string;
+  readonly model?: string;
+}): FeedbackVerifierReadiness => {
+  const apiKey = input.apiKey?.trim();
+  const baseUrl = input.baseUrl?.trim();
+  const model = input.model?.trim();
+  if (apiKey === undefined || apiKey.length === 0 || baseUrl === undefined || baseUrl.length === 0
+    || model === undefined || model.length === 0) {
+    return { status: 'missing_configuration', reason: 'task verifier configuration is incomplete' };
+  }
+  if (placeholder(apiKey) || placeholder(baseUrl) || placeholder(model)) {
+    return { status: 'invalid_configuration', reason: 'task verifier configuration contains an unresolved placeholder' };
+  }
+  try {
+    const parsed = new URL(baseUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('unsupported protocol');
+  } catch {
+    return { status: 'invalid_configuration', reason: 'task verifier endpoint is not a valid HTTP(S) URL' };
+  }
+  return {
+    status: 'ready',
+    reason: 'task verifier configuration is present',
+    identity: verifierIdentity(baseUrl, model),
+  };
+};
+
+export const classifyFeedbackVerifierHttpStatus = (
+  status: number,
+  identity: string,
+): FeedbackVerifierReadiness => {
+  if (status >= 200 && status < 300) return { status: 'ready', reason: 'task verifier endpoint accepted the readiness probe', identity };
+  if (status === 401 || status === 403) return { status: 'authentication_rejected', reason: 'task verifier endpoint rejected authentication', identity };
+  if (status === 400 || status === 404) return { status: 'invalid_configuration', reason: 'task verifier endpoint rejected the configured request', identity };
+  return { status: 'unavailable', reason: 'task verifier endpoint is unavailable', identity };
+};
+
 export type HermesAuthenticationCheck = {
   readonly status: 'ready' | 'not_ready';
   readonly reason: string;

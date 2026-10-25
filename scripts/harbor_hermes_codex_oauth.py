@@ -21,7 +21,7 @@ from typing import Any, Literal, override
 import yaml
 from pydantic import Field
 
-from harbor.agents.installed.base import with_prompt_template
+from harbor.agents.installed.base import NonZeroAgentExitCodeError, with_prompt_template
 from harbor.agents.installed.hermes import Hermes, HermesOptions
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
@@ -49,6 +49,34 @@ class HermesCodexOAuth(Hermes):
         if version is not None:
             self._version = version
             self._version_was_pinned = True
+
+    def get_version_command(self) -> str | None:
+        return 'export PATH="$HOME/.local/bin:$PATH"; hermes --version'
+
+    async def install(self, environment: BaseEnvironment) -> None:
+        try:
+            await self.exec_as_agent(
+                environment,
+                command='export PATH="$HOME/.local/bin:$PATH"; hermes --version',
+                timeout_sec=30,
+            )
+            return
+        except NonZeroAgentExitCodeError:
+            pass
+        try:
+            await self.exec_as_agent(
+                environment,
+                command='export PATH="$HOME/.local/bin:$PATH"; hermes pm repair && hermes --version',
+                timeout_sec=180,
+            )
+            return
+        except NonZeroAgentExitCodeError:
+            pass
+        await self.exec_as_agent(
+            environment,
+            command='export PATH="$HOME/.local/bin:$PATH"; hermes pm repair && hermes --version',
+            timeout_sec=180,
+        )
 
     @staticmethod
     def _default_auth_path() -> Path:
@@ -128,8 +156,28 @@ class HermesCodexOAuth(Hermes):
             agent = {}
         agent["reasoning_effort"] = reasoning_effort
         config["agent"] = agent
+        # Pair parity: context-window configuration must be IDENTICAL in the
+        # native and ACE arms. Before this fix only ACE changed model settings,
+        # confounding any token or cache comparison.
+        raw_model_config = config.get("model")
+        if isinstance(raw_model_config, str):
+            model_config: dict[str, Any] = {"default": raw_model_config}
+        elif isinstance(raw_model_config, dict):
+            model_config = raw_model_config
+        else:
+            model_config = {}
+        model_config["context_length"] = 128000
+        config["model"] = model_config
         if ace_context_enabled:
             config["context"] = {"engine": "ace_context_engine"}
+            plugins = config.get("plugins")
+            if not isinstance(plugins, dict):
+                plugins = {}
+            enabled = plugins.get("enabled")
+            if not isinstance(enabled, list):
+                enabled = []
+            plugins["enabled"] = sorted({*(str(item) for item in enabled), "ace_context_engine"})
+            config["plugins"] = plugins
         return yaml.dump(config, default_flow_style=False)
 
     async def _stage_context_engine(self, environment: BaseEnvironment) -> None:
@@ -158,6 +206,8 @@ class HermesCodexOAuth(Hermes):
         if self.options.ace_context_enabled:
             await self._stage_context_engine(environment)
             env.update({
+                "ACE_WORKSPACE_ROOT": "/workspace",
+                "ACE_ALLOWED_ROOTS": "/workspace",
                 "ACE_CONTEXT_WORKSPACE_ID": "00000000-0000-4000-8000-000000000001",
                 "ACE_CONTEXT_BRIDGE_COMMAND": "/ace/scripts/harbor-ace-context-bridge.sh",
                 "ACE_CONTEXT_RECEIPT_FILE": "/logs/artifacts/hermes-context-receipts.jsonl",

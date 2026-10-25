@@ -25,7 +25,12 @@ elif [[ "${python_command}" == "${default_python}" ]]; then
     if [[ -n "$library_path" ]]; then library_dirs+=("$(dirname "$library_path")"); fi
   done
   if ((${#library_dirs[@]} > 0)); then
-    export LD_LIBRARY_PATH="$(IFS=:; echo "${library_dirs[*]}")"
+    candidate_library_path="$(IFS=:; echo "${library_dirs[*]}")"
+    if LD_LIBRARY_PATH="$candidate_library_path" "${python_command}" -c 'import numpy' >/dev/null 2>&1; then
+      export LD_LIBRARY_PATH="$candidate_library_path"
+    else
+      unset LD_LIBRARY_PATH
+    fi
   else
     unset LD_LIBRARY_PATH
   fi
