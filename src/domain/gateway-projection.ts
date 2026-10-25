@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
 import { domainError, type DomainError } from './errors.js';
 import { err, ok, type Result } from './result.js';
+import { sha256 } from './retrieval-benchmark.js';
 
 export type ProjectionMode = 'native' | 'gateway' | 'assist-only' | 'observe-only' | 'off';
 export type GatewayDecisionKind = 'APPLY' | 'UNCHANGED_AUTHORIZED' | 'DEGRADED_AUTHORIZED' | 'BLOCK';
@@ -70,7 +70,7 @@ const maxBodyBytes = 4 * 1024 * 1024;
 const maxBase64Length = 4 * Math.ceil(maxBodyBytes / 3);
 
 export const sha256Base64 = (bodyBase64: string): string =>
-  createHash('sha256').update(Buffer.from(bodyBase64, 'base64')).digest('hex');
+  sha256(Buffer.from(bodyBase64, 'base64'));
 
 export const validateHostCompactionAttestation = (
   value: unknown,
