@@ -15,6 +15,7 @@ import { type IdPort } from '../src/application/ports.js';
 import { registerWorkspace, observeWorkspace, readVerified } from '../src/application/workspace-service.js';
 import { makeMcpGateway } from '../src/gateway/mcp-gateway.js';
 import { defaultLocalPolicy } from '../src/domain/policy.js';
+import { makeWorkspaceId } from '../src/domain/workspace.js';
 import { isErr, isOk } from '../src/domain/result.js';
 
 const run = <Value>(effect: Effect.Effect<Value>) => Effect.runPromise(effect);
@@ -272,4 +273,32 @@ test('gateway validates arguments, exposes exact expansion and refuses fake retr
   assert.equal(expanded.status, 'ok');
   if (expanded.status !== 'ok') return;
   assert.equal(Buffer.from(String(expanded.result.content_base64), 'base64').toString('utf8'), 'exact-content');
+});
+
+test('workspace persistence rejects stale observation epochs and preserves concurrent registrations', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-workspace-store-race-'));
+  const statePath = join(root, 'state', 'workspaces.json');
+  const first = makeFileWorkspaceStore(statePath);
+  const second = makeFileWorkspaceStore(statePath);
+  const idA = makeWorkspaceId('workspace-a');
+  const idB = makeWorkspaceId('workspace-b');
+  assert.equal(idA._tag, 'Ok');
+  assert.equal(idB._tag, 'Ok');
+  if (idA._tag === 'Err' || idB._tag === 'Err') return;
+  const base = { observationEpoch: 0, createdAtMs: 1 };
+  const a = { ...base, workspaceId: idA.value, rootPath: join(root, 'a') };
+  const b = { ...base, workspaceId: idB.value, rootPath: join(root, 'b') };
+  const registered = await Promise.all([run(first.save(a)), run(second.save(b))]);
+  assert.deepEqual(registered.map((result) => result._tag), ['Ok', 'Ok']);
+  assert.equal((await run(first.get(idA.value)))._tag, 'Ok');
+  assert.equal((await run(second.get(idB.value)))._tag, 'Ok');
+
+  const updated = { ...a, observationEpoch: 1 };
+  assert.equal((await run(first.save(updated)))._tag, 'Ok');
+  const stale = await run(second.save(updated));
+  assert.equal(stale._tag, 'Err', 'stale update must not overwrite an already committed epoch');
+  if (stale._tag === 'Err') assert.equal(stale.error.code, 'WORKTREE_RACED');
+  const stored = await run(first.get(idA.value));
+  assert.equal(stored._tag, 'Ok');
+  if (stored._tag === 'Ok') assert.equal(stored.value.observationEpoch, 1);
 });
