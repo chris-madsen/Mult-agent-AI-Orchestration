@@ -99,6 +99,7 @@ class AceContextEngine(ContextCompressor):
             protect_first_n=3,
             protect_last_n=20,
             summary_target_ratio=0.20,
+            config_context_length=128000,
             threshold_tokens_cap=None,
             proactive_prune_tokens=0,
         )
