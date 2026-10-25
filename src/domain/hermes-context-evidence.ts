@@ -18,6 +18,13 @@ export interface HermesContextEvidence {
   readonly bridgeDigest: string;
   readonly pluginDigest: string;
   readonly estimatedTokens?: number;
+  /** ContextEngine v1 is append-only: these are content-character estimates, not provider usage. */
+  readonly deliveryMode?: "augmentation";
+  readonly originalEstimatedTokens?: number;
+  readonly projectedEstimatedTokens?: number;
+  readonly estimatedAddedTokens?: number;
+  readonly originalRequestSha256?: string;
+  readonly projectedRequestSha256?: string;
   readonly sourceCommit?: string;
   readonly sourceManifestSha256?: string;
   readonly limitations: readonly string[];
@@ -64,6 +71,22 @@ export const validateHermesContextEvidence = (value: unknown): Result<HermesCont
   if (input.estimatedTokens !== undefined
     && (typeof input.estimatedTokens !== 'number' || !Number.isSafeInteger(input.estimatedTokens) || input.estimatedTokens < 0)) {
     return invalid('hermes_context_evidence.estimatedTokens', 'estimated tokens must be a non-negative integer');
+  }
+  if (input.deliveryMode !== undefined && input.deliveryMode !== "augmentation") {
+    return invalid("hermes_context_evidence.deliveryMode", "unsupported projection mode");
+  }
+  const projectionCounters = [input.originalEstimatedTokens, input.projectedEstimatedTokens, input.estimatedAddedTokens];
+  if (projectionCounters.some((v) => v !== undefined) && (
+    !projectionCounters.every((v) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0)
+    || input.deliveryMode !== "augmentation"
+    || (input.projectedEstimatedTokens as number) - (input.originalEstimatedTokens as number) !== input.estimatedAddedTokens
+    || (input.estimatedAddedTokens as number) <= 0
+  )) {
+    return invalid("hermes_context_evidence.projection", "augmentation counters are inconsistent");
+  }
+  if ((input.originalRequestSha256 !== undefined && !digest(input.originalRequestSha256))
+    || (input.projectedRequestSha256 !== undefined && !digest(input.projectedRequestSha256))) {
+    return invalid("hermes_context_evidence.request_hashes", "request digests must be SHA-256");
   }
   if (input.sourceCommit !== undefined && !revision(input.sourceCommit)) {
     return invalid('hermes_context_evidence.sourceCommit', 'source commit must be a Git revision');

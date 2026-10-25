@@ -138,9 +138,9 @@ test('Harbor runtime scripts support verified local Docker image IDs', async () 
   const builder = await readFile('scripts/build-harbor-ace-runtime.mjs', 'utf8');
   const probe = await readFile('scripts/harbor-ace-runtime-probe.mjs', 'utf8');
   assert.match(builder, /const executionImage = \(image\)/u);
-  assert.match(builder, /localId === image\.digest \? image\.reference :/u);
+  assert.match(builder, /localId === image\.digest \? localId :/u);
   assert.match(builder, /const prefetchImage = executionImage\(imageRefs\[0\]\)/u);
-  assert.match(probe, /localId === imageDigest\) executionImage = imageReference/u);
+  assert.match(probe, /localId === imageDigest\) executionImage = localId/u);
 });
 
 test('Harbor runtime builder bootstraps missing source dependencies before TypeScript build', async () => {

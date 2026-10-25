@@ -25,6 +25,22 @@ def _text_content(content: Any) -> str:
     return ""
 
 
+def _estimated_tokens(messages: list[dict[str, Any]]) -> int:
+    """Diagnostic content-only estimate, NOT provider-measured token usage.
+
+    It deliberately uses the same heuristic as the input budget estimate, so
+    the difference represents request-local context growth consistently.
+    Provider tool schemas, prompt wrappers and caching are not included.
+    """
+    return sum((len(str(message.get("content", ""))) + 3) // 4 for message in messages)
+
+
+def _request_digest(messages: list[dict[str, Any]]) -> str:
+    return hashlib.sha256(json.dumps(
+        messages, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str,
+    ).encode("utf-8")).hexdigest()
+
+
 def _append_context(message: dict[str, Any], context: str) -> None:
     content = message.get("content")
     marker = "\n\n[ACE verified context]\n" + context + "\n[/ACE verified context]"
@@ -205,10 +221,7 @@ class AceContextEngine(ContextEngine):
 
         # budget_tokens is the model's WHOLE context window. Leave space for
         # the pre-existing request, tool schemas, and the model's response.
-        original_estimate = sum(
-            (len(str(message.get("content", ""))) + 3) // 4
-            for message in request_messages
-        )
+        original_estimate = _estimated_tokens(request_messages)
         requested_limit = int(os.environ.get("ACE_CONTEXT_BUDGET_TOKENS", "12000"))
         total_budget = budget_tokens or self.context_length
         effective_budget = min(requested_limit, total_budget - original_estimate - 4096)
@@ -282,6 +295,13 @@ class AceContextEngine(ContextEngine):
             self._abort(request_id, "OVERLAPPING_EVIDENCE_IDS")
 
         _append_context(projected[current_index], context_text)
+        projected_estimate = _estimated_tokens(projected)
+        # ACE v1 AUGMENTS the request, it does not replace/prune history.
+        # Do not confuse 'estimatedTokens' (retrieved evidence) with provider
+        # prompt-token savings. Record the actual request-local direction.
+        estimated_added = projected_estimate - original_estimate
+        if estimated_added <= 0:
+            self._abort(request_id, "UNEXPECTED_NON_ADDITIVE_PROJECTION")
         self._receipts.write({
             "schemaVersion": 1,
             "requestId": request_id,
@@ -295,6 +315,12 @@ class AceContextEngine(ContextEngine):
             "bridgeDigest": self._bridge_digest,
             "pluginDigest": self._plugin_digest,
             "estimatedTokens": estimated,
+            "deliveryMode": "augmentation",
+            "originalEstimatedTokens": original_estimate,
+            "projectedEstimatedTokens": projected_estimate,
+            "estimatedAddedTokens": estimated_added,
+            "originalRequestSha256": _request_digest(request_messages),
+            "projectedRequestSha256": _request_digest(projected),
             "limitations": limitations,
             **({"sourceCommit": result["sourceCommit"]}
                if isinstance(result.get("sourceCommit"), str) else {}),

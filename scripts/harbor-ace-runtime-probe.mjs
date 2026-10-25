@@ -31,7 +31,8 @@ const imageDigest = image.slice(imageSeparator + 1);
 let executionImage = image;
 try {
   const localId = execFileSync('docker', ['image', 'inspect', '--format', '{{.Id}}', imageReference], { encoding: 'utf8' }).trim();
-  if (localId === imageDigest) executionImage = imageReference;
+  // The local tag may move between inspection and docker run: execute its immutable ID.
+  if (localId === imageDigest) executionImage = localId;
 } catch {
   // A registry digest is still the correct execution form when no local tag exists.
 }

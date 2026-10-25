@@ -102,6 +102,15 @@ class ContextEngineTests(unittest.TestCase):
             receipt = json.loads((Path(directory) / "receipts.jsonl").read_text().strip())
             self.assertEqual(receipt["status"], "ready")
             self.assertEqual(receipt["receiptId"], "receipt-1")
+            self.assertEqual(receipt["deliveryMode"], "augmentation")
+            self.assertGreater(receipt["estimatedAddedTokens"], 0)
+            self.assertEqual(
+                receipt["projectedEstimatedTokens"] - receipt["originalEstimatedTokens"],
+                receipt["estimatedAddedTokens"],
+            )
+            self.assertRegex(receipt["originalRequestSha256"], r"^[a-f0-9]{64}$")
+            self.assertRegex(receipt["projectedRequestSha256"], r"^[a-f0-9]{64}$")
+            self.assertNotEqual(receipt["originalRequestSha256"], receipt["projectedRequestSha256"])
 
     def test_select_context_handles_multimodal_user_content(self):
         bridge = FakeBridge({

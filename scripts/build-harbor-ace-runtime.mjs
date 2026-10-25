@@ -84,7 +84,8 @@ const run = (command, commandArgs, options = {}) => execFileSync(command, comman
 const executionImage = (image) => {
   try {
     const localId = run('docker', ['image', 'inspect', '--format', '{{.Id}}', image.reference]).trim();
-    return localId === image.digest ? image.reference : `${image.reference}@${image.digest}`;
+    // Execute the verified immutable IMAGE ID, never a mutable tag that could be retargeted.
+    return localId === image.digest ? localId : `${image.reference}@${image.digest}`;
   } catch {
     return `${image.reference}@${image.digest}`;
   }
