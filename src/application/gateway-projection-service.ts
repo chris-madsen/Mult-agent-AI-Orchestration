@@ -34,7 +34,7 @@ const block = (request: GatewayProjectionRequest, reasonCode: string): Result<Ga
 
 const parseBody = (request: GatewayProjectionRequest): Result<Record<string, unknown>, DomainError> => {
   try {
-    const value = JSON.parse(Buffer.from(request.bodyBase64, 'base64').toString('utf8')) as unknown;
+    const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(request.bodyBase64, 'base64'))) as unknown;
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return err(domainError('INVALID_INPUT', 'body', 'provider body must be a JSON object'));
     return ok(value as Record<string, unknown>);
   } catch {
