@@ -22,7 +22,7 @@ export interface GatewayProjectionHttpResponse {
 const schemaVersion = 'ace.gateway.v1';
 const defaultMaxBodyBytes = 4 * 1024 * 1024;
 // The HTTP request is a JSON envelope containing Base64, not raw provider bytes.
-const maxEnvelopeBytesFor = (bodyBytes: number): number => 4 * Math.ceil(bodyBytes / 3) + 64 * 1024;
+export const maxEnvelopeBytesFor = (bodyBytes: number): number => 4 * Math.ceil(bodyBytes / 3) + 64 * 1024;
 const jsonHeaders = { 'content-type': 'application/json; charset=utf-8' };
 
 const json = (body: Readonly<Record<string, unknown>>): GatewayProjectionHttpResponse => ({
