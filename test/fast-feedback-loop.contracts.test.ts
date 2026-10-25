@@ -15,7 +15,6 @@ test('fast feedback runner is bounded and fail-closed', async () => {
   assert.match(runner, /status: 'BLOCKED'/u);
   assert.match(runner, /raw-agent-native/u);
   assert.match(runner, /expected exactly one Harbor aggregate result/u);
-  assert.match(runner, /Promise\.all\(\[/u);
   assert.doesNotMatch(runner, /npm ci|hermes plugins enable|install\.sh/u);
   assert.doesNotMatch(runner, /OPENAI_API_KEY|OPENROUTER_API_KEY/u);
   assert.match(runner, /deadline = Date\.now\(\) \+ args\.maxRuntimeSec \* 1000/u);

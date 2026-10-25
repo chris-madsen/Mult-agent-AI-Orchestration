@@ -232,10 +232,8 @@ const main = async (): Promise<void> => {
       timeoutMs: remaining,
     });
   };
-  const [native, ace] = await Promise.all([
-    runArm('native', join(jobs, 'run-native.sh')),
-    runArm('ace-optional', join(jobs, 'run-ace-optional.sh')),
-  ]);
+  const native = await runArm('native', join(jobs, 'run-native.sh'));
+  const ace = await runArm('ace-optional', join(jobs, 'run-ace-optional.sh'));
   const summaryPath = join(args.output, 'run-summary.json');
   const baseSummary = {
     schemaVersion: 1,
