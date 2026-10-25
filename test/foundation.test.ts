@@ -172,6 +172,14 @@ test('exact artifacts support lossless pagination for long generated content', a
   assert.equal(complete._tag, 'Ok');
   if (isErr(complete)) return;
   assert.equal(complete.value.digest, stored.value.digest);
+
+  // Expansion cursors must be unambiguous byte offsets. parseInt("1oops")
+  // previously accepted an invalid cursor as a successful exact read.
+  for (const invalidCursor of ['0junk', '1.5', '1e2', ' 12', '01', '10abc']) {
+    const invalid = await run(store.readRange(stored.value.handle, invalidCursor, 10));
+    assert.equal(invalid._tag, 'Err', invalidCursor);
+    if (invalid._tag === 'Err') assert.equal(invalid.error.code, 'INVALID_HANDLE');
+  }
 });
 
 test('policy denies cloud and secret routes and writes a safe audit record', async () => {
