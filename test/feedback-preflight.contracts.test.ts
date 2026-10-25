@@ -99,6 +99,7 @@ test('feedback jobs use Hermes openai-codex OAuth and native ContextEngine regis
   assert.match(jobs, /feedbackHermesAgentImportPath/u);
   assert.match(jobs, /feedbackHermesVersion/u);
   assert.match(jobs, /ace_context_enabled/u);
+  assert.match(jobs, /ACE_EVIDENCE_SOURCE_COMMIT/u);
   assert.match(jobs, /feedbackAceContextBridgeCommand/u);
   assert.match(adapter, /--provider openai-codex/u);
   assert.match(adapter, /context.*ace_context_engine/u);

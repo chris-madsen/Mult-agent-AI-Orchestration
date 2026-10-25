@@ -349,8 +349,9 @@ const main = async (): Promise<void> => {
     // Harbor supplies mounts through the CLI --mounts option, not JobConfig.environment.
     // Embed fully shell-quoted arguments so the checkout path cannot inject commands.
     const mounts = JSON.stringify([{ type: 'bind', source: aceRoot, target: '/ace', read_only: true }]);
-    const nativeCommand = `export PYTHONPATH=/ace:` + '${PYTHONPATH:-}' + '\n' + `exec harbor run --config ${shellQuote(nativeJobPath)} --env docker --mounts ${shellQuote(mounts)}`;
-    const aceCommand = `export PYTHONPATH=/ace:` + '${PYTHONPATH:-}' + '\n' + `exec harbor run --config ${shellQuote(aceJobPath)} --env docker --mounts ${shellQuote(mounts)}`;
+    const sourceEvidenceEnv = `--agent-env ${shellQuote(`ACE_EVIDENCE_SOURCE_COMMIT=${sourceRevision}`)}`;
+    const nativeCommand = `export PYTHONPATH=/ace:` + '${PYTHONPATH:-}' + '\n' + `exec harbor run --config ${shellQuote(nativeJobPath)} --env docker --mounts ${shellQuote(mounts)} ${sourceEvidenceEnv}`;
+    const aceCommand = `export PYTHONPATH=/ace:` + '${PYTHONPATH:-}' + '\n' + `exec harbor run --config ${shellQuote(aceJobPath)} --env docker --mounts ${shellQuote(mounts)} ${sourceEvidenceEnv}`;
     await writeFile(resolve(output, 'run-native.sh'), `#!/usr/bin/env bash\nset -euo pipefail\n${nativeCommand}\n`, 'utf8');
     await writeFile(resolve(output, 'run-ace-optional.sh'), `#!/usr/bin/env bash\nset -euo pipefail\n${aceCommand}\n`, 'utf8');
     await chmod(resolve(output, 'run-native.sh'), 0o755);
