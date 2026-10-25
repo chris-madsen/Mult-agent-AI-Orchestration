@@ -460,9 +460,13 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
   assert.equal(job.agents[0].kwargs.ace_context_enabled, true);
   assert.equal('mcp_servers' in job.agents[0], false);
   const runner = await readFile(join(firstOutput, 'run-ace-optional.sh'), 'utf8');
+  const nativeRunner = await readFile(join(firstOutput, 'run-native.sh'), 'utf8');
   assert.match(runner, /PYTHONPATH/u);
   assert.match(runner, /--mounts/u);
   assert.match(runner, /read_only/u);
+  assert.match(nativeRunner, /PYTHONPATH/u);
+  assert.match(nativeRunner, /--mounts/u);
+  assert.match(nativeRunner, /read_only/u);
   assert.equal(prepared.agent, 'hermes');
   assert.equal(prepared.agentVersion, feedbackHermesVersion);
   assert.equal(prepared.aceContextBridge, feedbackAceContextBridgeCommand);

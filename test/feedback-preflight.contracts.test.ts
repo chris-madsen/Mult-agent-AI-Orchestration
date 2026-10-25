@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import {
+  classifyFeedbackVerifierHttpStatus,
   hermesCodexAuthenticationRoute,
+  inspectFeedbackVerifierConfiguration,
   inspectHermesAuthJson,
 } from '../src/domain/feedback-preflight.js';
 import * as feedbackPreflight from '../src/domain/feedback-preflight.js';
@@ -57,6 +59,21 @@ test('Hermes Codex-OAuth preflight rejects missing or malformed OAuth state', ()
     providers: { 'openai-codex': { auth_mode: 'chatgpt', tokens: { access_token: 'access', refresh_token: 'refresh' }, last_refresh: 'not-a-date' } },
   })).status, 'not_ready');
 });
+
+test('task verifier preflight never exposes credentials and classifies invalid configuration', () => {
+  const missing = inspectFeedbackVerifierConfiguration({ apiKey: '', baseUrl: 'https://api.openai.com/v1', model: 'model' });
+  assert.equal(missing.status, 'missing_configuration');
+  const invalid = inspectFeedbackVerifierConfiguration({ apiKey: '${OPENAI_API_KEY}', baseUrl: 'not-a-url', model: 'model' });
+  assert.equal(invalid.status, 'invalid_configuration');
+  assert.doesNotMatch(JSON.stringify(invalid), /OPENAI_API_KEY/u);
+});
+
+test('task verifier HTTP probe rejects authentication without treating it as a successful result', () => {
+  const identity = 'https://api.openai.com/v1#model=eval-model';
+  assert.equal(classifyFeedbackVerifierHttpStatus(401, identity).status, 'authentication_rejected');
+  assert.equal(classifyFeedbackVerifierHttpStatus(503, identity).status, 'unavailable');
+  assert.equal(classifyFeedbackVerifierHttpStatus(200, identity).status, 'ready');
+});
 test('real Stage0 requires source-root to be the actual Git checkout root', async () => {
   const stage0 = await readFile('scripts/feedback-loop-stage0.ts', 'utf8');
   assert.match(stage0, /rev-parse', '--show-toplevel/u);
@@ -75,6 +92,7 @@ test('feedback jobs use Hermes openai-codex OAuth and native ContextEngine regis
   const jobs = await readFile('scripts/prepare-harbor-feedback-jobs.ts', 'utf8');
   const adapter = await readFile('scripts/harbor_hermes_codex_oauth.py', 'utf8');
   const wrapper = await readFile('scripts/harbor-ace-context-bridge.sh', 'utf8');
+  const contextPlugin = await readFile('integrations/hermes/ace_context_engine/__init__.py', 'utf8');
   assert.doesNotMatch(jobs, /OPENAI_API_KEY|OPENROUTER_API_KEY/u);
   assert.match(jobs, /feedbackHermesAgentImportPath/u);
   assert.match(jobs, /feedbackHermesVersion/u);
@@ -82,7 +100,19 @@ test('feedback jobs use Hermes openai-codex OAuth and native ContextEngine regis
   assert.match(jobs, /feedbackAceContextBridgeCommand/u);
   assert.match(adapter, /--provider openai-codex/u);
   assert.match(adapter, /context.*ace_context_engine/u);
+  assert.match(adapter, /get_version_command/u);
+  assert.match(adapter, /hermes --version/u);
+  assert.match(adapter, /hermes pm repair/u);
+  assert.doesNotMatch(adapter, /hermes version/u);
+  assert.doesNotMatch(adapter, /curl -fsSL.*install\.sh/u);
+  assert.doesNotMatch(adapter, /ensure_system_dependencies/u);
   assert.match(adapter, /ACE_CONTEXT_BRIDGE_COMMAND/u);
+  assert.match(adapter, /ACE_WORKSPACE_ROOT.*\/workspace/u);
+  assert.match(adapter, /ACE_ALLOWED_ROOTS.*\/workspace/u);
+  assert.match(adapter, /config\["plugins"\]/u);
+  assert.match(adapter, /model_config.*default/u);
+  assert.match(adapter, /context_length.*128000/u);
+  assert.match(contextPlugin, /def register_context_engine\(context\)/u);
   assert.match(adapter, /status=\$\?/u);
   assert.match(adapter, /exit "\$status"/u);
   assert.doesNotMatch(adapter, /hermes.*\|.*tee/u);
@@ -206,4 +236,7 @@ test('exact-current preflight requires a clean checkout, compiled runtime proven
   assert.match(preflight, /aceContextBridgeSha256/u);
   assert.match(preflight, /dist\/bin\/ace-context-bridge\.js/u);
   assert.match(preflight, /contextPluginSha256/u);
+  assert.match(preflight, /taskVerifier/u);
+  assert.match(preflight, /local-task-verifier/u);
+  assert.match(preflight, /AbortSignal\.timeout\(5_000\)/u);
 });

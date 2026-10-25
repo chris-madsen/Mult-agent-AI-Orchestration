@@ -11,13 +11,16 @@ import {
   type FeedbackHarborPairIdentity,
 } from '../src/domain/feedback-harbor-config.js';
 import {
+  classifyFeedbackVerifierHttpStatus,
   hermesCodexAuthenticationRoute,
+  inspectFeedbackVerifierConfiguration,
   inspectHermesAuthJson,
   validateFeedbackImageOverride,
   validateFeedbackPreflightBinding,
 } from '../src/domain/feedback-preflight.js';
 import {
   validateFeedbackExperimentManifest,
+  validateFeedbackTaskManifest,
   type FeedbackExperimentManifest,
 } from '../src/domain/feedback-loop-experiment.js';
 import { verifyCompiledRuntimeProvenance } from '../src/application/runtime-provenance.js';
@@ -154,6 +157,75 @@ const harborDataset = (): PreflightCheck => {
   return result.stdout.includes('scale-ai/swe-atlas-qna')
     ? { status: 'ready', reason: 'pinned SWE-Atlas dataset is listed by the registry', identity: 'scale-ai/swe-atlas-qna' }
     : { status: 'not_ready', reason: 'pinned scale-ai/swe-atlas-qna is not listed by the Harbor registry' };
+};
+
+const verifierEnvSection = (taskToml: string): string =>
+  taskToml.match(/\[verifier\.env\]([\s\S]*?)(?=\n\[|$)/u)?.[1] ?? '';
+
+const verifierTomlValue = (section: string, name: string): string | undefined => {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  return new RegExp(`^\\s*${escaped}\\s*=\\s*"([^"]*)"\\s*$`, 'mu').exec(section)?.[1];
+};
+
+const resolveVerifierTemplate = (value: string | undefined, fallback: string | undefined): string | undefined => {
+  if (value === undefined) return fallback;
+  const exact = /^\$\{([A-Z0-9_]+)\}$/u.exec(value);
+  if (exact?.[1] !== undefined) return process.env[exact[1]] ?? '';
+  const withDefault = /^\$\{([A-Z0-9_]+):-([^}]*)\}$/u.exec(value);
+  if (withDefault?.[1] !== undefined) return process.env[withDefault[1]] ?? withDefault[2] ?? '';
+  return value;
+};
+
+const taskPathsFromJob = async (jobPath: string | undefined): Promise<readonly string[]> => {
+  if (jobPath === undefined) return [];
+  const value = JSON.parse(await readFile(jobPath, 'utf8')) as { readonly tasks?: readonly { readonly path?: unknown }[] };
+  return (value.tasks ?? []).map((task) => typeof task.path === 'string' ? resolve(task.path) : undefined)
+    .filter((path): path is string => path !== undefined);
+};
+
+const taskVerifier = async (nativeJobPath: string | undefined): Promise<PreflightCheck> => {
+  const taskPaths = await taskPathsFromJob(nativeJobPath);
+  if (taskPaths.length === 0) return { status: 'not_ready', reason: 'task verifier probe requires generated task paths' };
+  const identities: string[] = [];
+  for (const taskPath of taskPaths) {
+    let taskToml: string;
+    try {
+      taskToml = await readFile(resolve(taskPath, 'task.toml'), 'utf8');
+    } catch {
+      return { status: 'not_ready', reason: 'task verifier probe could not read task.toml' };
+    }
+    const section = verifierEnvSection(taskToml);
+    const declaredVerifierKeys = ['EVAL_API_KEY', 'EVAL_BASE_URL', 'EVAL_MODEL']
+      .map((name) => verifierTomlValue(section, name))
+      .filter((value): value is string => value !== undefined);
+    if (declaredVerifierKeys.length === 0) {
+      identities.push('local-task-verifier');
+      continue;
+    }
+    const apiKey = resolveVerifierTemplate(verifierTomlValue(section, 'EVAL_API_KEY'), process.env.EVAL_API_KEY ?? process.env.OPENAI_API_KEY);
+    const baseUrl = resolveVerifierTemplate(verifierTomlValue(section, 'EVAL_BASE_URL'), process.env.EVAL_BASE_URL ?? process.env.OPENAI_API_BASE);
+    const model = resolveVerifierTemplate(verifierTomlValue(section, 'EVAL_MODEL'), process.env.EVAL_MODEL);
+    const configuration = inspectFeedbackVerifierConfiguration({ apiKey, baseUrl, model });
+    if (configuration.status !== 'ready' || configuration.identity === undefined) {
+      return { status: 'not_ready', reason: configuration.reason };
+    }
+    try {
+      const response = await fetch(`${baseUrl!.replace(/\/$/u, '')}/models`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(5_000),
+      });
+      const readiness = classifyFeedbackVerifierHttpStatus(response.status, configuration.identity);
+      if (readiness.status !== 'ready') return { status: 'not_ready', reason: readiness.reason, identity: readiness.identity };
+      identities.push(configuration.identity);
+    } catch {
+      return { status: 'not_ready', reason: 'task verifier endpoint is unavailable', identity: configuration.identity };
+    }
+  }
+  return {
+    status: 'ready',
+    reason: 'task verifier accepted an authenticated readiness probe for every frozen task',
+    identity: [...new Set(identities)].sort().join(','),
+  };
 };
 
 const hermesCodexAuth = async (): Promise<PreflightCheck> => {
@@ -294,6 +366,7 @@ const parseArgs = (): {
   readonly embeddingPython: string;
   readonly embeddingLibraryPath?: string;
   readonly qdrantUrl: string;
+  readonly taskManifestPath?: string;
   readonly nativeJobPath?: string;
   readonly aceJobPath?: string;
   readonly aceRuntimeBundlePath?: string;
@@ -305,6 +378,7 @@ const parseArgs = (): {
   let embeddingPython = resolve(process.env.ACE_EMBEDDING_PYTHON?.trim() || '.venv-embedding-fast/bin/python');
   let embeddingLibraryPath = process.env.ACE_EMBEDDING_LD_LIBRARY_PATH?.trim();
   let qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
+  let taskManifestPath: string | undefined;
   let nativeJobPath: string | undefined;
   let aceJobPath: string | undefined;
   let aceRuntimeBundlePath: string | undefined;
@@ -317,18 +391,20 @@ const parseArgs = (): {
     else if (current === '--embedding-python' && value !== undefined) embeddingPython = value;
     else if (current === '--embedding-library-path' && value !== undefined) embeddingLibraryPath = value;
     else if (current === '--qdrant-url' && value !== undefined) qdrantUrl = value;
+    else if (current === '--task-manifest' && value !== undefined) taskManifestPath = resolve(value);
     else if (current === '--native-job' && value !== undefined) nativeJobPath = resolve(value);
     else if (current === '--ace-job' && value !== undefined) aceJobPath = resolve(value);
     else if (current === '--ace-runtime-bundle' && value !== undefined) aceRuntimeBundlePath = resolve(value);
     else if (current === '--image-digest' && value !== undefined) imageDigest = value.trim();
     else if (current === '--experiment-manifest' && value !== undefined) experimentManifestPath = resolve(value);
-    else throw new Error('Usage: tsx scripts/feedback-loop-preflight.ts [--output dir] [--embedding-python path] [--embedding-library-path path] [--qdrant-url url] [--native-job path] [--ace-job path] [--ace-runtime-bundle path] [--image-digest sha256:<64hex>] [--experiment-manifest path]');
+    else throw new Error('Usage: tsx scripts/feedback-loop-preflight.ts [--output dir] [--embedding-python path] [--embedding-library-path path] [--qdrant-url url] [--task-manifest path] [--native-job path] [--ace-job path] [--ace-runtime-bundle path] [--image-digest sha256:<64hex>] [--experiment-manifest path]');
   }
   return {
     outputDirectory: resolve(outputDirectory),
     embeddingPython,
     ...(embeddingLibraryPath === undefined || embeddingLibraryPath.length === 0 ? {} : { embeddingLibraryPath }),
     qdrantUrl,
+    ...(taskManifestPath === undefined ? {} : { taskManifestPath }),
     ...(nativeJobPath === undefined ? {} : { nativeJobPath }),
     ...(aceJobPath === undefined ? {} : { aceJobPath }),
     ...(aceRuntimeBundlePath === undefined ? {} : { aceRuntimeBundlePath }),
@@ -339,6 +415,10 @@ const parseArgs = (): {
 
 const main = async (): Promise<void> => {
   const args = parseArgs();
+  if (args.taskManifestPath !== undefined) {
+    const taskManifest = validateFeedbackTaskManifest(JSON.parse(await readFile(args.taskManifestPath, 'utf8')) as unknown);
+    if (taskManifest._tag === 'Err') throw new Error(`BLOCKED: ${taskManifest.error.path}: ${taskManifest.error.message}`);
+  }
   let experimentManifest: FeedbackExperimentManifest | undefined;
   let manifestTaskImages: readonly { readonly reference: string; readonly digest: string }[] | undefined;
   let manifestImageDigest: string | undefined;
@@ -391,6 +471,7 @@ const main = async (): Promise<void> => {
     hermesCodexAuth: await hermesCodexAuth(),
     docker: command('docker', ['--version']),
     harborJobs: harborJobs.check,
+    taskVerifier: await taskVerifier(args.nativeJobPath),
     harborImageDigest: dockerImages(effectiveImageDigest, manifestTaskImages),
     agentRuntimeDigest: await agentRuntimeDigestCheck(experimentManifest),
     aceRuntimeBundle: await aceRuntimeBundle(args.aceRuntimeBundlePath, experimentManifest?.aceRuntimeBundleSha256),
@@ -425,7 +506,7 @@ const main = async (): Promise<void> => {
     'sourceCheckout', 'runtimeProvenance', 'node', 'npm', 'astGrep', 'typescriptLanguageServer',
     'embeddingPython', 'sparseEmbedding', 'harbor', 'harborRun', 'harborDatasetPinned',
     'hermesCodexAuth', 'docker', 'harborJobs', 'harborImageDigest', 'agentRuntimeDigest', 'aceRuntimeBundle', 'taskRuntimeProbe', 'experimentBinding',
-    'embeddingCache', 'qdrant',
+    'embeddingCache', 'qdrant', 'taskVerifier',
   ];
   const blocked = required.filter((name) => checks[name]?.status !== 'ready');
   const manifest: PreflightManifest = {

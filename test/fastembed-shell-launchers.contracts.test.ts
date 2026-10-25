@@ -169,3 +169,15 @@ test('sparse FastEmbed launcher contains one Nix library bootstrap block after m
   const bootstrapBranches = source.match(/elif \[\[ "\$\{python_command\}" == "\$\{default_python\}" \]\]; then/gu) ?? [];
   assert.equal(bootstrapBranches.length, 1);
 });
+
+test('FastEmbed launchers reject incompatible Nix libraries before exporting them', async () => {
+  const [dense, sparse] = await Promise.all([
+    readFile(resolve('scripts/fastembed-worker.sh'), 'utf8'),
+    readFile(sparseShell, 'utf8'),
+  ]);
+  for (const source of [dense, sparse]) {
+    assert.match(source, /candidate_library_path=/u);
+    assert.match(source, /LD_LIBRARY_PATH="\$candidate_library_path" "\$\{python_command\}" -c 'import numpy'/u);
+    assert.match(source, /else\n\s+unset LD_LIBRARY_PATH\n\s+fi/u);
+  }
+});
