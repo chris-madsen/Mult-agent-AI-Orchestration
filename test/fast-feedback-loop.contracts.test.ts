@@ -35,12 +35,14 @@ test('fast feedback runner rejects a budget above three minutes before touching 
 test('local task freezing and image override keep provenance explicit', async () => {
   const freezer = await readFile('scripts/freeze-local-feedback-task.ts', 'utf8');
   const jobs = await readFile('scripts/prepare-harbor-feedback-jobs.ts', 'utf8');
+  const task = await readFile('benchmarks/harbor/ace-local-smoke-paired/task.toml', 'utf8');
   assert.match(freezer, /local\/ace-suite/u);
   assert.match(freezer, /git.*ls-tree|ls-tree/u);
   assert.match(freezer, /must remain outside the source checkout/u);
   assert.match(jobs, /--task-image <reference>/u);
   assert.match(jobs, /contradicts task\.toml docker_image/u);
   assert.match(jobs, /taskImageOverride/u);
+  assert.match(task, /docker_image = "ace-local-hermes:ace-retrieval-impact@sha256:/u);
 });
 
 test('fast runner preserves ACE_NOT_USED as a non-savings diagnostic outcome', async () => {
