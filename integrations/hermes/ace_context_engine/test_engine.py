@@ -207,8 +207,13 @@ class ContextEngineTests(unittest.TestCase):
             bridge_digest="a" * 64,
             plugin_digest="b" * 64,
         )
+        # An attestation issued for the placeholder session cannot authorize
+        # a real session after Hermes emits on_session_start.
+        engine._ownership = {"sessionId": "unknown"}
+        engine._ownership_failures = []
         engine.on_session_start("hermes-session-123")
         self.assertEqual(engine._session_id, "hermes-session-123")
+        self.assertIn("sessionId", engine._ownership_failures)
 
     def test_bridge_failure_returns_original_request_and_blocked_receipt(self):
         bridge = FakeBridge(error=RuntimeError("bridge unavailable"))
