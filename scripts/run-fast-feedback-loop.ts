@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
@@ -99,9 +99,9 @@ const runCommand = async (
       timedOut = true;
       if (child.pid !== undefined) {
         try {
-          process.kill(-child.pid, 'SIGTERM');
+          process.kill(-child.pid, 'SIGKILL');
         } catch {
-          child.kill('SIGTERM');
+          child.kill('SIGKILL');
         }
       }
     }, options.timeoutMs);
@@ -110,7 +110,7 @@ const runCommand = async (
       stderr.push(Buffer.from(String(error)));
       resolveResult({ status: 'FAILED', exitCode: null, signal: null, elapsedMs: Date.now() - started });
     });
-    child.once('exit', (exitCode, signal) => {
+    child.once('close', (exitCode, signal) => {
       clearTimeout(timer);
       resolveResult({
         status: timedOut ? 'TIMEOUT' : exitCode === 0 ? 'PASS' : 'FAILED',
@@ -136,6 +136,9 @@ const readStatus = async (path: string): Promise<string | undefined> => {
 
 const main = async (): Promise<void> => {
   const args = parseArgs();
+  // The advertised bound covers freeze, preparation, preflight, both arms,
+  // reconciliation, and report generation—not merely agent execution.
+  const deadline = Date.now() + args.maxRuntimeSec * 1000;
   const runId = runIdFor(args.output);
   assertOutsideSource(args.sourceRoot, args.output);
   if (!existsSync(args.aceRuntimeBundle)) throw new Error(`BLOCKED: ACE runtime bundle is missing: ${args.aceRuntimeBundle}`);
@@ -151,16 +154,23 @@ const main = async (): Promise<void> => {
   const manifestPath = join(frozen, 'task-manifest.json');
   const experimentPath = join(jobs, 'experiment-manifest.json');
   const commonEnv = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' };
-  const runStep = async (label: string, command: string, commandArgs: readonly string[], timeoutMs: number): Promise<CommandResult> =>
-    runCommand(command, commandArgs, {
+  const remainingMs = (): number => Math.max(0, deadline - Date.now());
+  const runStep = async (label: string, command: string, commandArgs: readonly string[], timeoutMs: number): Promise<CommandResult> => {
+    const remaining = remainingMs();
+    if (remaining === 0) return { status: 'TIMEOUT', exitCode: null, signal: 'SIGKILL', elapsedMs: 0 };
+    return runCommand(command, commandArgs, {
       cwd: resolve('.'),
       env: commonEnv,
       stdoutPath: join(args.output, 'logs', `${label}.stdout.log`),
       stderrPath: join(args.output, 'logs', `${label}.stderr.log`),
-      timeoutMs,
+      timeoutMs: Math.min(timeoutMs, remaining),
     });
+  };
 
   await mkdir(args.output, { recursive: true });
+  // Resolve existing symlinks before touching the output; lexical checks alone
+  // would allow an external-looking symlink back into the protected checkout.
+  assertOutsideSource(realpathSync(args.sourceRoot), realpathSync(args.output));
   const freeze = await runStep('freeze-local', commandPath, [
     'scripts/freeze-local-feedback-task.ts',
     '--source-root', args.sourceRoot,
@@ -198,10 +208,9 @@ const main = async (): Promise<void> => {
     throw new Error(`BLOCKED: preflight ${preflightResult.status}`);
   }
 
-  const deadline = Date.now() + args.maxRuntimeSec * 1000;
   const runArm = async (name: 'native' | 'ace-optional', script: string): Promise<CommandResult> => {
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) return { status: 'TIMEOUT', exitCode: null, signal: 'SIGTERM', elapsedMs: 0 };
+    const remaining = remainingMs();
+    if (remaining <= 0) return { status: 'TIMEOUT', exitCode: null, signal: 'SIGKILL', elapsedMs: 0 };
     return runCommand('bash', [script], {
       cwd: resolve('.'),
       env: commonEnv,
@@ -245,12 +254,15 @@ const main = async (): Promise<void> => {
     process.exitCode = 2;
     return;
   }
-  const reportPath = join('benchmarks', 'reports', `fast-feedback-${runId}.md`);
-  const report = await runStep('report', commandPath, ['scripts/render-feedback-summary.ts', reconciled, reportPath], 15_000);
+  const reportPath = join(args.output, 'report.md');
+  const report = await runStep('report', commandPath, ['scripts/render-feedback-summary.ts', reconciled, reportPath, '--external-output'], 15_000);
   const metricsStatus = await readStatus(join(reconciled, 'metrics.json'));
-  await writeFile(summaryPath, `${JSON.stringify({ ...baseSummary, status: metricsStatus ?? 'UNKNOWN', collect, report, reportPath }, null, 2)}\n`);
-  process.stdout.write(`${JSON.stringify({ status: metricsStatus ?? 'UNKNOWN', output: args.output, report: reportPath })}\n`);
-  if (metricsStatus === 'BLOCKED' || metricsStatus === 'QUALITY_REGRESSION') process.exitCode = 2;
+  const status = report.status === 'TIMEOUT' ? 'TIMEOUT'
+    : report.status !== 'PASS' ? 'BLOCKED'
+    : metricsStatus ?? 'UNKNOWN';
+  await writeFile(summaryPath, `${JSON.stringify({ ...baseSummary, status, collect, report, reportPath }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ status, output: args.output, report: reportPath })}\n`);
+  if (status !== 'PASS') process.exitCode = 2;
 };
 
 try {

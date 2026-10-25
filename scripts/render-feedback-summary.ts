@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import {
   validateFeedbackArtifactHashes,
   validateFeedbackReport,
@@ -20,13 +20,21 @@ const usage = (): never => {
 };
 
 const main = async (): Promise<void> => {
-  const [runDirectoryArg, outputArg] = process.argv.slice(2);
+  const [runDirectoryArg, outputArg, outputMode] = process.argv.slice(2);
   if (runDirectoryArg === undefined || outputArg === undefined) return usage();
   const runDirectory = resolve(runDirectoryArg);
   const outputPath = resolve(outputArg);
   const reportsRoot = resolve('benchmarks/reports');
   const outputRelative = relative(reportsRoot, outputPath);
-  if (isAbsolute(outputRelative) || outputRelative === '..' || outputRelative.startsWith('../')) {
+  if (outputMode === '--external-output') {
+    if (outputPath !== resolve(dirname(runDirectory), 'report.md')) {
+      throw new Error('BLOCKED: external feedback report must be the sibling report.md of reconciled results');
+    }
+    const sourceRelation = relative(resolve('.'), outputPath);
+    if (!isAbsolute(sourceRelation) && sourceRelation !== '..' && !sourceRelation.startsWith('../')) {
+      throw new Error('BLOCKED: external feedback report must be outside the source checkout');
+    }
+  } else if (outputMode !== undefined || isAbsolute(outputRelative) || outputRelative === '..' || outputRelative.startsWith('../')) {
     throw new Error('BLOCKED: feedback summary must be written under benchmarks/reports');
   }
   const manifestBytes = await readFile(resolve(runDirectory, 'manifest.json'));
