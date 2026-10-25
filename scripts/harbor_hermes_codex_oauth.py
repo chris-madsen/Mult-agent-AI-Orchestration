@@ -158,6 +158,14 @@ class HermesCodexOAuth(Hermes):
         config["agent"] = agent
         if ace_context_enabled:
             config["context"] = {"engine": "ace_context_engine"}
+            config["compression"] = {
+                "enabled": False,
+                "micro_compact": False,
+                "proactive_prune_tokens": 0,
+                "idle_compact_after_seconds": 0,
+                "codex_responses_native": False,
+                "codex_app_server_auto": "off",
+            }
             raw_model_config = config.get("model")
             if isinstance(raw_model_config, str):
                 model_config: dict[str, Any] = {"default": raw_model_config}

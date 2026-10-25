@@ -59,7 +59,9 @@ import { readVerifiedSemanticSnapshot, semanticSnapshotIdentity } from '../appli
 import { verifyCompiledRuntimeProvenance } from '../application/runtime-provenance.js';
 import { makeMcpGateway, type CapabilityReadiness } from '../gateway/mcp-gateway.js';
 import { makeContextTransformService } from '../application/context-transform-service.js';
+import { makeGatewayProjectionService } from '../application/gateway-projection-service.js';
 import { runContextBridgeStdio } from '../transport/context-bridge-stdio.js';
+import { runGatewayProjectionHttp } from '../transport/gateway-projection-http.js';
 import { runMcpSdkStdio } from '../transport/mcp-sdk-stdio.js';
 
 const required = (name: string): string => {
@@ -866,7 +868,10 @@ const main = async (): Promise<void> => {
       },
     });
   try {
-    if (process.env.ACE_CONTEXT_BRIDGE_MODE === 'true') {
+    if (process.env.ACE_GATEWAY_HTTP_MODE === 'true') {
+      if (contextBridge === undefined) throw new Error('ACE gateway HTTP requires a ready context provider');
+      await runGatewayProjectionHttp(makeGatewayProjectionService(contextBridge));
+    } else if (process.env.ACE_CONTEXT_BRIDGE_MODE === 'true') {
       if (contextBridge === undefined) throw new Error('ACE context bridge requires a ready context provider');
       await runContextBridgeStdio(contextBridge);
     } else {
