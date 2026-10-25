@@ -4,6 +4,7 @@ import { domainError, type DomainError, type DomainErrorCode } from '../domain/e
 import { err, ok, type Result } from '../domain/result.js';
 import {
   defaultProjectionRetryPolicy,
+  projectionRetryDue,
   recordProjectionEnqueue,
   scheduleProjectionRetry,
   type EpisodeId,
@@ -94,7 +95,11 @@ export const importMemoryEpisodes = async (input: MemoryImportInput): Promise<Re
         const begun = await input.outbox.begin(episode.episodeId, input.extractorVersion);
         if (begun._tag === 'Err') return begun;
         queued = begun.value;
-        if (queued.status === 'projected' || queued.status === 'tombstoned' || queued.status === 'dead_letter') {
+        if (queued.status === 'projected' || queued.status === 'tombstoned' || queued.status === 'dead_letter'
+          || !projectionRetryDue(queued, nowMs())) {
+          // A pending acknowledgement can still be awaiting provider
+          // materialization, and an incomplete receipt may be in backoff.
+          // Re-import must not bypass the durable next-attempt fence.
           outcomes.push({
             episodeId: episode.episodeId,
             persisted: created,
