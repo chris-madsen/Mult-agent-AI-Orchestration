@@ -146,16 +146,23 @@ export const importMemoryEpisodes = async (input: MemoryImportInput): Promise<Re
         }
       }
 
-      const projected = await Effect.runPromise(session.projection.project({
-        episodeId: episode.episodeId,
-        occurredAtMs: episode.occurredAtMs,
-        extractorVersion: input.extractorVersion,
-        claims: [{
-          original_digest: episode.contentDigest,
-          text: episode.searchText,
-          original_pointer: episode.sourcePointer,
-        }],
-      }));
+      let projected: Result<ProjectionReceipt, DomainError>;
+      try {
+        projected = await Effect.runPromise(session.projection.project({
+          episodeId: episode.episodeId,
+          occurredAtMs: episode.occurredAtMs,
+          extractorVersion: input.extractorVersion,
+          claims: [{
+            original_digest: episode.contentDigest,
+            text: episode.searchText,
+            original_pointer: episode.sourcePointer,
+          }],
+        }));
+      } catch {
+        // An Effect defect/rejection is also an unavailable Graphiti provider,
+        // not permission to throw away outcomes for already archived originals.
+        projected = err(domainError('EXTERNAL_UNAVAILABLE', 'graphiti', 'Graphiti projection execution failed'));
+      }
       if (projected._tag === 'Err') {
         if (queued !== undefined && input.outbox !== undefined) {
           const incomplete = scheduleProjectionRetry(queued, nowMs(), projected.error.code, retryPolicy);
