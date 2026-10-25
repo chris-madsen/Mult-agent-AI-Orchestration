@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
 interface ParsedArgs {
@@ -134,6 +134,19 @@ const readStatus = async (path: string): Promise<string | undefined> => {
   }
 };
 
+const aggregateResultPath = async (root: string, arm: 'native' | 'ace'): Promise<string> => {
+  const armRoot = join(root, arm === 'native' ? 'raw-agent-native' : 'raw-agent-ace');
+  const entries = await readdir(armRoot, { withFileTypes: true });
+  const candidates = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(armRoot, entry.name, 'result.json'))
+    .filter((path) => existsSync(path));
+  if (candidates.length !== 1) {
+    throw new Error(`BLOCKED: expected exactly one Harbor aggregate result for ${arm}, found ${candidates.length}`);
+  }
+  return candidates[0]!;
+};
+
 const main = async (): Promise<void> => {
   const args = parseArgs();
   // The advertised bound covers freeze, preparation, preflight, both arms,
@@ -240,12 +253,14 @@ const main = async (): Promise<void> => {
     return;
   }
 
+  const nativeResultPath = await aggregateResultPath(join(artifacts, runId), 'native');
+  const aceResultPath = await aggregateResultPath(join(artifacts, runId), 'ace');
   const collect = await runStep('collect', commandPath, [
     'scripts/collect-feedback-loop.ts',
     manifestPath,
     experimentPath,
-    join(artifacts, runId, 'raw-agent-native', 'result.json'),
-    join(artifacts, runId, 'raw-agent-ace', 'result.json'),
+    nativeResultPath,
+    aceResultPath,
     reconciled,
   ], 30_000);
   if (collect.status !== 'PASS') {
