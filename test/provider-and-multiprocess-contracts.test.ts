@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -215,4 +215,46 @@ test('DBC-11 independent archive instances preserve shared blobs during deletion
   assert.equal(deleted[0]._tag, 'Ok');
   assert.equal(deleted[1]._tag, 'Ok');
   assert.deepEqual(Buffer.from(value(await b.readEpisode(y.episodeId)).content), bytes);
+});
+
+test('archive refuses traversal episode IDs before any filesystem write or delete', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-archive-traversal-'));
+  const archive = await makeAsyncFileMemoryArchive(join(root, 'archive'));
+  assert.equal(makeEpisodeId('../outside')._tag, 'Err');
+  assert.equal(makeEpisodeId('nested/../../outside')._tag, 'Err');
+  const content = Buffer.from('immutable safe bytes');
+  const digest = createHash('sha256').update(content).digest('hex') as SessionEpisode['contentDigest'];
+  const forgedId = '../outside' as SessionEpisode['episodeId'];
+  const injected: SessionEpisode = {
+    episodeId: forgedId, workspaceId: ws, sessionId: 'fixture', sourcePointer: 'codex://fixture',
+    contentDigest: digest, content, searchText: 'fixture', tombstoned: false,
+    occurredAtMs: 1, importedAtMs: 2,
+  };
+  assert.equal((await archive.importEpisode(injected))._tag, 'Err');
+  assert.equal((await archive.readEpisode(forgedId))._tag, 'Err');
+  assert.equal((await archive.deleteEpisode(forgedId))._tag, 'Err');
+  await assert.rejects(readFile(join(root, 'archive', 'outside.json')));
+});
+
+test('crash-window tombstoned metadata is never returned or reconciled as a live original', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-archive-tombstone-crash-'));
+  const archive = await makeAsyncFileMemoryArchive(root);
+  const content = Buffer.from('original must not resurrect');
+  const id = value(makeEpisodeId('crash-window'));
+  const record: SessionEpisode = {
+    episodeId: id, workspaceId: ws, sessionId: 'session', sourcePointer: 'codex://crash',
+    contentDigest: createHash('sha256').update(content).digest('hex') as SessionEpisode['contentDigest'],
+    content, searchText: 'original must not resurrect', tombstoned: false,
+    occurredAtMs: 1, importedAtMs: 2,
+  };
+  assert.equal((await archive.importEpisode(record))._tag, 'Ok');
+  // Failpoint: simulate process death immediately after the irreversible tombstone write.
+  await mkdir(join(root, 'tombstones'), { recursive: true });
+  await writeFile(join(root, 'tombstones', `${id}.json`), JSON.stringify({ episodeId: id, deletedAtMs: 3 }));
+  const listed = await archive.listEpisodes();
+  assert.equal(listed._tag, 'Ok');
+  if (listed._tag === 'Ok') assert.deepEqual(listed.value, []);
+  const read = await archive.readEpisode(id);
+  assert.equal(read._tag, 'Err');
+  if (read._tag === 'Err') assert.equal(read.error.code, 'ARCHIVE_TOMBSTONED');
 });
