@@ -120,7 +120,7 @@ const dockerImageReference = async (taskPath: string, override: string | undefin
   return declared;
 };
 
-const verifyDockerImageReference = (reference: string, digest: string): void => {
+const verifyDockerImageReference = (reference: string, digest: string): string => {
   if (!dockerImageDigestPattern.test(digest)) throw new Error(`BLOCKED: invalid Docker digest for ${reference}`);
   const inspected = spawnSync('docker', ['image', 'inspect', '--format', '{{json .}}', reference], {
     encoding: 'utf8',
@@ -138,6 +138,17 @@ const verifyDockerImageReference = (reference: string, digest: string): void => 
   if (!dockerImageMatchesDigest(digest, image)) {
     throw new Error(`BLOCKED: Docker image ${reference} does not match pinned digest ${digest}`);
   }
+  const inspectedImage = image as { readonly Id?: unknown; readonly RepoDigests?: unknown };
+  const repoDigests = inspectedImage.RepoDigests;
+  // Local-only images are pinned by their immutable image ID. A manifest
+  // digest can instead be referenced as repository@digest when actually
+  // advertised by Docker; treating an image ID as a registry digest breaks
+  // cached local images.
+  if (Array.isArray(repoDigests) && repoDigests.some((value) => typeof value === 'string' && value.endsWith(`@${digest}`))) {
+    return `${reference}@${digest}`;
+  }
+  if (inspectedImage.Id === digest) return digest;
+  throw new Error('BLOCKED: inspected image has no usable immutable locator');
 };
 
 const parseTaskImageDigest = (value: string): { readonly reference: string; readonly digest: string } => {
@@ -235,7 +246,10 @@ const main = async (): Promise<void> => {
       || taskImageReferences.some((reference) => !explicitTaskImageDigests.has(reference))) {
       throw new Error(`BLOCKED: explicit Docker digests are required for every task image: ${taskImageReferences.join(', ')}`);
     }
-    for (const reference of taskImageReferences) verifyDockerImageReference(reference, explicitTaskImageDigests.get(reference)!);
+    const verifiedImageReferences = new Map<string, string>();
+    for (const reference of taskImageReferences) {
+      verifiedImageReferences.set(reference, verifyDockerImageReference(reference, explicitTaskImageDigests.get(reference)!));
+    }
     const taskImages = taskImageReferences.map((reference) => ({ reference, digest: explicitTaskImageDigests.get(reference)! }));
     const imageDigest = taskImages.length === 1 ? taskImages[0]!.digest : undefined;
     const agentAdapter = join(aceRoot, 'scripts', 'harbor_hermes_codex_oauth.py');
@@ -282,7 +296,10 @@ const main = async (): Promise<void> => {
         const reference = await dockerImageReference(source, taskImageOverride);
         const digest = explicitTaskImageDigests.get(reference);
         if (digest === undefined) throw new Error('BLOCKED: missing pinned runtime image digest');
-        return stagePinnedTaskImageOverlay(source, join(output, 'task-runtime', Buffer.from(task.id).toString('base64url')), reference, digest);
+        return stagePinnedTaskImageOverlay(
+          source, join(output, 'task-runtime', Buffer.from(task.id).toString('base64url')),
+          reference, digest, verifiedImageReferences.get(reference),
+        );
       }));
     }
     const effectiveTaskPaths = runtimeTaskOverlays.length === 0
