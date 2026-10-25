@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Effect } from 'effect';
-import { handleGatewayProjectionHttp } from '../src/transport/gateway-projection-http.js';
+import { handleGatewayProjectionHttp, maxEnvelopeBytesFor } from '../src/transport/gateway-projection-http.js';
 import { ok } from '../src/domain/result.js';
 
 const service = {
@@ -43,4 +43,11 @@ test('gateway HTTP returns a typed projection decision and rejects unknown paths
 test('gateway HTTP does not accept unverified final-delivery claims', async () => {
   const result = await handleGatewayProjectionHttp(service, 'POST', '/internal/ace-gateway/v1/record-delivery', '{}');
   assert.equal(result.statusCode, 501);
+});
+
+test('gateway allows Base64 and JSON framing beyond the raw four MiB body limit', () => {
+  const rawBytes = 4 * 1024 * 1024;
+  const encodedBytes = Buffer.alloc(rawBytes).toString('base64').length;
+  assert.ok(encodedBytes > rawBytes);
+  assert.ok(maxEnvelopeBytesFor(rawBytes) >= encodedBytes + 1024);
 });
