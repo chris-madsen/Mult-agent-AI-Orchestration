@@ -40,7 +40,10 @@ export const makeFileArtifactStore = (directory: string): ArtifactStore => ({
     recoverResult(Effect.tryPromise<Result<ArtifactRange, DomainError>, DomainError>({
       try: async () => {
         if (!handlePattern.test(handle)) return err(domainError('INVALID_HANDLE', 'handle', 'artifact handle is invalid'));
-        const offset = cursor === undefined ? 0 : Number.parseInt(cursor, 10);
+        if (cursor !== undefined && !/^(?:0|[1-9][0-9]*)$/u.test(cursor)) {
+          return err(domainError('INVALID_HANDLE', 'cursor', 'artifact cursor must be a canonical decimal byte offset'));
+        }
+        const offset = cursor === undefined ? 0 : Number(cursor);
         if (!Number.isSafeInteger(offset) || offset < 0) return err(domainError('INVALID_HANDLE', 'cursor', 'artifact cursor is invalid'));
         const bytes = new Uint8Array(await readFile(join(directory, `${handle}.bin`)));
         const contentDigest = digest(bytes);
