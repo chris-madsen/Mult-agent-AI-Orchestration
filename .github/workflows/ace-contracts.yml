@@ -111,3 +111,25 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: git diff --check "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
+
+  bifrost-connector:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Go 1.23
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+          cache: false
+      - name: Test isolated ACE connector
+        working-directory: integrations/bifrost/ace-connector
+        env:
+          GOWORK: "off"
+        run: go test -count=1 ./...
+      - name: Vet isolated ACE connector
+        working-directory: integrations/bifrost/ace-connector
+        env:
+          GOWORK: "off"
+        run: go vet ./...

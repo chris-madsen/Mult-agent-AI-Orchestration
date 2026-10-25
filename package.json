@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json && node scripts/generate-runtime-provenance.mjs",
     "mcp:stdio": "npm run build && node dist/bin/ace-mcp.js",
     "context:stdio": "npm run build && ACE_CONTEXT_BRIDGE_MODE=true node dist/bin/ace-context-bridge.js",
+    "gateway:http": "npm run build && ACE_GATEWAY_HTTP_MODE=true node dist/bin/ace-gateway-http.js",
     "check": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src test --ext .ts --max-warnings=0",
     "probe:providers": "node scripts/provider-capability-probe.mjs",

@@ -1,12 +1,14 @@
 schema: spec-driven
 context: |
   Project: Adaptive Context Engine (ACE), agent-neutral context engine with Hermes request-time integration and Codex comparison support.
-  Source of truth: docs/docs/references/PRD-v1.0.md and accepted ADR-000..ADR-016.
+  Source of truth: docs/docs/references/PRD-v1.0.md and accepted ADR-000..ADR-017.
   DDD architecture and contracts: docs/docs/architecture/01..07. BC boundaries do not imply microservices.
   Accepted constraints: one logical MCP facade for explicit tools/expansion; Hermes ContextEngine request-time transformation for mandatory ACE context;
   Tree-sitter/ast-grep structural facts; an evidence-selected language-service provider;
   explicitly authorized Vertex documentation; Graphiti plus an immutable raw session archive;
-  local-first Kubernetes deployment; Harbor for paired agent benchmarks.
+  local-first Kubernetes deployment; Harbor for paired agent benchmarks;
+  Bifrost is the planned model-bound gateway and `ace.gateway.v1` plus Hermes
+  compaction ownership are active contract work in change 009.
   North Star: target 5x fewer end-to-end total tokens, not achieved yet;
   no degradation in task quality; never claim measured improvements without evidence.
   ADR-006 supersedes older PRD FR-06: NO mandatory fixed context token cap,

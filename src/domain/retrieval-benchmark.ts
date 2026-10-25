@@ -133,8 +133,8 @@ export const createRetrievalBenchmarkTraceCollector = (
  * used as labels across independent benchmark workspaces. This id binds only
  * immutable source identity and the exact structural range.
  */
-export const sha256 = (value: string): string => {
-  const bytes = new TextEncoder().encode(value);
+export const sha256 = (value: string | Uint8Array): string => {
+  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
   const bitLength = bytes.length * 8;
   const paddedLength = ((bytes.length + 9 + 63) >> 6) << 6;
   const message = new Uint8Array(paddedLength);

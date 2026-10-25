@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ace.local/contracts/ace-gateway/v1/projection-request.schema.json",
+  "title": "ACE Gateway Projection Request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "requestId", "attemptGroupId", "agentSessionId", "workspaceId", "dataClass", "protocol", "provider", "model", "bodyBase64", "bodySha256", "query", "projectionMode", "deadlineEpochMs", "attestation"],
+  "properties": {
+    "schemaVersion": {"const": "ace.gateway.v1"},
+    "requestId": {"type": "string", "minLength": 1},
+    "attemptGroupId": {"type": "string", "minLength": 1},
+    "agentSessionId": {"type": "string", "minLength": 1},
+    "workspaceId": {"type": "string", "minLength": 1},
+    "dataClass": {"enum": ["private", "project_document", "public"]},
+    "protocol": {"const": "openai.chat.completions"},
+    "provider": {"type": "string", "minLength": 1},
+    "model": {"type": "string", "minLength": 1},
+    "bodyBase64": {"type": "string", "pattern": "^[A-Za-z0-9+/]+={0,2}$", "maxLength": 5592408},
+    "bodySha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "query": {"type": "string", "minLength": 1},
+    "projectionMode": {"enum": ["native", "gateway", "assist-only", "observe-only", "off"]},
+    "deadlineEpochMs": {"type": "integer", "minimum": 1},
+    "nativeProjectionActive": {"type": "boolean"},
+    "requestedEvidenceIds": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "attestation": {"$ref": "#/$defs/attestation"}
+  },
+  "$defs": {
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostBuildDigest", "sessionId", "activeEngineId", "effectiveCompressionControlsDigest", "durableActiveTranscriptRevision", "durableActiveTranscriptDigest", "hostCompactionEpoch", "attestorId", "providerManagedHistoryCapability", "hostTranscriptAttested", "compactionEnabled"],
+      "properties": {
+        "hostBuildDigest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "sessionId": {"type": "string", "minLength": 1},
+        "parentSessionId": {"type": "string", "minLength": 1},
+        "activeEngineId": {"type": "string", "minLength": 1},
+        "effectiveCompressionControlsDigest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "durableActiveTranscriptRevision": {"type": "string", "minLength": 1},
+        "durableActiveTranscriptDigest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "hostCompactionEpoch": {"oneOf": [{"type": "integer", "minimum": 0}, {"const": "unknown"}]},
+        "attestorId": {"type": "string", "minLength": 1},
+        "providerManagedHistoryCapability": {"enum": ["visible", "hidden", "unknown"]},
+        "hostTranscriptAttested": {"type": "boolean"},
+        "compactionEnabled": {"type": "boolean"}
+      }
+    }
+  }
+}
