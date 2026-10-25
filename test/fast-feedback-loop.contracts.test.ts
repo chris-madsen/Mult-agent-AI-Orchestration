@@ -126,6 +126,10 @@ test('pinned-image task overlay selects prebuilt image without touching frozen t
   assert.equal(await readFile(join(task, 'task.toml'), 'utf8'), original);
   assert.equal(existsSync(join(task, 'environment', 'Dockerfile')), true);
   assert.notEqual(result.sourceTaskTomlSha256, result.effectiveTaskTomlSha256);
+  const localOverlay = join(root, 'local-id-overlay');
+  const local = await stagePinnedTaskImageOverlay(task, localOverlay, 'ace-image:cached', digest, digest);
+  assert.equal(local.image, digest);
+  assert.match(await readFile(join(localOverlay, 'task.toml'), 'utf8'), /docker_image = "sha256:[a-f0-9]{64}"/u);
   await assert.rejects(
     stagePinnedTaskImageOverlay(task, overlay, 'ace-image:cached', digest),
     /runtime task overlay already exists/u,
