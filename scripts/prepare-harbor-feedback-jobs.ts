@@ -309,7 +309,13 @@ const main = async (): Promise<void> => {
       import_path: feedbackHermesAgentImportPath,
       model_name: model,
       override_setup_timeout_sec: 1200,
-      kwargs: { version: feedbackHermesVersion, reasoning_effort: reasoning, ace_context_enabled: false },
+      kwargs: {
+        version: feedbackHermesVersion,
+        reasoning_effort: reasoning,
+        ace_context_enabled: false,
+        ace_workspace_root: '/workspace/repo',
+        ace_allowed_roots: '/workspace/repo',
+      },
     } as const;
     const common = {
       tasks: effectiveTaskPaths.map((path) => ({ path })),

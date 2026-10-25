@@ -36,6 +36,8 @@ class HermesCodexOAuthOptions(HermesOptions):
         default=False,
         description="Enable the direct ACE Hermes ContextEngine plugin.",
     )
+    ace_workspace_root: str = Field(default="/workspace")
+    ace_allowed_roots: str = Field(default="/workspace")
     ace_context_bridge_sha256: str = ""
     context_plugin_sha256: str = ""
 
@@ -214,8 +216,8 @@ class HermesCodexOAuth(Hermes):
         if self.options.ace_context_enabled:
             await self._stage_context_engine(environment)
             env.update({
-                "ACE_WORKSPACE_ROOT": "/workspace",
-                "ACE_ALLOWED_ROOTS": "/workspace",
+                "ACE_WORKSPACE_ROOT": self.options.ace_workspace_root,
+                "ACE_ALLOWED_ROOTS": self.options.ace_allowed_roots,
                 "ACE_CONTEXT_WORKSPACE_ID": "00000000-0000-4000-8000-000000000001",
                 "ACE_CONTEXT_BRIDGE_COMMAND": "/ace/scripts/harbor-ace-context-bridge.sh",
                 "ACE_CONTEXT_RECEIPT_FILE": "/logs/artifacts/hermes-context-receipts.jsonl",

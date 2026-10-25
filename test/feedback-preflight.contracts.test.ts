@@ -104,6 +104,8 @@ test('feedback jobs use Hermes openai-codex OAuth and native ContextEngine regis
   assert.match(jobs, /feedbackAceContextBridgeCommand/u);
   assert.match(adapter, /--provider openai-codex/u);
   assert.match(adapter, /context.*ace_context_engine/u);
+  assert.match(adapter, /ace_workspace_root/u);
+  assert.match(adapter, /ace_allowed_roots/u);
   assert.match(adapter, /config\["compression"\]/u);
   assert.match(adapter, /micro_compact/u);
   assert.match(adapter, /proactive_prune_tokens/u);
@@ -117,8 +119,8 @@ test('feedback jobs use Hermes openai-codex OAuth and native ContextEngine regis
   assert.doesNotMatch(adapter, /curl -fsSL.*install\.sh/u);
   assert.doesNotMatch(adapter, /ensure_system_dependencies/u);
   assert.match(adapter, /ACE_CONTEXT_BRIDGE_COMMAND/u);
-  assert.match(adapter, /ACE_WORKSPACE_ROOT.*\/workspace/u);
-  assert.match(adapter, /ACE_ALLOWED_ROOTS.*\/workspace/u);
+  assert.match(adapter, /ace_workspace_root.*default="\/workspace"/u);
+  assert.match(adapter, /ace_allowed_roots.*default="\/workspace"/u);
   assert.match(adapter, /config\["plugins"\]/u);
   assert.match(adapter, /model_config.*default/u);
   assert.match(adapter, /context_length.*128000/u);
