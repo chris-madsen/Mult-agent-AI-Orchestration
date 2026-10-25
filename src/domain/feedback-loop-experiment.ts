@@ -597,7 +597,8 @@ export const reconcileFeedbackTrials = (input: {
       // A bridge providerRequestId is a retrieval trace ID, NOT an LLM egress ID.
       // Count only verifiable MCP/backend calls; pending real provider-bound
       // observation Hermes transforms must not be promoted to correlated.
-      return sum + mcpCorrelated;}, 0),
+      return sum + mcpCorrelated;
+    }, 0),
     aceNotUsed,
   });
 };
