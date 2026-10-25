@@ -191,3 +191,34 @@ test('MAC-08 Graphiti failure never prevents later originals from being archived
     assert.equal(result.value[2]?.projectionStatus, 'incomplete');
   }
 });
+
+test('MAC-09 unexpected provider Effect failure is an incomplete projection, not a rejected import', async () => {
+  const local = inMemoryArchive();
+  let projectCalls = 0;
+  let closed = false;
+  const faultyProjection: GraphProjectionPort = {
+    project: () => {
+      projectCalls += 1;
+      if (projectCalls === 1) return Effect.die(new Error('transport unexpectedly crashed'));
+      return Effect.succeed(err(domainError('EXTERNAL_UNAVAILABLE', 'graphiti', 'injected second error')));
+    },
+    purge: () => Effect.succeed(ok(undefined)),
+  };
+  const result = await importMemoryEpisodes({
+    episodes: [
+      episode('unexpected-provider-failure', 'We decided to keep the original session archive.'),
+      episode('second-decision', 'We decided to use local graph memory.'),
+    ],
+    archive: local.archive,
+    extractorVersion: 'test-extractor',
+    createProjection: async () => ({ projection: faultyProjection, close: async () => { closed = true; } }),
+  });
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Ok') {
+    assert.deepEqual(result.value.map((entry) => entry.projectionStatus), ['incomplete', 'incomplete']);
+    assert.deepEqual(result.value.map((entry) => entry.projectionErrorCode), ['EXTERNAL_UNAVAILABLE', 'EXTERNAL_UNAVAILABLE']);
+  }
+  assert.equal(projectCalls, 2);
+  assert.equal(local.episodes.size, 2);
+  assert.equal(closed, true);
+});
