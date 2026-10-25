@@ -217,6 +217,12 @@ Receipt fields (all request-bound, no raw prompt/code/keys):
 
 **No double counting:** Provider calls, Bifrost retries, ACE projection calls, cache hits, embeddings/reranking cost, stream usage events and agent-visible tokens are separate counters. Do not add ACE transform receipts to totals already including those calls. Define per-attempt and per-task aggregations with invariants in OpenSpec.
 
+## 7A. Mandatory Hermes compaction-ownership verification gate
+
+**Additional owner requirement (2026-10-25):** Before attributing any savings or quality change to ACE, prove that Hermes has not independently compacted or pruned its transcript upstream of the Bifrost gateway. A Bifrost ingress/egress receipt **cannot attest prior Hermes session history**. The detailed [Hermes compaction-ownership gate](2026-10-25-hermes-compaction-ownership-verification.md) defines pinned v0.22.3 call sites, runtime/engine attestation, H0–H5 separate arms, H2 strict gateway-ACE versus H3 native-ACE exclusive ownership, host compaction kill switches, manual/micro/provider-native negative tests, HC-01–HC-14 validation and exact append-only-old-row transcript invariants.
+
+Treat HC0/HC1 as prerequisites for the gateway normative contract and HC2/HC3 as prerequisites for strict Hermes H2/H3 claims. Host-side compaction, provider-held continuations, plugin fallback and double ACE injection invalidate such claims. Intentional Hermes + ACE compaction coexistence is **H5, a negative/experimental arm**, not a production configuration. No configuration-only or mock-only evidence is sufficient.
+
 ## 8. Implementation sequence (one reviewable PR per slice)
 
 Do not run the following queue in parallel with changes to shared acceptance/specs that are not yet reconciled. Before any source PR, audit current runtime/code/OpenSpec against accepted ADRs, then add normative OpenSpec requirements and expected test owners. The timings are **rough engineering effort estimates**, not commitments.
@@ -267,6 +273,8 @@ Every route claims its maximum G-level **only after** all applicable checks pass
 | GW-12 | Natural, unforced agent tasks through real provider and Harbor matched baseline | Observed full attribution and task success, token/cost/latency evidence; no 5× claim without results |
 | GW-13 | Native Hermes arm versus gateway Hermes arm on same explicit tasks/model identity | No double injection, correlated request-local projection and unchanged durable transcript |
 | GW-14 | Linux packaging and optional macOS matched toolchain | Reproducible plugin load, Bifrost SHA, rollback and platform-specific support claim only when tested |
+| GW-15 | Hermes compaction authority in H2/H3 across startup/child/resume, idle/preflight/post-tool/manual/micro/native and fallback | Verified exclusive ACE context owner, authenticated host history attestation, no untracked old-row rewrites; HC-01–09, HC-13 |
+| GW-16 | Matched ACE gateway/native versus unmodified Hermes compaction H1/H2/H3/H4/H5 | Real provider-bound projection, separate host/ACE token costs, quality/recall attribution, and explicit negative interference evidence; HC-10–14 |
 
 **Test layers**: pure property/contract fixtures → pinned Bifrost + mock provider wire capture → real provider sandbox (authorized data only) → real coding agent E2E → paired Harbor. Report `PASS`, `FAIL`, `BLOCKED` and `NOT_RUN` separately per route and effective commit; mock-only tests cannot promote production.
 
@@ -287,6 +295,7 @@ Define the baseline arms: unmodified agent direct provider; agent→Bifrost with
 - [ ] Every certified outbound attempt is reauthorized and tied to original, projected and effective wire digests.
 - [ ] An agent can configure Bifrost as its model endpoint without an ACE-specific fork, and real E2E proof is retained.
 - [ ] Existing Hermes ContextEngine remains functional; no double projection or silent competition with MCP context delivery.
+- [ ] Strict Hermes H2/H3 arms pass authenticated host compaction-ownership gates; gateway receipts alone are insufficient proof that earlier agent history was preserved.
 - [ ] Operational runbook shows startup/readiness, credential rotation, audit redaction, timeout/cancellation and rollback.
 - [ ] No production-ready or 5× claim without the separate quality/provider/Harbor gates and owner approval.
 
