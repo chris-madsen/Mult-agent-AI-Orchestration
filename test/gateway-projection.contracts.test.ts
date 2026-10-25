@@ -44,6 +44,16 @@ test('gateway request validation binds exact original bytes and rejects malforme
   assert.equal(validateGatewayProjectionRequest({ ...request(), requestedEvidenceIds: ['same', 'same'] })._tag, 'Err');
 });
 
+test('gateway rejects malformed UTF-8 rather than silently replacing original bytes', async () => {
+  const invalidUtf8 = Buffer.from([0x7b, 0x22, 0x78, 0x22, 0x3a, 0x22, 0xff, 0x22, 0x7d]);
+  const badBase64 = invalidUtf8.toString('base64');
+  const response = await Effect.runPromise(makeGatewayProjectionService(context).project(request({
+    bodyBase64: badBase64,
+    bodySha256: sha256Base64(badBase64),
+  })));
+  assert.equal(response._tag, 'Err');
+});
+
 test('gateway applies request-local context and preserves unknown provider fields', async () => {
   const decision = await Effect.runPromise(makeGatewayProjectionService(context).project(request()));
   assert.equal(decision._tag, 'Ok');
