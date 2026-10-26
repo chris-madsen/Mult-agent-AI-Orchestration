@@ -33,11 +33,11 @@ const evidenceText = (item: RetrievalEvidence): string => {
   return `${header}\n${item.content}`;
 };
 
-const dedupeKey = (item: RetrievalEvidence): string => [
-  item.receiptId ?? item.evidenceId,
-  item.sourceDigest ?? '',
-  item.citation,
-].join('\0');
+const dedupeKey = (item: RetrievalEvidence): string => (
+  item.sourceDigest !== undefined
+    ? ['exact-source', item.sourceDigest, item.citation, item.content].join('\0')
+    : ['receipt', item.receiptId ?? item.evidenceId, item.citation, item.content].join('\0')
+);
 
 export const assembleContext = (input: ContextAssemblyInput): ContextAssemblyResult => {
   const grouped = new Map<ContextAssemblySource, RetrievalEvidence[]>();
@@ -48,6 +48,7 @@ export const assembleContext = (input: ContextAssemblyInput): ContextAssemblyRes
   const blocks: string[] = [];
   const seen = new Set<string>();
   let estimatedTokens = 0;
+  let budgetOmitted = 0;
 
   for (const item of ordered) {
     if (seen.has(dedupeKey(item))) {
@@ -58,6 +59,7 @@ export const assembleContext = (input: ContextAssemblyInput): ContextAssemblyRes
     const block = evidenceText(item);
     const nextTokens = tokensFor(`${blocks.length === 0 ? '' : '\n\n'}${block}`);
     if (estimatedTokens + nextTokens > input.budgetTokens) {
+      budgetOmitted += 1;
       omitted.push(item);
       continue;
     }
@@ -71,7 +73,7 @@ export const assembleContext = (input: ContextAssemblyInput): ContextAssemblyRes
     omitted,
     text: blocks.join('\n\n'),
     estimatedTokens,
-    truncated: omitted.length > 0,
-    limitations: omitted.length === 0 ? [] : [`${omitted.length} evidence items omitted by context budget or deduplication`],
+    truncated: budgetOmitted > 0,
+    limitations: budgetOmitted === 0 ? [] : [`${budgetOmitted} evidence items omitted by context budget`],
   };
 };
