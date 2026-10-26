@@ -83,6 +83,7 @@ const nodeSymbol = (
     readonly offset: number;
   },
 ): StructuralSymbol | undefined => {
+  if (node.kind() === 'export_statement') return undefined;
   let kind = declarationKind(node.kind());
   let nameNode = node.field('name');
 
@@ -101,7 +102,10 @@ const nodeSymbol = (
   }
 
   if (kind === undefined) return undefined;
-  const range = node.range();
+  const exportAncestor = node.ancestors()[0]?.kind() === 'export_statement'
+    ? node.ancestors()[0]
+    : undefined;
+  const range = (exportAncestor ?? node).range();
   const named = isIdentifier(nameNode) ? nameNode : undefined;
   const name = kind === 'import' || kind === 'export'
     ? node.text().split(/\s+/u)[0] ?? node.kind()

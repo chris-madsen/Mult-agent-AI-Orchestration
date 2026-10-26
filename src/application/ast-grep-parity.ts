@@ -22,7 +22,7 @@ export interface SymbolParityReport {
 }
 
 const normalizedKind = (symbol: StructuralSymbol): string =>
-  symbol.kind === 'struct' && symbol.language === 'typescript' ? 'type' : symbol.kind;
+  symbol.kind === 'struct' && symbol.language?.toLocaleLowerCase() === 'typescript' ? 'type' : symbol.kind;
 
 const semanticIdentity = (symbol: StructuralSymbol): string =>
   `${symbol.name}\0${normalizedKind(symbol)}`;

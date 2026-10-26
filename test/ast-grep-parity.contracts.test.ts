@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFile } from 'node:fs/promises';
+import { Effect } from 'effect';
 import { compareStructuralAnalyses, symbolParityFingerprint } from '../src/application/ast-grep-parity.js';
+import { makeAstGrepStructuralPort } from '../src/adapters/ast-grep-structural.js';
 import type { StructuralAnalysis } from '../src/domain/semantic.js';
 
 const analysis = (overrides: Partial<StructuralAnalysis> = {}): StructuralAnalysis => ({
@@ -144,4 +147,18 @@ test('parity report is independent of the provider symbol order', () => {
   assert.equal(expected.equivalent, true);
   assert.equal(reordered.equivalent, true);
   assert.equal(symbolParityFingerprint(expected), symbolParityFingerprint(reordered));
+});
+
+test('CLI and NAPI agree on the representative TypeScript fixture', async () => {
+  const repoPath = 'test/fixtures/ast-grep-parity/representative.ts';
+  const source = new Uint8Array(await readFile(repoPath));
+  const command = process.env.ACE_AST_GREP_COMMAND ?? 'node_modules/.bin/ast-grep';
+  const cli = await Effect.runPromise(makeAstGrepStructuralPort({ command, provider: 'cli' }).extract({ repoPath, source }));
+  const napi = await Effect.runPromise(makeAstGrepStructuralPort({ command, provider: 'napi' }).extract({ repoPath, source }));
+  assert.equal(cli._tag, 'Ok');
+  assert.equal(napi._tag, 'Ok');
+  if (cli._tag === 'Ok' && napi._tag === 'Ok') {
+    const report = compareStructuralAnalyses(cli.value, napi.value);
+    assert.equal(report.equivalent, true, JSON.stringify(report, null, 2));
+  }
 });
