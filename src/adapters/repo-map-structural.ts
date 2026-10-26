@@ -1,7 +1,7 @@
 import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import type { SemanticAnalysisPort } from '../application/ports.js';
-import type { CodeCandidate } from '../domain/retrieval.js';
+import type { CodeCandidate, SourceRange } from '../domain/retrieval.js';
 import {
   makeRepoMapSymbol,
   type RepoMapDelta,
@@ -21,28 +21,6 @@ export interface RepoMapStructuralInput {
   readonly requestId: string;
 }
 
-const locationKey = (location: {
-  readonly repoPath: string;
-  readonly startLine: number;
-  readonly startColumn: number | undefined;
-  readonly endLine: number;
-  readonly endColumn: number | undefined;
-}): string => [
-  location.repoPath,
-  location.startLine,
-  location.startColumn,
-  location.endLine,
-  location.endColumn,
-].join(':');
-
-const symbolLocationKey = (symbol: RepoMapSymbol): string => locationKey({
-  repoPath: symbol.repoPath,
-  startLine: symbol.range.startLine,
-  startColumn: symbol.range.startColumn,
-  endLine: symbol.range.endLine,
-  endColumn: symbol.range.endColumn,
-});
-
 const candidateToSymbol = (candidate: CodeCandidate): RepoMapSymbol | undefined => {
   if (candidate.symbolName === undefined || candidate.structuralKind === undefined) return undefined;
   return makeRepoMapSymbol({
@@ -57,22 +35,65 @@ const candidateToSymbol = (candidate: CodeCandidate): RepoMapSymbol | undefined 
   });
 };
 
+// LSP "references" called on declaration A returns uses of A, *not*
+// dependencies that A calls. Attribute each reference occurrence to its
+// enclosing caller B and add B -> A. LSP columns are UTF-16; structural
+// source ranges are UTF-8 bytes, so convert before locating the owner.
+const sourceLineAt = (bytes: Uint8Array, line: number): string | undefined => {
+  if (!Number.isSafeInteger(line) || line < 1) return undefined;
+  const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  return decoded.split('\n')[line - 1]?.replace(/\r$/u, '');
+};
+
+const referenceByteColumn = (bytes: Uint8Array, line: number, column: number): number | undefined => {
+  const source = sourceLineAt(bytes, line);
+  if (source === undefined || !Number.isSafeInteger(column) || column < 1 || column > source.length + 1) return undefined;
+  const prefix = source.slice(0, column - 1);
+  // Reject a UTF-16 position inside a surrogate pair.
+  if (/[\uD800-\uDBFF]$/u.test(prefix)) return undefined;
+  return Buffer.byteLength(prefix, 'utf8') + 1;
+};
+
+const contains = (range: SourceRange, line: number, column: number): boolean => (
+  line >= range.startLine && line <= range.endLine
+  && (line !== range.startLine || range.startColumn === undefined || column >= range.startColumn)
+  && (line !== range.endLine || range.endColumn === undefined || column < range.endColumn)
+);
+
+const spanSize = (range: SourceRange): number =>
+  (range.endLine - range.startLine) * 1_000_000
+  + (range.endColumn ?? 1_000_000) - (range.startColumn ?? 1);
+
+const enclosingSymbol = (
+  path: RepoPath,
+  line: number,
+  column: number,
+  symbolsByPath: ReadonlyMap<RepoPath, readonly RepoMapSymbol[]>,
+): RepoMapSymbol | undefined => {
+  const matching = (symbolsByPath.get(path) ?? [])
+    .filter((symbol) => contains(symbol.range, line, column))
+    .sort((left, right) => spanSize(left.range) - spanSize(right.range) || left.id.localeCompare(right.id));
+  // If two declarations have identical extents, ownership is ambiguous.
+  if (matching.length > 1 && spanSize(matching[0]!.range) === spanSize(matching[1]!.range)) return undefined;
+  return matching[0];
+};
+
 export const buildRepoMapDelta = (
   input: RepoMapStructuralInput,
 ): Effect.Effect<Result<RepoMapDelta, DomainError>> => Effect.gen(function* () {
-  const symbols = input.candidates.flatMap((candidate) => {
+  const symbols = [...new Map(input.candidates.flatMap((candidate) => {
     const symbol = candidateToSymbol(candidate);
-    return symbol === undefined ? [] : [symbol];
-  });
-  const byLocation = new Map<string, RepoMapSymbolId>();
-  for (const symbol of symbols) byLocation.set(symbolLocationKey(symbol), symbol.id);
+    return symbol === undefined ? [] : [[symbol.id, symbol] as const];
+  })).values()];
+  const byPath = new Map<RepoPath, RepoMapSymbol[]>();
+  for (const symbol of symbols) byPath.set(symbol.repoPath, [...(byPath.get(symbol.repoPath) ?? []), symbol]);
   const references = new Map<RepoMapSymbolId, RepoMapReference[]>();
 
   for (const candidate of input.candidates) {
-    const symbol = candidateToSymbol(candidate);
+    const target = candidateToSymbol(candidate);
     const anchor = candidate.semanticAnchor;
     const source = input.sourceBytesByPath.get(candidate.repoPath);
-    if (symbol === undefined || anchor === undefined || source === undefined) continue;
+    if (target === undefined || anchor === undefined || source === undefined) continue;
     const column = utf16ColumnAtUtf8Byte(source, anchor.line, anchor.byteColumn);
     if (column === undefined) {
       return err(domainError('INVALID_RETRIEVAL', candidate.repoPath, 'RepoMap semantic anchor is not valid UTF-8'));
@@ -85,24 +106,27 @@ export const buildRepoMapDelta = (
       ...(input.snapshotIdentity === undefined ? {} : { snapshotIdentity: input.snapshotIdentity }),
     });
     if (result._tag === 'Err') return result;
-    const current = references.get(symbol.id) ?? [];
     for (const reference of result.value) {
-      const targetId = byLocation.get(locationKey(reference.location));
-      if (targetId === undefined) continue;
-      current.push({
-        targetId,
-        kind: reference.isDefinition ? 'definition' : 'reference',
-      });
+      if (reference.isDefinition) continue;
+      const path = reference.location.repoPath as RepoPath;
+      const bytes = input.sourceBytesByPath.get(path);
+      if (bytes === undefined) continue; // never trust references to unverified sources
+      const byteColumn = referenceByteColumn(bytes, reference.location.startLine, reference.location.startColumn);
+      if (byteColumn === undefined) continue;
+      const caller = enclosingSymbol(path, reference.location.startLine, byteColumn, byPath);
+      if (caller === undefined || caller.id === target.id) continue;
+      references.set(caller.id, [
+        ...(references.get(caller.id) ?? []),
+        { targetId: target.id, kind: 'reference' },
+      ]);
     }
-    references.set(symbol.id, current);
   }
 
   return ok({
     upserted: symbols.map((symbol) => ({
       ...symbol,
       references: [...new Map((references.get(symbol.id) ?? []).map((reference) => [
-        `${reference.kind}:${reference.targetId}`,
-        reference,
+        `${reference.kind}:${reference.targetId}`, reference,
       ])).values()].sort((left, right) =>
         left.targetId.localeCompare(right.targetId) || left.kind.localeCompare(right.kind)),
     })),
