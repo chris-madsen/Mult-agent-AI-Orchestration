@@ -315,6 +315,7 @@ const main = async (): Promise<void> => {
         ace_context_enabled: false,
         ace_workspace_root: '/workspace',
         ace_allowed_roots: '/workspace',
+        ace_evidence_source_commit: sourceRevision,
       },
     } as const;
     const common = {
