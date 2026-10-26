@@ -690,40 +690,6 @@ const main = async (): Promise<void> => {
               providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
               trace: providerTrace,
             });
-            const indexed = await Effect.runPromise(verification === 'incremental'
-              ? mutateQdrantChangedPaths(
-                build.index,
-                buildQdrant,
-                embeddings,
-                registered.value.workspaceId,
-                changedPaths,
-                sourceKey,
-                embeddingFingerprint,
-                sparseEmbeddings,
-                {
-                  http,
-                  baseUrl: qdrantUrl,
-                  collection,
-                  allowedHosts: qdrantAllowedHosts,
-                  client: qdrantClient,
-                },
-                new Set(build.coverage.failures.map((failure) => failure.repoPath)),
-              )
-              : reuseOrPopulateQdrantSnapshot(
-                build.index, buildQdrant, embeddings, http, qdrantUrl, collection,
-                registered.value.workspaceId, sourceKey, qdrantAllowedHosts, true, undefined,
-                embeddingFingerprint, previousAlias._tag === 'Ok' ? previousAlias.value : undefined,
-                sparseEmbeddings,
-                qdrantClient,
-                true, // stable physical membership permits mixed index_key values after changed-path publication
-              ));
-            if (indexed._tag === 'Err') return indexed;
-            process.stderr.write(`ace-mcp qdrant candidate verified workspace_id=${registered.value.workspaceId} index_key=${sourceKey} collection=${collection} alias=${currentAlias} reused_vectors=${indexed.value.reusedVectorCount}\n`);
-            if (runtimeTestFailpoint === 'after_qdrant_verify_before_publish') {
-              process.stderr.write('ace test failpoint reached name=after_qdrant_verify_before_publish\n');
-              process.kill(process.pid, 'SIGKILL');
-              throw new Error('test failpoint failed to terminate the process');
-            }
             const sourceFiles = await Effect.runPromise(readVerifiedSemanticSnapshot(
               files, registered.value.rootPath, build.indexedPaths, build.fileManifest,
             ));
@@ -803,6 +769,43 @@ const main = async (): Promise<void> => {
             if (!workspaceManifestEqual(build.workspaceManifest, finalManifest)) {
               semantics.close();
               return err(domainError('WORKTREE_RACED', 'workspace_manifest', 'workspace changed while assembling the semantic snapshot'));
+            }
+            // Verify authoritative source bytes and prepare semantic context before
+            // publishing or pruning Qdrant points. On a raced/failed exact read,
+            // retain the last-known-good physical index for the active generation.
+            const indexed = await Effect.runPromise(verification === 'incremental'
+              ? mutateQdrantChangedPaths(
+                build.index,
+                buildQdrant,
+                embeddings,
+                registered.value.workspaceId,
+                changedPaths,
+                sourceKey,
+                embeddingFingerprint,
+                sparseEmbeddings,
+                {
+                  http,
+                  baseUrl: qdrantUrl,
+                  collection,
+                  allowedHosts: qdrantAllowedHosts,
+                  client: qdrantClient,
+                },
+                new Set(build.coverage.failures.map((failure) => failure.repoPath)),
+              )
+              : reuseOrPopulateQdrantSnapshot(
+                build.index, buildQdrant, embeddings, http, qdrantUrl, collection,
+                registered.value.workspaceId, sourceKey, qdrantAllowedHosts, true, undefined,
+                embeddingFingerprint, previousAlias._tag === 'Ok' ? previousAlias.value : undefined,
+                sparseEmbeddings,
+                qdrantClient,
+                true, // stable physical membership permits mixed index_key values after changed-path publication
+              ));
+            if (indexed._tag === 'Err') { semantics.close(); return indexed; }
+            process.stderr.write(`ace-mcp qdrant candidate verified workspace_id=${registered.value.workspaceId} index_key=${sourceKey} collection=${collection} alias=${currentAlias} reused_vectors=${indexed.value.reusedVectorCount}\n`);
+            if (runtimeTestFailpoint === 'after_qdrant_verify_before_publish') {
+              process.stderr.write('ace test failpoint reached name=after_qdrant_verify_before_publish\n');
+              process.kill(process.pid, 'SIGKILL');
+              throw new Error('test failpoint failed to terminate the process');
             }
             const switched = await Effect.runPromise(switchQdrantAlias(
               http, qdrantUrl, currentAlias, collection, qdrantAllowedHosts, qdrantClient,
