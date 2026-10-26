@@ -1652,7 +1652,7 @@ test('stable warm restart refuses incomplete mixed-key membership and rebuilds',
   )));
   assert.equal(result.reused, false);
   assert.equal(upserts, 1);
-  assert.equal(scrolls, 2);
+  assert.equal(scrolls, 3, 'verify mixed membership, rebuilt membership, and final post-cleanup membership');
   assert.equal(deletes, 1, 'only a fully verified rebuilt workspace may prune obsolete points');
 });
 
@@ -1723,4 +1723,87 @@ test('deleted source must have zero remaining physical Qdrant points', async () 
   ));
   assert.equal(result._tag, 'Err');
   assert.equal(deletions, 1);
+});
+
+
+test('stable warm reuse rejects a falsely successful workspace cleanup', async () => {
+  const index = mustOk(createCodeIndex(2, [candidate]));
+  let cleanups = 0;
+  let scrolls = 0;
+  const qdrant: CodeCandidatePort = {
+    search: () => Effect.succeed(ok([])),
+    upsert: () => { throw new Error('current key membership requires no upsert'); },
+    deleteWorkspaceVersions: () => { cleanups += 1; return Effect.succeed(ok(undefined)); },
+  };
+  const http: HttpPort = {
+    request: (request) => {
+      if (request.url.endsWith('/points/count')) {
+        return Effect.succeed(ok({ status: 200, body: { result: { count: 1 } } }));
+      }
+      scrolls += 1;
+      const filter = request.body?.filter as { must?: Array<{ key: string }> };
+      const filteredByKey = filter.must?.some((condition) => condition.key === 'index_key');
+      return Effect.succeed(ok({
+        status: 200,
+        body: { result: {
+          points: [
+            { payload: { candidate_id: candidate.candidateId } },
+            ...(filteredByKey ? [] : [{ payload: { candidate_id: 'crash-leftover' } }]),
+          ],
+          next_page_offset: null,
+        } },
+      }));
+    },
+  };
+  const result = await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
+    index, qdrant,
+    { embedMany: () => { throw new Error('current index is already fully published'); } },
+    http, 'http://127.0.0.1:6333', 'ace-stable', workspaceId, 'latest-key',
+    [], true, undefined, undefined, undefined, undefined, undefined, true,
+  ));
+  assert.equal(result._tag, 'Err');
+  assert.equal(cleanups, 1);
+  assert.equal(scrolls, 2, 'cleanup acknowledgement must be followed by unfiltered physical verification');
+});
+
+test('stable cold rebuild rejects a falsely successful stale-workspace cleanup', async () => {
+  const index = mustOk(createCodeIndex(2, [candidate]));
+  let cleanups = 0;
+  let scrolls = 0;
+  const qdrant: CodeCandidatePort = {
+    search: () => Effect.succeed(ok([])),
+    upsert: () => Effect.succeed(ok(undefined)),
+    deleteWorkspaceVersions: () => { cleanups += 1; return Effect.succeed(ok(undefined)); },
+  };
+  const http: HttpPort = {
+    request: (request) => {
+      if (request.url.endsWith('/points/count')) {
+        return Effect.succeed(ok({ status: 200, body: { result: { count: 0 } } }));
+      }
+      scrolls += 1;
+      // Before upsert, physical membership is incomplete; after publication
+      // the latest-key filter looks complete while a stale crash point remains.
+      const filter = request.body?.filter as { must?: Array<{ key: string }> };
+      const filteredByKey = filter.must?.some((condition) => condition.key === 'index_key');
+      return Effect.succeed(ok({
+        status: 200,
+        body: { result: {
+          points: [
+            { payload: { candidate_id: candidate.candidateId } },
+            ...(filteredByKey ? [] : [{ payload: { candidate_id: 'crash-leftover' } }]),
+          ],
+          next_page_offset: null,
+        } },
+      }));
+    },
+  };
+  const result = await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
+    index, qdrant,
+    { embedMany: (chunks: readonly string[]) => Effect.succeed(ok(chunks.map(() => [0.2, 0.7]))) },
+    http, 'http://127.0.0.1:6333', 'ace-stable', workspaceId, 'latest-key',
+    [], true, undefined, undefined, undefined, undefined, undefined, true,
+  ));
+  assert.equal(result._tag, 'Err');
+  assert.equal(cleanups, 1);
+  assert.equal(scrolls, 3, 'unfiltered membership must be checked after full publication cleanup');
 });
