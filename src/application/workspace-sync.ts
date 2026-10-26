@@ -10,7 +10,7 @@ import {
   type WorkspaceManifest,
   type WorkspaceManifestDelta,
 } from '../domain/workspace-manifest.js';
-import type { RepoPath, WorkingContext, WorkspaceId } from '../domain/workspace.js';
+import type { FileState, RepoPath, WorkingContext, WorkspaceId } from '../domain/workspace.js';
 
 export interface WorkspaceSyncState {
   readonly workspaceId: WorkspaceId;
@@ -92,7 +92,7 @@ export const observeWorkspaceManifest = (
   if (observation._tag === 'Err') return observation;
 
   const byPath = new Map(current.files.map((file) => [file.repoPath, { ...file }] as const));
-  const renameState = new Map<RepoPath, string>();
+  const renameState = new Map<RepoPath, FileState>();
   for (const entry of observation.value.renamed) {
     if (!includePath(entry.from) && !includePath(entry.to)) continue;
     const prior = byPath.get(entry.from);
