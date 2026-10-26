@@ -427,9 +427,7 @@ const makeCliAstGrepStructuralPort = (options: AstGrepStructuralOptions): Struct
 export const makeAstGrepStructuralPort = (options: AstGrepStructuralOptions): StructuralAnalysisPort => {
   const provider = options.provider ?? 'cli';
   const cli = makeCliAstGrepStructuralPort(options);
-  const napi = makeAstGrepNapiStructuralPort(
-    options.providerVersion === undefined ? {} : { providerVersion: options.providerVersion },
-  );
+  const napi = makeAstGrepNapiStructuralPort();
   if (provider === 'cli') return cli;
   if (provider === 'napi') return napi;
 
