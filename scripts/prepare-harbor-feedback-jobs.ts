@@ -355,7 +355,7 @@ const main = async (): Promise<void> => {
     // Harbor supplies mounts through the CLI --mounts option, not JobConfig.environment.
     // Embed fully shell-quoted arguments so the checkout path cannot inject commands.
     const mounts = JSON.stringify([
-      { type: 'bind', source: sourceRoot, target: '/workspace/repo', read_only: true },
+      { type: 'bind', source: sourceRoot, target: '/evidence/repo', read_only: true },
       { type: 'bind', source: aceRoot, target: '/ace', read_only: true },
     ]);
     const sourceEvidenceEnv = [
