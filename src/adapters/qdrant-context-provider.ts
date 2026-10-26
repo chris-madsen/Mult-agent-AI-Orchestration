@@ -200,6 +200,7 @@ const repoMapKey = (candidate: RankedCandidate['candidate']): string => [
   candidate.range.startColumn ?? '',
   candidate.range.endLine,
   candidate.range.endColumn ?? '',
+  candidate.sourceDigest,
 ].join(':');
 
 export const applyRepoMapPrior = (
@@ -214,6 +215,7 @@ export const applyRepoMapPrior = (
       item.symbol.range.startColumn ?? '',
       item.symbol.range.endLine,
       item.symbol.range.endColumn ?? '',
+      item.symbol.sourceDigest,
     ].join(':'),
     index,
   ]));
@@ -1337,7 +1339,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
               result.value,
               requestWorkingContext,
               input.workingContextHints,
-              retrievalLimit,
+              result.value.length,
             );
             if (activeConfig.repoMap !== undefined) {
               const repoMap = yield* activeConfig.repoMap.render({
@@ -1355,6 +1357,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
                 prioritized = applyRepoMapPrior(prioritized, repoMap.value, retrievalLimit);
               }
             }
+            prioritized = prioritized.slice(0, retrievalLimit);
             recordBenchmarkStage(
               activeConfig.benchmarkTrace,
               activeConfig.benchmarkProviderIdentities,
