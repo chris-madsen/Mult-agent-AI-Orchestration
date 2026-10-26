@@ -1,0 +1,1 @@
+docs/plans/2026-10-26-ace-hermes-economics-and-cleanup-plan.md
