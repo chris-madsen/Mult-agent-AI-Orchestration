@@ -89,10 +89,20 @@ export interface MemorySearchResult {
 
 const nonEmpty = (value: string): boolean => value.trim().length > 0;
 
-export const makeEpisodeId = (value: string): Result<EpisodeId, DomainError> =>
-  nonEmpty(value) ? ok(value.trim() as EpisodeId) : err(domainError('INVALID_MEMORY', 'episode_id', 'episode id must not be empty'));
+export const makeEpisodeId = (value: string): Result<EpisodeId, DomainError> => {
+  // IDs are also archive filenames. A branded ID can still originate in
+  // untrusted runtime data, so separators and control characters are unsafe.
+  if (typeof value !== 'string' || !nonEmpty(value) || value !== value.trim()
+    || value.length > 255 || value.includes('/') || value.includes('\\')
+    || [...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) {
+    return err(domainError('INVALID_MEMORY', 'episode_id', 'episode id must be a non-empty safe filename segment'));
+  }
+  return ok(value as EpisodeId);
+};
 
 export const makeEpisode = (input: SessionEpisode): Result<SessionEpisode, DomainError> => {
+  const id = makeEpisodeId(input.episodeId);
+  if (id._tag === 'Err') return id;
   if (!nonEmpty(input.sessionId) || !nonEmpty(input.sourcePointer)) {
     return err(domainError('INVALID_MEMORY', 'episode', 'session id and source pointer are required'));
   }

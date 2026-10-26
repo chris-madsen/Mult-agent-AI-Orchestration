@@ -6,6 +6,7 @@ import { selectJevRouteOverHttp } from '../src/adapters/jev-route-provider.js';
 import type { HttpPort } from '../src/application/ports.js';
 import { defaultLocalPolicy, type ProjectDataPolicy } from '../src/domain/policy.js';
 import { makeEpisodeId } from '../src/domain/memory.js';
+import { containsLikelySecret } from '../src/domain/sensitive-text.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
 import { ok, type Result } from '../src/domain/result.js';
 
@@ -128,4 +129,19 @@ test('secret-bearing Graphiti HTTP claims are denied before token lookup and HTT
   }
   assert.equal(tokenCalls, 0);
   assert.equal(httpCalls, 0);
+});
+
+test('outbound text guard catches common credential shapes without leaking fixtures', () => {
+  const candidates = [
+    'xoxb-' + '1'.repeat(13) + '-' + '2'.repeat(13) + '-' + 'a'.repeat(26),
+    'gho_' + 'a'.repeat(30),
+    'aws_secret_access_key = ' + 'a'.repeat(40),
+    '-----BEGIN ENCRYPTED PRIVATE KEY-----',
+    'Authorization: Bearer ' + 'a'.repeat(20) + '.' + 'b'.repeat(20) + '.' + 'c'.repeat(20),
+  ];
+  for (const candidate of candidates) assert.equal(containsLikelySecret(candidate), true, candidate.slice(0, 18));
+  for (const ordinary of [
+    'docs explain how to configure a bearer token without showing its value',
+    'src/secret-service.ts exports credentialsProvider()',
+  ]) assert.equal(containsLikelySecret(ordinary), false, ordinary);
 });

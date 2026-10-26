@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rmdir, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
 import { Effect } from 'effect';
 import { domainError } from '../domain/errors.js';
@@ -89,6 +90,30 @@ const parseState = (value: unknown): Result<PersistedState, ReturnType<typeof do
 };
 
 export const makeFileWorkspaceStore = (statePath: string): WorkspaceStore => {
+  const lockPath = `${statePath}.write-lock`;
+  const sleep = (milliseconds: number): Promise<void> =>
+    new Promise<void>((resolve) => { setTimeout(resolve, milliseconds); });
+  // mkdir is atomic across independent Node processes on the same local FS.
+  // Never steal a suspected stale lock: an ambiguous writer must fail closed.
+  const withWriteFence = async <T>(operation: () => Promise<T>): Promise<T> => {
+    await mkdir(dirname(statePath), { recursive: true });
+    const deadline = Date.now() + 20_000;
+    while (true) {
+      try {
+        await mkdir(lockPath);
+        break;
+      } catch (cause) {
+        if (nodeErrorCode(cause) !== 'EEXIST') throw cause;
+        if (Date.now() >= deadline) throw new Error('workspace state write fence remained held');
+        await sleep(30);
+      }
+    }
+    try {
+      return await operation();
+    } finally {
+      await rmdir(lockPath);
+    }
+  };
   const load = (): Effect.Effect<Result<PersistedState, ReturnType<typeof domainError>>> =>
     recoverResult(Effect.tryPromise<Result<PersistedState, DomainError>, DomainError>({
       try: async () => {
@@ -108,7 +133,7 @@ export const makeFileWorkspaceStore = (statePath: string): WorkspaceStore => {
     recoverResult(Effect.tryPromise<Result<void, DomainError>, DomainError>({
       try: async () => {
         await mkdir(dirname(statePath), { recursive: true });
-        const temporary = `${statePath}.tmp`;
+        const temporary = `${statePath}.${randomUUID()}.tmp`;
         await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
         await rename(temporary, statePath);
         return ok<void>(undefined);
@@ -133,11 +158,26 @@ export const makeFileWorkspaceStore = (statePath: string): WorkspaceStore => {
         return ok(state.value.workspaces.find((item) => item.rootPath === rootPath));
       }),
     save: (record: WorkspaceRecord) =>
-      Effect.gen(function* () {
-        const state = yield* load();
-        if (isErr(state)) return state;
-        const workspaces = state.value.workspaces.filter((item) => item.workspaceId !== record.workspaceId);
-        return yield* saveState({ schemaVersion: 1, workspaces: [...workspaces, record] });
-      }),
+      recoverResult(Effect.tryPromise<Result<void, DomainError>, DomainError>({
+        try: () => withWriteFence(async () => {
+          // Re-read under the cross-process fence. A read-modify-write from
+          // before acquiring the lock would still lose concurrent updates.
+          const state = await Effect.runPromise(load());
+          if (isErr(state)) return state;
+          const existing = state.value.workspaces.find((item) => item.workspaceId === record.workspaceId);
+          if (existing === undefined) {
+            if (record.observationEpoch !== 0
+              || state.value.workspaces.some((item) => item.rootPath === record.rootPath)) {
+              return err(domainError('WORKTREE_RACED', 'workspace', 'new workspace registration conflicts with committed state'));
+            }
+          } else if (existing.rootPath !== record.rootPath
+            || record.observationEpoch !== existing.observationEpoch + 1) {
+            return err(domainError('WORKTREE_RACED', 'observation_epoch', 'workspace update conflicts with a newer persisted observation'));
+          }
+          const workspaces = state.value.workspaces.filter((item) => item.workspaceId !== record.workspaceId);
+          return Effect.runPromise(saveState({ schemaVersion: 1, workspaces: [...workspaces, record] }));
+        }),
+        catch: () => domainError('PERSISTENCE_FAILED', 'state', 'workspace state mutation or write fence failed'),
+      })),
   };
 };

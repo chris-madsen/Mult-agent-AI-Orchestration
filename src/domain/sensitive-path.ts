@@ -9,6 +9,9 @@ const sensitiveBasenames = new Set([
   '.npmrc',
   '.pypirc',
   '.netrc',
+  '.envrc',
+  '.vault-token',
+  'application_default_credentials.json',
 ]);
 
 const sensitiveDirectories = new Set([
@@ -18,6 +21,11 @@ const sensitiveDirectories = new Set([
   '.secrets',
   'credentials',
   '.credentials',
+  '.aws',
+  '.azure',
+  '.kube',
+  '.gnupg',
+  '.docker',
 ]);
 
 const credentialDocument = /^(?:service[-_.]?account(?:[-_.].*)?|credentials?)(?:\.json|\.ya?ml|\.toml)$/iu;
@@ -26,8 +34,11 @@ export const isSensitiveSourcePath = (repoPath: string): boolean => {
   const normalized = repoPath.replaceAll('\\', '/');
   const parts = normalized.split('/').filter((part) => part.length > 0);
   if (parts.some((part) => sensitiveDirectories.has(part.toLocaleLowerCase()))) return true;
+  if (normalized.toLocaleLowerCase().split('/').some((part, index, all) =>
+    part === '.config' && all[index + 1]?.toLocaleLowerCase() === 'gcloud')) return true;
   const basename = parts.at(-1)?.toLocaleLowerCase() ?? '';
   if (basename === '.env' || basename.startsWith('.env.')) return true;
+  if (basename.endsWith('.tfstate') || basename.includes('.tfstate.')) return true;
   if (sensitiveBasenames.has(basename) || privateKeyNames.has(basename)) return true;
   if (basename.endsWith('.secret')
     || basename.endsWith('.pem')
