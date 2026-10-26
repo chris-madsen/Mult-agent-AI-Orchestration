@@ -3,7 +3,7 @@ import type { StructuralAnalysis, StructuralSymbol } from '../domain/semantic.js
 export interface SymbolParityDifference {
   readonly repoPath: string;
   readonly kind: 'missing_from_cli' | 'missing_from_napi' | 'range_mismatch' | 'export_mismatch'
-    | 'import_mismatch' | 'syntax_mismatch' | 'source_mismatch' | 'path_mismatch';
+  | 'import_mismatch' | 'syntax_mismatch' | 'source_mismatch' | 'path_mismatch';
   readonly name: string;
   readonly detail: string;
 }
