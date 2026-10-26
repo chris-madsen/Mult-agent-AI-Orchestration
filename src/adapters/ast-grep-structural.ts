@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { extname, join, resolve } from 'node:path';
+import { extname, join, resolve as resolvePath } from 'node:path';
 import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { makeStructuralAnalysis, type StructuralAnalysis, type StructuralKind, type StructuralSymbol } from '../domain/semantic.js';
@@ -312,7 +312,7 @@ const extractBatch = async (
       // The private filename does not contain the untrusted repository path.
       const path = join(directory, String(index) + extname(input.repoPath));
       await writeFile(path, Buffer.from(input.source), { mode: 0o600 });
-      staged.set(resolve(path), index);
+      staged.set(resolvePath(path), index);
       filePaths.push(path);
     }
     for (let offset = 0; offset < filePaths.length; offset += outlineBatchSize) {
@@ -329,7 +329,7 @@ const extractBatch = async (
           if (typeof object !== 'object' || object === null || typeof object.path !== 'string') {
             throw new Error('ast-grep batch result is missing file path');
           }
-          const index = staged.get(resolve(object.path));
+          const index = staged.get(resolvePath(object.path));
           if (index === undefined || seen.has(index)) throw new Error('ast-grep batch returned unexpected/duplicate path');
           seen.add(index);
           const input = inputs[index]!;
@@ -339,7 +339,7 @@ const extractBatch = async (
       } catch {
         // Fail closed for this batch, preserving independently parsed batches.
         for (const path of paths) {
-          const index = staged.get(resolve(path));
+          const index = staged.get(resolvePath(path));
           if (index !== undefined) {
             result[index] = err(domainError('UNSUPPORTED_PROVIDER', 'ast_grep', 'batch outline failed or returned inconsistent results'));
           }
