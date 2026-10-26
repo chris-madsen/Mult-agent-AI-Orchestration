@@ -7,6 +7,9 @@ The unified plan merges the five post-merge correctness tracks with the full ACE
 **Scoped benchmark remediation (proposal, not a competing production queue):**
 - [2026-10-26 — ACE/Hermes token-economics and benchmark cleanup plan](./2026-10-26-ace-hermes-economics-and-cleanup-plan.md) — one real Hermes A/B first, root `plan.md` approval entrypoint, separate dependency-backed cleanup; paired [review](../reviews/2026-10-26-ace-hermes-token-economics-and-benchmark-bloat-review.md). Tracked in Issue #171. **Not yet owner-approved or real-provider-tested.**
 
+**Active retrieval execution queue:**
+- [2026-10-26 — Post-#177 retrieval execution plan](./2026-10-26-retrieval-post-177-execution-plan.md) — concrete PR-by-PR implementation order after the merged NAPI/Qdrant foundation: changed-only sync, real Aider RepoMap, Claw-style LSP lifecycle, one ContextAssembler, then real Hermes A/B and negative-diff cleanup.
+
 **Scoped retrieval simplification (proposal):**
 - [2026-10-26 — Aider + Claw retrieval composition](./2026-10-26-aider-claw-retrieval-composition-plan.md) — compose Aider RepoMap, in-process ast-grep CST/AST, the existing real ACE LSP path, Claw-style incremental ingest, the official Qdrant client and a single token-budgeted context assembler. Designed to replace rather than extend the current retrieval scaffolding.
 
