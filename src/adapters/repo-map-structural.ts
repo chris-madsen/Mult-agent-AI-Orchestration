@@ -39,14 +39,9 @@ const candidateToSymbol = (candidate: CodeCandidate): RepoMapSymbol | undefined 
 // dependencies that A calls. Attribute each reference occurrence to its
 // enclosing caller B and add B -> A. LSP columns are UTF-16; structural
 // source ranges are UTF-8 bytes, so convert before locating the owner.
-const sourceLineAt = (bytes: Uint8Array, line: number): string | undefined => {
+const referenceByteColumn = (lines: readonly string[], line: number, column: number): number | undefined => {
   if (!Number.isSafeInteger(line) || line < 1) return undefined;
-  const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  return decoded.split('\n')[line - 1]?.replace(/\r$/u, '');
-};
-
-const referenceByteColumn = (bytes: Uint8Array, line: number, column: number): number | undefined => {
-  const source = sourceLineAt(bytes, line);
+  const source = lines[line - 1];
   if (source === undefined || !Number.isSafeInteger(column) || column < 1 || column > source.length + 1) return undefined;
   const prefix = source.slice(0, column - 1);
   // Reject a UTF-16 position inside a surrogate pair.
@@ -87,6 +82,15 @@ export const buildRepoMapDelta = (
   })).values()];
   const byPath = new Map<RepoPath, RepoMapSymbol[]>();
   for (const symbol of symbols) byPath.set(symbol.repoPath, [...(byPath.get(symbol.repoPath) ?? []), symbol]);
+  // Parsing a whole source file for each returned LSP reference would turn
+  // graph assembly into O(references * source_bytes) rather than O(source_bytes).
+  const sourceLines = new Map<RepoPath, readonly string[]>(
+    [...input.sourceBytesByPath].map(([path, bytes]) => [
+      path,
+      new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+        .split('\n').map((line) => line.replace(/\r$/u, '')),
+    ]),
+  );
   const references = new Map<RepoMapSymbolId, RepoMapReference[]>();
 
   for (const candidate of input.candidates) {
@@ -109,9 +113,9 @@ export const buildRepoMapDelta = (
     for (const reference of result.value) {
       if (reference.isDefinition) continue;
       const path = reference.location.repoPath as RepoPath;
-      const bytes = input.sourceBytesByPath.get(path);
-      if (bytes === undefined) continue; // never trust references to unverified sources
-      const byteColumn = referenceByteColumn(bytes, reference.location.startLine, reference.location.startColumn);
+      const lines = sourceLines.get(path);
+      if (lines === undefined) continue; // never trust references to unverified sources
+      const byteColumn = referenceByteColumn(lines, reference.location.startLine, reference.location.startColumn);
       if (byteColumn === undefined) continue;
       const caller = enclosingSymbol(path, reference.location.startLine, byteColumn, byPath);
       if (caller === undefined || caller.id === target.id) continue;
