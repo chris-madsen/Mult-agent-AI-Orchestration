@@ -888,12 +888,13 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
           const refreshed = yield* activeConfig.workspaceSync.refresh();
           if (refreshed._tag === 'Err') return refreshed;
           requestWorkingContext = refreshed.value.workingContext;
-          if (refreshed.value.refreshed) {
+          const configBehindSync = refreshed.value.state.indexKey !== activeConfig.indexKey;
+          if (refreshed.value.refreshed || configBehindSync) {
             if (activeConfig.reconcile === undefined) {
               return err(domainError(
                 'NOT_READY',
                 'workspace_manifest',
-                'authoritative workspace changed; indexed context requires reconciliation before complete delivery',
+                'workspace synchronization is ahead of the active provider config; reconciliation is required before delivery',
               ));
             }
             const reconciled = yield* activeConfig.reconcile(
