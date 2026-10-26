@@ -196,13 +196,22 @@ export const buildLocalCodeIndex = (
     const warnings: string[] = [];
     const indexedPaths: RepoPath[] = [];
     const coverageFailures: IndexCoverageFailure[] = [];
-    const fileManifest = new Map<RepoPath, { sourceDigest: ContentDigest; candidateIds: CandidateId[] }>();
+    const fileManifest = new Map<RepoPath, {
+      sourceDigest: ContentDigest;
+      candidateIds: CandidateId[];
+      sizeBytes: number;
+      parserVersion: string;
+      scopeFingerprint: string;
+    }>();
     let attemptedPaths = 0;
     let policyExcludedPaths = 0;
     let outOfScopePaths = 0;
     const previous = options.previous;
     const canReusePreviousFiles = previous !== undefined
-      && previous.workspaceManifest.scopeFingerprint === workspaceManifest.scopeFingerprint;
+      && previous.workspaceManifest.scopeFingerprint === workspaceManifest.scopeFingerprint
+      && previous.fileManifest.every((file) =>
+        file.parserVersion === parserVersion
+        && file.scopeFingerprint === workspaceManifest.scopeFingerprint);
     const previousFiles = new Map(previous?.fileManifest.map((file) => [file.repoPath, file] as const) ?? []);
     const previousCandidates = new Map<RepoPath, readonly CodeCandidate[]>(
       [...(previous?.index.candidates ?? [])].reduce((entries, candidate) => {
@@ -277,6 +286,9 @@ export const buildLocalCodeIndex = (
         fileManifest.set(observation.repoPath, {
           sourceDigest: observation.digest,
           candidateIds: [...(previousCandidates.get(observation.repoPath) ?? [])].map((candidate) => candidate.candidateId),
+          sizeBytes: observation.sizeBytes,
+          parserVersion,
+          scopeFingerprint: workspaceManifest.scopeFingerprint,
         });
         if (previous?.indexedPaths.includes(observation.repoPath)) indexedPaths.push(observation.repoPath);
         continue;
@@ -299,6 +311,9 @@ export const buildLocalCodeIndex = (
       fileManifest.set(observation.repoPath, {
         sourceDigest: exact.value.digest,
         candidateIds: [],
+        sizeBytes: observation.sizeBytes,
+        parserVersion,
+        scopeFingerprint: workspaceManifest.scopeFingerprint,
       });
       const decoded = decodeStrictSourceText(exact.value.bytes);
       if (decoded._tag === 'Err') {
@@ -418,6 +433,9 @@ export const buildLocalCodeIndex = (
           repoPath,
           sourceDigest: value.sourceDigest,
           candidateIds: [...value.candidateIds].sort(),
+          sizeBytes: value.sizeBytes,
+          parserVersion: value.parserVersion,
+          scopeFingerprint: value.scopeFingerprint,
         }))
         .sort((left, right) => left.repoPath.localeCompare(right.repoPath)),
       workspaceManifest,

@@ -86,6 +86,12 @@ export interface IndexFileIdentity {
   readonly repoPath: RepoPath;
   readonly sourceDigest: ContentDigest;
   readonly candidateIds: readonly CandidateId[];
+  /** Cheap observed state retained only as a cache/reuse discriminator. */
+  readonly sizeBytes?: number;
+  /** Structural parser/grammar identity; parser changes invalidate warm reuse. */
+  readonly parserVersion?: string;
+  /** Include/exclude scope identity; scope changes invalidate warm reuse. */
+  readonly scopeFingerprint?: string;
 }
 
 export interface IndexCoverageSummary {
