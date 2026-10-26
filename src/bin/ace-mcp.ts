@@ -715,6 +715,7 @@ const main = async (): Promise<void> => {
                 embeddingFingerprint, previousAlias._tag === 'Ok' ? previousAlias.value : undefined,
                 sparseEmbeddings,
                 qdrantClient,
+                true, // stable physical membership permits mixed index_key values after changed-path publication
               ));
             if (indexed._tag === 'Err') return indexed;
             process.stderr.write(`ace-mcp qdrant candidate verified workspace_id=${registered.value.workspaceId} index_key=${sourceKey} collection=${collection} alias=${currentAlias} reused_vectors=${indexed.value.reusedVectorCount}\n`);
