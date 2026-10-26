@@ -49,6 +49,7 @@ test('NodeWorkspacePort observes changed, added, deleted, and renamed paths with
     assert.deepEqual(observed.value.addedPaths, ['src/added.ts']);
     assert.deepEqual(observed.value.deletedPaths, ['src/deleted.ts']);
     assert.deepEqual(observed.value.renamed, [{ from: 'src/renamed.ts', to: 'src/moved.ts' }]);
+    assert.deepEqual(observed.value.untrackedPaths, []);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

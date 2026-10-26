@@ -3,8 +3,13 @@ import test from 'node:test';
 import { Effect } from 'effect';
 import { ok } from '../src/domain/result.js';
 import { makeWorkspaceId, type RepoPath } from '../src/domain/workspace.js';
-import { makeWorkspaceSync, type WorkspaceSyncState } from '../src/application/workspace-sync.js';
-import type { WorkspaceManifest } from '../src/domain/workspace-manifest.js';
+import {
+  makeWorkspaceSync,
+  observeWorkspaceManifest,
+  type WorkspaceSyncState,
+} from '../src/application/workspace-sync.js';
+import { workspaceManifestFromFiles, type WorkspaceManifest } from '../src/domain/workspace-manifest.js';
+import type { WorkspaceFilePort } from '../src/application/ports.js';
 
 const workspaceId = (() => {
   const result = makeWorkspaceId('workspace-sync-contract');
@@ -15,8 +20,12 @@ const workspaceId = (() => {
 const path = (value: string): RepoPath => value as RepoPath;
 const digest = (value: string): `${string}` => value.repeat(64) as `${string}`;
 
-const manifest = (repoPath: string, sourceDigest: string): WorkspaceManifest => ({
-  schemaVersion: 1,
+const manifest = (
+  repoPath: string,
+  sourceDigest: string,
+  headRevision = 'a'.repeat(40),
+): WorkspaceManifest => workspaceManifestFromFiles({
+  headRevision,
   scopeFingerprint: 'scope-v1',
   files: [{
     repoPath: path(repoPath),
@@ -24,8 +33,6 @@ const manifest = (repoPath: string, sourceDigest: string): WorkspaceManifest => 
     sizeBytes: 1,
     state: 'tracked',
   }],
-  removedPaths: [],
-  contentIdentity: `${repoPath}:${sourceDigest}`,
 });
 
 const initialState = (source: WorkspaceManifest): WorkspaceSyncState => ({
@@ -121,3 +128,76 @@ test('WorkspaceSync rejects a rebuild whose manifest is already stale', async ()
 });
 
 
+
+
+test('WorkspaceSync advances the active HEAD without rebuilding when source content is identical', async () => {
+  const first = manifest('src/one.ts', 'a', 'a'.repeat(40));
+  const sameContentNewHead = manifest('src/one.ts', 'a', 'b'.repeat(40));
+  const seenHeads: string[] = [];
+  let calls = 0;
+  const owner = makeWorkspaceSync({
+    initial: initialState(first),
+    observeChanges: (current) => {
+      seenHeads.push(current.workspaceManifest.headRevision);
+      calls += 1;
+      return Effect.succeed(ok(calls === 1
+        ? { changed: true, manifest: sameContentNewHead }
+        : { changed: false }));
+    },
+    rebuild: () => {
+      throw new Error('content-identical HEAD advance must not rebuild');
+    },
+  });
+
+  const advanced = await Effect.runPromise(owner.refresh());
+  assert.equal(advanced._tag, 'Ok');
+  if (advanced._tag === 'Ok') {
+    assert.equal(advanced.value.refreshed, false);
+    assert.equal(advanced.value.state.workspaceManifest.headRevision, 'b'.repeat(40));
+  }
+  await Effect.runPromise(owner.refresh());
+  assert.deepEqual(seenHeads, ['a'.repeat(40), 'b'.repeat(40)]);
+});
+
+test('changed-path observation exact-reads only affected files and does not rebuild an unchanged dirty file', async () => {
+  const source = Buffer.from('export const value = 2;\n');
+  const sourceDigest = digest('b') as never;
+  const current = workspaceManifestFromFiles({
+    headRevision: 'a'.repeat(40),
+    scopeFingerprint: 'scope-v1',
+    files: [{
+      repoPath: path('src/one.ts'),
+      sourceDigest,
+      sizeBytes: source.byteLength,
+      state: 'tracked',
+    }],
+  });
+  let reads = 0;
+  const files: WorkspaceFilePort = {
+    canonicalizeRoot: () => { throw new Error('not used'); },
+    snapshot: () => { throw new Error('changed-path observation must not snapshot the repository'); },
+    observeChanges: (_root, previousHead) => {
+      assert.equal(previousHead, current.headRevision);
+      return Effect.succeed(ok({
+        headRevision: current.headRevision,
+        changedPaths: [path('src/one.ts')],
+        addedPaths: [],
+        deletedPaths: [],
+        renamed: [],
+      }));
+    },
+    readExact: (_root, repoPath) => {
+      reads += 1;
+      assert.equal(repoPath, path('src/one.ts'));
+      return Effect.succeed(ok({ bytes: source, digest: sourceDigest }));
+    },
+  };
+
+  const observed = await Effect.runPromise(observeWorkspaceManifest(files, '/repo', current));
+  assert.equal(observed._tag, 'Ok');
+  if (observed._tag === 'Ok') {
+    assert.equal(observed.value.changed, false);
+    assert.deepEqual(observed.value.delta?.changed, []);
+  }
+  assert.equal(reads, 1);
+});

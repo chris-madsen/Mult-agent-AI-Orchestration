@@ -188,17 +188,15 @@ const observeGitChanges = async (
       if (repoPath._tag === 'Err') return repoPath;
       added.add(repoPath.value);
     }
+    const untrackedPaths = gitPaths(untracked);
+    if (untrackedPaths._tag === 'Err') return untrackedPaths;
     return ok({
       headRevision,
       changedPaths: [...changed].sort(),
       addedPaths: [...added].filter((path) => !changed.has(path)).sort(),
       deletedPaths: [...deleted].sort(),
       renamed: renamed.sort((left, right) => left.from.localeCompare(right.from)),
-      untrackedPaths: [...untracked]
-        .map((value) => ingestRepoPath(value))
-        .filter((value): value is Extract<typeof value, { readonly _tag: 'Ok' }> => value._tag === 'Ok')
-        .map((value) => value.value)
-        .sort(),
+      untrackedPaths: untrackedPaths.value,
     });
   } catch {
     return errorResult('SNAPSHOT_FAILED', 'git', 'Git change observation failed');
