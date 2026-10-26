@@ -218,6 +218,8 @@ export interface WorkspaceChangeObservation {
   readonly addedPaths: readonly RepoPath[];
   readonly deletedPaths: readonly RepoPath[];
   readonly renamed: readonly { readonly from: RepoPath; readonly to: RepoPath }[];
+  /** Current untracked paths, used to classify newly materialized file state. */
+  readonly untrackedPaths?: readonly RepoPath[];
 }
 
 export interface WorkspaceFilePort {

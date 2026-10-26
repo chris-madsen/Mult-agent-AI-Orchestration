@@ -284,9 +284,11 @@ const parseChangeObservation = (value: HostWorktreeValue): Result<WorkspaceChang
   const changed = parsePaths(raw.changedPaths);
   const added = parsePaths(raw.addedPaths);
   const deleted = parsePaths(raw.deletedPaths);
+  const untracked = raw.untrackedPaths === undefined ? ok<RepoPath[]>([]) : parsePaths(raw.untrackedPaths);
   if (changed._tag === 'Err') return changed;
   if (added._tag === 'Err') return added;
   if (deleted._tag === 'Err') return deleted;
+  if (untracked._tag === 'Err') return untracked;
   if (!Array.isArray(raw.renamed)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'observe_changes.renamed', 'renamed paths must be an array'));
   const renamed: WorkspaceChangeObservation['renamed'][number][] = [];
   for (const item of raw.renamed) {
@@ -296,7 +298,14 @@ const parseChangeObservation = (value: HostWorktreeValue): Result<WorkspaceChang
     if (from._tag === 'Err' || to._tag === 'Err') return err(domainError('INVALID_EXTERNAL_RESPONSE', 'observe_changes.renamed', 'rename path is invalid'));
     renamed.push({ from: from.value, to: to.value });
   }
-  return ok({ headRevision: raw.headRevision, changedPaths: changed.value, addedPaths: added.value, deletedPaths: deleted.value, renamed });
+  return ok({
+    headRevision: raw.headRevision,
+    changedPaths: changed.value,
+    addedPaths: added.value,
+    deletedPaths: deleted.value,
+    renamed,
+    untrackedPaths: untracked.value,
+  });
 };
 
 export const makeHostWorkspacePort = (

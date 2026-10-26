@@ -2,9 +2,11 @@ import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import type { CandidateId, RankedCandidate } from '../domain/retrieval.js';
+import type { WorkspaceFilePort } from './ports.js';
 import {
   diffWorkspaceManifests,
   workspaceManifestEqual,
+  workspaceManifestFromFiles,
   type WorkspaceManifest,
   type WorkspaceManifestDelta,
 } from '../domain/workspace-manifest.js';
@@ -34,7 +36,7 @@ export interface WorkspaceSyncRebuildInput {
 
 export interface WorkspaceSyncOptions {
   readonly initial: WorkspaceSyncState;
-  readonly observeChanges: () => Effect.Effect<Result<WorkspaceSyncProbe, DomainError>>;
+  readonly observeChanges: (current: WorkspaceSyncState) => Effect.Effect<Result<WorkspaceSyncProbe, DomainError>>;
   readonly rebuild: (
     input: WorkspaceSyncRebuildInput,
   ) => Effect.Effect<Result<WorkspaceSyncState, DomainError>>;
@@ -69,6 +71,73 @@ const candidateIdsByPath = (
 
 export const candidateMembershipByPath = candidateIdsByPath;
 
+
+const emptyDelta = (): WorkspaceSyncDelta => ({
+  changed: [], added: [], deleted: [], renamed: [], scopeChanged: false,
+});
+
+const deltaHasChanges = (delta: WorkspaceSyncDelta): boolean =>
+  delta.scopeChanged || delta.changed.length > 0 || delta.added.length > 0
+  || delta.deleted.length > 0 || delta.renamed.length > 0;
+
+export const observeWorkspaceManifest = (
+  files: WorkspaceFilePort,
+  rootPath: string,
+  current: WorkspaceManifest,
+  includePath: (repoPath: RepoPath) => boolean = () => true,
+): Effect.Effect<Result<WorkspaceSyncProbe, DomainError>> => Effect.gen(function* () {
+  const observation = yield* files.observeChanges(rootPath, current.headRevision);
+  if (observation._tag === 'Err') return observation;
+
+  const byPath = new Map(current.files.map((file) => [file.repoPath, { ...file }] as const));
+  const renameState = new Map<RepoPath, string>();
+  for (const entry of observation.value.renamed) {
+    const prior = byPath.get(entry.from);
+    if (prior !== undefined) renameState.set(entry.to, prior.state);
+    byPath.delete(entry.from);
+  }
+  for (const repoPath of observation.value.deletedPaths) byPath.delete(repoPath);
+
+  const deleted = new Set(observation.value.deletedPaths);
+  const renamedFrom = new Set(observation.value.renamed.map((entry) => entry.from));
+  const untracked = new Set(observation.value.untrackedPaths ?? []);
+  const toRead = new Set<RepoPath>([
+    ...observation.value.changedPaths,
+    ...observation.value.addedPaths,
+    ...observation.value.renamed.map((entry) => entry.to),
+  ]);
+
+  for (const repoPath of [...toRead].sort()) {
+    if (deleted.has(repoPath) || renamedFrom.has(repoPath) || !includePath(repoPath)) continue;
+    const exact = yield* files.readExact(rootPath, repoPath);
+    if (exact._tag === 'Err') {
+      return exact.error.code === 'FILE_NOT_FOUND'
+        ? err(domainError('WORKTREE_RACED', 'repo_path', 'workspace path changed after Git observation'))
+        : exact;
+    }
+    const prior = byPath.get(repoPath);
+    byPath.set(repoPath, {
+      repoPath,
+      sourceDigest: exact.value.digest,
+      sizeBytes: exact.value.bytes.byteLength,
+      state: untracked.has(repoPath) ? 'untracked' : prior?.state ?? renameState.get(repoPath) ?? 'tracked',
+    });
+  }
+
+  const manifest = workspaceManifestFromFiles({
+    headRevision: observation.value.headRevision,
+    scopeFingerprint: current.scopeFingerprint,
+    files: [...byPath.values()],
+    removedPaths: observation.value.deletedPaths,
+  });
+  const delta = diffWorkspaceManifests(current, manifest);
+  return ok({
+    changed: manifest.headRevision !== current.headRevision || deltaHasChanges(delta),
+    manifest,
+    delta,
+  });
+});
+
 export const makeWorkspaceSync = (options: WorkspaceSyncOptions): WorkspaceSync => {
   let active = options.initial;
   let queue = Promise.resolve();
@@ -83,13 +152,13 @@ export const makeWorkspaceSync = (options: WorkspaceSyncOptions): WorkspaceSync 
     initialize: () => Effect.succeed(ok(active)),
     refresh: (provided) => Effect.promise(() => enqueue<WorkspaceSyncRefreshResult>(async () => {
       const probe = provided === undefined
-        ? await Effect.runPromise(options.observeChanges())
+        ? await Effect.runPromise(options.observeChanges(active))
         : ok({ changed: true, manifest: provided.manifest, delta: provided.delta });
       if (probe._tag === 'Err') return probe;
       if (!probe.value.changed) {
         return ok({
           state: active,
-          delta: { changed: [], added: [], deleted: [], renamed: [], scopeChanged: false },
+          delta: emptyDelta(),
           refreshed: false,
         });
       }
@@ -99,6 +168,9 @@ export const makeWorkspaceSync = (options: WorkspaceSyncOptions): WorkspaceSync 
       const manifest = probe.value.manifest;
       const delta = probe.value.delta ?? diffWorkspaceManifests(active.workspaceManifest, manifest);
       if (workspaceManifestEqual(active.workspaceManifest, manifest)) {
+        if (active.workspaceManifest.headRevision !== manifest.headRevision) {
+          active = { ...active, workspaceManifest: manifest };
+        }
         return ok({ state: active, delta, refreshed: false });
       }
       const rebuilt = await Effect.runPromise(options.rebuild({
