@@ -255,6 +255,7 @@ export const buildLocalCodeIndex = (
     if (options.structural === undefined) {
       warnings.push('Structural provider is not configured; no parser fallback is used');
     }
+    const pendingStructural: { readonly repoPath: RepoPath; readonly bytes: Uint8Array; readonly digest: ContentDigest }[] = [];
     for (const observation of snapshot.value.files) {
       // Explicitly enforce the default local source exclusions before source text
       // can reach an embedding provider. Filtering just on extension is unsafe.
@@ -311,42 +312,55 @@ export const buildLocalCodeIndex = (
         continue;
       }
 
-      let spans: readonly Span[];
-      if (options.structural !== undefined) {
-        if (structuralLanguageForPath(observation.repoPath) === undefined) {
-          warnings.push(observation.repoPath + ': ast-grep language not configured for this language');
-          coverageFailures.push({ repoPath: observation.repoPath, kind: 'unsupported_parser' });
-          continue;
-        }
-        const analyzed = yield* options.structural.extract({ repoPath: observation.repoPath, source: exact.value.bytes });
-        if (analyzed._tag === 'Err') {
-          warnings.push(observation.repoPath + ': structural provider unavailable (' + analyzed.error.code + ')');
-          coverageFailures.push({ repoPath: observation.repoPath, kind: 'structural_failed', code: analyzed.error.code });
-          continue;
-        }
-        const analyzedValue = analyzed.value;
-        if (analyzedValue.sourceDigest !== exact.value.digest) {
-          warnings.push(observation.repoPath + ': structural source digest mismatch');
-          coverageFailures.push({ repoPath: observation.repoPath, kind: 'digest_mismatch' });
-          continue;
-        }
-        if (analyzedValue.hasSyntaxErrors) {
-          warnings.push(observation.repoPath + ': structural provider reports syntax errors; parseable symbols are partial evidence');
-          coverageFailures.push({ repoPath: observation.repoPath, kind: 'parser_partial' });
-        }
-        spans = structuralSpans(exact.value.bytes, analyzedValue.symbols);
-      } else {
+      if (options.structural === undefined) {
         warnings.push(observation.repoPath + ': structural provider is not configured; file skipped');
         coverageFailures.push({ repoPath: observation.repoPath, kind: 'structural_failed', code: 'PROVIDER_NOT_CONFIGURED' });
         continue;
       }
+      if (structuralLanguageForPath(observation.repoPath) === undefined) {
+        warnings.push(observation.repoPath + ': ast-grep language not configured for this language');
+        coverageFailures.push({ repoPath: observation.repoPath, kind: 'unsupported_parser' });
+        continue;
+      }
+      pendingStructural.push({ repoPath: observation.repoPath, bytes: exact.value.bytes, digest: exact.value.digest });
+    }
+    const batched = options.structural?.extractMany === undefined || pendingStructural.length === 0
+      ? undefined
+      : yield* options.structural.extractMany(pendingStructural.map((item) => ({
+        repoPath: item.repoPath, source: item.bytes,
+      })));
+    if (batched !== undefined && batched.length !== pendingStructural.length) {
+      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'ast_grep', 'batch must return exactly one result per input'));
+    }
+    for (const [position, pending] of pendingStructural.entries()) {
+      // The batch parser consumes the exact bytes read through WorkspaceFilePort,
+      // not an opportunistically re-opened/possibly changed source file.
+      const analyzed = batched === undefined
+        ? yield* options.structural!.extract({ repoPath: pending.repoPath, source: pending.bytes })
+        : batched[position]!;
+      if (analyzed._tag === 'Err') {
+        warnings.push(pending.repoPath + ': structural provider unavailable (' + analyzed.error.code + ')');
+        coverageFailures.push({ repoPath: pending.repoPath, kind: 'structural_failed', code: analyzed.error.code });
+        continue;
+      }
+      const analyzedValue = analyzed.value;
+      if (analyzedValue.sourceDigest !== pending.digest) {
+        warnings.push(pending.repoPath + ': structural source digest mismatch');
+        coverageFailures.push({ repoPath: pending.repoPath, kind: 'digest_mismatch' });
+        continue;
+      }
+      if (analyzedValue.hasSyntaxErrors) {
+        warnings.push(pending.repoPath + ': structural provider reports syntax errors; parseable symbols are partial evidence');
+        coverageFailures.push({ repoPath: pending.repoPath, kind: 'parser_partial' });
+      }
+      const spans = structuralSpans(pending.bytes, analyzedValue.symbols);
       for (const span of spans) {
-        const id = makeCandidateId(candidateId(workspaceId, observation.repoPath, exact.value.digest, span));
+        const id = makeCandidateId(candidateId(workspaceId, pending.repoPath, pending.digest, span));
         if (id._tag === 'Err') return id;
         const candidate = makeCodeCandidate({
           candidateId: id.value,
           workspaceId,
-          repoPath: observation.repoPath,
+          repoPath: pending.repoPath,
           range: span.range,
           symbolName: span.name,
           structuralKind: span.kind,
@@ -354,7 +368,7 @@ export const buildLocalCodeIndex = (
           ...(span.isExported === undefined ? {} : { structuralExported: span.isExported }),
           ...(span.semanticAnchor === undefined ? {} : { semanticAnchor: span.semanticAnchor }),
           text: span.content,
-          sourceDigest: exact.value.digest,
+          sourceDigest: pending.digest,
           generation,
           indexedAtMs: Date.now(),
         });
@@ -364,10 +378,11 @@ export const buildLocalCodeIndex = (
         }
         candidateIds.add(candidate.value.candidateId);
         candidates.push(candidate.value);
-        fileManifest.get(observation.repoPath)?.candidateIds.push(candidate.value.candidateId);
+        fileManifest.get(pending.repoPath)?.candidateIds.push(candidate.value.candidateId);
       }
-      indexedPaths.push(observation.repoPath);
+      indexedPaths.push(pending.repoPath);
     }
+    indexedPaths.sort((left, right) => left.localeCompare(right));
     const indexResult = createCodeIndex(options.generation, candidates);
     if (indexResult._tag === 'Err') return indexResult;
     return ok({
