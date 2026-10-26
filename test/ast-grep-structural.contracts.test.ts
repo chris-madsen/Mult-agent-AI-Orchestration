@@ -115,3 +115,23 @@ test('real ast-grep outline supplies byte-exact declaration name anchors, not a 
     assert.ok(imports.value.symbols.filter((item) => item.kind === 'import').every((item) => item.nameStartLine === undefined));
   }
 });
+
+test('ast-grep batches multiple immutable sources without changing per-file symbols or UTF-8 ranges', async () => {
+  const inputs = [
+    { repoPath: 'code/first.ts', source: Buffer.from('export function привет(): void {}\n') },
+    { repoPath: 'code/second.ts', source: Buffer.from('export class Service { run(): void {} }\n') },
+    { repoPath: 'code/third.py', source: Buffer.from('def hello(name):\n    return name\n') },
+  ];
+  assert.ok(provider.extractMany);
+  const batch = await Effect.runPromise(provider.extractMany!(inputs));
+  assert.equal(batch.length, inputs.length);
+  for (const [index, input] of inputs.entries()) {
+    const single = await Effect.runPromise(provider.extract(input));
+    const grouped = batch[index];
+    assert.equal(grouped?._tag, 'Ok', input.repoPath);
+    assert.equal(single._tag, 'Ok', input.repoPath);
+    if (grouped?._tag === 'Ok' && single._tag === 'Ok') {
+      assert.deepEqual(grouped.value, single.value);
+    }
+  }
+});

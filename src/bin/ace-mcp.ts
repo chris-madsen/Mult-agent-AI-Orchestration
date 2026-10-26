@@ -481,7 +481,7 @@ const main = async (): Promise<void> => {
     if (qdrantReachable._tag === 'Err') {
       handleQdrantUnavailable(qdrantReachable.error.code);
     } else if (!commandBoundaryExists(embeddingWorker)
-      || !commandBoundaryExists(sparseEmbeddingWorker)
+      || (retrievalStrategy !== 'dense' && !commandBoundaryExists(sparseEmbeddingWorker))
       || !existsSync(astGrepCommand)
       || !commandBoundaryExists(astGrepCommand)) {
       readiness.code_retrieval = { state: 'not_ready', reason: 'provider_runtime_missing' };
@@ -513,7 +513,7 @@ const main = async (): Promise<void> => {
         const value = process.env[name]?.trim();
         if (value !== undefined && value.length > 0) sparseEnvironment[name] = value;
       }
-      const sparseEmbeddings = makeProcessSparseEmbeddingPort({
+      const sparseEmbeddings = retrievalStrategy === 'dense' ? undefined : makeProcessSparseEmbeddingPort({
         command: sparseEmbeddingWorker,
         args: sparseEmbeddingWorkerArgs,
         timeoutMs: sparseEmbeddingTimeoutMs,
@@ -523,7 +523,7 @@ const main = async (): Promise<void> => {
         env: sparseEnvironment,
       });
       const closeEmbeddingWorker = (): void => embeddings.close();
-      const closeSparseWorker = (): void => sparseEmbeddings.close();
+      const closeSparseWorker = (): void => sparseEmbeddings?.close();
       closeSparseEmbeddings = closeSparseWorker;
       process.once('SIGTERM', closeEmbeddingWorker);
       process.once('SIGTERM', closeSparseWorker);
@@ -532,12 +532,12 @@ const main = async (): Promise<void> => {
       process.stdin.once('end', () => setTimeout(closeEmbeddingWorker, 5_000));
       process.stdin.once('end', () => setTimeout(closeSparseWorker, 5_000));
       const embeddingReady = await Effect.runPromise(embeddings.probe());
-      const sparseReady = embeddingReady._tag === 'Ok'
+      const sparseReady = embeddingReady._tag === 'Ok' && sparseEmbeddings !== undefined
         ? await Effect.runPromise(sparseEmbeddings.probe())
         : undefined;
       if (embeddingReady._tag === 'Err') {
         embeddings.close();
-        sparseEmbeddings.close();
+        sparseEmbeddings?.close();
         if (embeddingReady.error.path === 'embedding.identity') {
           throw new Error(`embedding provider identity/configuration trust boundary failed (${embeddingReady.error.code}: ${embeddingReady.error.message})`);
         }
@@ -546,7 +546,7 @@ const main = async (): Promise<void> => {
         process.stderr.write(`ace-mcp context NOT_READY: embedding provider preflight failed (${embeddingReady.error.code})\n`);
       } else if (sparseReady?._tag === 'Err') {
         embeddings.close();
-        sparseEmbeddings.close();
+        sparseEmbeddings?.close();
         if (sparseReady.error.path === 'sparse_embedding.identity') {
           throw new Error(`sparse embedding identity/configuration trust boundary failed (${sparseReady.error.code}: ${sparseReady.error.message})`);
         }
@@ -556,18 +556,23 @@ const main = async (): Promise<void> => {
         process.stderr.write(`ace-mcp context NOT_READY: sparse embedding provider preflight failed (${sparseReady.error.code})\n`);
       } else {
         const effectiveEmbedding = embeddings.identity();
-        const effectiveSparseEmbedding = sparseEmbeddings.identity();
-        if (effectiveEmbedding === undefined || effectiveSparseEmbedding === undefined) {
+        const effectiveSparseEmbedding = sparseEmbeddings?.identity();
+        if (effectiveEmbedding === undefined
+          || (retrievalStrategy !== 'dense' && effectiveSparseEmbedding === undefined)) {
           embeddings.close();
-          sparseEmbeddings.close();
+          sparseEmbeddings?.close();
           readiness.sparse_embedding = { state: 'not_ready', reason: 'sparse_embedding_identity_unavailable' };
           readiness.code_retrieval = { state: 'not_ready', reason: 'retrieval_identity_unavailable' };
           readiness.unified_context = { state: 'not_ready', reason: 'retrieval_identity_unavailable' };
-          process.stderr.write('ace-mcp context NOT_READY: dense/sparse embedding provider returned no verified effective identity\n');
+          process.stderr.write('ace-mcp context NOT_READY: required embedding provider returned no verified identity\n');
         } else {
-          readiness.sparse_embedding = { state: 'ready', reason: 'real_sparse_embedding_preflight_passed' };
+          readiness.sparse_embedding = effectiveSparseEmbedding === undefined
+            ? { state: 'disabled', reason: 'dense_only_no_sparse_worker' }
+            : { state: 'ready', reason: 'real_sparse_embedding_preflight_passed' };
           const embeddingFingerprint = verifiedEmbeddingIdentityFingerprint(effectiveEmbedding);
-          const sparseEmbeddingFingerprint = sparseEmbeddingIdentityFingerprint(effectiveSparseEmbedding);
+          const sparseEmbeddingFingerprint = effectiveSparseEmbedding === undefined
+            ? 'disabled'
+            : sparseEmbeddingIdentityFingerprint(effectiveSparseEmbedding);
           const structuralOptions = {
             command: astGrepCommand,
             providerVersion: process.env.ACE_AST_GREP_VERSION?.trim() || 'ast-grep/0.51.0',
@@ -581,15 +586,15 @@ const main = async (): Promise<void> => {
               .digest('hex');
           const retrievalFingerprint = createHash('sha256')
             .update(JSON.stringify({
-              schema: 'hybrid-qdrant-local-sparse-v2',
+              schema: retrievalStrategy === 'dense' ? 'dense-qdrant-v1' : 'hybrid-qdrant-local-sparse-v2',
               embedding: embeddingFingerprint,
               sparseEmbedding: sparseEmbeddingFingerprint,
               structural: structuralFingerprint,
               denseVector: 'dense',
               sparseVector: 'sparse',
-              sparseModel: effectiveSparseEmbedding.model,
-              sparsePreprocessing: effectiveSparseEmbedding.preprocessing,
-              fusion: 'rrf',
+              sparseModel: effectiveSparseEmbedding?.model ?? null,
+              sparsePreprocessing: effectiveSparseEmbedding?.preprocessing ?? null,
+              fusion: retrievalStrategy === 'dense' ? 'none' : 'rrf',
             }), 'utf8')
             .digest('hex');
           if (structuralIdentity._tag === 'Err') {
@@ -743,14 +748,14 @@ const main = async (): Promise<void> => {
               : build.coverage.failedPaths === 0
                 ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
                 : { state: 'degraded', reason: 'index_coverage_partial' };
-            process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${buildGeneration} indexed_paths=${build.indexedPaths.length} candidates=${build.index.candidates.length} coverage_failed=${build.coverage.failedPaths} source_snapshot_digest=${build.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} sparse_identity=${sparseEmbeddingFingerprint.slice(0, 12)} retrieval_mode=hybrid_rrf query_strategy=${retrievalStrategy} sparse_model=${effectiveSparseEmbedding.model} structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
+            process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${buildGeneration} indexed_paths=${build.indexedPaths.length} candidates=${build.index.candidates.length} coverage_failed=${build.coverage.failedPaths} source_snapshot_digest=${build.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} sparse_identity=${sparseEmbeddingFingerprint.slice(0, 12)} retrieval_mode=${retrievalStrategy} sparse_model=${effectiveSparseEmbedding?.model ?? 'disabled'} structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
             return ok({
               workspaceId: registered.value.workspaceId,
               rootPath: registered.value.rootPath,
               files,
               qdrant,
               embeddings,
-              sparseEmbeddings,
+              ...(sparseEmbeddings === undefined ? {} : { sparseEmbeddings }),
               artifacts,
               semantics,
               newRequestId: () => randomUUID(),
@@ -770,7 +775,9 @@ const main = async (): Promise<void> => {
               ...(benchmarkRepositoryId === undefined ? {} : { benchmarkRepositoryId }),
               benchmarkProviderIdentities: {
                 dense: `${effectiveEmbedding.provider}|model=${effectiveEmbedding.model}|revision=${effectiveEmbedding.modelRevision}|artifact=${effectiveEmbedding.artifactRevision}`,
-                sparse: `${effectiveSparseEmbedding.provider}|model=${effectiveSparseEmbedding.model}|runtime=${effectiveSparseEmbedding.runtimeVersion}|artifact=${effectiveSparseEmbedding.artifactDigest}`,
+                sparse: effectiveSparseEmbedding === undefined
+                  ? 'disabled'
+                  : `${effectiveSparseEmbedding.provider}|model=${effectiveSparseEmbedding.model}|runtime=${effectiveSparseEmbedding.runtimeVersion}|artifact=${effectiveSparseEmbedding.artifactDigest}`,
                 qdrant: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
                 structural: structuralOptions.providerVersion,
                 semantic: `${lspServerName}|${semanticProviderVersion}`,

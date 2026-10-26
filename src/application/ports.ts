@@ -128,6 +128,11 @@ export interface StructuralAnalysisPort {
     readonly repoPath: string;
     readonly source: Uint8Array;
   }) => Effect.Effect<Result<StructuralAnalysis, DomainError>>;
+  /** Optional batch path: results correspond to inputs, including per-file failures. */
+  readonly extractMany?: (inputs: readonly {
+    readonly repoPath: string;
+    readonly source: Uint8Array;
+  }[]) => Effect.Effect<readonly Result<StructuralAnalysis, DomainError>[]>;
 }
 
 export interface SemanticAnalysisPort {
