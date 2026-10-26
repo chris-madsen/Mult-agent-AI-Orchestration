@@ -353,9 +353,18 @@ export const mutateQdrantChangedPaths = (
     readonly allowedHosts?: readonly string[];
     readonly client?: QdrantClient;
   },
+  failedPaths: ReadonlySet<RepoPath> = new Set(),
 ): Effect.Effect<Result<{ readonly count: number; readonly reused: boolean; readonly reusedVectorCount: number }, DomainError>> => Effect.gen(function* () {
   const paths = [...new Set(changedPaths)];
   if (paths.length === 0) return ok({ count: 0, reused: false, reusedVectorCount: 0 });
+  const failedChangedPaths = paths.filter((repoPath) => failedPaths.has(repoPath));
+  if (failedChangedPaths.length > 0) {
+    return err(domainError(
+      'NOT_READY',
+      'qdrant',
+      'refusing stable mutation for incompletely indexed changed path(s): ' + failedChangedPaths.sort().join(', '),
+    ));
+  }
   if (qdrant.deletePaths === undefined) {
     return err(domainError('NOT_READY', 'qdrant', 'stable changed-path mutation requires the official Qdrant delete boundary'));
   }

@@ -212,6 +212,40 @@ test('stable changed-path mutation leaves the last good points intact when embed
   assert.equal(deletes, 0);
 });
 
+test('stable changed-path mutation preserves last-good points when changed source indexing is incomplete', async () => {
+  const index = mustOk(createCodeIndex(2, []));
+  let deletes = 0;
+  let upserts = 0;
+  const qdrant: CodeCandidatePort = {
+    search: () => Effect.succeed(ok([])),
+    upsert: () => {
+      upserts += 1;
+      return Effect.succeed(ok(undefined));
+    },
+    deletePaths: () => {
+      deletes += 1;
+      return Effect.succeed(ok(undefined));
+    },
+  };
+  const failedPath = 'src/connection.ts' as never;
+  const result = await Effect.runPromise(mutateQdrantChangedPaths(
+    index,
+    qdrant,
+    { embedMany: () => Effect.succeed(ok([])) },
+    workspaceId,
+    [failedPath],
+    'stable-index',
+    undefined,
+    undefined,
+    undefined,
+    new Set([failedPath]),
+  ));
+  assert.equal(result._tag, 'Err');
+  if (result._tag === 'Err') assert.equal(result.error.code, 'NOT_READY');
+  assert.equal(upserts, 0);
+  assert.equal(deletes, 0, 'failed parse/read must not erase last-known-good path points');
+});
+
 test('stable synchronized retrieval fails closed when WorkspaceSync is absent', async () => {
   const workspaceManifest = workspaceManifestFromSnapshot({ headRevision: 'a'.repeat(40), files: [], removedPaths: [] }, 'scope-v1');
   const files: WorkspaceFilePort = {

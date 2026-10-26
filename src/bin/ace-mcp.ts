@@ -707,6 +707,7 @@ const main = async (): Promise<void> => {
                   allowedHosts: qdrantAllowedHosts,
                   client: qdrantClient,
                 },
+                new Set(build.coverage.failures.map((failure) => failure.repoPath)),
               )
               : reuseOrPopulateQdrantSnapshot(
                 build.index, buildQdrant, embeddings, http, qdrantUrl, collection,
