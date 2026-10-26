@@ -55,6 +55,9 @@ export const makeLspServerRegistry = (): LspServerRegistry => {
         release: (): void => {
           if (released) return;
           released = true;
+          // Registry-wide shutdown already closed the session. A delayed
+          // lease release must not close it twice (or delete a replacement).
+          if (entries.get(key) !== entry) return;
           entry!.refs -= 1;
           if (entry!.refs <= 0) {
             entry!.session.close();
