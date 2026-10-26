@@ -5,7 +5,7 @@
 ## Implemented here
 
 - `@ast-grep/napi@0.51.0` parses JS/TS/TSX in-process where the new symbol extractor has verified outline parity.
-- `ACE_AST_GREP_PROVIDER=auto` uses NAPI only for that verified subset and preserves the already-existing **batched CLI fallback** for CSS/HTML and other registered languages. A bundled NAPI grammar alone is not treated as extraction support.
+- `ACE_AST_GREP_PROVIDER=napi|auto` is an explicit migration mode. The already-existing **batched CLI remains the default** until NAPI symbol coverage has real-repository parity evidence. In `auto`, NAPI is used only for the currently covered JS/TS/TSX subset and CLI remains the fallback for CSS/HTML and other registered languages. A bundled NAPI grammar alone is not treated as extraction support.
 - Warm index reuse is bound to source digest, parser identity and scope identity; the linear candidate accumulator and batched extraction already on `main` are preserved.
 - `@qdrant/js-client-rest@1.20.0` owns probe, collection/alias lifecycle, query, upsert, snapshot count/membership verification and vector-reuse scrolls on the runtime path. Direct SDK response shapes are not confused with the legacy REST envelope; authenticated runtimes no longer fall back to unauthenticated raw HTTP during snapshot verification.
 - Existing `ACE_RETRIEVAL_STRATEGY=dense` remains the first planned strategy: no sparse worker is started and dense-only collections do not create or require sparse vectors.
@@ -21,5 +21,6 @@
 
 1. CI on this exact head.
 2. Real local Qdrant dense E2E on the SDK path.
-3. Cold/warm/edit-one-file timings.
-4. Then implement the actual Aider RepoMap and freshness redesign.
+3. NAPI-vs-CLI symbol/range parity on representative real JS/TS/TSX repositories before changing the parser default.
+4. Cold/warm/edit-one-file timings.
+5. Then implement the actual Aider RepoMap and freshness redesign.
