@@ -149,9 +149,11 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
 
 test('ACE MCP runtime forwards explicit sparse LD library path into the sparse worker environment', async () => {
   const runtime = await readFile(resolve('src/bin/ace-mcp.ts'), 'utf8');
-  assert.match(runtime, /ACE_SPARSE_EMBEDDING_LD_LIBRARY_PATH/u);
-  assert.match(runtime, /Object\.fromEntries\(\[/u);
-  assert.match(runtime, /makeProcessSparseEmbeddingPort\(/u);
+  const sparseEnvironmentBlock = runtime.slice(
+    runtime.indexOf('const sparseEnvironment: Record<string, string>'),
+    runtime.indexOf('const sparseEmbeddings = makeProcessSparseEmbeddingPort'),
+  );
+  assert.match(sparseEnvironmentBlock, /ACE_SPARSE_EMBEDDING_LD_LIBRARY_PATH/u);
 });
 
 

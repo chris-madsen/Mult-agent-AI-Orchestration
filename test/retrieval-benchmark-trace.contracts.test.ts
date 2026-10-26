@@ -55,10 +55,10 @@ test('file trace drains JSONL and writes a complete terminal receipt', async () 
     });
     for (const event of allStageEvents('request-1')) trace.record(event);
     await trace.flush();
-    assert.equal(trace.status.recordedEvents, retrievalBenchmarkStages.length);
-    assert.equal(trace.status.persistedEvents, retrievalBenchmarkStages.length);
+    assert.equal(trace.status.recordedEvents, 6);
+    assert.equal(trace.status.persistedEvents, 6);
     const jsonl = await readFile(trace.tracePath, 'utf8');
-    assert.equal(jsonl.trim().split('\n').length, retrievalBenchmarkStages.length);
+    assert.equal(jsonl.trim().split('\n').length, 6);
     await trace.close();
     await trace.close();
     assert.equal(trace.status.state, 'closed');

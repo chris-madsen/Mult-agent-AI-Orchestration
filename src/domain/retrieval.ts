@@ -86,9 +86,11 @@ export interface IndexFileIdentity {
   readonly repoPath: RepoPath;
   readonly sourceDigest: ContentDigest;
   readonly candidateIds: readonly CandidateId[];
-  /** Optional state identity used to reject reuse across parser/scope changes. */
+  /** Cheap observed state retained only as a cache/reuse discriminator. */
   readonly sizeBytes?: number;
+  /** Structural parser/grammar identity; parser changes invalidate warm reuse. */
   readonly parserVersion?: string;
+  /** Include/exclude scope identity; scope changes invalidate warm reuse. */
   readonly scopeFingerprint?: string;
 }
 

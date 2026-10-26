@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { extname, join, resolve as resolvePath } from 'node:path';
 import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { makeStructuralAnalysis, type StructuralAnalysis, type StructuralKind, type StructuralSymbol } from '../domain/semantic.js';
@@ -271,26 +274,42 @@ const commandVersion = (command: string): Effect.Effect<Result<string, DomainErr
 export const resolveAstGrepProviderIdentity = (
   options: AstGrepStructuralOptions,
 ): Effect.Effect<Result<AstGrepProviderIdentity, DomainError>> => Effect.gen(function* () {
-  if (options.provider === 'napi' || options.provider === 'auto') {
+  const provider = options.provider ?? 'cli';
+  const napiVersion = options.providerVersion ?? 'ast-grep/napi@0.51.0';
+  if (provider === 'napi') {
     const stable = {
       provider: 'ast-grep' as const,
       protocolSchema: 1 as const,
-      command: options.provider === 'auto' ? '@ast-grep/napi+cli' : '@ast-grep/napi',
-      version: options.providerVersion ?? (options.provider === 'auto' ? 'ast-grep/auto@0.51.0' : 'ast-grep/napi@0.51.0'),
+      command: '@ast-grep/napi',
+      version: napiVersion,
     };
     return ok({
       ...stable,
       fingerprint: createHash('sha256').update(JSON.stringify(stable), 'utf8').digest('hex'),
     });
   }
+
   const command = resolveProviderCommand(options.command);
-  const version = yield* commandVersion(command);
-  if (version._tag === 'Err') return version;
+  const cliVersion = yield* commandVersion(command);
+  if (provider === 'cli') {
+    if (cliVersion._tag === 'Err') return cliVersion;
+    const stable = {
+      provider: 'ast-grep' as const,
+      protocolSchema: 1 as const,
+      command,
+      version: cliVersion.value,
+    };
+    return ok({
+      ...stable,
+      fingerprint: createHash('sha256').update(JSON.stringify(stable), 'utf8').digest('hex'),
+    });
+  }
+
   const stable = {
     provider: 'ast-grep' as const,
     protocolSchema: 1 as const,
-    command,
-    version: version.value,
+    command: `@ast-grep/napi+${command}`,
+    version: `${napiVersion}|cli=${cliVersion._tag === 'Ok' ? cliVersion.value : 'unavailable'}`,
   };
   return ok({
     ...stable,
@@ -298,23 +317,72 @@ export const resolveAstGrepProviderIdentity = (
   });
 });
 
-export const makeAstGrepStructuralPort = (options: AstGrepStructuralOptions): StructuralAnalysisPort => {
-  const cli = makeCliAstGrepStructuralPort(options);
-  if (options.provider === 'napi') return makeAstGrepNapiStructuralPort(
-    options.providerVersion === undefined ? {} : { providerVersion: options.providerVersion },
-  );
-  if (options.provider === 'auto') {
-    const napi = makeAstGrepNapiStructuralPort(
-      options.providerVersion === undefined ? {} : { providerVersion: options.providerVersion },
-    );
-    return {
-      extract: (input) => supportsAstGrepNapiPath(input.repoPath) ? napi.extract(input) : cli.extract(input),
-    };
+// ast-grep supports multiple explicit files in a single outline invocation.
+// Temporary private files preserve the *verified* source bytes supplied by
+// WorkspaceFilePort even when the actual worktree is changing concurrently.
+const outlineBatchSize = 24;
+const extractBatch = async (
+  options: AstGrepStructuralOptions,
+  inputs: readonly { readonly repoPath: string; readonly source: Uint8Array }[],
+): Promise<readonly Result<StructuralAnalysis, DomainError>[]> => {
+  if (inputs.length === 0) return [];
+  const directory = await mkdtemp(join(tmpdir(), 'ace-ast-grep-'));
+  const result: Result<StructuralAnalysis, DomainError>[] = inputs.map(() =>
+    err(domainError('INVALID_EXTERNAL_RESPONSE', 'ast_grep', 'missing outline result')));
+  try {
+    const staged = new Map<string, number>();
+    const filePaths: string[] = [];
+    for (const [index, input] of inputs.entries()) {
+      if (structuralLanguageForPath(input.repoPath) === undefined) {
+        result[index] = err(domainError('UNSUPPORTED_PROVIDER', 'ast_grep.language', 'unsupported structural language'));
+        continue;
+      }
+      // The extension is needed for ast-grep's built-in language autodetection.
+      // The private filename does not contain the untrusted repository path.
+      const path = join(directory, String(index) + extname(input.repoPath));
+      await writeFile(path, Buffer.from(input.source), { mode: 0o600 });
+      staged.set(resolvePath(path), index);
+      filePaths.push(path);
+    }
+    for (let offset = 0; offset < filePaths.length; offset += outlineBatchSize) {
+      const paths = filePaths.slice(offset, offset + outlineBatchSize);
+      try {
+        const output = await run(resolveProviderCommand(options.command), [
+          'outline', '--json=stream', '--items', 'all', '--view', 'expanded',
+          ...paths,
+        ], undefined, Math.max(10_000, options.timeoutMs ?? 10_000));
+        const seen = new Set<number>();
+        for (const line of output.stdout.split('\n').filter((entry) => entry.trim().length > 0)) {
+          const decoded: unknown = JSON.parse(line);
+          const object = decoded as { readonly path?: unknown };
+          if (typeof object !== 'object' || object === null || typeof object.path !== 'string') {
+            throw new Error('ast-grep batch result is missing file path');
+          }
+          const index = staged.get(resolvePath(object.path));
+          if (index === undefined || seen.has(index)) throw new Error('ast-grep batch returned unexpected/duplicate path');
+          seen.add(index);
+          const input = inputs[index]!;
+          result[index] = parseOutline(decoded, input.repoPath, input.source);
+        }
+        if (seen.size !== paths.length) throw new Error('ast-grep omitted an explicitly requested file');
+      } catch {
+        // Fail closed for this batch, preserving independently parsed batches.
+        for (const path of paths) {
+          const index = staged.get(resolvePath(path));
+          if (index !== undefined) {
+            result[index] = err(domainError('UNSUPPORTED_PROVIDER', 'ast_grep', 'batch outline failed or returned inconsistent results'));
+          }
+        }
+      }
+    }
+    return result;
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
-  return cli;
 };
 
 const makeCliAstGrepStructuralPort = (options: AstGrepStructuralOptions): StructuralAnalysisPort => ({
+  extractMany: (inputs) => Effect.promise(() => extractBatch(options, inputs)),
   extract: (input) => {
     const startedAtMs = Date.now();
     const operation = recoverResult(Effect.tryPromise<Result<StructuralAnalysis, DomainError>, DomainError>({
@@ -355,3 +423,48 @@ const makeCliAstGrepStructuralPort = (options: AstGrepStructuralOptions): Struct
     });
   },
 });
+
+export const makeAstGrepStructuralPort = (options: AstGrepStructuralOptions): StructuralAnalysisPort => {
+  const provider = options.provider ?? 'cli';
+  const cli = makeCliAstGrepStructuralPort(options);
+  const napi = makeAstGrepNapiStructuralPort({ providerVersion: options.providerVersion });
+  if (provider === 'cli') return cli;
+  if (provider === 'napi') return napi;
+
+  return {
+    extract: (input) => supportsAstGrepNapiPath(input.repoPath)
+      ? napi.extract(input)
+      : cli.extract(input),
+    extractMany: (inputs) => Effect.gen(function* () {
+      const results: Result<StructuralAnalysis, DomainError>[] = inputs.map(() =>
+        err(domainError('INVALID_EXTERNAL_RESPONSE', 'ast_grep', 'missing structural result')));
+      const fallback: Array<{ readonly input: (typeof inputs)[number]; readonly index: number }> = [];
+
+      for (const [index, input] of inputs.entries()) {
+        if (supportsAstGrepNapiPath(input.repoPath)) {
+          results[index] = yield* napi.extract(input);
+        } else {
+          fallback.push({ input, index });
+        }
+      }
+
+      if (fallback.length > 0) {
+        const parsed = cli.extractMany === undefined
+          ? undefined
+          : yield* cli.extractMany(fallback.map((item) => item.input));
+        if (parsed === undefined || parsed.length !== fallback.length) {
+          for (const item of fallback) {
+            results[item.index] = err(domainError(
+              'UNSUPPORTED_PROVIDER',
+              'ast_grep',
+              'CLI fallback batch unavailable',
+            ));
+          }
+        } else {
+          for (const [position, item] of fallback.entries()) results[item.index] = parsed[position]!;
+        }
+      }
+      return results;
+    }),
+  };
+};

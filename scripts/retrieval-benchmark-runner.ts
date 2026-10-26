@@ -299,7 +299,7 @@ const strategyEnvironment = (
 };
 
 const stageKey = (stage: RetrievalBenchmarkStage): keyof RetrievalStageRanks =>
-  stage === 'working_context' ? 'workingContext' : stage === 'repo_map' ? 'repoMap' : stage;
+  stage === 'working_context' ? 'workingContext' : stage;
 
 const traceForRequest = (jsonl: string, requestId: string): readonly TraceEvent[] => jsonl
   .split(/\r?\n/u)
@@ -315,10 +315,10 @@ const traceForRequest = (jsonl: string, requestId: string): readonly TraceEvent[
 
 const ranksFor = (events: readonly TraceEvent[]) => {
   const stageRanks: RetrievalStageRanks = {
-    dense: [], sparse: [], fused: [], repoMap: [], workingContext: [], reranked: [], delivered: [],
+    dense: [], sparse: [], fused: [], workingContext: [], reranked: [], delivered: [],
   };
   const rawStageRanks: RetrievalStageRanks = {
-    dense: [], sparse: [], fused: [], repoMap: [], workingContext: [], reranked: [], delivered: [],
+    dense: [], sparse: [], fused: [], workingContext: [], reranked: [], delivered: [],
   };
   const stageStatuses = {} as Record<RetrievalBenchmarkStage, RetrievalBenchmarkStageStatus>;
   for (const stage of retrievalBenchmarkStages) {

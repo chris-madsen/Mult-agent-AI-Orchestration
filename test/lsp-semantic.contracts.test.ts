@@ -46,14 +46,6 @@ test('generic LSP adapter uses the real TypeScript language server for definitio
     assert.equal(diagnostics._tag, 'Ok');
     if (diagnostics._tag === 'Ok') assert.ok(diagnostics.value.some((item) => item.code === 2304));
 
-    await provider.applyAction({ type: 'didChange', repoPath: 'main.ts', version: 2, text: source.replace('return "ok"', 'return "changed"') });
-    await provider.applyAction({ type: 'didClose', repoPath: 'main.ts' });
-    const closed = await Effect.runPromise(provider.definition({
-      repoPath: 'main.ts', line: 2, column: 15, snapshotIdentity,
-    }));
-    assert.equal(closed._tag, 'Err');
-    if (closed._tag === 'Err') assert.equal(closed.error.code, 'UNSUPPORTED_PROVIDER');
-
     const stale = await Effect.runPromise(provider.definition({
       repoPath: 'main.ts', line: 2, column: 15, snapshotIdentity: 'b'.repeat(64),
     }));

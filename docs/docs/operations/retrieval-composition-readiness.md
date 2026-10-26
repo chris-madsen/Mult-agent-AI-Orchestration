@@ -1,42 +1,25 @@
-# Retrieval composition readiness
+# Retrieval replacement foundation readiness
 
-> Status: implementation branch only. This document records composition boundaries; it does not claim real-provider or production readiness.
+> Status: implementation PR only. This is the first infrastructure slice of the Aider/Claw retrieval-composition plan; it is **not** the finished composition and makes no production or token-savings claim.
 
-## Selected composition
+## Implemented here
 
-- Branch: `codex/aider-claw-retrieval-composition`
-- Composition selector: `ACE_RETRIEVAL_COMPOSITION=legacy-hybrid|repo-map-qdrant-lsp-v2`
-- Strategy selector: `ACE_RETRIEVAL_STRATEGY=dense|sparse|hybrid_rrf`; the replacement composition defaults to dense when the strategy is omitted.
-- The replacement composition rejects `sparse` and `hybrid_rrf` overrides; dense is its only production retrieval strategy.
-- Dense mode must not create or preflight the sparse embedding worker.
-- Sparse and hybrid modes require a verified sparse provider.
-- Unknown retrieval strategies fail closed.
+- `@ast-grep/napi@0.51.0` parses its built-in JS/TS/TSX/CSS/HTML grammars in-process.
+- `ACE_AST_GREP_PROVIDER=auto` uses NAPI where supported and preserves the already-existing **batched CLI fallback** for other registered languages.
+- Warm index reuse is bound to source digest, parser identity and scope identity; the linear candidate accumulator and batched extraction already on `main` are preserved.
+- `@qdrant/js-client-rest@1.20.0` owns probe, collection/alias lifecycle, query and upsert on the runtime path. Direct SDK response shapes are not confused with the legacy REST envelope.
+- Existing `ACE_RETRIEVAL_STRATEGY=dense` remains the first planned strategy: no sparse worker is started and dense-only collections do not create or require sparse vectors.
 
-## Pinned vendor dependencies
+## Explicitly deferred
 
-- `@qdrant/js-client-rest@1.20.0`, Apache-2.0: used by the ACE adapter for code-candidate operations and collection/alias lifecycle when a client is supplied; HTTP remains an explicit compatibility boundary.
-- `@ast-grep/napi@0.51.0`, MIT: used for supported grammars in replacement `auto` mode; CLI remains an explicit fallback for languages without registered NAPI coverage.
-- `vscode-jsonrpc@9.0.3`: existing dependency used by the current LSP adapter; new work must not reimplement JSON-RPC framing or response matching.
+- **Aider RepoMap**: no lexical post-Qdrant reranker is called RepoMap. The actual phase requires a repo-wide def/ref graph, PageRank-style ranking/personalization and a token-budgeted rendered map.
+- **Claw LSP lifecycle**: no tiny refcount registry is presented as the Claw integration. The later phase should mine Claw Code PR #3016 discovery/lazy lifecycle/action design while retaining `vscode-jsonrpc` transport.
+- **Freshness hot path**: `QdrantContextProvider.search()` still uses the existing workspace-snapshot reconciliation. Replacing full-repository hot-path hashing with cheap changed-path detection plus exact selected-file verification remains Phase 3.
+- **New multi-arm benchmark infrastructure**: intentionally absent. First establish one live retrieval path, then measure native Hermes vs Hermes+ACE.
 
-## Implemented branch slices
+## Next evidence
 
-- Local index candidate construction is batched once per workspace snapshot; file manifests retain size, parser identity and scope identity for reuse checks.
-- The official Qdrant SDK is used for provider query/upsert operations when the runtime composition supplies a client; the existing HTTP boundary remains only for compatibility/lifecycle paths until their migration gate passes.
-- `@ast-grep/napi` is used by the replacement composition for supported grammars; `auto` keeps an explicit CLI fallback for languages outside its registered grammar set. No unsupported language is silently treated as NAPI-parsed.
-- RepoMap ranking is deterministic, token-budgeted and source-digest-preserving; it runs after provider retrieval and before working-context/reranker stages.
-- LSP lifecycle now has workspace-scoped registry reference counting and explicit `didOpen`/`didChange`/`didClose` actions over the existing `vscode-jsonrpc` transport.
-- `bench:retrieval-composition` emits four required arms (`native`, `current-ace`, `repomap-only`, `new-composition`) and fails closed when external native/RepoMap-only artifacts are missing.
-
-## Evidence rules
-
-A provider may be marked `ready` only after its identity, runtime/configuration and source snapshot binding are verified. Missing providers, timeouts, malformed responses and unavailable external services remain `NOT_READY`/`BLOCKED`; they are not converted to empty successful retrieval.
-
-Raw provider and benchmark artifacts remain outside the checkout. Any future adaptation of Aider/Claw code must retain the source revision, license/attribution notice and the exact adapted files in the evidence manifest.
-
-## Current blockers
-
-- Same-name TypeScript LSP conformance passed with `ast-grep 0.51.0 + typescript-language-server 6.0.2` at the current commit, but the full semantic retrieval run ended with `Connection closed` and produced no valid retrieval artifact.
-- Non-TypeScript LSP conformance is blocked because the configured `rust-analyzer` binary is unavailable in the official toolchain.
-- Qdrant concurrency/crash and index-scale runs are blocked by the current foundation runtime returning `unified_context` `NOT_READY`; the Qdrant publication path also observed `Internal Server Error`.
-- The compiled runtime was rebuilt from commit `82732c4` with `sourceCleanAtBuild: true`; remaining frozen-run blockers are provider/runtime availability, not source provenance.
-- The four-arm benchmark remains `BLOCKED` until native and RepoMap-only normalized artifacts are supplied; no token-savings or production claim is made from the composition wrapper.
+1. CI on this exact head.
+2. Real local Qdrant dense E2E on the SDK path.
+3. Cold/warm/edit-one-file timings.
+4. Then implement the actual Aider RepoMap and freshness redesign.

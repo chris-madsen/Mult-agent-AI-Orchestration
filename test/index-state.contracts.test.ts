@@ -28,12 +28,12 @@ const files = (source: Uint8Array): WorkspaceFilePort => ({
   readExact: () => Effect.succeed(ok({ bytes: source, digest: 'b'.repeat(64) as never })),
 });
 
-test('index file state records parser/scope identity and prevents incompatible reuse', async () => {
+test('warm structural reuse is invalidated when parser identity changes', async () => {
   const source = Buffer.from('export function index() { return true; }\n');
-  let structuralCalls = 0;
+  let calls = 0;
   const structural: StructuralAnalysisPort = {
     extract: (input) => {
-      structuralCalls += 1;
+      calls += 1;
       return Effect.succeed(ok({
         repoPath: input.repoPath,
         sourceDigest: 'b'.repeat(64) as never,
@@ -42,6 +42,7 @@ test('index file state records parser/scope identity and prevents incompatible r
       }));
     },
   };
+
   const first = await Effect.runPromise(buildLocalCodeIndex(files(source), workspaceId, '/repo', {
     generation: 1,
     parserVersion: 'parser-v1',
@@ -49,25 +50,26 @@ test('index file state records parser/scope identity and prevents incompatible r
     structural,
   }));
   assert.equal(first._tag, 'Ok');
-  const firstValue = first.value;
-  assert.equal(firstValue.fileManifest[0]?.sizeBytes, source.byteLength);
-  assert.equal(firstValue.fileManifest[0]?.parserVersion, 'parser-v1');
+  if (first._tag === 'Err') return;
+  assert.equal(first.value.fileManifest[0]?.parserVersion, 'parser-v1');
+
   const reused = await Effect.runPromise(buildLocalCodeIndex(files(source), workspaceId, '/repo', {
     generation: 2,
-    previous: firstValue,
+    previous: first.value,
     parserVersion: 'parser-v1',
     scopeFingerprint: 'scope-v1',
     structural,
   }));
   assert.equal(reused._tag, 'Ok');
-  assert.equal(structuralCalls, 1);
+  assert.equal(calls, 1);
+
   const rebuilt = await Effect.runPromise(buildLocalCodeIndex(files(source), workspaceId, '/repo', {
     generation: 3,
-    previous: firstValue,
+    previous: first.value,
     parserVersion: 'parser-v2',
     scopeFingerprint: 'scope-v1',
     structural,
   }));
   assert.equal(rebuilt._tag, 'Ok');
-  assert.equal(structuralCalls, 2);
+  assert.equal(calls, 2);
 });

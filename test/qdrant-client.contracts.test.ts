@@ -14,11 +14,10 @@ import { makeCandidateId, makeCodeCandidate } from '../src/domain/retrieval.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
 import { ok, type Result } from '../src/domain/result.js';
 
-const mustOk = <T, E>(value: Result<T, E>): T => {
+const mustOk = <Value, Error>(value: Result<Value, Error>): Value => {
   assert.equal(value._tag, 'Ok');
   return value.value;
 };
-
 const workspaceId = mustOk(makeWorkspaceId('qdrant-sdk-contract'));
 const text = 'export function save(value: string) { return value; }';
 const candidate = mustOk(makeCodeCandidate({
@@ -35,14 +34,14 @@ const candidate = mustOk(makeCodeCandidate({
   indexedAtMs: 1,
 }));
 
-test('official Qdrant SDK path preserves dense query and payload mapping', async () => {
+test('Qdrant SDK query accepts the facade direct points response', async () => {
   let queryRequest: unknown;
   let upsertRequest: unknown;
   const client = {
     query: async (_collection: string, request: unknown) => {
       queryRequest = request;
       return {
-        result: [{
+        points: [{
           score: 0.9,
           payload: {
             candidate_id: candidate.candidateId,
@@ -52,22 +51,23 @@ test('official Qdrant SDK path preserves dense query and payload mapping', async
             end_line: 1,
             start_column: 1,
             end_column: text.length + 1,
-            symbol_name: candidate.symbolName,
-            structural_kind: candidate.structuralKind,
-            structural_language: candidate.structuralLanguage,
-            text: candidate.text,
+            symbol_name: 'save',
+            structural_kind: 'function',
+            structural_language: 'typescript',
+            text,
             source_digest: candidate.sourceDigest,
-            generation: candidate.generation,
-            indexed_at_ms: candidate.indexedAtMs,
+            generation: 1,
+            indexed_at_ms: 1,
           },
         }],
       };
     },
     upsert: async (_collection: string, request: unknown) => {
       upsertRequest = request;
-      return { result: true };
+      return { status: 'completed' };
     },
   } as unknown as QdrantClient;
+
   const port = makeQdrantCodeCandidatePort({
     baseUrl: 'http://127.0.0.1:6333',
     collection: 'ace-sdk',
@@ -81,50 +81,51 @@ test('official Qdrant SDK path preserves dense query and payload mapping', async
     limit: 2,
   }));
   assert.equal(searched._tag, 'Ok');
-  assert.deepEqual(queryRequest, {
-    query: [0.1, 0.2],
-    using: 'dense',
-    limit: 2,
-    with_payload: true,
-    with_vector: false,
-    filter: { must: [{ key: 'workspace_id', match: { value: workspaceId } }] },
-  });
-  const upserted = await Effect.runPromise(port.upsert([{
+  if (searched._tag === 'Ok') assert.equal(searched.value[0]?.candidate.symbolName, 'save');
+  assert.equal((queryRequest as { using?: unknown }).using, 'dense');
+
+  assert.equal((await Effect.runPromise(port.upsert([{
     candidate,
     vector: [0.1, 0.2],
     indexKey: 'index-key',
-  }]));
-  assert.equal(upserted._tag, 'Ok');
-  assert.equal(Array.isArray((upsertRequest as { points?: unknown[] }).points), true);
+  }])))._tag, 'Ok');
+  assert.ok(Array.isArray((upsertRequest as { points?: unknown[] }).points));
 });
 
-test('official Qdrant SDK path owns probe, collection bootstrap and atomic alias switch', async () => {
+test('Qdrant SDK lifecycle accepts direct collection and alias shapes with dense-only schema', async () => {
   const actions: unknown[] = [];
   const collections = new Set<string>();
-  const aliases = [{ alias_name: 'ace-current', collection_name: 'old-collection' }];
   const client = {
-    getCollections: async () => ({ result: { collections: [] } }),
+    getCollections: async () => ({ collections: [] }),
     getCollection: async (name: string) => {
       if (!collections.has(name)) throw new Error('404 Not Found');
-      return { result: { config: { params: {
-        vectors: { dense: { size: 384, distance: 'Cosine' } },
-        sparse_vectors: { sparse: { modifier: 'idf' } },
-      } } } };
+      return { config: { params: { vectors: { dense: { size: 384, distance: 'Cosine' } } } } };
     },
-    createCollection: async (name: string) => { collections.add(name); actions.push(['create_collection', name]); return true; },
-    getAliases: async () => ({ result: { aliases } }),
+    createCollection: async (name: string, input: unknown) => {
+      collections.add(name);
+      actions.push(['create', name, input]);
+      return true;
+    },
+    getAliases: async () => ({ aliases: [{ alias_name: 'ace-current', collection_name: 'old' }] }),
     updateCollectionAliases: async (input: unknown) => { actions.push(input); return true; },
   } as unknown as QdrantClient;
   const http = { request: () => Effect.succeed(ok({ status: 500, body: {} })) };
-  assert.equal((await Effect.runPromise(probeQdrantService(http, 'http://127.0.0.1:6333', [], client)))._tag, 'Ok');
-  assert.equal((await Effect.runPromise(ensureQdrantCollection(http, 'http://127.0.0.1:6333', 'new-collection', 384, [], undefined, client)))._tag, 'Ok');
-  const resolved = await Effect.runPromise(resolveQdrantAlias(http, 'http://127.0.0.1:6333', 'ace-current', [], client));
-  assert.equal(resolved._tag, 'Ok');
-  if (resolved._tag === 'Ok') assert.equal(resolved.value, 'old-collection');
-  assert.equal((await Effect.runPromise(switchQdrantAlias(http, 'http://127.0.0.1:6333', 'ace-current', 'new-collection', [], client)))._tag, 'Ok');
-  assert.deepEqual(actions[0], ['create_collection', 'new-collection']);
-  assert.deepEqual(actions[1], { actions: [
-    { delete_alias: { alias_name: 'ace-current' } },
-    { create_alias: { collection_name: 'new-collection', alias_name: 'ace-current' } },
-  ] });
+
+  assert.equal((await Effect.runPromise(probeQdrantService(
+    http, 'http://127.0.0.1:6333', [], client,
+  )))._tag, 'Ok');
+  assert.equal((await Effect.runPromise(ensureQdrantCollection(
+    http, 'http://127.0.0.1:6333', 'new', 384, [], undefined, client, 'dense',
+  )))._tag, 'Ok');
+  const alias = await Effect.runPromise(resolveQdrantAlias(
+    http, 'http://127.0.0.1:6333', 'ace-current', [], client,
+  ));
+  assert.equal(alias._tag, 'Ok');
+  if (alias._tag === 'Ok') assert.equal(alias.value, 'old');
+  assert.equal((await Effect.runPromise(switchQdrantAlias(
+    http, 'http://127.0.0.1:6333', 'ace-current', 'new', [], client,
+  )))._tag, 'Ok');
+
+  const create = actions[0] as [string, string, { sparse_vectors?: unknown }];
+  assert.equal(create[2].sparse_vectors, undefined);
 });

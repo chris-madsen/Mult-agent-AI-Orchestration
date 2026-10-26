@@ -70,7 +70,6 @@ import {
   exactUtf8ByteRange,
   utf16ColumnAtUtf8Byte,
 } from '../domain/utf8-range.js';
-import { applyRepoMapRanking, type RepoMapOptions } from '../domain/repo-map.js';
 
 export { exactUtf8ByteRange, exactUtf8Span } from '../domain/utf8-range.js';
 
@@ -113,8 +112,6 @@ export interface QdrantContextConfig {
   readonly candidateLimit?: number;
   /** Same production adapter supports controlled dense/sparse/hybrid ablation arms. */
   readonly retrievalStrategy?: CodeRetrievalStrategy;
-  /** Optional deterministic RepoMap ranking and token budget after provider retrieval. */
-  readonly repoMap?: RepoMapOptions;
   /** Optional evidence-gated cross-encoder stage after Qdrant RRF fusion. */
   readonly reranker?: RerankerPort;
   /** Optional falls back to fused ranking on outage; required fails the code branch closed. */
@@ -192,7 +189,7 @@ const recordBenchmarkStage = (
   trace: RetrievalBenchmarkTraceSink | undefined,
   providerIdentities: Readonly<Record<string, string>> | undefined,
   requestId: string,
-  stage: 'dense' | 'sparse' | 'fused' | 'repo_map' | 'working_context' | 'reranked' | 'delivered',
+  stage: 'dense' | 'sparse' | 'fused' | 'working_context' | 'reranked' | 'delivered',
   candidates: readonly RankedCandidate[],
   startedAtMs: number,
   repositoryId?: string,
@@ -236,7 +233,7 @@ export const resolveQdrantAlias = (
   if (client !== undefined) {
     const listed = yield* qdrantSdkCall(() => client.getAliases());
     if (listed._tag === 'Err') return listed;
-    const aliases = (listed.value as { result?: { aliases?: unknown } }).result?.aliases;
+    const aliases = (listed.value as { aliases?: unknown }).aliases;
     if (!Array.isArray(aliases)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_alias', 'Qdrant SDK alias response is malformed'));
     const target = aliases.find((item) =>
       typeof item === 'object' && item !== null && !Array.isArray(item)
@@ -363,6 +360,7 @@ export const ensureQdrantCollection = (
   allowedHosts: readonly string[] = [],
   apiKey?: string,
   client?: QdrantClient,
+  mode: 'dense' | 'hybrid' = 'hybrid',
 ): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
   const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
   if (endpoint._tag === 'Err') return endpoint;
@@ -372,39 +370,35 @@ export const ensureQdrantCollection = (
   const url = endpoint.value + '/collections/' + encodeURIComponent(collection);
   const headers = apiKey === undefined ? {} : { 'api-key': apiKey };
   const verifyExisting = (body: unknown): Result<void, DomainError> => {
-    const payload = body as {
-      result?: {
-        config?: {
-          params?: {
-            vectors?: unknown;
-            sparse_vectors?: unknown;
-          };
-        };
-      };
-    };
-    const vectors = payload?.result?.config?.params?.vectors;
-    const sparseVectors = payload?.result?.config?.params?.sparse_vectors;
+    const outer = typeof body === 'object' && body !== null && !Array.isArray(body)
+      ? body as Record<string, unknown> : {};
+    // SDK facade returns CollectionInfo directly; raw REST returns { result: CollectionInfo }.
+    const direct = typeof outer.result === 'object' && outer.result !== null && !Array.isArray(outer.result)
+      ? outer.result as Record<string, unknown> : outer;
+    const config = typeof direct.config === 'object' && direct.config !== null && !Array.isArray(direct.config)
+      ? direct.config as Record<string, unknown> : {};
+    const params = typeof config.params === 'object' && config.params !== null && !Array.isArray(config.params)
+      ? config.params as Record<string, unknown> : {};
+    const vectors = params.vectors;
+    const sparseVectors = params.sparse_vectors;
     const dense = typeof vectors === 'object' && vectors !== null && !Array.isArray(vectors)
-      ? (vectors as Record<string, unknown>).dense
-      : undefined;
+      ? (vectors as Record<string, unknown>).dense : undefined;
     const denseConfig = typeof dense === 'object' && dense !== null && !Array.isArray(dense)
-      ? dense as Record<string, unknown>
-      : undefined;
+      ? dense as Record<string, unknown> : undefined;
     const sparse = typeof sparseVectors === 'object' && sparseVectors !== null && !Array.isArray(sparseVectors)
-      ? (sparseVectors as Record<string, unknown>).sparse
-      : undefined;
+      ? (sparseVectors as Record<string, unknown>).sparse : undefined;
     const sparseConfig = typeof sparse === 'object' && sparse !== null && !Array.isArray(sparse)
-      ? sparse as Record<string, unknown>
-      : undefined;
-    return denseConfig?.size === dimension
-      && denseConfig.distance === 'Cosine'
-      && typeof sparseConfig?.modifier === 'string'
-      && sparseConfig.modifier.toLowerCase() === 'idf'
+      ? sparse as Record<string, unknown> : undefined;
+    const denseValid = denseConfig?.size === dimension && denseConfig.distance === 'Cosine';
+    const sparseValid = typeof sparseConfig?.modifier === 'string' && sparseConfig.modifier.toLowerCase() === 'idf';
+    return denseValid && (mode === 'dense' || sparseValid)
       ? ok(undefined)
       : err(domainError(
         'INVALID_EXTERNAL_RESPONSE',
         'qdrant',
-        'collection schema must expose dense cosine vectors and IDF-modified sparse vectors',
+        mode === 'dense'
+          ? 'collection schema must expose dense cosine vectors'
+          : 'collection schema must expose dense cosine vectors and IDF-modified sparse vectors',
       ));
   };
   if (client !== undefined) {
@@ -413,7 +407,7 @@ export const ensureQdrantCollection = (
     if (!/\b404\b|not found/iu.test(found.error.message)) return found;
     const created = yield* qdrantSdkCall(() => client.createCollection(collection, {
       vectors: { dense: { size: dimension, distance: 'Cosine' } },
-      sparse_vectors: { sparse: { modifier: 'idf' } },
+      ...(mode === 'dense' ? {} : { sparse_vectors: { sparse: { modifier: 'idf' } } }),
     } as Parameters<QdrantClient['createCollection']>[1]));
     if (created._tag === 'Ok') return ok(undefined);
     const raced = yield* qdrantSdkCall(() => client.getCollection(collection));
@@ -433,7 +427,7 @@ export const ensureQdrantCollection = (
     headers,
     body: {
       vectors: { dense: { size: dimension, distance: 'Cosine' } },
-      sparse_vectors: { sparse: { modifier: 'idf' } },
+      ...(mode === 'dense' ? {} : { sparse_vectors: { sparse: { modifier: 'idf' } } }),
     },
   });
   if (created._tag === 'Err') return created;
@@ -480,7 +474,7 @@ export const switchQdrantAlias = (
   if (client !== undefined) {
     const listed = yield* qdrantSdkCall(() => client.getAliases());
     if (listed._tag === 'Err') return listed;
-    const aliases = (listed.value as { result?: { aliases?: unknown } }).result?.aliases;
+    const aliases = (listed.value as { aliases?: unknown }).aliases;
     if (!Array.isArray(aliases)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_alias', 'Qdrant SDK alias response is malformed'));
     const existing = aliases.some((item) =>
       typeof item === 'object' && item !== null && !Array.isArray(item)
@@ -1026,26 +1020,9 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
               retrievalStartedAtMs,
               activeConfig.benchmarkRepositoryId,
             );
-            const repoMapStartedAtMs = Date.now();
-            const repoMapSelection = activeConfig.repoMap === undefined
-              ? { candidates: result.value, droppedCount: 0, estimatedTokens: 0 }
-              : applyRepoMapRanking(result.value, input.query, activeConfig.repoMap);
-            recordBenchmarkStage(
-              activeConfig.benchmarkTrace,
-              activeConfig.benchmarkProviderIdentities,
-              requestId.value,
-              'repo_map',
-              repoMapSelection.candidates,
-              repoMapStartedAtMs,
-              activeConfig.benchmarkRepositoryId,
-              activeConfig.repoMap === undefined ? 'not_applicable' : 'executed',
-            );
-            if (activeConfig.repoMap !== undefined) {
-              warnings.push(`RepoMap selected ${repoMapSelection.candidates.length} candidates, dropped ${repoMapSelection.droppedCount}, estimated_tokens=${repoMapSelection.estimatedTokens}`);
-            }
             const workingContextStartedAtMs = Date.now();
             const prioritized = applyWorkingContextPriors(
-              repoMapSelection.candidates,
+              result.value,
               requestWorkingContext,
               input.workingContextHints,
               retrievalLimit,

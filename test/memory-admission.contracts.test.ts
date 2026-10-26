@@ -1,5 +1,9 @@
 import { strict as assert } from 'node:assert';
 import { createHash } from 'node:crypto';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { makeFileProjectionOutbox } from '../src/adapters/file-projection-outbox.js';
 import { test } from 'node:test';
 import { Effect } from 'effect';
 import { importMemoryEpisodes } from '../src/application/memory-import.js';
@@ -190,4 +194,67 @@ test('MAC-08 Graphiti failure never prevents later originals from being archived
     assert.equal(result.value[1]?.admission.kind, 'archive_only');
     assert.equal(result.value[2]?.projectionStatus, 'incomplete');
   }
+});
+
+test('MAC-09 unexpected provider Effect failure is an incomplete projection, not a rejected import', async () => {
+  const local = inMemoryArchive();
+  let projectCalls = 0;
+  let closed = false;
+  const faultyProjection: GraphProjectionPort = {
+    project: () => {
+      projectCalls += 1;
+      if (projectCalls === 1) return Effect.die(new Error('transport unexpectedly crashed'));
+      return Effect.succeed(err(domainError('EXTERNAL_UNAVAILABLE', 'graphiti', 'injected second error')));
+    },
+    purge: () => Effect.succeed(ok(undefined)),
+  };
+  const result = await importMemoryEpisodes({
+    episodes: [
+      episode('unexpected-provider-failure', 'We decided to keep the original session archive.'),
+      episode('second-decision', 'We decided to use local graph memory.'),
+    ],
+    archive: local.archive,
+    extractorVersion: 'test-extractor',
+    createProjection: async () => ({ projection: faultyProjection, close: async () => { closed = true; } }),
+  });
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Ok') {
+    assert.deepEqual(result.value.map((entry) => entry.projectionStatus), ['incomplete', 'incomplete']);
+    assert.deepEqual(result.value.map((entry) => entry.projectionErrorCode), ['EXTERNAL_UNAVAILABLE', 'EXTERNAL_UNAVAILABLE']);
+  }
+  assert.equal(projectCalls, 2);
+  assert.equal(local.episodes.size, 2);
+  assert.equal(closed, true);
+});
+
+test('MAC-10 reimport honors durable projection outbox retry deadline', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-memory-backoff-'));
+  const outbox = await makeFileProjectionOutbox(root);
+  const admitted = episode('retry-decision', 'We decided to preserve the original for replay.');
+  const begun = await outbox.begin(admitted.episodeId, 'extractor-backoff');
+  assert.equal(begun._tag, 'Ok');
+  if (begun._tag === 'Err') return;
+  assert.equal((await outbox.put({
+    ...begun.value, status: 'incomplete', attempts: 1,
+    nextAttemptAtMs: 1_000, lastErrorCode: 'EXTERNAL_UNAVAILABLE',
+  }))._tag, 'Ok');
+  const local = inMemoryArchive();
+  const calls = { created: 0, projected: 0 };
+  const deferred = await importMemoryEpisodes({
+    episodes: [admitted], archive: local.archive, outbox,
+    extractorVersion: 'extractor-backoff', nowMs: () => 500,
+    createProjection: async () => projectionSession(calls),
+  });
+  assert.equal(deferred._tag, 'Ok');
+  if (deferred._tag === 'Ok') assert.equal(deferred.value[0]?.projectionStatus, 'incomplete');
+  assert.equal(calls.created, 0);
+  assert.equal(calls.projected, 0);
+  assert.equal(local.episodes.size, 1);
+  const due = await importMemoryEpisodes({
+    episodes: [admitted], archive: local.archive, outbox,
+    extractorVersion: 'extractor-backoff', nowMs: () => 1_000,
+    createProjection: async () => projectionSession(calls),
+  });
+  assert.equal(due._tag, 'Ok');
+  assert.equal(calls.projected, 1);
 });

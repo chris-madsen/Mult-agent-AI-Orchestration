@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { domainError } from '../domain/errors.js';
 import { err, ok } from '../domain/result.js';
 import type { ContentDigest } from '../domain/workspace.js';
-import { makeEpisode, type EpisodeId, type SessionEpisode } from '../domain/memory.js';
+import { makeEpisode, makeEpisodeId, type EpisodeId, type SessionEpisode } from '../domain/memory.js';
 import type { MemoryArchivePort } from '../application/ports.js';
 
 const digestOf = (bytes: Uint8Array): ContentDigest => createHash('sha256').update(bytes).digest('hex') as ContentDigest;
@@ -67,7 +67,22 @@ export const makeAsyncFileMemoryArchive = async (rootPath: string): Promise<Asyn
         const entries = (await readdir(episodesPath)).filter((entry) => entry.endsWith('.json')).sort();
         const episodes: SessionEpisode[] = [];
         for (const entry of entries) {
+          const episodeId = entry.slice(0, -'.json'.length);
+          if (makeEpisodeId(episodeId)._tag === 'Err') {
+            return err(domainError('PERSISTENCE_FAILED', 'archive', 'archive contains an unsafe episode filename'));
+          }
+          // Crash-safe deletion: tombstones are authoritative from the first
+          // durable deletion step, even before metadata/blob cleanup completes.
+          try {
+            await readFile(tombstonePath(episodeId as EpisodeId));
+            continue;
+          } catch (cause) {
+            if (!isMissing(cause)) return err(domainError('PERSISTENCE_FAILED', 'archive', 'could not inspect archive tombstone'));
+          }
           const metadata = JSON.parse(await readFile(join(episodesPath, entry), 'utf8')) as Omit<SessionEpisode, 'content'>;
+          if (metadata.episodeId !== episodeId || metadata.tombstoned !== false) {
+            return err(domainError('PERSISTENCE_FAILED', 'archive', 'archive metadata identity is inconsistent'));
+          }
           const content = new Uint8Array(await readFile(contentPath(metadata.contentDigest)));
           if (digestOf(content) !== metadata.contentDigest) {
             return err(domainError('DIGEST_MISMATCH', 'episode', 'archive listing found original bytes with a bad digest'));
@@ -108,6 +123,8 @@ export const makeAsyncFileMemoryArchive = async (rootPath: string): Promise<Asyn
       return ok({ created: true, episode: checked.value });
     }),
     readEpisode: async (episodeId) => {
+      const id = makeEpisodeId(episodeId);
+      if (id._tag === 'Err') return id;
       try {
         await readFile(tombstonePath(episodeId));
         return err(domainError('ARCHIVE_TOMBSTONED', 'episode', 'episode was deleted'));
@@ -116,6 +133,9 @@ export const makeAsyncFileMemoryArchive = async (rootPath: string): Promise<Asyn
       }
       try {
         const metadata = JSON.parse(await readFile(metadataPath(episodeId), 'utf8')) as Omit<SessionEpisode, 'content'>;
+        if (metadata.episodeId !== episodeId || metadata.tombstoned !== false) {
+          return err(domainError('PERSISTENCE_FAILED', 'archive', 'archive metadata identity is inconsistent'));
+        }
         const content = new Uint8Array(await readFile(contentPath(metadata.contentDigest)));
         if (digestOf(content) !== metadata.contentDigest) {
           return err(domainError('DIGEST_MISMATCH', 'episode', 'original archive bytes failed SHA-256 verification'));
@@ -126,6 +146,8 @@ export const makeAsyncFileMemoryArchive = async (rootPath: string): Promise<Asyn
       }
     },
     deleteEpisode: (episodeId) => exclusive(async () => {
+      const id = makeEpisodeId(episodeId);
+      if (id._tag === 'Err') return id;
       const existing = await (async () => {
         try {
           return JSON.parse(await readFile(metadataPath(episodeId), 'utf8')) as Omit<SessionEpisode, 'content'>;

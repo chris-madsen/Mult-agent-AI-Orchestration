@@ -15,11 +15,7 @@ import { makeFileDecisionHistory } from '../adapters/file-decision-history.js';
 import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
 import { makeGitHistoryPort } from '../adapters/git-history.js';
 import { makeHostWorkspacePort, makeMtlsHostHelperTransport } from '../adapters/host-worktree-helper.js';
-import {
-  makeFetchHttpPort,
-  makeQdrantCodeCandidatePort,
-  validateLocalQdrantBaseUrl,
-} from '../adapters/http-provider-boundaries.js';
+import { makeFetchHttpPort, makeQdrantCodeCandidatePort, validateLocalQdrantBaseUrl } from '../adapters/http-provider-boundaries.js';
 import { buildLocalCodeIndex, type LocalCodeIndexBuild } from '../adapters/local-code-index.js';
 import { makeNodeWorkspacePort } from '../adapters/node-workspace-port.js';
 import {
@@ -54,15 +50,9 @@ import {
 } from '../adapters/lsp-semantic.js';
 import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
 import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
-import { makeLspServerRegistry } from '../application/lsp/server-registry.js';
 import type { MemorySearchPort, WorkspaceFilePort } from '../application/ports.js';
 import { defaultLocalPolicy } from '../domain/policy.js';
 import { makeWorkspaceId, type WorkspaceId } from '../domain/workspace.js';
-import {
-  parseRetrievalComposition,
-  parseRetrievalStrategyForComposition,
-  retrievalProviderRequirements,
-} from '../domain/retrieval-composition.js';
 import type { RetrievalBenchmarkTraceSink } from '../domain/retrieval-benchmark.js';
 import { workspaceManifestFromSnapshot, workspaceManifestEqual } from '../domain/workspace-manifest.js';
 import { observeWorkspace, registerWorkspace } from '../application/workspace-service.js';
@@ -276,6 +266,11 @@ const main = async (): Promise<void> => {
     process.env.ACE_AST_GREP_COMMAND,
     resolve(runtimeRoot, 'node_modules/.bin/ast-grep'),
   );
+  const astGrepProviderRaw = process.env.ACE_AST_GREP_PROVIDER?.trim() || 'auto';
+  if (!['cli', 'napi', 'auto'].includes(astGrepProviderRaw)) {
+    throw new Error('ACE_AST_GREP_PROVIDER must be cli, napi, or auto');
+  }
+  const astGrepProvider = astGrepProviderRaw as 'cli' | 'napi' | 'auto';
   const lspCommand = optionalCommand(
     process.env.ACE_LSP_COMMAND,
     resolve(runtimeRoot, 'node_modules/.bin/typescript-language-server'),
@@ -312,7 +307,6 @@ const main = async (): Promise<void> => {
   let closeSemantics: (() => void) | undefined;
   let closeReranker: (() => void) | undefined;
   let closeSparseEmbeddings: (() => void) | undefined;
-  const lspRegistry = makeLspServerRegistry();
   if (process.env.ACE_ENABLE_GRAPHITI === 'true') {
     const archiveRoot = resolve(required('ACE_MEMORY_ARCHIVE_ROOT'));
     const command = required('ACE_GRAPHITI_COMMAND');
@@ -425,16 +419,12 @@ const main = async (): Promise<void> => {
       const delay = process.env.ACE_EMBEDDING_DELAY_MS?.trim();
       if (delay !== undefined && delay.length > 0) embeddingEnvironment.ACE_EMBEDDING_DELAY_MS = delay;
     }
-    const parsedComposition = parseRetrievalComposition(process.env.ACE_RETRIEVAL_COMPOSITION);
-    if (parsedComposition._tag === 'Err') throw new Error(parsedComposition.error.message);
-    const parsedRetrievalStrategy = parseRetrievalStrategyForComposition(
-      parsedComposition.value,
-      process.env.ACE_RETRIEVAL_STRATEGY,
-    );
-    if (parsedRetrievalStrategy._tag === 'Err') throw new Error(parsedRetrievalStrategy.error.message);
-    const retrievalStrategy = parsedRetrievalStrategy.value;
+    const retrievalStrategyRaw = process.env.ACE_RETRIEVAL_STRATEGY?.trim() || 'hybrid_rrf';
+    if (!['dense', 'sparse', 'hybrid_rrf'].includes(retrievalStrategyRaw)) {
+      throw new Error('ACE_RETRIEVAL_STRATEGY must be dense, sparse, or hybrid_rrf');
+    }
+    const retrievalStrategy = retrievalStrategyRaw as 'dense' | 'sparse' | 'hybrid_rrf';
     const sparseEmbeddingModel = process.env.ACE_SPARSE_EMBEDDING_MODEL?.trim() || 'Qdrant/bm25';
-    const { sparse: requiresSparseEmbedding } = retrievalProviderRequirements(retrievalStrategy);
     const sparseEmbeddingWorker = process.env.ACE_SPARSE_EMBEDDING_WORKER?.trim()
       || resolve(runtimeRoot, 'scripts/fastembed-sparse-worker.sh');
     const sparseEmbeddingTimeoutMs = Number(process.env.ACE_SPARSE_EMBEDDING_TIMEOUT_MS ?? '120000');
@@ -454,10 +444,6 @@ const main = async (): Promise<void> => {
       throw new Error('ACE_RERANKER_TIMEOUT_MS must be an integer between 100 and 3600000');
     }
     const rerankerModel = process.env.ACE_RERANKER_MODEL?.trim();
-    const repoMapMaxTokens = Number(process.env.ACE_REPO_MAP_MAX_TOKENS ?? '4000');
-    if (!Number.isSafeInteger(repoMapMaxTokens) || repoMapMaxTokens < 1 || repoMapMaxTokens > 100_000) {
-      throw new Error('ACE_REPO_MAP_MAX_TOKENS must be an integer between 1 and 100000');
-    }
     const rerankerWorker = process.env.ACE_RERANKER_WORKER?.trim() || resolve(runtimeRoot, 'scripts/fastembed-reranker-worker.sh');
     let reranker: ReturnType<typeof makeProcessRerankerPort> | undefined;
     if (rerankerMode !== 'disabled') {
@@ -510,9 +496,8 @@ const main = async (): Promise<void> => {
     if (qdrantReachable._tag === 'Err') {
       handleQdrantUnavailable(qdrantReachable.error.code);
     } else if (!commandBoundaryExists(embeddingWorker)
-      || (requiresSparseEmbedding && !commandBoundaryExists(sparseEmbeddingWorker))
-      || !existsSync(astGrepCommand)
-      || !commandBoundaryExists(astGrepCommand)) {
+      || (retrievalStrategy !== 'dense' && !commandBoundaryExists(sparseEmbeddingWorker))
+      || (astGrepProvider === 'cli' && (!existsSync(astGrepCommand) || !commandBoundaryExists(astGrepCommand)))) {
       readiness.code_retrieval = { state: 'not_ready', reason: 'provider_runtime_missing' };
       readiness.unified_context = { state: 'not_ready', reason: 'provider_runtime_missing' };
       process.stderr.write('ace-mcp context NOT_READY: configured embedding/ast-grep runtime files are missing\n');
@@ -527,42 +512,41 @@ const main = async (): Promise<void> => {
         env: embeddingEnvironment,
         expectedIdentity: embeddingConfig,
       });
-      const sparseEmbeddings = requiresSparseEmbedding
-        ? makeProcessSparseEmbeddingPort({
-          command: sparseEmbeddingWorker,
-          args: sparseEmbeddingWorkerArgs,
-          timeoutMs: sparseEmbeddingTimeoutMs,
-          expectedModel: sparseEmbeddingModel,
-          providerVersion: `fastembed/sparse|model=${sparseEmbeddingModel}`,
-          trace: providerTrace,
-          env: Object.fromEntries([
-            ['ACE_SPARSE_EMBEDDING_MODEL', sparseEmbeddingModel],
-            ...[
-              'ACE_SPARSE_EMBEDDING_PYTHON',
-              'ACE_SPARSE_EMBEDDING_LD_LIBRARY_PATH',
-              'ACE_SPARSE_EMBEDDING_LD_PRELOAD',
-              'ACE_SPARSE_EMBEDDING_THREADS',
-              'FASTEMBED_CACHE_PATH',
-              'HF_HOME',
-              'HF_HUB_CACHE',
-            ].flatMap((name) => {
-              const value = process.env[name]?.trim();
-              return value === undefined || value.length === 0 ? [] : [[name, value] as const];
-            }),
-          ]),
-        })
-        : undefined;
+      const sparseEnvironment: Record<string, string> = {
+        ACE_SPARSE_EMBEDDING_MODEL: sparseEmbeddingModel,
+      };
+      for (const name of [
+        'ACE_SPARSE_EMBEDDING_PYTHON',
+        'ACE_SPARSE_EMBEDDING_LD_LIBRARY_PATH',
+        'ACE_SPARSE_EMBEDDING_LD_PRELOAD',
+        'ACE_SPARSE_EMBEDDING_THREADS',
+        'FASTEMBED_CACHE_PATH',
+        'HF_HOME',
+        'HF_HUB_CACHE',
+      ]) {
+        const value = process.env[name]?.trim();
+        if (value !== undefined && value.length > 0) sparseEnvironment[name] = value;
+      }
+      const sparseEmbeddings = retrievalStrategy === 'dense' ? undefined : makeProcessSparseEmbeddingPort({
+        command: sparseEmbeddingWorker,
+        args: sparseEmbeddingWorkerArgs,
+        timeoutMs: sparseEmbeddingTimeoutMs,
+        expectedModel: sparseEmbeddingModel,
+        providerVersion: `fastembed/sparse|model=${sparseEmbeddingModel}`,
+        trace: providerTrace,
+        env: sparseEnvironment,
+      });
       const closeEmbeddingWorker = (): void => embeddings.close();
       const closeSparseWorker = (): void => sparseEmbeddings?.close();
-      closeSparseEmbeddings = sparseEmbeddings === undefined ? undefined : closeSparseWorker;
+      closeSparseEmbeddings = closeSparseWorker;
       process.once('SIGTERM', closeEmbeddingWorker);
-      if (sparseEmbeddings !== undefined) process.once('SIGTERM', closeSparseWorker);
+      process.once('SIGTERM', closeSparseWorker);
       process.once('SIGINT', closeEmbeddingWorker);
-      if (sparseEmbeddings !== undefined) process.once('SIGINT', closeSparseWorker);
+      process.once('SIGINT', closeSparseWorker);
       process.stdin.once('end', () => setTimeout(closeEmbeddingWorker, 5_000));
-      if (sparseEmbeddings !== undefined) process.stdin.once('end', () => setTimeout(closeSparseWorker, 5_000));
+      process.stdin.once('end', () => setTimeout(closeSparseWorker, 5_000));
       const embeddingReady = await Effect.runPromise(embeddings.probe());
-      const sparseReady = requiresSparseEmbedding && embeddingReady._tag === 'Ok' && sparseEmbeddings !== undefined
+      const sparseReady = embeddingReady._tag === 'Ok' && sparseEmbeddings !== undefined
         ? await Effect.runPromise(sparseEmbeddings.probe())
         : undefined;
       if (embeddingReady._tag === 'Err') {
@@ -574,7 +558,7 @@ const main = async (): Promise<void> => {
         readiness.code_retrieval = { state: 'not_ready', reason: 'embedding_provider_unavailable' };
         readiness.unified_context = { state: 'not_ready', reason: 'embedding_provider_unavailable' };
         process.stderr.write(`ace-mcp context NOT_READY: embedding provider preflight failed (${embeddingReady.error.code})\n`);
-      } else if (requiresSparseEmbedding && sparseReady?._tag === 'Err') {
+      } else if (sparseReady?._tag === 'Err') {
         embeddings.close();
         sparseEmbeddings?.close();
         if (sparseReady.error.path === 'sparse_embedding.identity') {
@@ -587,31 +571,28 @@ const main = async (): Promise<void> => {
       } else {
         const effectiveEmbedding = embeddings.identity();
         const effectiveSparseEmbedding = sparseEmbeddings?.identity();
-        if (effectiveEmbedding === undefined || (requiresSparseEmbedding && effectiveSparseEmbedding === undefined)) {
+        if (effectiveEmbedding === undefined
+          || (retrievalStrategy !== 'dense' && effectiveSparseEmbedding === undefined)) {
           embeddings.close();
           sparseEmbeddings?.close();
-          readiness.sparse_embedding = requiresSparseEmbedding
-            ? { state: 'not_ready', reason: 'sparse_embedding_identity_unavailable' }
-            : { state: 'disabled', reason: 'sparse_embedding_not_required' };
+          readiness.sparse_embedding = { state: 'not_ready', reason: 'sparse_embedding_identity_unavailable' };
           readiness.code_retrieval = { state: 'not_ready', reason: 'retrieval_identity_unavailable' };
           readiness.unified_context = { state: 'not_ready', reason: 'retrieval_identity_unavailable' };
-          process.stderr.write('ace-mcp context NOT_READY: dense/sparse embedding provider returned no verified effective identity\n');
+          process.stderr.write('ace-mcp context NOT_READY: required embedding provider returned no verified identity\n');
         } else {
-          readiness.sparse_embedding = requiresSparseEmbedding
-            ? { state: 'ready', reason: 'real_sparse_embedding_preflight_passed' }
-            : { state: 'disabled', reason: 'sparse_embedding_not_required' };
+          readiness.sparse_embedding = effectiveSparseEmbedding === undefined
+            ? { state: 'disabled', reason: 'dense_only_no_sparse_worker' }
+            : { state: 'ready', reason: 'real_sparse_embedding_preflight_passed' };
           const embeddingFingerprint = verifiedEmbeddingIdentityFingerprint(effectiveEmbedding);
           const sparseEmbeddingFingerprint = effectiveSparseEmbedding === undefined
-            ? 'not-required'
+            ? 'disabled'
             : sparseEmbeddingIdentityFingerprint(effectiveSparseEmbedding);
           const structuralOptions = {
             command: astGrepCommand,
-            provider: process.env.ACE_AST_GREP_PROVIDER?.trim() === 'napi'
-              ? 'napi' as const
-              : parsedComposition.value === 'repo-map-qdrant-lsp-v2'
-                ? 'auto' as const
-                : 'cli' as const,
-            providerVersion: process.env.ACE_AST_GREP_VERSION?.trim() || 'ast-grep/0.51.0',
+            provider: astGrepProvider,
+            providerVersion: astGrepProvider === 'cli'
+              ? process.env.ACE_AST_GREP_VERSION?.trim() || 'ast-grep/0.51.0'
+              : process.env.ACE_AST_GREP_NAPI_VERSION?.trim() || 'ast-grep/napi@0.51.0',
             trace: providerTrace,
           };
           const structuralIdentity = await Effect.runPromise(resolveAstGrepProviderIdentity(structuralOptions));
@@ -622,17 +603,15 @@ const main = async (): Promise<void> => {
               .digest('hex');
           const retrievalFingerprint = createHash('sha256')
             .update(JSON.stringify({
-              schema: requiresSparseEmbedding ? 'hybrid-qdrant-local-sparse-v2' : 'dense-qdrant-v2',
+              schema: retrievalStrategy === 'dense' ? 'dense-qdrant-v1' : 'hybrid-qdrant-local-sparse-v2',
               embedding: embeddingFingerprint,
+              sparseEmbedding: sparseEmbeddingFingerprint,
               structural: structuralFingerprint,
               denseVector: 'dense',
-              ...(requiresSparseEmbedding ? {
-                sparseEmbedding: sparseEmbeddingFingerprint,
-                sparseVector: 'sparse',
-                sparseModel: effectiveSparseEmbedding?.model,
-                sparsePreprocessing: effectiveSparseEmbedding?.preprocessing,
-                fusion: 'rrf',
-              } : { fusion: 'dense' }),
+              sparseVector: 'sparse',
+              sparseModel: effectiveSparseEmbedding?.model ?? null,
+              sparsePreprocessing: effectiveSparseEmbedding?.preprocessing ?? null,
+              fusion: retrievalStrategy === 'dense' ? 'none' : 'rrf',
             }), 'utf8')
             .digest('hex');
           if (structuralIdentity._tag === 'Err') {
@@ -651,7 +630,14 @@ const main = async (): Promise<void> => {
             const collection = qdrantCollectionName(workspaceKey, embeddingFingerprint, sourceKey);
             const currentAlias = qdrantCurrentAlias(workspaceKey, embeddingFingerprint);
             const inspected = await Effect.runPromise(ensureQdrantCollection(
-              http, qdrantUrl, collection, effectiveEmbedding.dimension, qdrantAllowedHosts, undefined, qdrantClient,
+              http,
+              qdrantUrl,
+              collection,
+              effectiveEmbedding.dimension,
+              qdrantAllowedHosts,
+              qdrantApiKey,
+              qdrantClient,
+              retrievalStrategy === 'dense' ? 'dense' : 'hybrid',
             ));
             if (inspected._tag === 'Err') return inspected;
             const previousAlias = await Effect.runPromise(resolveQdrantAlias(
@@ -715,8 +701,7 @@ const main = async (): Promise<void> => {
               packageLockIdentity,
               providerIdentity: `${lspCommand}|${semanticProviderVersion}|${lspProviderIdentity?._tag === 'Ok' ? lspProviderIdentity.value.fingerprint : 'unverified'}`,
             });
-            const semanticKey = `${registered.value.workspaceId}:${semanticIdentity}`;
-            const semantics = lspRegistry.acquire(semanticKey, () => makeLspSemanticAnalysisPort({
+            const semantics = makeLspSemanticAnalysisPort({
               command: lspCommand,
               args: lspArgs,
               serverName: lspServerName,
@@ -726,7 +711,7 @@ const main = async (): Promise<void> => {
               providerVersion: semanticProviderVersion,
               snapshotIdentity: semanticIdentity,
               trace: providerTrace,
-            }));
+            });
             const firstLspPath = build.indexedPaths.find((repoPath) => lspLanguageIdForPath(repoPath, lspLanguageIds) !== undefined);
             let lspReady = lspProviderIdentity?._tag === 'Ok' && firstLspPath !== undefined;
             if (firstLspPath !== undefined && lspProviderIdentity?._tag === 'Ok') {
@@ -740,19 +725,19 @@ const main = async (): Promise<void> => {
             }
             const finalSnapshot = await Effect.runPromise(files.snapshot(registered.value.rootPath, Date.now()));
             if (finalSnapshot._tag === 'Err') {
-              lspRegistry.release(semanticKey);
+              semantics.close();
               return finalSnapshot;
             }
             const finalManifest = workspaceManifestFromSnapshot(finalSnapshot.value, scopeFingerprint);
             if (!workspaceManifestEqual(build.workspaceManifest, finalManifest)) {
-              lspRegistry.release(semanticKey);
+              semantics.close();
               return err(domainError('WORKTREE_RACED', 'workspace_manifest', 'workspace changed while assembling the semantic snapshot'));
             }
             const switched = await Effect.runPromise(switchQdrantAlias(
               http, qdrantUrl, currentAlias, collection, qdrantAllowedHosts, qdrantClient,
             ));
             if (switched._tag === 'Err') {
-              lspRegistry.release(semanticKey);
+              semantics.close();
               return switched;
             }
             const qdrant = makeQdrantCodeCandidatePort({
@@ -765,7 +750,7 @@ const main = async (): Promise<void> => {
               trace: providerTrace,
             });
             const oldCloseSemantics = closeSemantics;
-            closeSemantics = () => lspRegistry.release(semanticKey);
+            closeSemantics = semantics.close;
             if (oldCloseSemantics !== undefined) oldCloseSemantics();
             readiness.semantic_lsp = lspReady
               ? { state: 'ready', reason: 'real_lsp_provider_preflight_passed' }
@@ -789,7 +774,7 @@ const main = async (): Promise<void> => {
               : build.coverage.failedPaths === 0
                 ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
                 : { state: 'degraded', reason: 'index_coverage_partial' };
-            process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${buildGeneration} indexed_paths=${build.indexedPaths.length} candidates=${build.index.candidates.length} coverage_failed=${build.coverage.failedPaths} source_snapshot_digest=${build.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} sparse_identity=${sparseEmbeddingFingerprint.slice(0, 12)} retrieval_mode=${retrievalStrategy} query_strategy=${retrievalStrategy} sparse_model=${effectiveSparseEmbedding?.model ?? 'not-required'} structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
+            process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${buildGeneration} indexed_paths=${build.indexedPaths.length} candidates=${build.index.candidates.length} coverage_failed=${build.coverage.failedPaths} source_snapshot_digest=${build.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} sparse_identity=${sparseEmbeddingFingerprint.slice(0, 12)} retrieval_mode=${retrievalStrategy} sparse_model=${effectiveSparseEmbedding?.model ?? 'disabled'} structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
             return ok({
               workspaceId: registered.value.workspaceId,
               rootPath: registered.value.rootPath,
@@ -803,9 +788,6 @@ const main = async (): Promise<void> => {
               ...(indexed.value.reused ? {} : { generation: buildGeneration }),
               indexKey: sourceKey,
               candidateLimit,
-              ...(parsedComposition.value === 'repo-map-qdrant-lsp-v2'
-                ? { repoMap: { maxCandidates: rerankerCandidateLimit, maxTokens: repoMapMaxTokens } }
-                : {}),
               retrievalStrategy,
               ...(rerankerMode === 'disabled' ? {} : { rerankerMode }),
               ...(reranker === undefined ? {} : { reranker }),
@@ -820,12 +802,11 @@ const main = async (): Promise<void> => {
               benchmarkProviderIdentities: {
                 dense: `${effectiveEmbedding.provider}|model=${effectiveEmbedding.model}|revision=${effectiveEmbedding.modelRevision}|artifact=${effectiveEmbedding.artifactRevision}`,
                 sparse: effectiveSparseEmbedding === undefined
-                  ? 'not-required'
+                  ? 'disabled'
                   : `${effectiveSparseEmbedding.provider}|model=${effectiveSparseEmbedding.model}|runtime=${effectiveSparseEmbedding.runtimeVersion}|artifact=${effectiveSparseEmbedding.artifactDigest}`,
                 qdrant: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
                 structural: structuralOptions.providerVersion,
                 semantic: `${lspServerName}|${semanticProviderVersion}`,
-                repo_map: `deterministic-repomap/v1|max_candidates=${rerankerCandidateLimit}|max_tokens=${repoMapMaxTokens}`,
                 reranker: rerankerModel === undefined ? 'disabled' : `fastembed/cross-encoder|model=${rerankerModel}`,
               },
               history,
