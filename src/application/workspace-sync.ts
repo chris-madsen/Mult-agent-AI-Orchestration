@@ -164,9 +164,9 @@ export const makeWorkspaceSync = (options: WorkspaceSyncOptions): WorkspaceSync 
   return {
     initialize: () => Effect.succeed(ok(active)),
     refresh: (provided) => Effect.promise(() => enqueue<WorkspaceSyncRefreshResult>(async () => {
-      const probe = provided === undefined
+      const probe: Result<WorkspaceSyncProbe, DomainError> = provided === undefined
         ? await Effect.runPromise(options.observeChanges(active))
-        : ok({ changed: true, manifest: provided.manifest, delta: provided.delta });
+        : ok<WorkspaceSyncProbe>({ changed: true, manifest: provided.manifest, delta: provided.delta });
       if (probe._tag === 'Err') return probe;
       if (!probe.value.changed) {
         return ok({

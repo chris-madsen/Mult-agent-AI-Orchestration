@@ -1,10 +1,10 @@
-import type { ContentDigest, RepoPath, WorkspaceSnapshot } from './workspace.js';
+import type { ContentDigest, FileState, RepoPath, WorkspaceSnapshot } from './workspace.js';
 
 export interface WorkspaceManifestFile {
   readonly repoPath: RepoPath;
   readonly sourceDigest: ContentDigest;
   readonly sizeBytes: number;
-  readonly state: string;
+  readonly state: FileState;
 }
 
 /**
