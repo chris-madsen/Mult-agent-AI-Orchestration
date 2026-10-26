@@ -750,17 +750,17 @@ const main = async (): Promise<void> => {
             }
             let finalManifest;
             if (verification === 'incremental') {
-              const observed = await Effect.runPromise(observeWorkspaceManifest(
+              const verificationProbe = await Effect.runPromise(observeWorkspaceManifest(
                 files,
                 registered.value.rootPath,
                 build.workspaceManifest,
                 retrievalRelevantPath,
               ));
-              if (observed._tag === 'Err') {
+              if (verificationProbe._tag === 'Err') {
                 semantics.close();
-                return observed;
+                return verificationProbe;
               }
-              finalManifest = observed.value.manifest ?? build.workspaceManifest;
+              finalManifest = verificationProbe.value.manifest ?? build.workspaceManifest;
             } else {
               const finalSnapshot = await Effect.runPromise(files.snapshot(registered.value.rootPath, Date.now()));
               if (finalSnapshot._tag === 'Err') {
