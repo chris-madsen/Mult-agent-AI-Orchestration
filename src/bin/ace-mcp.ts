@@ -6,6 +6,7 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Effect } from 'effect';
+import { QdrantClient } from '@qdrant/js-client-rest';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import { makeFileArtifactStore } from '../adapters/file-artifact-store.js';
@@ -14,7 +15,7 @@ import { makeFileDecisionHistory } from '../adapters/file-decision-history.js';
 import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
 import { makeGitHistoryPort } from '../adapters/git-history.js';
 import { makeHostWorkspacePort, makeMtlsHostHelperTransport } from '../adapters/host-worktree-helper.js';
-import { makeFetchHttpPort, makeQdrantCodeCandidatePort } from '../adapters/http-provider-boundaries.js';
+import { makeFetchHttpPort, makeQdrantCodeCandidatePort, validateLocalQdrantBaseUrl } from '../adapters/http-provider-boundaries.js';
 import { buildLocalCodeIndex, type LocalCodeIndexBuild } from '../adapters/local-code-index.js';
 import { makeNodeWorkspacePort } from '../adapters/node-workspace-port.js';
 import {
@@ -265,6 +266,11 @@ const main = async (): Promise<void> => {
     process.env.ACE_AST_GREP_COMMAND,
     resolve(runtimeRoot, 'node_modules/.bin/ast-grep'),
   );
+  const astGrepProviderRaw = process.env.ACE_AST_GREP_PROVIDER?.trim() || 'auto';
+  if (!['cli', 'napi', 'auto'].includes(astGrepProviderRaw)) {
+    throw new Error('ACE_AST_GREP_PROVIDER must be cli, napi, or auto');
+  }
+  const astGrepProvider = astGrepProviderRaw as 'cli' | 'napi' | 'auto';
   const lspCommand = optionalCommand(
     process.env.ACE_LSP_COMMAND,
     resolve(runtimeRoot, 'node_modules/.bin/typescript-language-server'),
@@ -350,6 +356,14 @@ const main = async (): Promise<void> => {
       .split(',')
       .map((host) => host.trim())
       .filter((host) => host.length > 0);
+    const qdrantEndpoint = validateLocalQdrantBaseUrl(qdrantUrl, qdrantAllowedHosts);
+    if (qdrantEndpoint._tag === 'Err') throw new Error(qdrantEndpoint.error.message);
+    const qdrantApiKey = process.env.ACE_QDRANT_API_KEY?.trim();
+    const qdrantClient = new QdrantClient({
+      url: qdrantEndpoint.value,
+      ...(qdrantApiKey === undefined || qdrantApiKey.length === 0 ? {} : { apiKey: qdrantApiKey }),
+      checkCompatibility: false,
+    });
     const embeddingModel = process.env.ACE_EMBEDDING_MODEL?.trim() || defaultEmbeddingModel;
     const embeddingProvider = process.env.ACE_EMBEDDING_PROVIDER?.trim() || 'fastembed/onnx';
     const embeddingRevision = process.env.ACE_EMBEDDING_MODEL_REVISION?.trim() || defaultEmbeddingRevision;
@@ -477,13 +491,13 @@ const main = async (): Promise<void> => {
       http,
       qdrantUrl,
       qdrantAllowedHosts,
+      qdrantClient,
     ));
     if (qdrantReachable._tag === 'Err') {
       handleQdrantUnavailable(qdrantReachable.error.code);
     } else if (!commandBoundaryExists(embeddingWorker)
       || (retrievalStrategy !== 'dense' && !commandBoundaryExists(sparseEmbeddingWorker))
-      || !existsSync(astGrepCommand)
-      || !commandBoundaryExists(astGrepCommand)) {
+      || (astGrepProvider === 'cli' && (!existsSync(astGrepCommand) || !commandBoundaryExists(astGrepCommand)))) {
       readiness.code_retrieval = { state: 'not_ready', reason: 'provider_runtime_missing' };
       readiness.unified_context = { state: 'not_ready', reason: 'provider_runtime_missing' };
       process.stderr.write('ace-mcp context NOT_READY: configured embedding/ast-grep runtime files are missing\n');
@@ -575,7 +589,10 @@ const main = async (): Promise<void> => {
             : sparseEmbeddingIdentityFingerprint(effectiveSparseEmbedding);
           const structuralOptions = {
             command: astGrepCommand,
-            providerVersion: process.env.ACE_AST_GREP_VERSION?.trim() || 'ast-grep/0.51.0',
+            provider: astGrepProvider,
+            providerVersion: astGrepProvider === 'cli'
+              ? process.env.ACE_AST_GREP_VERSION?.trim() || 'ast-grep/0.51.0'
+              : process.env.ACE_AST_GREP_NAPI_VERSION?.trim() || 'ast-grep/napi@0.51.0',
             trace: providerTrace,
           };
           const structuralIdentity = await Effect.runPromise(resolveAstGrepProviderIdentity(structuralOptions));
@@ -613,11 +630,18 @@ const main = async (): Promise<void> => {
             const collection = qdrantCollectionName(workspaceKey, embeddingFingerprint, sourceKey);
             const currentAlias = qdrantCurrentAlias(workspaceKey, embeddingFingerprint);
             const inspected = await Effect.runPromise(ensureQdrantCollection(
-              http, qdrantUrl, collection, effectiveEmbedding.dimension, qdrantAllowedHosts,
+              http,
+              qdrantUrl,
+              collection,
+              effectiveEmbedding.dimension,
+              qdrantAllowedHosts,
+              qdrantApiKey,
+              qdrantClient,
+              retrievalStrategy === 'dense' ? 'dense' : 'hybrid',
             ));
             if (inspected._tag === 'Err') return inspected;
             const previousAlias = await Effect.runPromise(resolveQdrantAlias(
-              http, qdrantUrl, currentAlias, qdrantAllowedHosts,
+              http, qdrantUrl, currentAlias, qdrantAllowedHosts, qdrantClient,
             ));
             if (previousAlias._tag === 'Err') {
               process.stderr.write(`ace retrieval warning: previous Qdrant alias could not be resolved; vectors will be recomputed (${previousAlias.error.code})\n`);
@@ -626,6 +650,7 @@ const main = async (): Promise<void> => {
               baseUrl: qdrantUrl,
               collection,
               http,
+              client: qdrantClient,
               allowedHosts: qdrantAllowedHosts,
               providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
               trace: providerTrace,
@@ -709,7 +734,7 @@ const main = async (): Promise<void> => {
               return err(domainError('WORKTREE_RACED', 'workspace_manifest', 'workspace changed while assembling the semantic snapshot'));
             }
             const switched = await Effect.runPromise(switchQdrantAlias(
-              http, qdrantUrl, currentAlias, collection, qdrantAllowedHosts,
+              http, qdrantUrl, currentAlias, collection, qdrantAllowedHosts, qdrantClient,
             ));
             if (switched._tag === 'Err') {
               semantics.close();
@@ -719,6 +744,7 @@ const main = async (): Promise<void> => {
               baseUrl: qdrantUrl,
               collection: currentAlias,
               http,
+              client: qdrantClient,
               allowedHosts: qdrantAllowedHosts,
               providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
               trace: providerTrace,
