@@ -172,7 +172,8 @@ export const makeContextTransformService = (ports: ContextTransformPorts): Conte
       ...projected.partialSources.map((source) => `${source}: partial`),
       ...assembled.value.limitations,
     ];
-    const status = projected.complete ? 'ready' as const : 'partial' as const;
+    // A complete provider bundle can still become partial after budget packing.
+    const status = projected.complete && !assembled.value.truncated ? 'ready' as const : 'partial' as const;
     const receiptId = `ace-transform-${projected.bundleId ?? requestId.value}`;
     return ok({
       schemaVersion: 1,
