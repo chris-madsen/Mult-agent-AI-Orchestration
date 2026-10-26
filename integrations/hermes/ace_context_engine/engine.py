@@ -7,7 +7,7 @@ import os
 import uuid
 from typing import Any, NoReturn
 
-from agent.context_engine import ContextEngine
+from agent.context_compressor import ContextCompressor
 
 from .bridge import BridgeClient
 from .ownership import host_ownership_from_environment, validate_host_ownership
@@ -42,6 +42,32 @@ def _request_digest(messages: list[dict[str, Any]]) -> str:
     ).encode("utf-8")).hexdigest()
 
 
+def _deduplicate_historical_tools(
+    messages: list[dict[str, Any]], protected_user_index: int,
+) -> int:
+    """Replace only exact duplicate old tool payloads; retain the later copy.
+
+    Keep every tool response and call ID in place. No heuristic summaries,
+    partial source matches or model-authored claims may authorize deletion.
+    The latest user turn, recent tool results and system/control stay intact.
+    """
+    seen: set[str] = set()
+    replaced = 0
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if message.get("role") != "tool":
+            continue
+        content = message.get("content")
+        if not isinstance(content, str) or len(content) < 1024:
+            continue
+        if content in seen and 3 <= index < protected_user_index and index < len(messages) - 6:
+            message["content"] = "[Repeated tool output; identical full text is preserved in a later tool response.]"
+            replaced += 1
+        else:
+            seen.add(content)
+    return replaced
+
+
 def _append_context(message: dict[str, Any], context: str) -> None:
     content = message.get("content")
     marker = "\n\n[ACE verified context]\n" + context + "\n[/ACE verified context]"
@@ -53,7 +79,7 @@ def _append_context(message: dict[str, Any], context: str) -> None:
         message["content"] = marker
 
 
-class AceContextEngine(ContextEngine):
+class AceContextEngine(ContextCompressor):
     def __init__(
         self,
         *,
@@ -64,6 +90,19 @@ class AceContextEngine(ContextEngine):
         bridge_digest: str | None = None,
         plugin_digest: str | None = None,
     ) -> None:
+        # Inherit Hermes's real compactor, including preflight, durable-session
+        # summary, anti-thrashing logic and proactive tool-result pruning.
+        # This must match the compression settings pinned in both benchmark arms.
+        super().__init__(
+            model="gpt-5.5",
+            threshold_percent=0.50,
+            protect_first_n=3,
+            protect_last_n=20,
+            summary_target_ratio=0.20,
+            config_context_length=128000,
+            threshold_tokens_cap=None,
+            proactive_prune_tokens=0,
+        )
         self._bridge = bridge or BridgeClient()
         self._workspace_id = workspace_id or os.environ.get("ACE_CONTEXT_WORKSPACE_ID") or os.environ.get("ACE_WORKSPACE_ID", "")
         self._session_id = session_id or os.environ.get("HERMES_SESSION_ID", "unknown")
@@ -73,14 +112,8 @@ class AceContextEngine(ContextEngine):
         self._ownership_required = os.environ.get("ACE_CONTEXT_REQUIRE_HOST_ATTESTATION", "false").lower() == "true"
         self._ownership = host_ownership_from_environment() if self._ownership_required else None
         self._ownership_failures = validate_host_ownership(self._ownership, self._session_id) if self._ownership is not None else []
-        self.last_prompt_tokens = 0
-        self.last_completion_tokens = 0
-        self.last_total_tokens = 0
-        self.threshold_tokens = 0
-        # A conservative, explicit cap is needed: Hermes forwards this entire
-        # model-window value as budget_tokens, not the available ACE allowance.
-        self.context_length = int(os.environ.get("ACE_CONTEXT_WINDOW_TOKENS", "32768"))
-        self.compression_count = 0
+        # Hermes calls ContextCompressor.update_model() with the actual model and
+        # resolved window before the first provider request.
         # One successful provider-bound projection is memoized for an exact
         # request retry. Hermes v0.22.3 invokes select_context() again on
         # provider retries; a retry must not issue a second retrieval with a
@@ -119,7 +152,8 @@ class AceContextEngine(ContextEngine):
         )
 
     def on_session_start(self, session_id: str, **kwargs: Any) -> None:
-        """Bind bridge requests and receipts to Hermes's actual session ID."""
+        """Keep native compaction state and ACE request IDs in sync."""
+        super().on_session_start(session_id, **kwargs)
         if isinstance(session_id, str) and session_id.strip():
             self._session_id = session_id.strip()
         if self._ownership is not None:
@@ -134,16 +168,8 @@ class AceContextEngine(ContextEngine):
         self._last_projection = None
         self._turn_id = None
 
-    def update_from_response(self, usage: dict[str, Any]) -> None:
-        self.last_prompt_tokens = int(usage.get("prompt_tokens", usage.get("input_tokens", 0)) or 0)
-        self.last_completion_tokens = int(usage.get("completion_tokens", usage.get("output_tokens", 0)) or 0)
-        self.last_total_tokens = int(usage.get("total_tokens", self.last_prompt_tokens + self.last_completion_tokens) or 0)
-
-    def should_compress(self, prompt_tokens: int | None = None) -> bool:
-        return False
-
-    def compress(self, messages: list[dict[str, Any]], current_tokens: int | None = None, **kwargs: Any) -> list[dict[str, Any]]:
-        return messages
+    # All compression, native usage bookkeeping and tool-result pruning
+    # methods are inherited verbatim from Hermes ContextCompressor.
 
     def _abort(self, request_id: str, code: str) -> NoReturn:
         """Abort BEFORE provider send, even on Hermes v0.22.3.
@@ -303,20 +329,24 @@ class AceContextEngine(ContextEngine):
         if set(selected) & set(omitted):
             self._abort(request_id, "OVERLAPPING_EVIDENCE_IDS")
 
+        replaced_tool_outputs = _deduplicate_historical_tools(projected, current_index)
         _append_context(projected[current_index], context_text)
         projected_estimate = _estimated_tokens(projected)
-        # ACE v1 AUGMENTS the request, it does not replace/prune history.
-        # Do not confuse 'estimatedTokens' (retrieved evidence) with provider
-        # prompt-token savings. Record the actual request-local direction.
         estimated_added = projected_estimate - original_estimate
-        if estimated_added <= 0:
-            self._abort(request_id, "UNEXPECTED_NON_ADDITIVE_PROJECTION")
+        # A positive measured savings claim is NEVER inferred from this
+        # character heuristic. This is just a request-local admission gate:
+        # discard all additions that do not demonstrably shrink the request.
+        useful = replaced_tool_outputs > 0 and estimated_added < 0
+        if not useful:
+            projected = copy.deepcopy(request_messages)
+            projected_estimate = original_estimate
+            estimated_added = 0
         self._receipts.write({
             "schemaVersion": 1,
             "requestId": request_id,
             "sessionId": self._session_id,
             "turnId": self._turn_id,
-            "status": result["status"],
+            "status": result["status"] if useful else "not_beneficial",
             "receiptId": receipt_id,
             "providerRequestId": provider_request_id,
             "selectedEvidenceIds": selected,
@@ -324,10 +354,11 @@ class AceContextEngine(ContextEngine):
             "bridgeDigest": self._bridge_digest,
             "pluginDigest": self._plugin_digest,
             "estimatedTokens": estimated,
-            "deliveryMode": "augmentation",
+            "deliveryMode": "replacement" if useful else "no_op",
             "originalEstimatedTokens": original_estimate,
             "projectedEstimatedTokens": projected_estimate,
             "estimatedAddedTokens": estimated_added,
+            "replacedToolOutputs": replaced_tool_outputs if useful else 0,
             "originalRequestSha256": _request_digest(request_messages),
             "projectedRequestSha256": _request_digest(projected),
             "limitations": limitations,

@@ -26,6 +26,8 @@
     "test:memory-process": "npm run build && node scripts/memory-process-e2e.mjs",
     "test:real-semantic": "npm run build && node scripts/real-semantic-retrieval-e2e.mjs",
     "preflight:feedback-loop": "tsx scripts/feedback-loop-preflight.ts",
+    "freeze:feedback-local": "tsx scripts/freeze-local-feedback-task.ts",
+    "bench:feedback-fast": "tsx scripts/run-fast-feedback-loop.ts",
     "build:harbor-runtime": "node scripts/build-harbor-ace-runtime.mjs",
     "test:ace-container-runtime": "node scripts/ace-container-runtime-smoke.mjs",
     "test:feedback-stage0": "npm run build && tsx scripts/feedback-loop-stage0.ts",
@@ -91,11 +93,11 @@
     "test:real-qdrant-crash": "npm run build && node scripts/qdrant-snapshot-crash-e2e.mjs",
     "test:real-graphiti-crash": "npm run build && node scripts/graphiti-crash-recovery-e2e.mjs",
     "compare:semantic-serena": "node scripts/serena-semantic-comparison.mjs",
-    "test:fast": "npm test",
+    "test:fast": "npm run test:affected",
     "test:hermes-context-plugin": "python3 -m unittest discover -s integrations/hermes/ace_context_engine -p 'test_*.py'",
     "test:affected": "node scripts/run-affected-tests.mjs",
     "test:impact:self": "node scripts/run-affected-tests.mjs --self-test",
-    "verify:pr": "npm run check && npm run test:fast && npm run test:hermes-context-plugin && npm run lint && npm run build",
+    "verify:pr": "npm run check && npm test && npm run test:hermes-context-plugin && npm run lint && npm run build",
     "verify:pr:affected": "npm run check && npm run test:affected && npm run lint && npm run build"
   },
   "dependencies": {

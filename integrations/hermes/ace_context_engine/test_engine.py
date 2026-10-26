@@ -14,17 +14,40 @@ if str(_REPO_ROOT) not in sys.path:
 # Allow the plugin's own CI tests to run without a separately installed Hermes
 # package. Production imports the real agent.context_engine.ContextEngine.
 try:
-    from agent.context_engine import ContextEngine as _HermesContextEngine  # noqa: F401
+    from agent.context_compressor import ContextCompressor as _HermesContextCompressor  # noqa: F401
 except ModuleNotFoundError:
     agent_module = types.ModuleType("agent")
-    context_module = types.ModuleType("agent.context_engine")
+    context_module = types.ModuleType("agent.context_compressor")
 
-    class _HermesContextEngine:
-        pass
+    class _HermesContextCompressor:
+        def __init__(self, model, **kwargs):
+            self.model = model
+            self.threshold_tokens = 1000
+            self.compression_count = 0
+            self.context_length = 128000
 
-    context_module.ContextEngine = _HermesContextEngine
+        def on_session_start(self, session_id, **kwargs):
+            self._native_session_start = session_id
+
+        def update_model(self, model, context_length, **kwargs):
+            self.model, self.context_length = model, context_length
+
+        def update_from_response(self, usage):
+            self.last_prompt_tokens = usage.get("prompt_tokens", 0)
+
+        def should_compress(self, prompt_tokens=None):
+            return (prompt_tokens or 0) > self.threshold_tokens
+
+        def compress(self, messages, **kwargs):
+            self.compression_count += 1
+            return messages
+
+        def prune_tool_results_only(self, messages, current_tokens=None):
+            return messages, 0
+
+    context_module.ContextCompressor = _HermesContextCompressor
     sys.modules.setdefault("agent", agent_module)
-    sys.modules["agent.context_engine"] = context_module
+    sys.modules["agent.context_compressor"] = context_module
 
 from integrations.hermes.ace_context_engine.engine import AceContextEngine
 
@@ -51,7 +74,7 @@ class FakeBridge:
 
 
 class ContextEngineTests(unittest.TestCase):
-    def test_select_context_keeps_history_unchanged_and_adds_request_only_context(self):
+    def test_non_beneficial_retrieval_keeps_original_request_without_extra_tokens(self):
         bridge = FakeBridge({
             "type": "transform_result",
             "requestId": "request-1",
@@ -97,20 +120,20 @@ class ContextEngineTests(unittest.TestCase):
             self.assertIsNotNone(result)
             self.assertEqual(history[-1]["content"], "old answer")
             self.assertEqual(request[-1]["content"], "current question")
-            self.assertIn("ACE verified context", result[-1]["content"])
+            self.assertEqual(result, request)
             self.assertEqual(bridge.requests[0]["query"], "current question")
             receipt = json.loads((Path(directory) / "receipts.jsonl").read_text().strip())
-            self.assertEqual(receipt["status"], "ready")
+            self.assertEqual(receipt["status"], "not_beneficial")
             self.assertEqual(receipt["receiptId"], "receipt-1")
-            self.assertEqual(receipt["deliveryMode"], "augmentation")
-            self.assertGreater(receipt["estimatedAddedTokens"], 0)
+            self.assertEqual(receipt["deliveryMode"], "no_op")
+            self.assertEqual(receipt["estimatedAddedTokens"], 0)
             self.assertEqual(
                 receipt["projectedEstimatedTokens"] - receipt["originalEstimatedTokens"],
                 receipt["estimatedAddedTokens"],
             )
             self.assertRegex(receipt["originalRequestSha256"], r"^[a-f0-9]{64}$")
             self.assertRegex(receipt["projectedRequestSha256"], r"^[a-f0-9]{64}$")
-            self.assertNotEqual(receipt["originalRequestSha256"], receipt["projectedRequestSha256"])
+            self.assertEqual(receipt["originalRequestSha256"], receipt["projectedRequestSha256"])
 
     def test_select_context_handles_multimodal_user_content(self):
         bridge = FakeBridge({
@@ -142,8 +165,65 @@ class ContextEngineTests(unittest.TestCase):
         result = engine.select_context(request, incoming_message=request[-1], budget_tokens=10000)
 
         self.assertEqual(bridge.requests[0]["query"], "find this")
-        self.assertIn("ACE context", result[0]["content"][-1]["text"])
+        self.assertEqual(result, request)
         self.assertEqual(request[0]["content"], [{"type": "text", "text": "find this"}])
+
+
+    def test_duplicate_historical_tool_payloads_can_reduce_context_without_breaking_pairs(self):
+        bridge = FakeBridge({
+            "ok": True,
+            "result": {
+                "status": "ready",
+                "contextText": "Verified current pointer to retry behavior.",
+                "receiptId": "receipt-dedup",
+                "selectedEvidenceIds": ["ev-1"],
+                "omittedEvidenceIds": [],
+                "estimatedTokens": 8,
+                "limitations": [],
+            },
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            engine = AceContextEngine(
+                bridge=bridge, workspace_id="workspace-1", session_id="session-1",
+                receipt_path=Path(directory) / "receipt.jsonl",
+                bridge_digest="a" * 64, plugin_digest="b" * 64,
+            )
+            long_output = "verified tool output line\\n" * 180
+            messages = [
+                {"role": "system", "content": "must preserve policy"},
+                {"role": "user", "content": "first question"},
+                {"role": "assistant", "tool_calls": [{"id": "call-1"}], "content": ""},
+                {"role": "tool", "tool_call_id": "call-1", "content": long_output},
+                {"role": "assistant", "content": "I read the file"},
+                {"role": "user", "content": "repeat inspection"},
+                {"role": "assistant", "tool_calls": [{"id": "call-2"}], "content": ""},
+                {"role": "tool", "tool_call_id": "call-2", "content": long_output},
+                {"role": "assistant", "content": "same source"},
+                {"role": "user", "content": "now fix the bug"},
+            ]
+            # Protect the most recent results but reclaim the older exact duplicate.
+            projected = engine.select_context(messages, budget_tokens=10000)
+            self.assertEqual(messages[3]["content"], long_output)
+            self.assertEqual(projected[3]["tool_call_id"], "call-1")
+            self.assertIn("Repeated tool output", projected[3]["content"])
+            self.assertEqual(projected[7]["content"], long_output)
+            self.assertIn("Verified current pointer", projected[-1]["content"])
+            receipt = json.loads((Path(directory) / "receipt.jsonl").read_text())
+            self.assertEqual(receipt["deliveryMode"], "replacement")
+            self.assertEqual(receipt["replacedToolOutputs"], 1)
+            self.assertLess(receipt["estimatedAddedTokens"], 0)
+
+    def test_native_compressor_methods_remain_available(self):
+        engine = AceContextEngine(
+            bridge=FakeBridge({"ok": False}), workspace_id="workspace-1",
+            session_id="session-1", bridge_digest="a" * 64, plugin_digest="b" * 64,
+        )
+        self.assertIsInstance(engine, _HermesContextCompressor)
+        self.assertTrue(callable(engine.prune_tool_results_only))
+        self.assertTrue(callable(engine.should_compress))
+        self.assertTrue(callable(engine.compress))
+        self.assertNotIn("should_compress", AceContextEngine.__dict__)
+        self.assertNotIn("compress", AceContextEngine.__dict__)
 
     def test_exact_provider_retry_reuses_projection_and_receipt_identity(self):
         bridge = FakeBridge({

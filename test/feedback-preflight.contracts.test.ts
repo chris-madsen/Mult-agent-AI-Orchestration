@@ -90,6 +90,8 @@ test('real Stage0 keeps evidence outside frozen source and revalidates source id
 test('feedback jobs use Hermes openai-codex OAuth and native ContextEngine registration', async () => {
   const preflight = await readFile('scripts/feedback-loop-preflight.ts', 'utf8');
   const jobs = await readFile('scripts/prepare-harbor-feedback-jobs.ts', 'utf8');
+  assert.match(jobs, /--task-image <reference>/u);
+  assert.match(jobs, /taskImageOverride/u);
   const adapter = await readFile('scripts/harbor_hermes_codex_oauth.py', 'utf8');
   const wrapper = await readFile('scripts/harbor-ace-context-bridge.sh', 'utf8');
   const contextPlugin = await readFile('integrations/hermes/ace_context_engine/__init__.py', 'utf8');
@@ -97,9 +99,15 @@ test('feedback jobs use Hermes openai-codex OAuth and native ContextEngine regis
   assert.match(jobs, /feedbackHermesAgentImportPath/u);
   assert.match(jobs, /feedbackHermesVersion/u);
   assert.match(jobs, /ace_context_enabled/u);
+  assert.match(jobs, /ACE_EVIDENCE_SOURCE_COMMIT/u);
+  assert.match(jobs, /source: sourceRoot, target: '\/evidence\/repo'/u);
+  assert.match(jobs, /shellQuote\('ACE_WORKSPACE_ROOT=\/workspace'\)/u);
+  assert.match(jobs, /shellQuote\('ACE_ALLOWED_ROOTS=\/workspace'\)/u);
   assert.match(jobs, /feedbackAceContextBridgeCommand/u);
   assert.match(adapter, /--provider openai-codex/u);
   assert.match(adapter, /context.*ace_context_engine/u);
+  assert.match(adapter, /ace_workspace_root/u);
+  assert.match(adapter, /ace_allowed_roots/u);
   assert.match(adapter, /config\["compression"\]/u);
   assert.match(adapter, /micro_compact/u);
   assert.match(adapter, /proactive_prune_tokens/u);
@@ -113,8 +121,8 @@ test('feedback jobs use Hermes openai-codex OAuth and native ContextEngine regis
   assert.doesNotMatch(adapter, /curl -fsSL.*install\.sh/u);
   assert.doesNotMatch(adapter, /ensure_system_dependencies/u);
   assert.match(adapter, /ACE_CONTEXT_BRIDGE_COMMAND/u);
-  assert.match(adapter, /ACE_WORKSPACE_ROOT.*\/workspace/u);
-  assert.match(adapter, /ACE_ALLOWED_ROOTS.*\/workspace/u);
+  assert.match(adapter, /ace_workspace_root.*default="\/workspace"/u);
+  assert.match(adapter, /ace_allowed_roots.*default="\/workspace"/u);
   assert.match(adapter, /config\["plugins"\]/u);
   assert.match(adapter, /model_config.*default/u);
   assert.match(adapter, /context_length.*128000/u);
@@ -245,6 +253,15 @@ test('exact-current preflight requires a clean checkout, compiled runtime proven
   assert.match(preflight, /taskVerifier/u);
   assert.match(preflight, /local-task-verifier/u);
   assert.match(preflight, /AbortSignal\.timeout\(5_000\)/u);
+});
+
+test('local deterministic preflight makes external dataset registry access not required', async () => {
+  const preflight = await readFile('scripts/feedback-loop-preflight.ts', 'utf8');
+  assert.match(preflight, /local deterministic dataset does not require Harbor registry access/u);
+  assert.match(preflight, /--fast-local/u);
+  assert.match(preflight, /host embedding workers/u);
+  assert.match(preflight, /harborDataset\(datasetId\)/u);
+  assert.match(preflight, /\['ready', 'not_required'\]/u);
 });
 
 test('Hermes paired arms have the same context-window configuration regardless of ACE selection', async () => {

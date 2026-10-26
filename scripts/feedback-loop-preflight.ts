@@ -26,7 +26,7 @@ import {
 import { verifyCompiledRuntimeProvenance } from '../src/application/runtime-provenance.js';
 import { verifyAceRuntimeBundle } from '../src/application/ace-runtime-bundle.js';
 
-type CheckStatus = 'ready' | 'not_ready' | 'unknown';
+type CheckStatus = 'ready' | 'not_ready' | 'unknown' | 'not_required';
 
 interface PreflightCheck {
   readonly status: CheckStatus;
@@ -151,7 +151,10 @@ const embeddingCache = async (): Promise<PreflightCheck> => {
   return { status: 'not_ready', reason: 'embedding cache path is not accessible' };
 };
 
-const harborDataset = (): PreflightCheck => {
+const harborDataset = (datasetId: string): PreflightCheck => {
+  if (datasetId === 'local/ace-suite') {
+    return { status: 'not_required', reason: 'local deterministic dataset does not require Harbor registry access', identity: datasetId };
+  }
   const result = spawnSync('harbor', ['datasets', 'list', '--legacy'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   if (result.error !== undefined || result.status !== 0) return { status: 'not_ready', reason: 'Harbor dataset registry could not be queried' };
   return result.stdout.includes('scale-ai/swe-atlas-qna')
@@ -372,6 +375,7 @@ const parseArgs = (): {
   readonly aceRuntimeBundlePath?: string;
   readonly imageDigest?: string;
   readonly experimentManifestPath?: string;
+  readonly fastLocal: boolean;
 } => {
   const args = process.argv.slice(2);
   let outputDirectory = process.env.ACE_FEEDBACK_OUTPUT?.trim() || 'artifacts/feedback/preflight';
@@ -384,8 +388,13 @@ const parseArgs = (): {
   let aceRuntimeBundlePath: string | undefined;
   let imageDigest: string | undefined;
   let experimentManifestPath: string | undefined;
+  let fastLocal = false;
   while (args.length > 0) {
     const current = args.shift();
+    if (current === '--fast-local') {
+      fastLocal = true;
+      continue;
+    }
     const value = args.shift();
     if (current === '--output' && value !== undefined) outputDirectory = value;
     else if (current === '--embedding-python' && value !== undefined) embeddingPython = value;
@@ -397,7 +406,7 @@ const parseArgs = (): {
     else if (current === '--ace-runtime-bundle' && value !== undefined) aceRuntimeBundlePath = resolve(value);
     else if (current === '--image-digest' && value !== undefined) imageDigest = value.trim();
     else if (current === '--experiment-manifest' && value !== undefined) experimentManifestPath = resolve(value);
-    else throw new Error('Usage: tsx scripts/feedback-loop-preflight.ts [--output dir] [--embedding-python path] [--embedding-library-path path] [--qdrant-url url] [--task-manifest path] [--native-job path] [--ace-job path] [--ace-runtime-bundle path] [--image-digest sha256:<64hex>] [--experiment-manifest path]');
+    else throw new Error('Usage: tsx scripts/feedback-loop-preflight.ts [--fast-local] [--output dir] [--embedding-python path] [--embedding-library-path path] [--qdrant-url url] [--task-manifest path] [--native-job path] [--ace-job path] [--ace-runtime-bundle path] [--image-digest sha256:<64hex>] [--experiment-manifest path]');
   }
   return {
     outputDirectory: resolve(outputDirectory),
@@ -410,14 +419,17 @@ const parseArgs = (): {
     ...(aceRuntimeBundlePath === undefined ? {} : { aceRuntimeBundlePath }),
     ...(imageDigest === undefined ? {} : { imageDigest }),
     ...(experimentManifestPath === undefined ? {} : { experimentManifestPath }),
+    fastLocal,
   };
 };
 
 const main = async (): Promise<void> => {
   const args = parseArgs();
+  let datasetId = 'scale-ai/swe-atlas-qna';
   if (args.taskManifestPath !== undefined) {
     const taskManifest = validateFeedbackTaskManifest(JSON.parse(await readFile(args.taskManifestPath, 'utf8')) as unknown);
     if (taskManifest._tag === 'Err') throw new Error(`BLOCKED: ${taskManifest.error.path}: ${taskManifest.error.message}`);
+    datasetId = taskManifest.value.dataset.id;
   }
   let experimentManifest: FeedbackExperimentManifest | undefined;
   let manifestTaskImages: readonly { readonly reference: string; readonly digest: string }[] | undefined;
@@ -458,16 +470,20 @@ const main = async (): Promise<void> => {
     npm: command('npm', ['--version']),
     astGrep: command('./node_modules/.bin/ast-grep', ['--version']),
     typescriptLanguageServer: command('./node_modules/.bin/typescript-language-server', ['--version']),
-    embeddingPython: existsSync('scripts/fastembed-worker.sh')
+    embeddingPython: args.fastLocal && datasetId === 'local/ace-suite'
+      ? { status: 'not_required', reason: 'fast local smoke does not require host embedding workers; the task image probe is authoritative' }
+      : existsSync('scripts/fastembed-worker.sh')
       ? command('bash', ['scripts/fastembed-worker.sh'], embeddingEnvironment)
       : command(args.embeddingPython, ['-c', 'import fastembed, onnxruntime; print(fastembed.__version__)'], embeddingEnvironment),
-    sparseEmbedding: existsSync('scripts/fastembed-sparse-worker.sh')
+    sparseEmbedding: args.fastLocal && datasetId === 'local/ace-suite'
+      ? { status: 'not_required', reason: 'fast local smoke does not require host sparse embedding workers; the task image probe is authoritative' }
+      : existsSync('scripts/fastembed-sparse-worker.sh')
       ? command('bash', ['scripts/fastembed-sparse-worker.sh'], sparseEmbeddingEnvironment)
       : { status: 'not_ready', reason: 'sparse FastEmbed worker launcher is missing' },
     harbor: command('harbor', ['--version']),
     harborRun: command('harbor', ['run', '--help']),
     harborDatasets: command('harbor', ['datasets', 'list']),
-    harborDatasetPinned: harborDataset(),
+    harborDatasetPinned: harborDataset(datasetId),
     hermesCodexAuth: await hermesCodexAuth(),
     docker: command('docker', ['--version']),
     harborJobs: harborJobs.check,
@@ -500,15 +516,19 @@ const main = async (): Promise<void> => {
       ? { status: 'ready', reason: 'experiment identity matches current checkout, Harbor jobs/version, image provenance and OAuth route' }
       : { status: 'not_ready', reason: `experiment identity mismatch: ${[...new Set(failures)].join(', ')}` };
   }
-  checks.qdrant = await qdrant(args.qdrantUrl);
-  checks.embeddingCache = await embeddingCache();
+  checks.qdrant = args.fastLocal && datasetId === 'local/ace-suite'
+    ? { status: 'not_required', reason: 'fast local smoke does not require a host Qdrant service' }
+    : await qdrant(args.qdrantUrl);
+  checks.embeddingCache = args.fastLocal && datasetId === 'local/ace-suite'
+    ? { status: 'not_required', reason: 'fast local smoke does not require a host embedding cache' }
+    : await embeddingCache();
   const required = [
     'sourceCheckout', 'runtimeProvenance', 'node', 'npm', 'astGrep', 'typescriptLanguageServer',
     'embeddingPython', 'sparseEmbedding', 'harbor', 'harborRun', 'harborDatasetPinned',
     'hermesCodexAuth', 'docker', 'harborJobs', 'harborImageDigest', 'agentRuntimeDigest', 'aceRuntimeBundle', 'taskRuntimeProbe', 'experimentBinding',
     'embeddingCache', 'qdrant', 'taskVerifier',
   ];
-  const blocked = required.filter((name) => checks[name]?.status !== 'ready');
+  const blocked = required.filter((name) => !['ready', 'not_required'].includes(checks[name]?.status ?? 'not_ready'));
   const manifest: PreflightManifest = {
     schemaVersion: 2,
     status: blocked.length === 0 ? 'READY' : 'BLOCKED',

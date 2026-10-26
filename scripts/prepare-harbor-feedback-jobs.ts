@@ -1,4 +1,5 @@
 import { verifyAceRuntimeBundle } from '../src/application/ace-runtime-bundle.js';
+import { stagePinnedTaskImageOverlay } from './feedback-task-image-overlay.js';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { chmod, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
@@ -64,7 +65,7 @@ const filesystemTreeEntries = async (root: string, prefix: string): Promise<read
 const shellQuote = (value: string): string => "'" + value.replaceAll("'", "'\\''") + "'";
 
 const usage = (): never => {
-  throw new Error('Usage: tsx scripts/prepare-harbor-feedback-jobs.ts --task-manifest <path> --source-root <checkout> --ace-runtime-bundle <bundle> --output <dir> [--artifacts-root <external-dir>] --run-id <id> --model <model> --reasoning <low|medium|high> [--image-digest sha256:<64hex> | --task-image-digest <image>=sha256:<64hex> ...]');
+  throw new Error('Usage: tsx scripts/prepare-harbor-feedback-jobs.ts --task-manifest <path> --source-root <checkout> --ace-runtime-bundle <bundle> --output <dir> [--artifacts-root <external-dir>] --run-id <id> --model <model> --reasoning <low|medium|high> [--task-image <reference>] [--image-digest sha256:<64hex> | --task-image-digest <image>=sha256:<64hex> ...]');
 };
 
 interface ParsedArgs {
@@ -101,16 +102,25 @@ const blocked = async (output: string, reason: string): Promise<void> => {
   process.exitCode = 2;
 };
 
-const dockerImageReference = async (taskPath: string): Promise<string> => {
+const dockerImageReference = async (taskPath: string, override: string | undefined): Promise<string> => {
   const taskToml = await readFile(join(taskPath, 'task.toml'), 'utf8');
   const match = /^\s*docker_image\s*=\s*"([^"]+)"\s*$/mu.exec(taskToml);
-  if (match?.[1] === undefined || match[1].trim().length === 0) {
+  const declared = match?.[1]?.trim().replace(/@sha256:[a-f0-9]{64}$/u, '');
+  if (override !== undefined) {
+    const normalized = override.trim().replace(/@sha256:[a-f0-9]{64}$/u, '');
+    if (normalized.length === 0) throw new Error('BLOCKED: --task-image must be a non-empty Docker image reference');
+    if (declared !== undefined && declared !== normalized) {
+      throw new Error(`BLOCKED: --task-image ${normalized} contradicts task.toml docker_image ${declared}`);
+    }
+    return normalized;
+  }
+  if (declared === undefined || declared.length === 0) {
     throw new Error(`BLOCKED: frozen task is missing an explicit docker_image: ${taskPath}`);
   }
-  return match[1].trim().replace(/@sha256:[a-f0-9]{64}$/u, '');
+  return declared;
 };
 
-const verifyDockerImageReference = (reference: string, digest: string): void => {
+const verifyDockerImageReference = (reference: string, digest: string): string => {
   if (!dockerImageDigestPattern.test(digest)) throw new Error(`BLOCKED: invalid Docker digest for ${reference}`);
   const inspected = spawnSync('docker', ['image', 'inspect', '--format', '{{json .}}', reference], {
     encoding: 'utf8',
@@ -128,6 +138,17 @@ const verifyDockerImageReference = (reference: string, digest: string): void => 
   if (!dockerImageMatchesDigest(digest, image)) {
     throw new Error(`BLOCKED: Docker image ${reference} does not match pinned digest ${digest}`);
   }
+  const inspectedImage = image as { readonly Id?: unknown; readonly RepoDigests?: unknown };
+  const repoDigests = inspectedImage.RepoDigests;
+  // Local-only images are pinned by their immutable image ID. A manifest
+  // digest can instead be referenced as repository@digest when actually
+  // advertised by Docker; treating an image ID as a registry digest breaks
+  // cached local images.
+  if (Array.isArray(repoDigests) && repoDigests.some((value) => typeof value === 'string' && value.endsWith(`@${digest}`))) {
+    return `${reference}@${digest}`;
+  }
+  if (inspectedImage.Id === digest) return digest;
+  throw new Error('BLOCKED: inspected image has no usable immutable locator');
 };
 
 const parseTaskImageDigest = (value: string): { readonly reference: string; readonly digest: string } => {
@@ -208,7 +229,8 @@ const main = async (): Promise<void> => {
     if (runtimeBundleMode && !existsSync(join(aceRoot, 'node_modules', 'effect', 'package.json'))) throw new Error('BLOCKED: ACE runtime bundle is missing production dependency effect');
     const reasoning = reasoningArg;
     if (!['low', 'medium', 'high'].includes(reasoning)) throw new Error('BLOCKED: reasoning effort must be low, medium or high');
-    const taskImageReferences = [...new Set(await Promise.all(taskPaths.map((path) => dockerImageReference(path))))];
+    const taskImageOverride = args['--task-image'];
+    const taskImageReferences = [...new Set(await Promise.all(taskPaths.map((path) => dockerImageReference(path, taskImageOverride))))];
     const explicitTaskImageDigests = new Map<string, string>();
     for (const value of parsedArgs.taskImageDigests) {
       const item = parseTaskImageDigest(value);
@@ -224,7 +246,10 @@ const main = async (): Promise<void> => {
       || taskImageReferences.some((reference) => !explicitTaskImageDigests.has(reference))) {
       throw new Error(`BLOCKED: explicit Docker digests are required for every task image: ${taskImageReferences.join(', ')}`);
     }
-    for (const reference of taskImageReferences) verifyDockerImageReference(reference, explicitTaskImageDigests.get(reference)!);
+    const verifiedImageReferences = new Map<string, string>();
+    for (const reference of taskImageReferences) {
+      verifiedImageReferences.set(reference, verifyDockerImageReference(reference, explicitTaskImageDigests.get(reference)!));
+    }
     const taskImages = taskImageReferences.map((reference) => ({ reference, digest: explicitTaskImageDigests.get(reference)! }));
     const imageDigest = taskImages.length === 1 ? taskImages[0]!.digest : undefined;
     const agentAdapter = join(aceRoot, 'scripts', 'harbor_hermes_codex_oauth.py');
@@ -256,14 +281,44 @@ const main = async (): Promise<void> => {
         ? await filesystemTreeEntries(aceRoot, 'integrations/hermes/ace_context_engine')
         : frozenTreeEntries(aceRoot, aceSourceCommit, 'integrations/hermes/ace_context_engine'),
     );
+    let runtimeTaskOverlays: readonly Awaited<ReturnType<typeof stagePinnedTaskImageOverlay>>[] = [];
+    if (taskImageOverride !== undefined) {
+      await mkdir(output, { recursive: true });
+      const physicalOutput = realpathSync(output);
+      for (const physicalRoot of [realpathSync(sourceRoot), realpathSync(aceRoot)]) {
+        const pathToOutput = relative(physicalRoot, physicalOutput);
+        if (!isAbsolute(pathToOutput) && pathToOutput !== '..' && !pathToOutput.startsWith('../')) {
+          throw new Error('BLOCKED: runtime task overlays must remain outside both source checkouts');
+        }
+      }
+      runtimeTaskOverlays = await Promise.all(taskPaths.map(async (source, index) => {
+        const task = taskManifest.tasks[index]!;
+        const reference = await dockerImageReference(source, taskImageOverride);
+        const digest = explicitTaskImageDigests.get(reference);
+        if (digest === undefined) throw new Error('BLOCKED: missing pinned runtime image digest');
+        return stagePinnedTaskImageOverlay(
+          source, join(output, 'task-runtime', Buffer.from(task.id).toString('base64url')),
+          reference, digest, verifiedImageReferences.get(reference),
+        );
+      }));
+    }
+    const effectiveTaskPaths = runtimeTaskOverlays.length === 0
+      ? taskPaths
+      : runtimeTaskOverlays.map((overlay) => overlay.taskPath);
     const agent = {
       import_path: feedbackHermesAgentImportPath,
       model_name: model,
       override_setup_timeout_sec: 1200,
-      kwargs: { version: feedbackHermesVersion, reasoning_effort: reasoning, ace_context_enabled: false },
+      kwargs: {
+        version: feedbackHermesVersion,
+        reasoning_effort: reasoning,
+        ace_context_enabled: false,
+        ace_workspace_root: '/workspace',
+        ace_allowed_roots: '/workspace',
+      },
     } as const;
     const common = {
-      tasks: taskPaths.map((path) => ({ path })),
+      tasks: effectiveTaskPaths.map((path) => ({ path })),
       agents: [agent],
       // Docker is selected via the generated Harbor CLI invocation.
       // "type", "delete" and "mounts" are NOT EnvironmentConfig fields.
@@ -299,9 +354,17 @@ const main = async (): Promise<void> => {
     await writeFile(aceJobPath, `${JSON.stringify(aceJob, null, 2)}\n`, 'utf8');
     // Harbor supplies mounts through the CLI --mounts option, not JobConfig.environment.
     // Embed fully shell-quoted arguments so the checkout path cannot inject commands.
-    const mounts = JSON.stringify([{ type: 'bind', source: aceRoot, target: '/ace', read_only: true }]);
-    const nativeCommand = `export PYTHONPATH=/ace:` + '${PYTHONPATH:-}' + '\n' + `exec harbor run --config ${shellQuote(nativeJobPath)} --env docker --mounts ${shellQuote(mounts)}`;
-    const aceCommand = `export PYTHONPATH=/ace:` + '${PYTHONPATH:-}' + '\n' + `exec harbor run --config ${shellQuote(aceJobPath)} --env docker --mounts ${shellQuote(mounts)}`;
+    const mounts = JSON.stringify([
+      { type: 'bind', source: sourceRoot, target: '/evidence/repo', read_only: true },
+      { type: 'bind', source: aceRoot, target: '/ace', read_only: true },
+    ]);
+    const sourceEvidenceEnv = [
+      `--agent-env ${shellQuote(`ACE_EVIDENCE_SOURCE_COMMIT=${sourceRevision}`)}`,
+      `--agent-env ${shellQuote('ACE_WORKSPACE_ROOT=/workspace')}`,
+      `--agent-env ${shellQuote('ACE_ALLOWED_ROOTS=/workspace')}`,
+    ].join(' ');
+    const nativeCommand = `export PYTHONPATH=/ace:` + '${PYTHONPATH:-}' + '\n' + `exec harbor run --config ${shellQuote(nativeJobPath)} --env docker --mounts ${shellQuote(mounts)} ${sourceEvidenceEnv}`;
+    const aceCommand = `export PYTHONPATH=/ace:` + '${PYTHONPATH:-}' + '\n' + `exec harbor run --config ${shellQuote(aceJobPath)} --env docker --mounts ${shellQuote(mounts)} ${sourceEvidenceEnv}`;
     await writeFile(resolve(output, 'run-native.sh'), `#!/usr/bin/env bash\nset -euo pipefail\n${nativeCommand}\n`, 'utf8');
     await writeFile(resolve(output, 'run-ace-optional.sh'), `#!/usr/bin/env bash\nset -euo pipefail\n${aceCommand}\n`, 'utf8');
     await chmod(resolve(output, 'run-native.sh'), 0o755);
@@ -319,6 +382,7 @@ const main = async (): Promise<void> => {
       harborVersion: execFileSync('harbor', ['--version'], { encoding: 'utf8' }).trim().split(/\r?\n/u)[0]?.trim() ?? 'unknown',
       ...(imageDigest === undefined ? {} : { imageDigest }),
       taskImages,
+      ...(taskImageOverride === undefined ? {} : { taskImageOverride }),
       agentAdapterSha256,
       aceContextBridgeSha256,
       contextPluginSha256,
@@ -358,6 +422,7 @@ const main = async (): Promise<void> => {
       harborVersion: experimentManifest.harborVersion,
       ...(imageDigest === undefined ? {} : { imageDigest }),
       taskImages,
+      ...(taskImageOverride === undefined ? {} : { taskImageOverride }),
       experimentManifest: resolve(output, 'experiment-manifest.json'),
       selection: taskManifest.selection,
       mode: 'cold',
@@ -367,6 +432,8 @@ const main = async (): Promise<void> => {
       nAttempts: 1,
       taskIds: taskManifest.tasks.map((task) => task.id),
       taskPaths,
+      effectiveTaskPaths,
+      runtimeTaskOverlays,
     }, null, 2)}\n`, 'utf8');
     process.stdout.write(`${JSON.stringify({ status: 'READY', output, nativeJob: nativeJobPath, aceJob: aceJobPath, experimentManifest: resolve(output, 'experiment-manifest.json') })}\n`);
   } catch (error) {

@@ -103,7 +103,7 @@ test('Docker runtime uses the same valid NumPy pin as the Harbor bundle contract
 
 test('Hermes runtime probe missing-Python guard executes under POSIX sh', async () => {
   const script = await readFile('scripts/harbor-ace-runtime-probe.mjs', 'utf8');
-  const line = script.split('\n').find((candidate) => candidate.trimStart().startsWith("'if ") && candidate.includes('hermes_python'));
+  const line = script.split('\n').find((candidate) => candidate.trimStart().startsWith("'if ") && candidate.includes('Hermes Python runtime is not beside'));
   assert.ok(line, 'the missing-Hermes-Python guard is present');
   const guard = line.trim().slice(1, -2); // Unquote the JavaScript string passed to sh -lc.
   const result = spawnSync('sh', ['-c', `hermes_python=; ${guard}`], { encoding: 'utf8' });
@@ -141,6 +141,9 @@ test('Harbor runtime scripts support verified local Docker image IDs', async () 
   assert.match(builder, /localId === image\.digest \? localId :/u);
   assert.match(builder, /const prefetchImage = executionImage\(imageRefs\[0\]\)/u);
   assert.match(probe, /localId === imageDigest\) executionImage = localId/u);
+  assert.match(probe, /readlink -f.*command -v hermes/u);
+  assert.match(probe, /dirname.*hermes_bin.*python3/u);
+  assert.doesNotMatch(probe, /raw\.githubusercontent\.com.*install\.sh/u);
 });
 
 test('Harbor runtime builder bootstraps missing source dependencies before TypeScript build', async () => {

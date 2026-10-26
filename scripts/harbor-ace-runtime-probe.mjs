@@ -61,9 +61,12 @@ try {
   const hermesProbe = [
     'set -e',
     'export PATH="$HOME/.local/bin:$PATH"',
-    'if ! command -v hermes >/dev/null 2>&1; then curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup --branch v0.22.3; fi',
-    'hermes_python="$(find "$HOME/.hermes/tools" -path "*/bin/python3" -print -quit)"',
-    'if [ -z "$hermes_python" ]; then printf "Hermes Python runtime was not installed\\n" >&2; exit 1; fi',
+    'if ! command -v hermes >/dev/null 2>&1; then printf "Hermes executable is not installed\\n" >&2; exit 1; fi',
+    'hermes_bin="$(readlink -f "$(command -v hermes)")"',
+    'hermes_python="$(dirname "$hermes_bin")/python3"',
+    'if [ ! -x "$hermes_python" ]; then hermes_python="$(dirname "$hermes_bin")/python"; fi',
+    'if [ ! -x "$hermes_python" ]; then printf "Hermes Python runtime is not beside the installed executable\\n" >&2; exit 1; fi',
+    'hermes --version >/dev/null',
     `"$hermes_python" -I -c ${shellQuote(pythonProbe)}`,
   ].join(' && ');
   const output = execFileSync('docker', [

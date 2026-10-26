@@ -77,3 +77,35 @@ test('ready transformation cannot claim provider correlation without providerReq
   const withoutTrace = { ...receipt, providerRequestId: undefined };
   assert.equal(validateHermesContextEvidence(withoutTrace)._tag, 'Err');
 });
+
+test('net-smaller request-only replacement is explicitly distinguished from provider token savings', () => {
+  const replaced = validateHermesContextEvidence({
+    ...valid(),
+    deliveryMode: 'replacement',
+    originalEstimatedTokens: 400,
+    projectedEstimatedTokens: 260,
+    estimatedAddedTokens: -140,
+    replacedToolOutputs: 1,
+  });
+  assert.equal(replaced._tag, 'Ok');
+  const noOp = validateHermesContextEvidence({
+    ...valid(),
+    status: 'not_beneficial',
+    deliveryMode: 'no_op',
+    originalEstimatedTokens: 400,
+    projectedEstimatedTokens: 400,
+    estimatedAddedTokens: 0,
+    replacedToolOutputs: 0,
+  });
+  assert.equal(noOp._tag, 'Ok');
+  for (const fake of [
+    { deliveryMode: 'replacement', estimatedAddedTokens: 120, replacedToolOutputs: 1 },
+    { deliveryMode: 'no_op', estimatedAddedTokens: -10, replacedToolOutputs: 0 },
+    { deliveryMode: 'replacement', estimatedAddedTokens: -140, replacedToolOutputs: 0 },
+  ]) {
+    const value = {
+      ...valid(), originalEstimatedTokens: 400, projectedEstimatedTokens: 260, ...fake,
+    };
+    assert.equal(validateHermesContextEvidence(value)._tag, 'Err');
+  }
+});
