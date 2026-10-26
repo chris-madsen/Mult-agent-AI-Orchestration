@@ -19,6 +19,8 @@ import { makeWorkspaceId } from '../src/domain/workspace.js';
 import { err, ok, type Result } from '../src/domain/result.js';
 import { domainError } from '../src/domain/errors.js';
 import { exactUtf8Span, utf16ColumnAtUtf8Byte } from '../src/domain/utf8-range.js';
+import { makeWorkspaceSync } from '../src/application/workspace-sync.js';
+import { workspaceManifestFromSnapshot } from '../src/domain/workspace-manifest.js';
 import type { ProviderTraceEvent } from '../src/domain/provider-trace.js';
 import type {
   ArtifactStore,
@@ -279,6 +281,7 @@ test('Qdrant→current filesystem→LSP→ContextBundle includes verified snippe
   assert.equal(mustOk(await Effect.runPromise(populateQdrantFromStructuralIndex(index, qdrant, embeddings))), 1);
   const files: WorkspaceFilePort = {
     canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+    observeChanges: () => Effect.succeed(ok({ headRevision: 'a'.repeat(40), changedPaths: [], addedPaths: [], deletedPaths: [], renamed: [] })),
     snapshot: () => { throw new Error('query must not snapshot repository'); },
     readExact: () => Effect.succeed(ok({ bytes: source, digest: digest as never })),
   };
@@ -298,8 +301,21 @@ test('Qdrant→current filesystem→LSP→ContextBundle includes verified snippe
     typeInfo: () => Effect.succeed(ok(undefined)),
     diagnostics: () => Effect.succeed(ok([])),
   };
+  const workspaceManifest = workspaceManifestFromSnapshot({ headRevision: 'a'.repeat(40), files: [], removedPaths: [] }, 'scope-v1');
+  const workspaceSync = makeWorkspaceSync({
+    initial: {
+      workspaceId,
+      workspaceManifest,
+      generation: 1,
+      indexKey: 'index-v1',
+      candidateIdsByPath: new Map(),
+    },
+    observeChanges: () => Effect.succeed(ok({ changed: false })),
+    rebuild: () => Effect.succeed(err(domainError('NOT_READY', 'workspace_sync', 'not needed by the no-change fixture'))),
+  });
   const provider = makeQdrantContextProvider({
     workspaceId, rootPath: '/repo', files, qdrant, embeddings, artifacts, semantics, newRequestId: () => 'qdrant-request',
+    workspaceManifest, workspaceSync,
   });
   const context = mustOk(await Effect.runPromise(provider.search({
     workspaceId, query: 'retry database connection', includeDocs: false, includeMemory: false,

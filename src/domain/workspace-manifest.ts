@@ -14,6 +14,7 @@ export interface WorkspaceManifestFile {
  */
 export interface WorkspaceManifest {
   readonly schemaVersion: 1;
+  readonly headRevision: string;
   readonly scopeFingerprint: string;
   readonly files: readonly WorkspaceManifestFile[];
   readonly removedPaths: readonly RepoPath[];
@@ -25,6 +26,7 @@ const sortedFiles = (files: readonly WorkspaceManifestFile[]): readonly Workspac
   .sort((left, right) => left.repoPath.localeCompare(right.repoPath));
 
 const contentIdentityFor = (
+  headRevision: string,
   scopeFingerprint: string,
   files: readonly WorkspaceManifestFile[],
   removedPaths: readonly RepoPath[],
@@ -47,10 +49,11 @@ export const workspaceManifestFromSnapshot = (
   const removedPaths = [...snapshot.removedPaths].sort();
   return {
     schemaVersion: 1,
+    headRevision: snapshot.headRevision,
     scopeFingerprint,
     files,
     removedPaths,
-    contentIdentity: contentIdentityFor(scopeFingerprint, files, removedPaths),
+    contentIdentity: contentIdentityFor(snapshot.headRevision, scopeFingerprint, files, removedPaths),
   };
 };
 

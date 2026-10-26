@@ -57,6 +57,7 @@ import type { RetrievalBenchmarkTraceSink } from '../domain/retrieval-benchmark.
 import { workspaceManifestFromSnapshot, workspaceManifestEqual } from '../domain/workspace-manifest.js';
 import { observeWorkspace, registerWorkspace } from '../application/workspace-service.js';
 import { readVerifiedSemanticSnapshot, semanticSnapshotIdentity } from '../application/semantic-snapshot.js';
+import { candidateMembershipByPath, makeWorkspaceSync, type WorkspaceSync } from '../application/workspace-sync.js';
 import { verifyCompiledRuntimeProvenance } from '../application/runtime-provenance.js';
 import { makeMcpGateway, type CapabilityReadiness } from '../gateway/mcp-gateway.js';
 import { makeContextTransformService } from '../application/context-transform-service.js';
@@ -626,7 +627,8 @@ const main = async (): Promise<void> => {
           const structural = makeAstGrepStructuralPort(structuralOptions);
           let latestBuild: LocalCodeIndexBuild | undefined;
           let nextGeneration = generation;
-          let reconciliationTail: Promise<void> = Promise.resolve();
+          let workspaceSync: WorkspaceSync | undefined;
+          let latestPublished: QdrantContextConfig | undefined;
           const publishBuild = async (
             build: LocalCodeIndexBuild,
             buildGeneration: number,
@@ -822,35 +824,20 @@ const main = async (): Promise<void> => {
             });
           };
           const reconcileRuntime: NonNullable<QdrantContextConfig['reconcile']> = (currentManifest, delta) => {
-            const run = async (): Promise<Result<QdrantContextConfig, DomainError>> => {
-              if (latestBuild === undefined) return err(domainError('NOT_READY', 'workspace_manifest', 'initial retrieval snapshot is not available'));
-              const rebuildGeneration = nextGeneration + 1;
-              const rebuilt = await Effect.runPromise(buildLocalCodeIndex(
-                files,
-                registered.value.workspaceId,
-                registered.value.rootPath,
-                {
-                  generation: rebuildGeneration,
-                  previous: latestBuild,
-                  scopeFingerprint,
-                  structural,
-                  parserVersion: structuralFingerprint,
-                },
-              ));
-              if (rebuilt._tag === 'Err') return rebuilt;
-              if (!workspaceManifestEqual(rebuilt.value.workspaceManifest, currentManifest)) {
-                return err(domainError('WORKTREE_RACED', 'workspace_manifest', 'workspace changed during reconciliation'));
-              }
-              const published = await publishBuild(rebuilt.value, rebuildGeneration);
-              if (published._tag === 'Err') return published;
-              latestBuild = rebuilt.value;
-              nextGeneration = rebuildGeneration;
-              process.stderr.write(`ace-mcp workspace reconciled changed=${delta.changed.length} added=${delta.added.length} deleted=${delta.deleted.length} renamed=${delta.renamed.length} scope_changed=${delta.scopeChanged}\n`);
-              return ok({ ...published.value, reconcile: reconcileRuntime });
-            };
-            const scheduled = reconciliationTail.then(run, run);
-            reconciliationTail = scheduled.then(() => undefined, () => undefined);
-            return Effect.promise(() => scheduled);
+            const sync = workspaceSync;
+            if (sync === undefined) return Effect.succeed(err(domainError('NOT_READY', 'workspace_sync', 'workspace synchronization is not initialized')));
+            return Effect.gen(function*() {
+              const refreshed = yield* sync.refresh({ manifest: currentManifest, delta });
+              if (refreshed._tag === 'Err') return refreshed;
+              const published = latestPublished;
+              if (published === undefined) return err(domainError('NOT_READY', 'workspace_sync', 'synchronized publication is not available'));
+              process.stderr.write(`ace-mcp workspace reconciled changed=${delta.changed.length} added=${delta.added.length} deleted=${delta.deleted.length} renamed=${delta.renamed.length} scope_changed=${delta.scopeChanged} refreshed=${String(refreshed.value.refreshed)}\n`);
+              return ok({
+                ...published,
+                reconcile: reconcileRuntime,
+                workspaceSync: sync,
+              });
+            });
           };
           const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
             generation,
@@ -872,7 +859,77 @@ const main = async (): Promise<void> => {
               process.stderr.write(`ace-mcp context NOT_READY: retrieval publication failed (${published.error.code}: ${published.error.message})\n`);
             } else {
               latestBuild = built.value;
-              context = makeQdrantContextProvider({ ...published.value, reconcile: reconcileRuntime });
+              latestPublished = published.value;
+              const initialIndexKey = published.value.indexKey;
+              if (initialIndexKey === undefined) {
+                readiness.code_retrieval = { state: 'not_ready', reason: 'qdrant_index_key_missing' };
+                readiness.unified_context = { state: 'not_ready', reason: 'qdrant_index_key_missing' };
+              } else {
+                workspaceSync = makeWorkspaceSync({
+                  initial: {
+                    workspaceId: registered.value.workspaceId,
+                    workspaceManifest: built.value.workspaceManifest,
+                    generation,
+                    indexKey: initialIndexKey,
+                    candidateIdsByPath: candidateMembershipByPath(built.value.index.candidates.map((candidate) => ({ candidate, score: 0, freshness: 'unknown' }))),
+                  },
+                  observeChanges: () => Effect.gen(function*() {
+                    const changeSet = yield* files.observeChanges(
+                      registered.value.rootPath,
+                      built.value.workspaceManifest.headRevision,
+                    );
+                    if (changeSet._tag === 'Err') return changeSet;
+                    const changed = changeSet.value.headRevision !== built.value.workspaceManifest.headRevision
+                      || changeSet.value.changedPaths.length > 0
+                      || changeSet.value.addedPaths.length > 0
+                      || changeSet.value.deletedPaths.length > 0
+                      || changeSet.value.renamed.length > 0;
+                    if (!changed) return ok({ changed: false });
+                    const snapshot = yield* files.snapshot(registered.value.rootPath, Date.now());
+                    if (snapshot._tag === 'Err') return snapshot;
+                    return ok({ changed: true, manifest: workspaceManifestFromSnapshot(snapshot.value, scopeFingerprint) });
+                  }),
+                  rebuild: ({ nextManifest }) => Effect.promise(async () => {
+                    if (latestBuild === undefined) return err(domainError('NOT_READY', 'workspace_sync', 'initial retrieval snapshot is not available'));
+                    const rebuildGeneration = nextGeneration + 1;
+                    const rebuilt = await Effect.runPromise(buildLocalCodeIndex(
+                      files,
+                      registered.value.workspaceId,
+                      registered.value.rootPath,
+                      {
+                        generation: rebuildGeneration,
+                        previous: latestBuild,
+                        scopeFingerprint,
+                        structural,
+                        parserVersion: structuralFingerprint,
+                      },
+                    ));
+                    if (rebuilt._tag === 'Err') return rebuilt;
+                    if (!workspaceManifestEqual(rebuilt.value.workspaceManifest, nextManifest)) {
+                      return err(domainError('WORKTREE_RACED', 'workspace_manifest', 'workspace changed during reconciliation'));
+                    }
+                    const nextPublished = await publishBuild(rebuilt.value, rebuildGeneration);
+                    if (nextPublished._tag === 'Err') return nextPublished;
+                    const nextIndexKey = nextPublished.value.indexKey;
+                    if (nextIndexKey === undefined) return err(domainError('NOT_READY', 'workspace_sync', 'synchronized publication has no index key'));
+                    latestBuild = rebuilt.value;
+                    nextGeneration = rebuildGeneration;
+                    latestPublished = nextPublished.value;
+                    return ok({
+                      workspaceId: registered.value.workspaceId,
+                      workspaceManifest: rebuilt.value.workspaceManifest,
+                      generation: rebuildGeneration,
+                      indexKey: nextIndexKey,
+                      candidateIdsByPath: candidateMembershipByPath(rebuilt.value.index.candidates.map((candidate) => ({ candidate, score: 0, freshness: 'unknown' }))),
+                    });
+                  }),
+                });
+                context = makeQdrantContextProvider({
+                  ...published.value,
+                  reconcile: reconcileRuntime,
+                  workspaceSync,
+                });
+              }
             }
           }
         }

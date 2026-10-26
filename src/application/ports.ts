@@ -212,9 +212,18 @@ export interface ExactRead {
   readonly digest: ContentDigest;
 }
 
+export interface WorkspaceChangeObservation {
+  readonly headRevision: string;
+  readonly changedPaths: readonly RepoPath[];
+  readonly addedPaths: readonly RepoPath[];
+  readonly deletedPaths: readonly RepoPath[];
+  readonly renamed: readonly { readonly from: RepoPath; readonly to: RepoPath }[];
+}
+
 export interface WorkspaceFilePort {
   readonly canonicalizeRoot: (candidate: string) => Effect.Effect<Result<string, DomainError>>;
   readonly snapshot: (rootPath: string, observedAtMs: number) => Effect.Effect<Result<WorkspaceSnapshot, DomainError>>;
+  readonly observeChanges: (rootPath: string, previousHeadRevision?: string) => Effect.Effect<Result<WorkspaceChangeObservation, DomainError>>;
   readonly readExact: (rootPath: string, repoPath: RepoPath) => Effect.Effect<Result<ExactRead, DomainError>>;
 }
 
