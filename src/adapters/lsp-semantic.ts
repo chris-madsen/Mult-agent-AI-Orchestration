@@ -12,6 +12,7 @@ import {
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import type { ProviderTraceSink, SemanticAnalysisPort, SemanticQuery } from '../application/ports.js';
+import type { LspActionPort, LspDocumentAction } from '../application/lsp/lsp-actions.js';
 import { recoverResult } from '../application/effect-result.js';
 import type {
   SemanticDefinition,
@@ -78,6 +79,7 @@ interface LspRuntime {
   readonly waitForDiagnostics: (uri: string, timeoutMs: number) => Promise<readonly LspDiagnostic[]>;
   readonly refProcess: () => void;
   readonly unrefProcess: () => void;
+  readonly apply: (action: LspDocumentAction) => Promise<void>;
   readonly close: () => void;
 }
 
@@ -307,12 +309,28 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
       initializationOptions: {},
     });
     await connection.sendNotification('initialized', {});
-    for (const [repoPath, source] of files) {
+    const apply = async (action: LspDocumentAction): Promise<void> => {
+      const uri = uriFor(options.rootPath, action.repoPath);
+      if (action.type === 'didOpen') {
+        files.set(action.repoPath, action.text);
+        await connection.sendNotification('textDocument/didOpen', {
+          textDocument: { uri, languageId: action.languageId, version: action.version, text: action.text },
+        });
+      } else if (action.type === 'didChange') {
+        files.set(action.repoPath, action.text);
+        await connection.sendNotification('textDocument/didChange', {
+          textDocument: { uri, version: action.version },
+          contentChanges: [{ text: action.text }],
+        });
+      } else {
+        files.delete(action.repoPath);
+        await connection.sendNotification('textDocument/didClose', { textDocument: { uri } });
+      }
+    };
+    for (const [repoPath, source] of [...files]) {
       const languageId = languageIdForPath(repoPath, options.languageIds);
       if (languageId === undefined) continue;
-      await connection.sendNotification('textDocument/didOpen', {
-        textDocument: { uri: uriFor(options.rootPath, repoPath), languageId, version: 1, text: source },
-      });
+      await apply({ type: 'didOpen', repoPath, languageId, version: 1, text: source });
     }
     const close = (): void => {
       for (const timer of diagnosticSettleTimers.values()) clearTimeout(timer);
@@ -343,7 +361,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
     };
     if (options.keepProcessAlive !== false) refProcess();
     else unrefProcess();
-    return ok({ child, connection, files, diagnostics, waitForDiagnostics, refProcess, unrefProcess, close });
+    return ok({ child, connection, files, diagnostics, waitForDiagnostics, refProcess, unrefProcess, apply, close });
   } catch (cause) {
     return failure('lsp.start', cause instanceof Error ? cause.message : 'LSP server failed to initialize', 'UNSUPPORTED_PROVIDER');
   }
@@ -363,7 +381,7 @@ const withTimeout = async <Value>(promise: Promise<Value>, timeoutMs: number): P
   }
 };
 
-export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): SemanticAnalysisPort & { readonly close: () => void } => {
+export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): SemanticAnalysisPort & LspActionPort & { readonly close: () => void } => {
   let runtimePromise: Promise<Result<LspRuntime, DomainError>> | undefined;
   const runtime = (): Promise<Result<LspRuntime, DomainError>> => {
     runtimePromise ??= startRuntime(options);
@@ -415,6 +433,11 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): Semant
     }));
 
   return {
+    applyAction: async (action) => {
+      const active = await runtime();
+      if (active._tag === 'Err') throw new Error(active.error.message);
+      await active.value.apply(action);
+    },
     definition: (input) => query(input, 'definition', async (active, uri, position) => {
       try {
         const response = await withTimeout(active.connection.sendRequest<unknown>('textDocument/definition', {

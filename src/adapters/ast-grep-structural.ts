@@ -10,9 +10,11 @@ import { recoverResult } from '../application/effect-result.js';
 import { structuralLanguageForPath } from '../domain/structural-language.js';
 import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
 import { providerUsesWindowsShell, resolveProviderCommand } from './provider-command.js';
+import { makeAstGrepNapiStructuralPort, supportsAstGrepNapiPath } from './ast-grep-napi.js';
 
 export interface AstGrepStructuralOptions {
   readonly command: string;
+  readonly provider?: 'cli' | 'napi' | 'auto';
   readonly timeoutMs?: number;
   readonly providerVersion?: string;
   readonly trace?: ProviderTraceSink;
@@ -269,6 +271,18 @@ const commandVersion = (command: string): Effect.Effect<Result<string, DomainErr
 export const resolveAstGrepProviderIdentity = (
   options: AstGrepStructuralOptions,
 ): Effect.Effect<Result<AstGrepProviderIdentity, DomainError>> => Effect.gen(function* () {
+  if (options.provider === 'napi' || options.provider === 'auto') {
+    const stable = {
+      provider: 'ast-grep' as const,
+      protocolSchema: 1 as const,
+      command: options.provider === 'auto' ? '@ast-grep/napi+cli' : '@ast-grep/napi',
+      version: options.providerVersion ?? (options.provider === 'auto' ? 'ast-grep/auto@0.51.0' : 'ast-grep/napi@0.51.0'),
+    };
+    return ok({
+      ...stable,
+      fingerprint: createHash('sha256').update(JSON.stringify(stable), 'utf8').digest('hex'),
+    });
+  }
   const command = resolveProviderCommand(options.command);
   const version = yield* commandVersion(command);
   if (version._tag === 'Err') return version;
@@ -284,7 +298,23 @@ export const resolveAstGrepProviderIdentity = (
   });
 });
 
-export const makeAstGrepStructuralPort = (options: AstGrepStructuralOptions): StructuralAnalysisPort => ({
+export const makeAstGrepStructuralPort = (options: AstGrepStructuralOptions): StructuralAnalysisPort => {
+  const cli = makeCliAstGrepStructuralPort(options);
+  if (options.provider === 'napi') return makeAstGrepNapiStructuralPort(
+    options.providerVersion === undefined ? {} : { providerVersion: options.providerVersion },
+  );
+  if (options.provider === 'auto') {
+    const napi = makeAstGrepNapiStructuralPort(
+      options.providerVersion === undefined ? {} : { providerVersion: options.providerVersion },
+    );
+    return {
+      extract: (input) => supportsAstGrepNapiPath(input.repoPath) ? napi.extract(input) : cli.extract(input),
+    };
+  }
+  return cli;
+};
+
+const makeCliAstGrepStructuralPort = (options: AstGrepStructuralOptions): StructuralAnalysisPort => ({
   extract: (input) => {
     const startedAtMs = Date.now();
     const operation = recoverResult(Effect.tryPromise<Result<StructuralAnalysis, DomainError>, DomainError>({

@@ -75,6 +75,7 @@ export interface RetrievalStageRanks {
   readonly dense: readonly string[];
   readonly sparse: readonly string[];
   readonly fused: readonly string[];
+  readonly repoMap: readonly string[];
   readonly workingContext: readonly string[];
   readonly reranked: readonly string[];
   readonly delivered: readonly string[];
@@ -186,6 +187,7 @@ const p95 = (values: readonly number[]): number => {
 
 const stageRankFor = (ranks: RetrievalStageRanks, stage: RetrievalBenchmarkStage): readonly string[] => {
   if (stage === 'working_context') return ranks.workingContext;
+  if (stage === 'repo_map') return ranks.repoMap;
   return ranks[stage];
 };
 

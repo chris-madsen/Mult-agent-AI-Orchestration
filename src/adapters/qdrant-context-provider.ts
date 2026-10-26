@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Effect } from 'effect';
+import { QdrantClient } from '@qdrant/js-client-rest';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import {
@@ -69,8 +70,29 @@ import {
   exactUtf8ByteRange,
   utf16ColumnAtUtf8Byte,
 } from '../domain/utf8-range.js';
+import { applyRepoMapRanking, type RepoMapOptions } from '../domain/repo-map.js';
 
 export { exactUtf8ByteRange, exactUtf8Span } from '../domain/utf8-range.js';
+
+const qdrantSdkCall = <Value>(
+  action: () => Promise<Value>,
+): Effect.Effect<Result<Value, DomainError>> => Effect.catchAll(
+    Effect.tryPromise<Result<Value, DomainError>, DomainError>({
+      try: async () => {
+        try {
+          return ok(await action());
+        } catch (cause) {
+          return err(domainError(
+            'EXTERNAL_UNAVAILABLE',
+            'qdrant',
+            cause instanceof Error ? cause.message : 'Qdrant SDK request failed',
+          ));
+        }
+      },
+      catch: () => domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'Qdrant SDK request failed'),
+    }),
+    (failure) => Effect.succeed(err(failure)),
+  );
 
 export interface QdrantContextConfig {
   readonly workspaceId: WorkspaceId;
@@ -91,6 +113,8 @@ export interface QdrantContextConfig {
   readonly candidateLimit?: number;
   /** Same production adapter supports controlled dense/sparse/hybrid ablation arms. */
   readonly retrievalStrategy?: CodeRetrievalStrategy;
+  /** Optional deterministic RepoMap ranking and token budget after provider retrieval. */
+  readonly repoMap?: RepoMapOptions;
   /** Optional evidence-gated cross-encoder stage after Qdrant RRF fusion. */
   readonly reranker?: RerankerPort;
   /** Optional falls back to fused ranking on outage; required fails the code branch closed. */
@@ -168,7 +192,7 @@ const recordBenchmarkStage = (
   trace: RetrievalBenchmarkTraceSink | undefined,
   providerIdentities: Readonly<Record<string, string>> | undefined,
   requestId: string,
-  stage: 'dense' | 'sparse' | 'fused' | 'working_context' | 'reranked' | 'delivered',
+  stage: 'dense' | 'sparse' | 'fused' | 'repo_map' | 'working_context' | 'reranked' | 'delivered',
   candidates: readonly RankedCandidate[],
   startedAtMs: number,
   repositoryId?: string,
@@ -202,11 +226,26 @@ export const resolveQdrantAlias = (
   baseUrl: string,
   alias: string,
   allowedHosts: readonly string[] = [],
+  client?: QdrantClient,
 ): Effect.Effect<Result<string | undefined, DomainError>> => Effect.gen(function* () {
   const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
   if (endpoint._tag === 'Err') return endpoint;
   if (!/^[a-zA-Z0-9_.-]{1,255}$/u.test(alias)) {
     return err(domainError('INVALID_INPUT', 'qdrant_alias', 'Qdrant alias name is invalid'));
+  }
+  if (client !== undefined) {
+    const listed = yield* qdrantSdkCall(() => client.getAliases());
+    if (listed._tag === 'Err') return listed;
+    const aliases = (listed.value as { result?: { aliases?: unknown } }).result?.aliases;
+    if (!Array.isArray(aliases)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_alias', 'Qdrant SDK alias response is malformed'));
+    const target = aliases.find((item) =>
+      typeof item === 'object' && item !== null && !Array.isArray(item)
+      && (item as { alias_name?: unknown }).alias_name === alias);
+    if (target === undefined) return ok(undefined);
+    const collection = (target as { collection_name?: unknown }).collection_name;
+    return typeof collection === 'string' && /^[a-zA-Z0-9_.-]{1,255}$/u.test(collection)
+      ? ok(collection)
+      : err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_alias', 'Qdrant SDK alias target is malformed'));
   }
   const listed = yield* http.request({ method: 'GET', url: `${endpoint.value}/aliases` });
   if (listed._tag === 'Err') return listed;
@@ -291,9 +330,14 @@ export const probeQdrantService = (
   http: HttpPort,
   baseUrl: string,
   allowedHosts: readonly string[] = [],
+  client?: QdrantClient,
 ): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
   const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
   if (endpoint._tag === 'Err') return endpoint;
+  if (client !== undefined) {
+    const listed = yield* qdrantSdkCall(() => client.getCollections());
+    return listed._tag === 'Ok' ? ok(undefined) : listed;
+  }
   const response = yield* http.request({
     method: 'GET',
     url: endpoint.value + '/collections',
@@ -318,6 +362,7 @@ export const ensureQdrantCollection = (
   dimension: number,
   allowedHosts: readonly string[] = [],
   apiKey?: string,
+  client?: QdrantClient,
 ): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
   const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
   if (endpoint._tag === 'Err') return endpoint;
@@ -362,6 +407,18 @@ export const ensureQdrantCollection = (
         'collection schema must expose dense cosine vectors and IDF-modified sparse vectors',
       ));
   };
+  if (client !== undefined) {
+    const found = yield* qdrantSdkCall(() => client.getCollection(collection));
+    if (found._tag === 'Ok') return verifyExisting(found.value);
+    if (!/\b404\b|not found/iu.test(found.error.message)) return found;
+    const created = yield* qdrantSdkCall(() => client.createCollection(collection, {
+      vectors: { dense: { size: dimension, distance: 'Cosine' } },
+      sparse_vectors: { sparse: { modifier: 'idf' } },
+    } as Parameters<QdrantClient['createCollection']>[1]));
+    if (created._tag === 'Ok') return ok(undefined);
+    const raced = yield* qdrantSdkCall(() => client.getCollection(collection));
+    return raced._tag === 'Ok' ? verifyExisting(raced.value) : raced;
+  }
   const found = yield* http.request({ method: 'GET', url, headers });
   if (found._tag === 'Err') return found;
   if (found.value.status === 200) {
@@ -413,11 +470,29 @@ export const switchQdrantAlias = (
   alias: string,
   collection: string,
   allowedHosts: readonly string[] = [],
+  client?: QdrantClient,
 ): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
   const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
   if (endpoint._tag === 'Err') return endpoint;
   if (!/^[a-zA-Z0-9_.-]{1,255}$/u.test(alias) || !/^[a-zA-Z0-9_.-]{1,255}$/u.test(collection)) {
     return err(domainError('INVALID_INPUT', 'qdrant_alias', 'Qdrant alias and collection names are invalid'));
+  }
+  if (client !== undefined) {
+    const listed = yield* qdrantSdkCall(() => client.getAliases());
+    if (listed._tag === 'Err') return listed;
+    const aliases = (listed.value as { result?: { aliases?: unknown } }).result?.aliases;
+    if (!Array.isArray(aliases)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_alias', 'Qdrant SDK alias response is malformed'));
+    const existing = aliases.some((item) =>
+      typeof item === 'object' && item !== null && !Array.isArray(item)
+      && (item as { alias_name?: unknown }).alias_name === alias);
+    const actions = [
+      ...(existing ? [{ delete_alias: { alias_name: alias } }] : []),
+      { create_alias: { collection_name: collection, alias_name: alias } },
+    ];
+    const switched = yield* qdrantSdkCall(() => client.updateCollectionAliases({
+      actions,
+    } as Parameters<QdrantClient['updateCollectionAliases']>[0]));
+    return switched._tag === 'Ok' ? ok(undefined) : switched;
   }
   const listed = yield* http.request({ method: 'GET', url: `${endpoint.value}/aliases` });
   if (listed._tag === 'Err') return listed;
@@ -951,9 +1026,26 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
               retrievalStartedAtMs,
               activeConfig.benchmarkRepositoryId,
             );
+            const repoMapStartedAtMs = Date.now();
+            const repoMapSelection = activeConfig.repoMap === undefined
+              ? { candidates: result.value, droppedCount: 0, estimatedTokens: 0 }
+              : applyRepoMapRanking(result.value, input.query, activeConfig.repoMap);
+            recordBenchmarkStage(
+              activeConfig.benchmarkTrace,
+              activeConfig.benchmarkProviderIdentities,
+              requestId.value,
+              'repo_map',
+              repoMapSelection.candidates,
+              repoMapStartedAtMs,
+              activeConfig.benchmarkRepositoryId,
+              activeConfig.repoMap === undefined ? 'not_applicable' : 'executed',
+            );
+            if (activeConfig.repoMap !== undefined) {
+              warnings.push(`RepoMap selected ${repoMapSelection.candidates.length} candidates, dropped ${repoMapSelection.droppedCount}, estimated_tokens=${repoMapSelection.estimatedTokens}`);
+            }
             const workingContextStartedAtMs = Date.now();
             const prioritized = applyWorkingContextPriors(
-              result.value,
+              repoMapSelection.candidates,
               requestWorkingContext,
               input.workingContextHints,
               retrievalLimit,

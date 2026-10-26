@@ -86,6 +86,10 @@ export interface IndexFileIdentity {
   readonly repoPath: RepoPath;
   readonly sourceDigest: ContentDigest;
   readonly candidateIds: readonly CandidateId[];
+  /** Optional state identity used to reject reuse across parser/scope changes. */
+  readonly sizeBytes?: number;
+  readonly parserVersion?: string;
+  readonly scopeFingerprint?: string;
 }
 
 export interface IndexCoverageSummary {

@@ -178,6 +178,7 @@ try {
         dense: strategy === 'dense' ? canonicalCandidateIds : [],
         sparse: strategy === 'sparse' ? canonicalCandidateIds : [],
         fused: strategy === 'hybrid_rrf' ? canonicalCandidateIds : [],
+        repoMap: canonicalCandidateIds,
         workingContext: canonicalCandidateIds,
         reranked: [],
         delivered: canonicalCandidateIds,

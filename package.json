@@ -75,6 +75,7 @@
     "validate:retrieval-holdout": "tsx scripts/validate-retrieval-holdout.ts",
     "probe:retrieval-rank": "tsx scripts/qdrant-hybrid-rank-probe.ts",
     "run:retrieval-benchmark": "tsx scripts/retrieval-benchmark-runner.ts",
+    "bench:retrieval-composition": "tsx scripts/retrieval-composition-benchmark.ts",
     "merge:retrieval-runs": "tsx scripts/merge-retrieval-runs.ts",
     "gate:retrieval-ablation": "tsx scripts/retrieval-ablation-gate.ts",
     "release:preflight": "tsx scripts/release-preflight.ts",
@@ -102,8 +103,10 @@
   },
   "dependencies": {
     "@ast-grep/cli": "0.51.0",
+    "@ast-grep/napi": "0.51.0",
     "@modelcontextprotocol/client": "2.3.1",
     "@modelcontextprotocol/server": "2.3.1",
+    "@qdrant/js-client-rest": "1.20.0",
     "effect": "3.22.3",
     "typescript": "5.9.3",
     "typescript-language-server": "6.0.2",

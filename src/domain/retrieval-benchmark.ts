@@ -7,13 +7,14 @@ export interface BenchmarkCandidateRange {
   readonly endColumn?: number;
 }
 
-export type RetrievalBenchmarkStage = 'dense' | 'sparse' | 'fused' | 'working_context' | 'reranked' | 'delivered';
+export type RetrievalBenchmarkStage = 'dense' | 'sparse' | 'fused' | 'repo_map' | 'working_context' | 'reranked' | 'delivered';
 export type RetrievalBenchmarkStageStatus = 'executed' | 'not_applicable' | 'unavailable';
 
 export const retrievalBenchmarkStages: readonly RetrievalBenchmarkStage[] = [
   'dense',
   'sparse',
   'fused',
+  'repo_map',
   'working_context',
   'reranked',
   'delivered',
@@ -84,6 +85,7 @@ export interface RetrievalBenchmarkTraceCollector extends RetrievalBenchmarkTrac
     readonly dense: readonly string[];
     readonly sparse: readonly string[];
     readonly fused: readonly string[];
+    readonly repoMap: readonly string[];
     readonly workingContext: readonly string[];
     readonly reranked: readonly string[];
     readonly delivered: readonly string[];
@@ -96,6 +98,7 @@ export const createRetrievalBenchmarkTraceCollector = (
   const recorded: RetrievalBenchmarkTraceEvent[] = [];
   const stageKey = (stage: RetrievalBenchmarkStage): keyof ReturnType<RetrievalBenchmarkTraceCollector['stageRanksFor']> => {
     if (stage === 'working_context') return 'workingContext';
+    if (stage === 'repo_map') return 'repoMap';
     return stage;
   };
   return {
@@ -115,6 +118,7 @@ export const createRetrievalBenchmarkTraceCollector = (
         dense: [] as string[],
         sparse: [] as string[],
         fused: [] as string[],
+        repoMap: [] as string[],
         workingContext: [] as string[],
         reranked: [] as string[],
         delivered: [] as string[],

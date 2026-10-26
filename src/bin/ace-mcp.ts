@@ -6,6 +6,7 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Effect } from 'effect';
+import { QdrantClient } from '@qdrant/js-client-rest';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import { makeFileArtifactStore } from '../adapters/file-artifact-store.js';
@@ -14,7 +15,11 @@ import { makeFileDecisionHistory } from '../adapters/file-decision-history.js';
 import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
 import { makeGitHistoryPort } from '../adapters/git-history.js';
 import { makeHostWorkspacePort, makeMtlsHostHelperTransport } from '../adapters/host-worktree-helper.js';
-import { makeFetchHttpPort, makeQdrantCodeCandidatePort } from '../adapters/http-provider-boundaries.js';
+import {
+  makeFetchHttpPort,
+  makeQdrantCodeCandidatePort,
+  validateLocalQdrantBaseUrl,
+} from '../adapters/http-provider-boundaries.js';
 import { buildLocalCodeIndex, type LocalCodeIndexBuild } from '../adapters/local-code-index.js';
 import { makeNodeWorkspacePort } from '../adapters/node-workspace-port.js';
 import {
@@ -49,9 +54,15 @@ import {
 } from '../adapters/lsp-semantic.js';
 import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
 import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
+import { makeLspServerRegistry } from '../application/lsp/server-registry.js';
 import type { MemorySearchPort, WorkspaceFilePort } from '../application/ports.js';
 import { defaultLocalPolicy } from '../domain/policy.js';
 import { makeWorkspaceId, type WorkspaceId } from '../domain/workspace.js';
+import {
+  parseRetrievalComposition,
+  parseRetrievalStrategyForComposition,
+  retrievalProviderRequirements,
+} from '../domain/retrieval-composition.js';
 import type { RetrievalBenchmarkTraceSink } from '../domain/retrieval-benchmark.js';
 import { workspaceManifestFromSnapshot, workspaceManifestEqual } from '../domain/workspace-manifest.js';
 import { observeWorkspace, registerWorkspace } from '../application/workspace-service.js';
@@ -301,6 +312,7 @@ const main = async (): Promise<void> => {
   let closeSemantics: (() => void) | undefined;
   let closeReranker: (() => void) | undefined;
   let closeSparseEmbeddings: (() => void) | undefined;
+  const lspRegistry = makeLspServerRegistry();
   if (process.env.ACE_ENABLE_GRAPHITI === 'true') {
     const archiveRoot = resolve(required('ACE_MEMORY_ARCHIVE_ROOT'));
     const command = required('ACE_GRAPHITI_COMMAND');
@@ -350,6 +362,14 @@ const main = async (): Promise<void> => {
       .split(',')
       .map((host) => host.trim())
       .filter((host) => host.length > 0);
+    const qdrantEndpoint = validateLocalQdrantBaseUrl(qdrantUrl, qdrantAllowedHosts);
+    if (qdrantEndpoint._tag === 'Err') throw new Error(qdrantEndpoint.error.message);
+    const qdrantApiKey = process.env.ACE_QDRANT_API_KEY?.trim();
+    const qdrantClient = new QdrantClient({
+      url: qdrantEndpoint.value,
+      ...(qdrantApiKey === undefined || qdrantApiKey.length === 0 ? {} : { apiKey: qdrantApiKey }),
+      checkCompatibility: false,
+    });
     const embeddingModel = process.env.ACE_EMBEDDING_MODEL?.trim() || defaultEmbeddingModel;
     const embeddingProvider = process.env.ACE_EMBEDDING_PROVIDER?.trim() || 'fastembed/onnx';
     const embeddingRevision = process.env.ACE_EMBEDDING_MODEL_REVISION?.trim() || defaultEmbeddingRevision;
@@ -405,12 +425,16 @@ const main = async (): Promise<void> => {
       const delay = process.env.ACE_EMBEDDING_DELAY_MS?.trim();
       if (delay !== undefined && delay.length > 0) embeddingEnvironment.ACE_EMBEDDING_DELAY_MS = delay;
     }
-    const retrievalStrategyRaw = process.env.ACE_RETRIEVAL_STRATEGY?.trim() || 'hybrid_rrf';
-    if (!['dense', 'sparse', 'hybrid_rrf'].includes(retrievalStrategyRaw)) {
-      throw new Error('ACE_RETRIEVAL_STRATEGY must be dense, sparse, or hybrid_rrf');
-    }
-    const retrievalStrategy = retrievalStrategyRaw as 'dense' | 'sparse' | 'hybrid_rrf';
+    const parsedComposition = parseRetrievalComposition(process.env.ACE_RETRIEVAL_COMPOSITION);
+    if (parsedComposition._tag === 'Err') throw new Error(parsedComposition.error.message);
+    const parsedRetrievalStrategy = parseRetrievalStrategyForComposition(
+      parsedComposition.value,
+      process.env.ACE_RETRIEVAL_STRATEGY,
+    );
+    if (parsedRetrievalStrategy._tag === 'Err') throw new Error(parsedRetrievalStrategy.error.message);
+    const retrievalStrategy = parsedRetrievalStrategy.value;
     const sparseEmbeddingModel = process.env.ACE_SPARSE_EMBEDDING_MODEL?.trim() || 'Qdrant/bm25';
+    const { sparse: requiresSparseEmbedding } = retrievalProviderRequirements(retrievalStrategy);
     const sparseEmbeddingWorker = process.env.ACE_SPARSE_EMBEDDING_WORKER?.trim()
       || resolve(runtimeRoot, 'scripts/fastembed-sparse-worker.sh');
     const sparseEmbeddingTimeoutMs = Number(process.env.ACE_SPARSE_EMBEDDING_TIMEOUT_MS ?? '120000');
@@ -430,6 +454,10 @@ const main = async (): Promise<void> => {
       throw new Error('ACE_RERANKER_TIMEOUT_MS must be an integer between 100 and 3600000');
     }
     const rerankerModel = process.env.ACE_RERANKER_MODEL?.trim();
+    const repoMapMaxTokens = Number(process.env.ACE_REPO_MAP_MAX_TOKENS ?? '4000');
+    if (!Number.isSafeInteger(repoMapMaxTokens) || repoMapMaxTokens < 1 || repoMapMaxTokens > 100_000) {
+      throw new Error('ACE_REPO_MAP_MAX_TOKENS must be an integer between 1 and 100000');
+    }
     const rerankerWorker = process.env.ACE_RERANKER_WORKER?.trim() || resolve(runtimeRoot, 'scripts/fastembed-reranker-worker.sh');
     let reranker: ReturnType<typeof makeProcessRerankerPort> | undefined;
     if (rerankerMode !== 'disabled') {
@@ -477,11 +505,12 @@ const main = async (): Promise<void> => {
       http,
       qdrantUrl,
       qdrantAllowedHosts,
+      qdrantClient,
     ));
     if (qdrantReachable._tag === 'Err') {
       handleQdrantUnavailable(qdrantReachable.error.code);
     } else if (!commandBoundaryExists(embeddingWorker)
-      || !commandBoundaryExists(sparseEmbeddingWorker)
+      || (requiresSparseEmbedding && !commandBoundaryExists(sparseEmbeddingWorker))
       || !existsSync(astGrepCommand)
       || !commandBoundaryExists(astGrepCommand)) {
       readiness.code_retrieval = { state: 'not_ready', reason: 'provider_runtime_missing' };
@@ -498,55 +527,56 @@ const main = async (): Promise<void> => {
         env: embeddingEnvironment,
         expectedIdentity: embeddingConfig,
       });
-      const sparseEnvironment: Record<string, string> = {
-        ACE_SPARSE_EMBEDDING_MODEL: sparseEmbeddingModel,
-      };
-      for (const name of [
-        'ACE_SPARSE_EMBEDDING_PYTHON',
-        'ACE_SPARSE_EMBEDDING_LD_LIBRARY_PATH',
-        'ACE_SPARSE_EMBEDDING_LD_PRELOAD',
-        'ACE_SPARSE_EMBEDDING_THREADS',
-        'FASTEMBED_CACHE_PATH',
-        'HF_HOME',
-        'HF_HUB_CACHE',
-      ]) {
-        const value = process.env[name]?.trim();
-        if (value !== undefined && value.length > 0) sparseEnvironment[name] = value;
-      }
-      const sparseEmbeddings = makeProcessSparseEmbeddingPort({
-        command: sparseEmbeddingWorker,
-        args: sparseEmbeddingWorkerArgs,
-        timeoutMs: sparseEmbeddingTimeoutMs,
-        expectedModel: sparseEmbeddingModel,
-        providerVersion: `fastembed/sparse|model=${sparseEmbeddingModel}`,
-        trace: providerTrace,
-        env: sparseEnvironment,
-      });
+      const sparseEmbeddings = requiresSparseEmbedding
+        ? makeProcessSparseEmbeddingPort({
+          command: sparseEmbeddingWorker,
+          args: sparseEmbeddingWorkerArgs,
+          timeoutMs: sparseEmbeddingTimeoutMs,
+          expectedModel: sparseEmbeddingModel,
+          providerVersion: `fastembed/sparse|model=${sparseEmbeddingModel}`,
+          trace: providerTrace,
+          env: Object.fromEntries([
+            ['ACE_SPARSE_EMBEDDING_MODEL', sparseEmbeddingModel],
+            ...[
+              'ACE_SPARSE_EMBEDDING_PYTHON',
+              'ACE_SPARSE_EMBEDDING_LD_LIBRARY_PATH',
+              'ACE_SPARSE_EMBEDDING_LD_PRELOAD',
+              'ACE_SPARSE_EMBEDDING_THREADS',
+              'FASTEMBED_CACHE_PATH',
+              'HF_HOME',
+              'HF_HUB_CACHE',
+            ].flatMap((name) => {
+              const value = process.env[name]?.trim();
+              return value === undefined || value.length === 0 ? [] : [[name, value] as const];
+            }),
+          ]),
+        })
+        : undefined;
       const closeEmbeddingWorker = (): void => embeddings.close();
-      const closeSparseWorker = (): void => sparseEmbeddings.close();
-      closeSparseEmbeddings = closeSparseWorker;
+      const closeSparseWorker = (): void => sparseEmbeddings?.close();
+      closeSparseEmbeddings = sparseEmbeddings === undefined ? undefined : closeSparseWorker;
       process.once('SIGTERM', closeEmbeddingWorker);
-      process.once('SIGTERM', closeSparseWorker);
+      if (sparseEmbeddings !== undefined) process.once('SIGTERM', closeSparseWorker);
       process.once('SIGINT', closeEmbeddingWorker);
-      process.once('SIGINT', closeSparseWorker);
+      if (sparseEmbeddings !== undefined) process.once('SIGINT', closeSparseWorker);
       process.stdin.once('end', () => setTimeout(closeEmbeddingWorker, 5_000));
-      process.stdin.once('end', () => setTimeout(closeSparseWorker, 5_000));
+      if (sparseEmbeddings !== undefined) process.stdin.once('end', () => setTimeout(closeSparseWorker, 5_000));
       const embeddingReady = await Effect.runPromise(embeddings.probe());
-      const sparseReady = embeddingReady._tag === 'Ok'
+      const sparseReady = requiresSparseEmbedding && embeddingReady._tag === 'Ok' && sparseEmbeddings !== undefined
         ? await Effect.runPromise(sparseEmbeddings.probe())
         : undefined;
       if (embeddingReady._tag === 'Err') {
         embeddings.close();
-        sparseEmbeddings.close();
+        sparseEmbeddings?.close();
         if (embeddingReady.error.path === 'embedding.identity') {
           throw new Error(`embedding provider identity/configuration trust boundary failed (${embeddingReady.error.code}: ${embeddingReady.error.message})`);
         }
         readiness.code_retrieval = { state: 'not_ready', reason: 'embedding_provider_unavailable' };
         readiness.unified_context = { state: 'not_ready', reason: 'embedding_provider_unavailable' };
         process.stderr.write(`ace-mcp context NOT_READY: embedding provider preflight failed (${embeddingReady.error.code})\n`);
-      } else if (sparseReady?._tag === 'Err') {
+      } else if (requiresSparseEmbedding && sparseReady?._tag === 'Err') {
         embeddings.close();
-        sparseEmbeddings.close();
+        sparseEmbeddings?.close();
         if (sparseReady.error.path === 'sparse_embedding.identity') {
           throw new Error(`sparse embedding identity/configuration trust boundary failed (${sparseReady.error.code}: ${sparseReady.error.message})`);
         }
@@ -556,20 +586,31 @@ const main = async (): Promise<void> => {
         process.stderr.write(`ace-mcp context NOT_READY: sparse embedding provider preflight failed (${sparseReady.error.code})\n`);
       } else {
         const effectiveEmbedding = embeddings.identity();
-        const effectiveSparseEmbedding = sparseEmbeddings.identity();
-        if (effectiveEmbedding === undefined || effectiveSparseEmbedding === undefined) {
+        const effectiveSparseEmbedding = sparseEmbeddings?.identity();
+        if (effectiveEmbedding === undefined || (requiresSparseEmbedding && effectiveSparseEmbedding === undefined)) {
           embeddings.close();
-          sparseEmbeddings.close();
-          readiness.sparse_embedding = { state: 'not_ready', reason: 'sparse_embedding_identity_unavailable' };
+          sparseEmbeddings?.close();
+          readiness.sparse_embedding = requiresSparseEmbedding
+            ? { state: 'not_ready', reason: 'sparse_embedding_identity_unavailable' }
+            : { state: 'disabled', reason: 'sparse_embedding_not_required' };
           readiness.code_retrieval = { state: 'not_ready', reason: 'retrieval_identity_unavailable' };
           readiness.unified_context = { state: 'not_ready', reason: 'retrieval_identity_unavailable' };
           process.stderr.write('ace-mcp context NOT_READY: dense/sparse embedding provider returned no verified effective identity\n');
         } else {
-          readiness.sparse_embedding = { state: 'ready', reason: 'real_sparse_embedding_preflight_passed' };
+          readiness.sparse_embedding = requiresSparseEmbedding
+            ? { state: 'ready', reason: 'real_sparse_embedding_preflight_passed' }
+            : { state: 'disabled', reason: 'sparse_embedding_not_required' };
           const embeddingFingerprint = verifiedEmbeddingIdentityFingerprint(effectiveEmbedding);
-          const sparseEmbeddingFingerprint = sparseEmbeddingIdentityFingerprint(effectiveSparseEmbedding);
+          const sparseEmbeddingFingerprint = effectiveSparseEmbedding === undefined
+            ? 'not-required'
+            : sparseEmbeddingIdentityFingerprint(effectiveSparseEmbedding);
           const structuralOptions = {
             command: astGrepCommand,
+            provider: process.env.ACE_AST_GREP_PROVIDER?.trim() === 'napi'
+              ? 'napi' as const
+              : parsedComposition.value === 'repo-map-qdrant-lsp-v2'
+                ? 'auto' as const
+                : 'cli' as const,
             providerVersion: process.env.ACE_AST_GREP_VERSION?.trim() || 'ast-grep/0.51.0',
             trace: providerTrace,
           };
@@ -581,15 +622,17 @@ const main = async (): Promise<void> => {
               .digest('hex');
           const retrievalFingerprint = createHash('sha256')
             .update(JSON.stringify({
-              schema: 'hybrid-qdrant-local-sparse-v2',
+              schema: requiresSparseEmbedding ? 'hybrid-qdrant-local-sparse-v2' : 'dense-qdrant-v2',
               embedding: embeddingFingerprint,
-              sparseEmbedding: sparseEmbeddingFingerprint,
               structural: structuralFingerprint,
               denseVector: 'dense',
-              sparseVector: 'sparse',
-              sparseModel: effectiveSparseEmbedding.model,
-              sparsePreprocessing: effectiveSparseEmbedding.preprocessing,
-              fusion: 'rrf',
+              ...(requiresSparseEmbedding ? {
+                sparseEmbedding: sparseEmbeddingFingerprint,
+                sparseVector: 'sparse',
+                sparseModel: effectiveSparseEmbedding?.model,
+                sparsePreprocessing: effectiveSparseEmbedding?.preprocessing,
+                fusion: 'rrf',
+              } : { fusion: 'dense' }),
             }), 'utf8')
             .digest('hex');
           if (structuralIdentity._tag === 'Err') {
@@ -608,11 +651,11 @@ const main = async (): Promise<void> => {
             const collection = qdrantCollectionName(workspaceKey, embeddingFingerprint, sourceKey);
             const currentAlias = qdrantCurrentAlias(workspaceKey, embeddingFingerprint);
             const inspected = await Effect.runPromise(ensureQdrantCollection(
-              http, qdrantUrl, collection, effectiveEmbedding.dimension, qdrantAllowedHosts,
+              http, qdrantUrl, collection, effectiveEmbedding.dimension, qdrantAllowedHosts, undefined, qdrantClient,
             ));
             if (inspected._tag === 'Err') return inspected;
             const previousAlias = await Effect.runPromise(resolveQdrantAlias(
-              http, qdrantUrl, currentAlias, qdrantAllowedHosts,
+              http, qdrantUrl, currentAlias, qdrantAllowedHosts, qdrantClient,
             ));
             if (previousAlias._tag === 'Err') {
               process.stderr.write(`ace retrieval warning: previous Qdrant alias could not be resolved; vectors will be recomputed (${previousAlias.error.code})\n`);
@@ -621,6 +664,7 @@ const main = async (): Promise<void> => {
               baseUrl: qdrantUrl,
               collection,
               http,
+              client: qdrantClient,
               allowedHosts: qdrantAllowedHosts,
               providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
               trace: providerTrace,
@@ -671,7 +715,8 @@ const main = async (): Promise<void> => {
               packageLockIdentity,
               providerIdentity: `${lspCommand}|${semanticProviderVersion}|${lspProviderIdentity?._tag === 'Ok' ? lspProviderIdentity.value.fingerprint : 'unverified'}`,
             });
-            const semantics = makeLspSemanticAnalysisPort({
+            const semanticKey = `${registered.value.workspaceId}:${semanticIdentity}`;
+            const semantics = lspRegistry.acquire(semanticKey, () => makeLspSemanticAnalysisPort({
               command: lspCommand,
               args: lspArgs,
               serverName: lspServerName,
@@ -681,7 +726,7 @@ const main = async (): Promise<void> => {
               providerVersion: semanticProviderVersion,
               snapshotIdentity: semanticIdentity,
               trace: providerTrace,
-            });
+            }));
             const firstLspPath = build.indexedPaths.find((repoPath) => lspLanguageIdForPath(repoPath, lspLanguageIds) !== undefined);
             let lspReady = lspProviderIdentity?._tag === 'Ok' && firstLspPath !== undefined;
             if (firstLspPath !== undefined && lspProviderIdentity?._tag === 'Ok') {
@@ -695,31 +740,32 @@ const main = async (): Promise<void> => {
             }
             const finalSnapshot = await Effect.runPromise(files.snapshot(registered.value.rootPath, Date.now()));
             if (finalSnapshot._tag === 'Err') {
-              semantics.close();
+              lspRegistry.release(semanticKey);
               return finalSnapshot;
             }
             const finalManifest = workspaceManifestFromSnapshot(finalSnapshot.value, scopeFingerprint);
             if (!workspaceManifestEqual(build.workspaceManifest, finalManifest)) {
-              semantics.close();
+              lspRegistry.release(semanticKey);
               return err(domainError('WORKTREE_RACED', 'workspace_manifest', 'workspace changed while assembling the semantic snapshot'));
             }
             const switched = await Effect.runPromise(switchQdrantAlias(
-              http, qdrantUrl, currentAlias, collection, qdrantAllowedHosts,
+              http, qdrantUrl, currentAlias, collection, qdrantAllowedHosts, qdrantClient,
             ));
             if (switched._tag === 'Err') {
-              semantics.close();
+              lspRegistry.release(semanticKey);
               return switched;
             }
             const qdrant = makeQdrantCodeCandidatePort({
               baseUrl: qdrantUrl,
               collection: currentAlias,
               http,
+              client: qdrantClient,
               allowedHosts: qdrantAllowedHosts,
               providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
               trace: providerTrace,
             });
             const oldCloseSemantics = closeSemantics;
-            closeSemantics = semantics.close;
+            closeSemantics = () => lspRegistry.release(semanticKey);
             if (oldCloseSemantics !== undefined) oldCloseSemantics();
             readiness.semantic_lsp = lspReady
               ? { state: 'ready', reason: 'real_lsp_provider_preflight_passed' }
@@ -743,20 +789,23 @@ const main = async (): Promise<void> => {
               : build.coverage.failedPaths === 0
                 ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
                 : { state: 'degraded', reason: 'index_coverage_partial' };
-            process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${buildGeneration} indexed_paths=${build.indexedPaths.length} candidates=${build.index.candidates.length} coverage_failed=${build.coverage.failedPaths} source_snapshot_digest=${build.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} sparse_identity=${sparseEmbeddingFingerprint.slice(0, 12)} retrieval_mode=hybrid_rrf query_strategy=${retrievalStrategy} sparse_model=${effectiveSparseEmbedding.model} structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
+            process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${buildGeneration} indexed_paths=${build.indexedPaths.length} candidates=${build.index.candidates.length} coverage_failed=${build.coverage.failedPaths} source_snapshot_digest=${build.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} sparse_identity=${sparseEmbeddingFingerprint.slice(0, 12)} retrieval_mode=${retrievalStrategy} query_strategy=${retrievalStrategy} sparse_model=${effectiveSparseEmbedding?.model ?? 'not-required'} structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
             return ok({
               workspaceId: registered.value.workspaceId,
               rootPath: registered.value.rootPath,
               files,
               qdrant,
               embeddings,
-              sparseEmbeddings,
+              ...(sparseEmbeddings === undefined ? {} : { sparseEmbeddings }),
               artifacts,
               semantics,
               newRequestId: () => randomUUID(),
               ...(indexed.value.reused ? {} : { generation: buildGeneration }),
               indexKey: sourceKey,
               candidateLimit,
+              ...(parsedComposition.value === 'repo-map-qdrant-lsp-v2'
+                ? { repoMap: { maxCandidates: rerankerCandidateLimit, maxTokens: repoMapMaxTokens } }
+                : {}),
               retrievalStrategy,
               ...(rerankerMode === 'disabled' ? {} : { rerankerMode }),
               ...(reranker === undefined ? {} : { reranker }),
@@ -770,10 +819,13 @@ const main = async (): Promise<void> => {
               ...(benchmarkRepositoryId === undefined ? {} : { benchmarkRepositoryId }),
               benchmarkProviderIdentities: {
                 dense: `${effectiveEmbedding.provider}|model=${effectiveEmbedding.model}|revision=${effectiveEmbedding.modelRevision}|artifact=${effectiveEmbedding.artifactRevision}`,
-                sparse: `${effectiveSparseEmbedding.provider}|model=${effectiveSparseEmbedding.model}|runtime=${effectiveSparseEmbedding.runtimeVersion}|artifact=${effectiveSparseEmbedding.artifactDigest}`,
+                sparse: effectiveSparseEmbedding === undefined
+                  ? 'not-required'
+                  : `${effectiveSparseEmbedding.provider}|model=${effectiveSparseEmbedding.model}|runtime=${effectiveSparseEmbedding.runtimeVersion}|artifact=${effectiveSparseEmbedding.artifactDigest}`,
                 qdrant: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
                 structural: structuralOptions.providerVersion,
                 semantic: `${lspServerName}|${semanticProviderVersion}`,
+                repo_map: `deterministic-repomap/v1|max_candidates=${rerankerCandidateLimit}|max_tokens=${repoMapMaxTokens}`,
                 reranker: rerankerModel === undefined ? 'disabled' : `fastembed/cross-encoder|model=${rerankerModel}`,
               },
               history,

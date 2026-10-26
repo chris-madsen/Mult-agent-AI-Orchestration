@@ -4,7 +4,6 @@ import { domainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import {
   createCodeIndex,
-  indexCandidate,
   makeCandidateId,
   makeCodeCandidate,
   type CandidateId,
@@ -197,13 +196,21 @@ export const buildLocalCodeIndex = (
     const warnings: string[] = [];
     const indexedPaths: RepoPath[] = [];
     const coverageFailures: IndexCoverageFailure[] = [];
-    const fileManifest = new Map<RepoPath, { sourceDigest: ContentDigest; candidateIds: CandidateId[] }>();
+    const fileManifest = new Map<RepoPath, {
+      sourceDigest: ContentDigest;
+      candidateIds: CandidateId[];
+      sizeBytes: number;
+      parserVersion: string;
+      scopeFingerprint: string;
+    }>();
     let attemptedPaths = 0;
     let policyExcludedPaths = 0;
     let outOfScopePaths = 0;
     const previous = options.previous;
     const canReusePreviousFiles = previous !== undefined
-      && previous.workspaceManifest.scopeFingerprint === workspaceManifest.scopeFingerprint;
+      && previous.workspaceManifest.scopeFingerprint === workspaceManifest.scopeFingerprint
+      && previous.fileManifest.every((file) => file.parserVersion === parserVersion
+        && file.scopeFingerprint === workspaceManifest.scopeFingerprint);
     const previousFiles = new Map(previous?.fileManifest.map((file) => [file.repoPath, file] as const) ?? []);
     const previousCandidates = new Map<RepoPath, readonly CodeCandidate[]>(
       [...(previous?.index.candidates ?? [])].reduce((entries, candidate) => {
@@ -227,14 +234,14 @@ export const buildLocalCodeIndex = (
         return entries;
       }, new Map<RepoPath, readonly string[]>()),
     );
-    const reusableCandidates: CodeCandidate[] = [];
+    const indexedCandidates: CodeCandidate[] = [];
     const reusablePaths = new Set<RepoPath>();
     if (canReusePreviousFiles && previous !== undefined) {
       for (const observation of snapshot.value.files) {
         const prior = previousFiles.get(observation.repoPath);
         if (prior === undefined || prior.sourceDigest !== observation.digest) continue;
         const candidates = previousCandidates.get(observation.repoPath) ?? [];
-        reusableCandidates.push(...candidates.map((candidate) => ({
+        indexedCandidates.push(...candidates.map((candidate) => ({
           ...candidate,
           generation,
           indexedAtMs: Date.now(),
@@ -246,9 +253,6 @@ export const buildLocalCodeIndex = (
         warnings.push(...(previousWarnings.get(observation.repoPath) ?? []));
       }
     }
-    const indexResult = createCodeIndex(options.generation, reusableCandidates);
-    if (indexResult._tag === 'Err') return indexResult;
-    let index = indexResult.value;
     if (options.structural === undefined) {
       warnings.push('Structural provider is not configured; no parser fallback is used');
     }
@@ -273,6 +277,9 @@ export const buildLocalCodeIndex = (
         fileManifest.set(observation.repoPath, {
           sourceDigest: observation.digest,
           candidateIds: [...(previousCandidates.get(observation.repoPath) ?? [])].map((candidate) => candidate.candidateId),
+          sizeBytes: observation.sizeBytes,
+          parserVersion,
+          scopeFingerprint: workspaceManifest.scopeFingerprint,
         });
         if (previous?.indexedPaths.includes(observation.repoPath)) indexedPaths.push(observation.repoPath);
         continue;
@@ -295,6 +302,9 @@ export const buildLocalCodeIndex = (
       fileManifest.set(observation.repoPath, {
         sourceDigest: exact.value.digest,
         candidateIds: [],
+        sizeBytes: observation.sizeBytes,
+        parserVersion,
+        scopeFingerprint: workspaceManifest.scopeFingerprint,
       });
       const decoded = decodeStrictSourceText(exact.value.bytes);
       if (decoded._tag === 'Err') {
@@ -356,13 +366,14 @@ export const buildLocalCodeIndex = (
           indexedAtMs: Date.now(),
         });
         if (candidate._tag === 'Err') return candidate;
-        const next = indexCandidate(index, candidate.value);
-        if (next._tag === 'Err') return next;
-        index = next.value;
+        indexedCandidates.push(candidate.value);
         fileManifest.get(observation.repoPath)?.candidateIds.push(candidate.value.candidateId);
       }
       indexedPaths.push(observation.repoPath);
     }
+    const indexResult = createCodeIndex(options.generation, indexedCandidates);
+    if (indexResult._tag === 'Err') return indexResult;
+    const index = indexResult.value;
     return ok({
       index,
       warnings,
@@ -396,6 +407,9 @@ export const buildLocalCodeIndex = (
           repoPath,
           sourceDigest: value.sourceDigest,
           candidateIds: [...value.candidateIds].sort(),
+          sizeBytes: value.sizeBytes,
+          parserVersion: value.parserVersion,
+          scopeFingerprint: value.scopeFingerprint,
         }))
         .sort((left, right) => left.repoPath.localeCompare(right.repoPath)),
       workspaceManifest,

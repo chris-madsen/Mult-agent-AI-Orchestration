@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Effect } from 'effect';
+import { QdrantClient } from '@qdrant/js-client-rest';
 import { authorizeOutbound, type ProjectDataPolicy } from '../domain/policy.js';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
@@ -74,6 +75,8 @@ interface QdrantConfig {
   /** Explicit local bridge aliases (for example a Docker host gateway). */
   readonly allowedHosts?: readonly string[];
   readonly apiKey?: () => string | undefined;
+  /** Official SDK client used by the replacement composition; tests may omit it and use HttpPort. */
+  readonly client?: QdrantClient;
   readonly providerVersion?: string;
   readonly trace?: ProviderTraceSink;
 }
@@ -230,7 +233,7 @@ const qdrantPointId = (point: CodePoint): string => {
 export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidatePort => ({
   search: (input) => {
     const startedAtMs = Date.now();
-    const operation = Effect.gen(function* () {
+    const operation = Effect.catchAll(Effect.gen(function* () {
       const endpoint = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
       if (endpoint._tag === 'Err') return endpoint;
       if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 1000) {
@@ -253,69 +256,61 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
           `${strategy} retrieval requires a valid client-side sparse query vector`,
         ));
       }
-      const responseResult = yield* config.http.request({
-        method: 'POST',
-        url: `${endpoint.value}/collections/${encodeURIComponent(config.collection)}/points/query`,
-        ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
-        body: (() => {
-          const filter = { must: [
-            { key: 'workspace_id', match: { value: input.workspaceId } },
-            ...(input.generation === undefined ? [] : [{ key: 'generation', match: { value: input.generation } }]),
-            ...(input.indexKey === undefined ? [] : [{ key: 'index_key', match: { value: input.indexKey } }]),
-          ] };
-          const vector = input.vector;
-          if (strategy === 'dense') {
-            return {
-              query: vector,
-              using: QDRANT_DENSE_VECTOR,
-              limit: input.limit,
-              with_payload: true,
-              with_vector: false,
-              filter,
-            };
-          }
-          const sparseQuery = {
-            indices: input.sparseVector?.indices ?? [],
-            values: input.sparseVector?.values ?? [],
-          };
-          if (strategy === 'sparse') {
-            return {
-              query: sparseQuery,
-              using: QDRANT_SPARSE_VECTOR,
-              limit: input.limit,
-              with_payload: true,
-              with_vector: false,
-              filter,
-            };
-          }
-          const prefetchLimit = input.prefetchLimit
-            ?? Math.min(1000, Math.max(input.limit, input.limit * 4));
-          return {
+      const filter = { must: [
+        { key: 'workspace_id', match: { value: input.workspaceId } },
+        ...(input.generation === undefined ? [] : [{ key: 'generation', match: { value: input.generation } }]),
+        ...(input.indexKey === undefined ? [] : [{ key: 'index_key', match: { value: input.indexKey } }]),
+      ] };
+      const vector = input.vector;
+      const sparseQuery = {
+        indices: input.sparseVector?.indices ?? [],
+        values: input.sparseVector?.values ?? [],
+      };
+      const prefetchLimit = input.prefetchLimit
+        ?? Math.min(1000, Math.max(input.limit, input.limit * 4));
+      const queryBody = strategy === 'dense'
+        ? { query: vector, using: QDRANT_DENSE_VECTOR, limit: input.limit, with_payload: true, with_vector: false, filter }
+        : strategy === 'sparse'
+          ? { query: sparseQuery, using: QDRANT_SPARSE_VECTOR, limit: input.limit, with_payload: true, with_vector: false, filter }
+          : {
             prefetch: [
-              {
-                query: vector,
-                using: QDRANT_DENSE_VECTOR,
-                limit: prefetchLimit,
-                filter,
-              },
-              {
-                query: sparseQuery,
-                using: QDRANT_SPARSE_VECTOR,
-                limit: prefetchLimit,
-                filter,
-              },
+              { query: vector, using: QDRANT_DENSE_VECTOR, limit: prefetchLimit, filter },
+              { query: sparseQuery, using: QDRANT_SPARSE_VECTOR, limit: prefetchLimit, filter },
             ],
             query: { rrf: {} },
             limit: input.limit,
             with_payload: true,
             with_vector: false,
           };
-        })(),
-      });
-      if (responseResult._tag === 'Err') return responseResult;
-      const response = responseResult.value;
-      if (!successful(response)) return externalFailure(response, 'qdrant');
-      const body = object(response.body);
+      let responseBody: unknown;
+      if (config.client !== undefined) {
+        const queried = yield* Effect.tryPromise<Result<unknown, DomainError>, DomainError>({
+          try: async () => {
+            try {
+              return ok(await config.client!.query(
+                config.collection,
+                queryBody as Parameters<QdrantClient['query']>[1],
+              ));
+            } catch (cause) {
+              return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', cause instanceof Error ? cause.message : 'Qdrant SDK query failed'));
+            }
+          },
+          catch: () => domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'Qdrant SDK query failed'),
+        });
+        if (queried._tag === 'Err') return queried;
+        responseBody = queried.value;
+      } else {
+        const responseResult = yield* config.http.request({
+          method: 'POST',
+          url: `${endpoint.value}/collections/${encodeURIComponent(config.collection)}/points/query`,
+          ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
+          body: queryBody,
+        });
+        if (responseResult._tag === 'Err') return responseResult;
+        if (!successful(responseResult.value)) return externalFailure(responseResult.value, 'qdrant');
+        responseBody = responseResult.value.body;
+      }
+      const body = object(responseBody);
       const result = body?.result;
       const points = Array.isArray(result) ? result : object(result)?.points;
       if (!Array.isArray(points)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'result', 'Qdrant result must be an array'));
@@ -328,7 +323,7 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
         output.push({ candidate: candidate.value, score: point.score, freshness: 'unknown' as CandidateFreshness, warning: 'Qdrant freshness requires local digest verification' });
       }
       return ok(output);
-    });
+    }), (failure) => Effect.succeed(err(failure)));
     return Effect.map(operation, (result) => {
       providerTraceEvent(config.trace ?? noopProviderTrace, {
         provider: 'qdrant',
@@ -346,9 +341,26 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
   },
   upsert: (points) => {
     const startedAtMs = Date.now();
-    const operation = Effect.gen(function* () {
+    const operation = Effect.catchAll(Effect.gen(function* () {
       const endpoint = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
       if (endpoint._tag === 'Err') return endpoint;
+      if (config.client !== undefined) {
+        const written = yield* Effect.tryPromise<Result<void, DomainError>, DomainError>({
+          try: async () => {
+            try {
+              await config.client!.upsert(config.collection, {
+                wait: true,
+                points: points.map(qdrantPoint),
+              } as Parameters<QdrantClient['upsert']>[1]);
+              return ok(undefined);
+            } catch (cause) {
+              return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', cause instanceof Error ? cause.message : 'Qdrant SDK upsert failed'));
+            }
+          },
+          catch: () => domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'Qdrant SDK upsert failed'),
+        });
+        return written;
+      }
       const responseResult = yield* config.http.request({
         method: 'PUT',
         url: `${endpoint.value}/collections/${encodeURIComponent(config.collection)}/points?wait=true`,
@@ -357,7 +369,7 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
       });
       if (responseResult._tag === 'Err') return responseResult;
       return successful(responseResult.value) ? ok(undefined) : externalFailure(responseResult.value, 'qdrant');
-    });
+    }), (failure) => Effect.succeed(err(failure)));
     return Effect.map(operation, (result) => {
       providerTraceEvent(config.trace ?? noopProviderTrace, {
         provider: 'qdrant',
