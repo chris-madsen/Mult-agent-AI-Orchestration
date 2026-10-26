@@ -112,6 +112,23 @@ export interface CodeCandidatePort {
     readonly requestId?: string;
   }) => Effect.Effect<Result<readonly RankedCandidate[], DomainError>>;
   readonly upsert: (points: readonly CodePoint[]) => Effect.Effect<Result<void, DomainError>>;
+  /**
+   * Delete points for supplied workspace paths. When exceptIndexKey is set,
+   * only older path versions are removed, leaving the just-published version.
+   */
+  readonly deletePaths?: (input: {
+    readonly workspaceId: WorkspaceId;
+    readonly repoPaths: readonly RepoPath[];
+    readonly exceptIndexKey?: string;
+  }) => Effect.Effect<Result<void, DomainError>>;
+  /**
+   * Startup/restart reconciliation: remove every older workspace version only
+   * after the complete current snapshot has been successfully upserted.
+   */
+  readonly deleteWorkspaceVersions?: (input: {
+    readonly workspaceId: WorkspaceId;
+    readonly exceptIndexKey: string;
+  }) => Effect.Effect<Result<void, DomainError>>;
 }
 
 export interface DocumentationPort {
@@ -210,6 +227,9 @@ export interface MemoryArchivePort {
 export interface ExactRead {
   readonly bytes: Uint8Array;
   readonly digest: ContentDigest;
+  /** Metadata from the same race-checked read, used by cheap non-Git baselines. */
+  readonly sizeBytes?: number;
+  readonly mtimeMs?: number;
 }
 
 export interface WorkspaceChangeObservation {
@@ -225,10 +245,19 @@ export interface WorkspaceChangeObservation {
   readonly branch?: string;
 }
 
+export interface WorkspaceChangeBaseline {
+  readonly headRevision: string;
+  readonly files: readonly {
+    readonly repoPath: RepoPath;
+    readonly sizeBytes: number;
+    readonly mtimeMs?: number;
+  }[];
+}
+
 export interface WorkspaceFilePort {
   readonly canonicalizeRoot: (candidate: string) => Effect.Effect<Result<string, DomainError>>;
   readonly snapshot: (rootPath: string, observedAtMs: number) => Effect.Effect<Result<WorkspaceSnapshot, DomainError>>;
-  readonly observeChanges: (rootPath: string, previousHeadRevision?: string) => Effect.Effect<Result<WorkspaceChangeObservation, DomainError>>;
+  readonly observeChanges: (rootPath: string, previous?: string | WorkspaceChangeBaseline) => Effect.Effect<Result<WorkspaceChangeObservation, DomainError>>;
   readonly readExact: (rootPath: string, repoPath: RepoPath) => Effect.Effect<Result<ExactRead, DomainError>>;
 }
 

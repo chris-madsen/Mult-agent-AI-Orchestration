@@ -39,6 +39,7 @@ import {
   type QdrantContextConfig,
   probeQdrantService,
   resolveQdrantAlias,
+  mutateQdrantChangedPaths,
   reuseOrPopulateQdrantSnapshot,
   switchQdrantAlias,
 } from '../adapters/qdrant-context-provider.js';
@@ -52,7 +53,7 @@ import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
 import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
 import type { MemorySearchPort, WorkspaceFilePort } from '../application/ports.js';
 import { defaultLocalPolicy } from '../domain/policy.js';
-import { makeWorkspaceId, type WorkspaceId } from '../domain/workspace.js';
+import { makeWorkspaceId, type RepoPath, type WorkspaceId } from '../domain/workspace.js';
 import { isSensitiveSourcePath } from '../domain/sensitive-path.js';
 import { structuralLanguageForPath } from '../domain/structural-language.js';
 import type { RetrievalBenchmarkTraceSink } from '../domain/retrieval-benchmark.js';
@@ -60,6 +61,7 @@ import {
   workspaceManifestFromSnapshot,
   workspaceManifestEqual,
   workspaceSnapshotFromManifest,
+  type WorkspaceManifestDelta,
 } from '../domain/workspace-manifest.js';
 import { observeWorkspace, registerWorkspace } from '../application/workspace-service.js';
 import { readVerifiedSemanticSnapshot, semanticSnapshotIdentity } from '../application/semantic-snapshot.js';
@@ -648,10 +650,19 @@ const main = async (): Promise<void> => {
             build: LocalCodeIndexBuild,
             buildGeneration: number,
             verification: 'full' | 'incremental' = 'full',
+            changedPaths: readonly RepoPath[] = [],
+            delta?: WorkspaceManifestDelta,
+            deltaMetrics?: {
+              readonly added: number;
+              readonly changed: number;
+              readonly deleted: number;
+              readonly renamed: number;
+              readonly unchanged: number;
+            },
           ): Promise<Result<QdrantContextConfig, DomainError>> => {
             for (const warning of build.warnings) process.stderr.write(`ace retrieval warning: ${warning}\n`);
             const sourceKey = codeIndexKey(build.index, build.coverage, retrievalFingerprint, build.fileManifest);
-            const collection = qdrantCollectionName(workspaceKey, embeddingFingerprint, sourceKey);
+            const collection = qdrantCollectionName(workspaceKey, embeddingFingerprint, retrievalFingerprint);
             const currentAlias = qdrantCurrentAlias(workspaceKey, embeddingFingerprint);
             const inspected = await Effect.runPromise(ensureQdrantCollection(
               http,
@@ -679,13 +690,31 @@ const main = async (): Promise<void> => {
               providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
               trace: providerTrace,
             });
-            const indexed = await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
-              build.index, buildQdrant, embeddings, http, qdrantUrl, collection,
-              registered.value.workspaceId, sourceKey, qdrantAllowedHosts, true, undefined,
-              embeddingFingerprint, previousAlias._tag === 'Ok' ? previousAlias.value : undefined,
-              sparseEmbeddings,
-              qdrantClient,
-            ));
+            const indexed = await Effect.runPromise(verification === 'incremental'
+              ? mutateQdrantChangedPaths(
+                build.index,
+                buildQdrant,
+                embeddings,
+                registered.value.workspaceId,
+                changedPaths,
+                sourceKey,
+                embeddingFingerprint,
+                sparseEmbeddings,
+                {
+                  http,
+                  baseUrl: qdrantUrl,
+                  collection,
+                  allowedHosts: qdrantAllowedHosts,
+                  client: qdrantClient,
+                },
+              )
+              : reuseOrPopulateQdrantSnapshot(
+                build.index, buildQdrant, embeddings, http, qdrantUrl, collection,
+                registered.value.workspaceId, sourceKey, qdrantAllowedHosts, true, undefined,
+                embeddingFingerprint, previousAlias._tag === 'Ok' ? previousAlias.value : undefined,
+                sparseEmbeddings,
+                qdrantClient,
+              ));
             if (indexed._tag === 'Err') return indexed;
             process.stderr.write(`ace-mcp qdrant candidate verified workspace_id=${registered.value.workspaceId} index_key=${sourceKey} collection=${collection} alias=${currentAlias} reused_vectors=${indexed.value.reusedVectorCount}\n`);
             if (runtimeTestFailpoint === 'after_qdrant_verify_before_publish') {
@@ -814,7 +843,7 @@ const main = async (): Promise<void> => {
               : build.coverage.failedPaths === 0
                 ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
                 : { state: 'degraded', reason: 'index_coverage_partial' };
-            process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${buildGeneration} indexed_paths=${build.indexedPaths.length} candidates=${build.index.candidates.length} coverage_failed=${build.coverage.failedPaths} source_snapshot_digest=${build.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} sparse_identity=${sparseEmbeddingFingerprint.slice(0, 12)} retrieval_mode=${retrievalStrategy} sparse_model=${effectiveSparseEmbedding?.model ?? 'disabled'} structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
+            process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${buildGeneration} indexed_paths=${build.indexedPaths.length} candidates=${build.index.candidates.length} coverage_failed=${build.coverage.failedPaths} delta_added=${deltaMetrics?.added ?? delta?.added.length ?? 0} delta_changed=${deltaMetrics?.changed ?? delta?.changed.length ?? 0} delta_deleted=${deltaMetrics?.deleted ?? delta?.deleted.length ?? 0} delta_renamed=${deltaMetrics?.renamed ?? delta?.renamed.length ?? 0} delta_unchanged=${deltaMetrics?.unchanged ?? (delta === undefined ? build.indexedPaths.length : 0)} source_snapshot_digest=${build.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} sparse_identity=${sparseEmbeddingFingerprint.slice(0, 12)} retrieval_mode=${retrievalStrategy} sparse_model=${effectiveSparseEmbedding?.model ?? 'disabled'} structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
             return ok({
               workspaceId: registered.value.workspaceId,
               rootPath: registered.value.rootPath,
@@ -867,9 +896,20 @@ const main = async (): Promise<void> => {
                 ...published,
                 reconcile: reconcileRuntime,
                 workspaceSync: sync,
+                qdrantStableCollection: true,
               });
             });
           };
+          const startupObservation = await Effect.runPromise(files.observeChanges(registered.value.rootPath));
+          const startupDeltaMetrics = startupObservation._tag === 'Ok'
+            ? {
+              added: startupObservation.value.addedPaths.length,
+              changed: startupObservation.value.changedPaths.length,
+              deleted: startupObservation.value.deletedPaths.length,
+              renamed: startupObservation.value.renamed.length,
+              unchanged: 0,
+            }
+            : undefined;
           const built = await Effect.runPromise(buildLocalCodeIndex(files, registered.value.workspaceId, registered.value.rootPath, {
             generation,
             scopeFingerprint,
@@ -882,7 +922,7 @@ const main = async (): Promise<void> => {
             readiness.unified_context = { state: 'not_ready', reason: 'structural_index_failed' };
             process.stderr.write(`ace-mcp context NOT_READY: structural index failed (${built.error.code})\n`);
           } else {
-            const published = await publishBuild(built.value, generation);
+            const published = await publishBuild(built.value, generation, 'full', [], undefined, startupDeltaMetrics);
             if (published._tag === 'Err') {
               embeddings.close();
               readiness.code_retrieval = { state: 'not_ready', reason: 'qdrant_index_failed' };
@@ -904,13 +944,14 @@ const main = async (): Promise<void> => {
                     indexKey: initialIndexKey,
                     candidateIdsByPath: candidateMembershipByPath(built.value.index.candidates.map((candidate) => ({ candidate, score: 0, freshness: 'unknown' }))),
                   },
-                  observeChanges: (current) => observeWorkspaceManifest(
+                  observeChanges: (current, forceExactPaths) => observeWorkspaceManifest(
                     files,
                     registered.value.rootPath,
                     current.workspaceManifest,
                     retrievalRelevantPath,
+                    forceExactPaths,
                   ),
-                  rebuild: ({ nextManifest }) => Effect.promise(async () => {
+                  rebuild: ({ nextManifest, delta }) => Effect.promise(async () => {
                     if (latestBuild === undefined) return err(domainError('NOT_READY', 'workspace_sync', 'initial retrieval snapshot is not available'));
                     const rebuildGeneration = nextGeneration + 1;
                     const rebuilt = await Effect.runPromise(buildLocalCodeIndex(
@@ -930,7 +971,13 @@ const main = async (): Promise<void> => {
                     if (!workspaceManifestEqual(rebuilt.value.workspaceManifest, nextManifest)) {
                       return err(domainError('WORKTREE_RACED', 'workspace_manifest', 'workspace changed during reconciliation'));
                     }
-                    const nextPublished = await publishBuild(rebuilt.value, rebuildGeneration, 'incremental');
+                    const changedPaths = [
+                      ...delta.changed,
+                      ...delta.added,
+                      ...delta.deleted,
+                      ...delta.renamed.flatMap((entry) => [entry.from, entry.to]),
+                    ];
+                    const nextPublished = await publishBuild(rebuilt.value, rebuildGeneration, 'incremental', changedPaths, delta);
                     if (nextPublished._tag === 'Err') return nextPublished;
                     const nextIndexKey = nextPublished.value.indexKey;
                     if (nextIndexKey === undefined) return err(domainError('NOT_READY', 'workspace_sync', 'synchronized publication has no index key'));
@@ -950,6 +997,7 @@ const main = async (): Promise<void> => {
                   ...published.value,
                   reconcile: reconcileRuntime,
                   workspaceSync,
+                  qdrantStableCollection: true,
                 });
               }
             }

@@ -11,6 +11,7 @@ import {
   reuseOrPopulateQdrantSnapshot,
   verifyQdrantSnapshotMembership,
   makeQdrantContextProvider,
+  mutateQdrantChangedPaths,
   populateQdrantFromStructuralIndex,
   probeQdrantService,
 } from '../src/adapters/qdrant-context-provider.js';
@@ -79,6 +80,161 @@ test('Qdrant service probe is namespace-independent and fails before embedding s
     'http://127.0.0.1:6333',
   ));
   assert.equal(failed._tag, 'Err');
+});
+
+test('stable changed-path mutation publishes before pruning older path versions', async () => {
+  const index = mustOk(createCodeIndex(1, [candidate]));
+  const events: string[] = [];
+  const deletes: Array<{ paths: readonly string[]; except?: string }> = [];
+  const qdrant: CodeCandidatePort = {
+    search: () => Effect.succeed(ok([])),
+    deletePaths: (input) => {
+      events.push('delete');
+      deletes.push({
+        paths: [...input.repoPaths],
+        ...(input.exceptIndexKey === undefined ? {} : { except: input.exceptIndexKey }),
+      });
+      return Effect.succeed(ok(undefined));
+    },
+    upsert: (points) => {
+      events.push('upsert');
+      assert.equal(points.length, 1);
+      return Effect.succeed(ok(undefined));
+    },
+  };
+  const result = await Effect.runPromise(mutateQdrantChangedPaths(
+    index,
+    qdrant,
+    { embedMany: (input: readonly string[]) => Effect.succeed(ok(input.map(() => [0.2, 0.7]))) },
+    workspaceId,
+    ['src/connection.ts' as never],
+    'stable-index',
+    undefined,
+    undefined,
+    {
+      http: {
+        request: (request) => {
+          const body = request.body as { filter?: { must?: Array<{ key?: string; match?: { value?: unknown } }> } };
+          assert.ok(body.filter?.must?.some((condition) =>
+            condition.key === 'repo_path' && condition.match?.value === 'src/connection.ts'));
+          return Effect.succeed(ok({
+            status: 200,
+            body: {
+              result: {
+                points: [{ payload: { candidate_id: candidate.candidateId } }],
+                next_page_offset: null,
+              },
+            },
+          }));
+        },
+      },
+      baseUrl: 'http://127.0.0.1:6333',
+      collection: 'ace-stable',
+    },
+  ));
+  assert.equal(result._tag, 'Ok');
+  assert.deepEqual(events, ['upsert', 'delete']);
+  assert.deepEqual(deletes, [{
+    paths: ['src/connection.ts'],
+    except: 'stable-index',
+  }]);
+});
+
+test('stable changed-path mutation verifies the new path version before pruning the last good one', async () => {
+  const index = mustOk(createCodeIndex(1, [candidate]));
+  const events: string[] = [];
+  const qdrant: CodeCandidatePort = {
+    search: () => Effect.succeed(ok([])),
+    upsert: () => {
+      events.push('upsert');
+      return Effect.succeed(ok(undefined));
+    },
+    deletePaths: () => {
+      events.push('delete');
+      return Effect.succeed(ok(undefined));
+    },
+  };
+  const result = await Effect.runPromise(mutateQdrantChangedPaths(
+    index,
+    qdrant,
+    { embedMany: (input: readonly string[]) => Effect.succeed(ok(input.map(() => [0.2, 0.7]))) },
+    workspaceId,
+    ['src/connection.ts' as never],
+    'stable-index',
+    undefined,
+    undefined,
+    {
+      http: {
+        request: () => Effect.succeed(ok({
+          status: 200,
+          body: { result: { points: [], next_page_offset: null } },
+        })),
+      },
+      baseUrl: 'http://127.0.0.1:6333',
+      collection: 'ace-stable',
+    },
+  ));
+  assert.equal(result._tag, 'Err');
+  assert.deepEqual(events, ['upsert'], 'old path versions must survive incomplete publication');
+});
+
+test('stable changed-path mutation leaves the last good points intact when embedding fails', async () => {
+  const index = mustOk(createCodeIndex(1, [candidate]));
+  let deletes = 0;
+  let upserts = 0;
+  const qdrant: CodeCandidatePort = {
+    search: () => Effect.succeed(ok([])),
+    deletePaths: () => {
+      deletes += 1;
+      return Effect.succeed(ok(undefined));
+    },
+    upsert: () => {
+      upserts += 1;
+      return Effect.succeed(ok(undefined));
+    },
+  };
+  const result = await Effect.runPromise(mutateQdrantChangedPaths(
+    index,
+    qdrant,
+    {
+      embedMany: () => Effect.succeed(err(domainError(
+        'EXTERNAL_UNAVAILABLE',
+        'embedding',
+        'offline',
+      ))),
+    },
+    workspaceId,
+    ['src/connection.ts' as never],
+    'stable-index',
+  ));
+  assert.equal(result._tag, 'Err');
+  assert.equal(upserts, 0);
+  assert.equal(deletes, 0);
+});
+
+test('stable synchronized retrieval fails closed when WorkspaceSync is absent', async () => {
+  const workspaceManifest = workspaceManifestFromSnapshot({ headRevision: 'a'.repeat(40), files: [], removedPaths: [] }, 'scope-v1');
+  const files: WorkspaceFilePort = {
+    canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+    snapshot: () => Effect.succeed(err(domainError('SNAPSHOT_FAILED', 'workspace', 'must not snapshot'))),
+    observeChanges: () => Effect.succeed(ok({ headRevision: 'a'.repeat(40), changedPaths: [], addedPaths: [], deletedPaths: [], renamed: [] })),
+    readExact: () => Effect.succeed(err(domainError('FILE_NOT_FOUND', 'repo_path', 'not used'))),
+  };
+  const provider = makeQdrantContextProvider({
+    workspaceId,
+    rootPath: '/repo',
+    files,
+    workspaceManifest,
+    qdrantStableCollection: true,
+    qdrant: { search: () => Effect.succeed(ok([])), upsert: () => Effect.succeed(ok(undefined)) },
+    embeddings: { embedMany: () => Effect.succeed(ok([[0.1, 0.2]])) },
+    artifacts: { storeExact: () => Effect.succeed(ok({ handle: 'unused', digest: digest as never, sizeBytes: 0 })), readRange: () => Effect.succeed(err(domainError('ARTIFACT_NOT_FOUND', 'handle', 'unused'))) },
+    semantics: { definition: () => Effect.succeed(ok([])), references: () => Effect.succeed(ok([])), typeInfo: () => Effect.succeed(ok(undefined)), diagnostics: () => Effect.succeed(ok([])) },
+    newRequestId: () => 'stable-missing-sync',
+  });
+  const result = await Effect.runPromise(provider.search({ workspaceId, query: 'missing sync', includeDocs: false, includeMemory: false }));
+  assert.equal(result._tag, 'Err');
+  if (result._tag === 'Err') assert.equal(result.error.code, 'NOT_READY');
 });
 
 test('Qdrant collection bootstrap is additive and rejects mismatched dimensions', async () => {
@@ -152,6 +308,62 @@ test('warm Qdrant index key follows actual structural content, not observation e
   assert.match(codeIndexKey(first), /^[a-f0-9]{64}$/u);
 });
 
+test('stable Qdrant index key ignores observation and out-of-scope coverage churn', () => {
+  const index = mustOk(createCodeIndex(1, [candidate]));
+  const manifest = [{
+    repoPath: candidate.repoPath,
+    sourceDigest: candidate.sourceDigest,
+    candidateIds: [candidate.candidateId],
+    sizeBytes: source.byteLength,
+    parserVersion: 'parser-v1',
+    scopeFingerprint: 'scope-v1',
+  }];
+  const baseCoverage = {
+    schemaVersion: 1,
+    sourceSnapshotDigest: 'a'.repeat(64),
+    parserVersion: 'parser-v1',
+    attemptedPaths: 1,
+    indexedPaths: 1,
+    policyExcludedPaths: 0,
+    outOfScopePaths: 3,
+    failedPaths: 0,
+    failureCounts: {
+      read_failed: 0,
+      binary_source: 0,
+      invalid_utf8: 0,
+      digest_raced: 0,
+      structural_failed: 0,
+      digest_mismatch: 0,
+      parser_partial: 0,
+      unsupported_parser: 0,
+    },
+    failures: [],
+  } as const;
+  const observationOnlyChange = {
+    ...baseCoverage,
+    sourceSnapshotDigest: 'b'.repeat(64),
+    outOfScopePaths: 99,
+    policyExcludedPaths: 7,
+  };
+  assert.equal(
+    codeIndexKey(index, baseCoverage as never, 'provider-v1', manifest as never),
+    codeIndexKey(index, observationOnlyChange as never, 'provider-v1', manifest as never),
+    'HEAD/state/out-of-scope diagnostics must not invalidate identical retrieval content',
+  );
+
+  const parserFailure = {
+    ...baseCoverage,
+    failedPaths: 1,
+    failureCounts: { ...baseCoverage.failureCounts, structural_failed: 1 },
+    failures: [{ repoPath: candidate.repoPath, kind: 'structural_failed', code: 'BROKEN' }],
+  };
+  assert.notEqual(
+    codeIndexKey(index, baseCoverage as never, 'provider-v1', manifest as never),
+    codeIndexKey(index, parserFailure as never, 'provider-v1', manifest as never),
+    'in-scope indexing failures remain part of retrieval identity',
+  );
+});
+
 test('warm Qdrant snapshot reuse does not re-embed or upsert current source', async () => {
   let requests = 0;
   let upserts = 0;
@@ -168,9 +380,15 @@ test('warm Qdrant snapshot reuse does not re-embed or upsert current source', as
         : { status: 200, body: { result: { points: [{ payload: { candidate_id: candidate.candidateId } }], next_page_offset: null } } }));
     },
   };
+  let cleanups = 0;
   const qdrant: CodeCandidatePort = {
     upsert: () => { upserts += 1; return Effect.succeed(ok(undefined)); },
     search: () => Effect.succeed(ok([])),
+    deleteWorkspaceVersions: (input) => {
+      cleanups += 1;
+      assert.equal(input.exceptIndexKey, 'snapshot-digest');
+      return Effect.succeed(ok(undefined));
+    },
   };
   const embeddings = {
     embedMany: () => { embeds += 1; return Effect.succeed(ok([[1, 2]])); },
@@ -183,6 +401,100 @@ test('warm Qdrant snapshot reuse does not re-embed or upsert current source', as
   assert.equal(requests, 2);
   assert.equal(upserts, 0);
   assert.equal(embeds, 0);
+  assert.equal(cleanups, 1, 'warm reuse must prune crash leftovers before serving stable search');
+});
+
+
+test('full stable snapshot publishes current points before pruning stale workspace versions', async () => {
+  const index = mustOk(createCodeIndex(1, [candidate]));
+  const events: string[] = [];
+  const qdrant: CodeCandidatePort = {
+    search: () => Effect.succeed(ok([])),
+    upsert: () => {
+      events.push('upsert');
+      return Effect.succeed(ok(undefined));
+    },
+    deleteWorkspaceVersions: (input) => {
+      events.push('cleanup:' + input.exceptIndexKey);
+      return Effect.succeed(ok(undefined));
+    },
+  };
+  let scrolls = 0;
+  const http: HttpPort = {
+    request: (request) => {
+      if (request.url.endsWith('/points/count')) {
+        return Effect.succeed(ok({ status: 200, body: { result: { count: 0 } } }));
+      }
+      if (request.url.endsWith('/points/scroll')) {
+        scrolls += 1;
+        return Effect.succeed(ok({
+          status: 200,
+          body: {
+            result: {
+              points: [{ payload: { candidate_id: candidate.candidateId } }],
+              next_page_offset: null,
+            },
+          },
+        }));
+      }
+      return Effect.succeed(ok({ status: 200, body: { result: true } }));
+    },
+  };
+  const result = await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
+    index,
+    qdrant,
+    { embedMany: (input: readonly string[]) => Effect.succeed(ok(input.map(() => [0.2, 0.7]))) },
+    http,
+    'http://127.0.0.1:6333',
+    'ace-stable',
+    workspaceId,
+    'current-index',
+  ));
+  assert.equal(result._tag, 'Ok');
+  assert.deepEqual(events, ['upsert', 'cleanup:current-index']);
+  assert.equal(scrolls, 1, 'membership is verified before stale-version cleanup');
+});
+
+test('full stable rebuild preserves old workspace versions when new membership is incomplete', async () => {
+  const index = mustOk(createCodeIndex(1, [candidate]));
+  const events: string[] = [];
+  const qdrant: CodeCandidatePort = {
+    search: () => Effect.succeed(ok([])),
+    upsert: () => {
+      events.push('upsert');
+      return Effect.succeed(ok(undefined));
+    },
+    deleteWorkspaceVersions: () => {
+      events.push('cleanup');
+      return Effect.succeed(ok(undefined));
+    },
+  };
+  const http: HttpPort = {
+    request: (request) => {
+      if (request.url.endsWith('/points/count')) {
+        return Effect.succeed(ok({ status: 200, body: { result: { count: 0 } } }));
+      }
+      if (request.url.endsWith('/points/scroll')) {
+        return Effect.succeed(ok({
+          status: 200,
+          body: { result: { points: [], next_page_offset: null } },
+        }));
+      }
+      return Effect.succeed(ok({ status: 200, body: { result: true } }));
+    },
+  };
+  const result = await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
+    index,
+    qdrant,
+    { embedMany: (input: readonly string[]) => Effect.succeed(ok(input.map(() => [0.2, 0.7]))) },
+    http,
+    'http://127.0.0.1:6333',
+    'ace-stable',
+    workspaceId,
+    'current-index',
+  ));
+  assert.equal(result._tag, 'Err');
+  assert.deepEqual(events, ['upsert'], 'cleanup must wait for complete current membership proof');
 });
 
 test('Qdrant warm reuse rebuilds on different count and fails closed on count outage', async () => {

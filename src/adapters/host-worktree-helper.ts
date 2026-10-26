@@ -13,20 +13,25 @@ import {
   type WorkspaceId,
   type WorkspaceSnapshot,
 } from '../domain/workspace.js';
-import type { ExactRead, WorkspaceChangeObservation, WorkspaceFilePort } from '../application/ports.js';
+import type { ExactRead, WorkspaceChangeBaseline, WorkspaceChangeObservation, WorkspaceFilePort } from '../application/ports.js';
 import { makeNodeWorkspacePort } from './node-workspace-port.js';
 
 export type HostWorktreeRequest =
   | { readonly operation: 'canonicalize'; readonly workspaceId: string }
   | { readonly operation: 'snapshot'; readonly workspaceId: string; readonly observedAtMs: number }
-  | { readonly operation: 'observe_changes'; readonly workspaceId: string; readonly previousHeadRevision?: string }
+  | { readonly operation: 'observe_changes'; readonly workspaceId: string; readonly previous?: WorkspaceChangeBaseline }
   | { readonly operation: 'read_exact'; readonly workspaceId: string; readonly repoPath: string };
 
 export type HostWorktreeValue =
   | { readonly logicalRoot: string }
   | { readonly snapshot: WorkspaceSnapshot }
   | { readonly changeObservation: WorkspaceChangeObservation }
-  | { readonly bytesBase64: string; readonly digest: string };
+  | {
+    readonly bytesBase64: string;
+    readonly digest: string;
+    readonly sizeBytes?: number;
+    readonly mtimeMs?: number;
+  };
 
 export interface HostWorktreeWireResult {
   readonly ok: boolean;
@@ -82,7 +87,7 @@ export const makeHostWorktreeHelperService = async (
         return snapshot._tag === 'Err' ? snapshot : ok({ snapshot: snapshot.value });
       }
       if (input.operation === 'observe_changes') {
-        const observed = await Effect.runPromise(files.observeChanges(selected.value.root, input.previousHeadRevision));
+        const observed = await Effect.runPromise(files.observeChanges(selected.value.root, input.previous));
         return observed._tag === 'Err' ? observed : ok({ changeObservation: observed.value });
       }
       const repoPath = ingestRepoPath(input.repoPath);
@@ -90,7 +95,12 @@ export const makeHostWorktreeHelperService = async (
       const read = await Effect.runPromise(files.readExact(selected.value.root, repoPath.value));
       return read._tag === 'Err'
         ? read
-        : ok({ bytesBase64: Buffer.from(read.value.bytes).toString('base64'), digest: read.value.digest });
+        : ok({
+          bytesBase64: Buffer.from(read.value.bytes).toString('base64'),
+          digest: read.value.digest,
+          ...(read.value.sizeBytes === undefined ? {} : { sizeBytes: read.value.sizeBytes }),
+          ...(read.value.mtimeMs === undefined ? {} : { mtimeMs: read.value.mtimeMs }),
+        });
     },
   });
 };
@@ -243,6 +253,8 @@ const parseSnapshot = (value: HostWorktreeValue): Result<WorkspaceSnapshot, Doma
     const digest = makeContentDigest(item.digest);
     if (repoPath._tag === 'Err' || digest._tag === 'Err'
       || !Number.isSafeInteger(item.sizeBytes) || item.sizeBytes < 0
+      || (item.mtimeMs !== undefined
+        && (typeof item.mtimeMs !== 'number' || !Number.isFinite(item.mtimeMs) || item.mtimeMs < 0))
       || !Number.isSafeInteger(item.observedAtMs) || item.observedAtMs < 0
       || !['tracked', 'untracked', 'deleted', 'unknown'].includes(item.state)) {
       return err(domainError('INVALID_EXTERNAL_RESPONSE', 'snapshot.files', 'snapshot file observation is invalid'));
@@ -278,7 +290,7 @@ const parseChangeObservation = (value: HostWorktreeValue): Result<WorkspaceChang
     }
     return ok(paths);
   };
-  if (!/^[a-f0-9]{40,64}$/iu.test(raw.headRevision)) {
+  if (raw.headRevision !== 'unavailable' && !/^[a-f0-9]{40,64}$/iu.test(raw.headRevision)) {
     return err(domainError('INVALID_EXTERNAL_RESPONSE', 'observe_changes.head_revision', 'head revision is invalid'));
   }
   const changed = parsePaths(raw.changedPaths);
@@ -329,8 +341,9 @@ export const makeHostWorkspacePort = (
       ? ok(response.value.logicalRoot)
       : err(domainError('INVALID_EXTERNAL_RESPONSE', 'root_path', 'host helper did not return a logical workspace root'));
   }),
-  observeChanges: (_logicalRoot, previousHeadRevision) => Effect.promise(async () => {
-    const response = await transport.invoke({ operation: 'observe_changes', workspaceId, ...(previousHeadRevision === undefined ? {} : { previousHeadRevision }) });
+  observeChanges: (_logicalRoot, previous) => Effect.promise(async () => {
+    const baseline = typeof previous === 'string' ? { headRevision: previous, files: [] } : previous;
+    const response = await transport.invoke({ operation: 'observe_changes', workspaceId, ...(baseline === undefined ? {} : { previous: baseline }) });
     return response._tag === 'Err' ? response : parseChangeObservation(response.value);
   }),
   snapshot: (_logicalRoot, observedAtMs) => Effect.promise(async () => {
@@ -356,6 +369,19 @@ export const makeHostWorkspacePort = (
     if (observed !== digest.value) {
       return err(domainError('DIGEST_MISMATCH', 'worktree_helper', 'host helper bytes do not match the reported digest'));
     }
-    return ok<ExactRead>({ bytes, digest: digest.value });
+    const sizeBytes = 'sizeBytes' in response.value ? response.value.sizeBytes : undefined;
+    const mtimeMs = 'mtimeMs' in response.value ? response.value.mtimeMs : undefined;
+    if (sizeBytes !== undefined && (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0)) {
+      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'read_exact.size_bytes', 'host helper size is invalid'));
+    }
+    if (mtimeMs !== undefined && (typeof mtimeMs !== 'number' || !Number.isFinite(mtimeMs) || mtimeMs < 0)) {
+      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'read_exact.mtime_ms', 'host helper mtime is invalid'));
+    }
+    return ok<ExactRead>({
+      bytes,
+      digest: digest.value,
+      ...(sizeBytes === undefined ? {} : { sizeBytes }),
+      ...(mtimeMs === undefined ? {} : { mtimeMs }),
+    });
   }),
 });

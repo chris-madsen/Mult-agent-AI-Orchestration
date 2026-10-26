@@ -169,6 +169,7 @@ test('changed-path observation exact-reads only affected files and does not rebu
       repoPath: path('src/one.ts'),
       sourceDigest,
       sizeBytes: source.byteLength,
+      mtimeMs: 10,
       state: 'tracked',
     }],
   });
@@ -176,8 +177,8 @@ test('changed-path observation exact-reads only affected files and does not rebu
   const files: WorkspaceFilePort = {
     canonicalizeRoot: () => { throw new Error('not used'); },
     snapshot: () => { throw new Error('changed-path observation must not snapshot the repository'); },
-    observeChanges: (_root, previousHead) => {
-      assert.equal(previousHead, current.headRevision);
+    observeChanges: (_root, previous) => {
+      assert.equal(typeof previous === 'string' ? previous : previous?.headRevision, current.headRevision);
       return Effect.succeed(ok({
         headRevision: current.headRevision,
         changedPaths: [path('src/one.ts')],
@@ -193,7 +194,12 @@ test('changed-path observation exact-reads only affected files and does not rebu
     readExact: (_root, repoPath) => {
       reads += 1;
       assert.equal(repoPath, path('src/one.ts'));
-      return Effect.succeed(ok({ bytes: source, digest: sourceDigest }));
+      return Effect.succeed(ok({
+        bytes: source,
+        digest: sourceDigest,
+        sizeBytes: source.byteLength,
+        mtimeMs: 20,
+      }));
     },
   };
 
@@ -204,6 +210,7 @@ test('changed-path observation exact-reads only affected files and does not rebu
     assert.deepEqual(observed.value.delta?.changed, []);
     assert.deepEqual(observed.value.workingContext?.stagedPaths, [path('src/one.ts')]);
     assert.equal(observed.value.workingContext?.branch, 'main');
+    assert.equal(observed.value.manifest?.files.find((file) => file.repoPath === path('src/one.ts'))?.mtimeMs, 20);
   }
   assert.equal(reads, 1);
 });
@@ -245,4 +252,166 @@ test('retrieval-scoped observation ignores out-of-scope and sensitive path chang
   assert.equal(observed._tag, 'Ok');
   if (observed._tag === 'Ok') assert.equal(observed.value.changed, false);
   assert.equal(reads, 0);
+});
+
+
+test('WorkspaceSync force-refresh exact-reads stale selected paths without narrowing workspace observation', async () => {
+  const first = workspaceManifestFromFiles({
+    headRevision: 'a'.repeat(40),
+    scopeFingerprint: 'scope-v1',
+    files: [{
+      repoPath: path('src/one.ts'),
+      sourceDigest: digest('a') as never,
+      sizeBytes: 10,
+      mtimeMs: 10,
+      state: 'tracked',
+    }],
+  });
+  const nextDigest = digest('b') as never;
+  let forced = false;
+  let rebuilds = 0;
+  const owner = makeWorkspaceSync({
+    initial: initialState(first),
+    observeChanges: (_current, forceExactPaths) => {
+      forced = forceExactPaths?.has(path('src/one.ts')) === true;
+      const observedManifest = forced
+        ? workspaceManifestFromFiles({
+          headRevision: first.headRevision,
+          scopeFingerprint: first.scopeFingerprint,
+          files: [{
+            repoPath: path('src/one.ts'),
+            sourceDigest: nextDigest,
+            sizeBytes: 10,
+            mtimeMs: 10,
+            state: 'tracked',
+          }],
+        })
+        : first;
+      return Effect.succeed(ok({
+        changed: forced,
+        manifest: observedManifest,
+        ...(forced ? {
+          delta: {
+            changed: [path('src/one.ts')],
+            added: [],
+            deleted: [],
+            renamed: [],
+            scopeChanged: false,
+          },
+        } : {}),
+      }));
+    },
+    rebuild: ({ nextManifest, previous }) => {
+      rebuilds += 1;
+      return Effect.succeed(ok({
+        ...previous,
+        workspaceManifest: nextManifest,
+        generation: previous.generation + 1,
+        indexKey: 'forced-refresh',
+      }));
+    },
+  });
+
+  const refreshed = await Effect.runPromise(owner.refreshExact([path('src/one.ts')]));
+  assert.equal(refreshed._tag, 'Ok');
+  if (refreshed._tag === 'Ok') assert.equal(refreshed.value.refreshed, true);
+  assert.equal(forced, true);
+  assert.equal(rebuilds, 1);
+});
+
+test('WorkspaceSync persists state-only metadata baselines without rebuilding', async () => {
+  const first = workspaceManifestFromFiles({
+    headRevision: 'a'.repeat(40),
+    scopeFingerprint: 'scope-v1',
+    files: [{
+      repoPath: path('src/one.ts'),
+      sourceDigest: digest('a') as never,
+      sizeBytes: 10,
+      mtimeMs: 10,
+      state: 'tracked',
+    }],
+  });
+  const stateOnly = workspaceManifestFromFiles({
+    headRevision: first.headRevision,
+    scopeFingerprint: first.scopeFingerprint,
+    files: [{
+      repoPath: path('src/one.ts'),
+      sourceDigest: digest('a') as never,
+      sizeBytes: 10,
+      mtimeMs: 10,
+      state: 'untracked',
+    }],
+  });
+  let probes = 0;
+  const owner = makeWorkspaceSync({
+    initial: initialState(first),
+    observeChanges: (current) => {
+      probes += 1;
+      assert.equal(current.workspaceManifest.files[0]?.state, probes === 1 ? 'tracked' : 'untracked');
+      return Effect.succeed(ok({
+        changed: true,
+        manifest: stateOnly,
+        delta: {
+          changed: [path('src/one.ts')],
+          added: [],
+          deleted: [],
+          renamed: [],
+          scopeChanged: false,
+        },
+      }));
+    },
+    rebuild: () => {
+      throw new Error('state-only metadata must not rebuild source content');
+    },
+  });
+  const firstRefresh = await Effect.runPromise(owner.refresh());
+  assert.equal(firstRefresh._tag, 'Ok');
+  if (firstRefresh._tag === 'Ok') assert.equal(firstRefresh.value.refreshed, false);
+  await Effect.runPromise(owner.refresh());
+  assert.equal(probes, 2);
+});
+
+test('WorkspaceSync advances metadata-only baselines without rebuilding source content', async () => {
+  const first = workspaceManifestFromFiles({
+    headRevision: 'a'.repeat(40),
+    scopeFingerprint: 'scope-v1',
+    files: [{
+      repoPath: path('src/one.ts'),
+      sourceDigest: digest('a') as never,
+      sizeBytes: 10,
+      mtimeMs: 10,
+      state: 'tracked',
+    }],
+  });
+  const metadataOnly = workspaceManifestFromFiles({
+    headRevision: first.headRevision,
+    scopeFingerprint: first.scopeFingerprint,
+    files: [{
+      repoPath: path('src/one.ts'),
+      sourceDigest: digest('a') as never,
+      sizeBytes: 10,
+      mtimeMs: 20,
+      state: 'tracked',
+    }],
+  });
+  let rebuilds = 0;
+  const owner = makeWorkspaceSync({
+    initial: initialState(first),
+    observeChanges: () => Effect.succeed(ok({
+      changed: false,
+      manifest: metadataOnly,
+    })),
+    rebuild: () => {
+      rebuilds += 1;
+      throw new Error('metadata-only refresh must not rebuild');
+    },
+  });
+
+  const refreshed = await Effect.runPromise(owner.refresh());
+  assert.equal(refreshed._tag, 'Ok');
+  if (refreshed._tag === 'Ok') {
+    assert.equal(refreshed.value.refreshed, false);
+    assert.equal(refreshed.value.state.workspaceManifest.files[0]?.mtimeMs, 20);
+  }
+  assert.equal(rebuilds, 0);
 });

@@ -93,6 +93,56 @@ test('Qdrant SDK query accepts the facade direct points response', async () => {
     indexKey: 'index-key',
   }])))._tag, 'Ok');
   assert.ok(Array.isArray((upsertRequest as { points?: unknown[] }).points));
+  const firstPointId = ((upsertRequest as { points?: Array<{ id?: unknown }> }).points ?? [])[0]?.id;
+  assert.equal(typeof firstPointId, 'string');
+
+  assert.equal((await Effect.runPromise(port.upsert([{
+    candidate,
+    vector: [0.1, 0.2],
+    indexKey: 'different-global-index-key',
+  }])))._tag, 'Ok');
+  const secondPointId = ((upsertRequest as { points?: Array<{ id?: unknown }> }).points ?? [])[0]?.id;
+  assert.equal(secondPointId, firstPointId,
+    'stable point identity must follow source candidate identity, not the global publication key');
+});
+
+test('stable Qdrant mutation deletes only the changed workspace path through the SDK', async () => {
+  const deletes: unknown[] = [];
+  const client = {
+    delete: async (_collection: string, request: unknown) => { deletes.push(request); return { status: 'completed' }; },
+  } as unknown as QdrantClient;
+  const port = makeQdrantCodeCandidatePort({
+    baseUrl: 'http://127.0.0.1:6333',
+    collection: 'ace-stable',
+    http: { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
+    client,
+  });
+  assert.ok(port.deletePaths !== undefined);
+  const deleted = await Effect.runPromise(port.deletePaths!({
+    workspaceId,
+    repoPaths: ['src/save.ts' as never],
+    exceptIndexKey: 'current-index',
+  }));
+  assert.equal(deleted._tag, 'Ok');
+  assert.deepEqual((deletes[0] as { wait?: unknown }).wait, true);
+  assert.deepEqual((deletes[0] as { filter?: unknown }).filter, {
+    must: [
+      { key: 'workspace_id', match: { value: workspaceId } },
+      { key: 'repo_path', match: { value: 'src/save.ts' } },
+    ],
+    must_not: [{ key: 'index_key', match: { value: 'current-index' } }],
+  });
+
+  assert.ok(port.deleteWorkspaceVersions !== undefined);
+  const cleaned = await Effect.runPromise(port.deleteWorkspaceVersions!({
+    workspaceId,
+    exceptIndexKey: 'current-index',
+  }));
+  assert.equal(cleaned._tag, 'Ok');
+  assert.deepEqual((deletes[1] as { filter?: unknown }).filter, {
+    must: [{ key: 'workspace_id', match: { value: workspaceId } }],
+    must_not: [{ key: 'index_key', match: { value: 'current-index' } }],
+  });
 });
 
 test('Qdrant SDK lifecycle accepts direct collection and alias shapes with dense-only schema', async () => {

@@ -140,6 +140,8 @@ export interface QdrantContextConfig {
   readonly benchmarkProviderIdentities?: Readonly<Record<string, string>>;
   /** Request-local synchronization owner; avoids a full snapshot on no-change requests. */
   readonly workspaceSync?: WorkspaceSync;
+  /** Stable collection mode keeps unchanged points across changed-path mutations. */
+  readonly qdrantStableCollection?: boolean;
 }
 
 export const embeddingContentKey = (providerIdentity: string, chunk: string): string =>
@@ -274,13 +276,22 @@ export const populateQdrantFromStructuralIndex = (
   seedVectors: ReadonlyMap<string, readonly number[]> = new Map(),
   embeddingProviderIdentity?: string,
   sparseEmbeddings?: SparseEmbeddingPort,
+  candidatePaths?: ReadonlySet<RepoPath>,
 ): Effect.Effect<Result<number, DomainError>> => Effect.gen(function* () {
+  const candidatesToPopulate = candidatePaths === undefined
+    ? index.candidates
+    : index.candidates.filter((candidate) => candidatePaths.has(candidate.repoPath));
+  if (candidatesToPopulate.length === 0) {
+    return candidatePaths === undefined
+      ? err(domainError('UNSUPPORTED_PROVIDER', 'index', 'no verified structural candidates available for Qdrant'))
+      : ok(0);
+  }
   if (index.candidates.length === 0) {
     return err(domainError('UNSUPPORTED_PROVIDER', 'index', 'no verified structural candidates available for Qdrant'));
   }
   let count = 0;
-  for (let offset = 0; offset < index.candidates.length; offset += 16) {
-    const candidates = index.candidates.slice(offset, offset + 16);
+  for (let offset = 0; offset < candidatesToPopulate.length; offset += 16) {
+    const candidates = candidatesToPopulate.slice(offset, offset + 16);
     const keyFor = (candidate: CodeCandidate): string => embeddingProviderIdentity === undefined
       ? candidate.candidateId
       : embeddingContentKey(embeddingProviderIdentity, candidate.text);
@@ -324,6 +335,93 @@ export const populateQdrantFromStructuralIndex = (
     count += candidates.length;
   }
   return ok(count);
+});
+
+export const mutateQdrantChangedPaths = (
+  index: CodeIndex,
+  qdrant: CodeCandidatePort,
+  embeddings: VectorEmbeddingPort,
+  workspaceId: WorkspaceId,
+  changedPaths: readonly RepoPath[],
+  indexKey: string,
+  embeddingProviderIdentity?: string,
+  sparseEmbeddings?: SparseEmbeddingPort,
+  verification?: {
+    readonly http: HttpPort;
+    readonly baseUrl: string;
+    readonly collection: string;
+    readonly allowedHosts?: readonly string[];
+    readonly client?: QdrantClient;
+  },
+): Effect.Effect<Result<{ readonly count: number; readonly reused: boolean; readonly reusedVectorCount: number }, DomainError>> => Effect.gen(function* () {
+  const paths = [...new Set(changedPaths)];
+  if (paths.length === 0) return ok({ count: 0, reused: false, reusedVectorCount: 0 });
+  if (qdrant.deletePaths === undefined) {
+    return err(domainError('NOT_READY', 'qdrant', 'stable changed-path mutation requires the official Qdrant delete boundary'));
+  }
+  const currentPaths = new Set(index.candidates
+    .filter((candidate) => paths.includes(candidate.repoPath))
+    .map((candidate) => candidate.repoPath));
+  const removedOrEmptyPaths = paths.filter((repoPath) => !currentPaths.has(repoPath));
+
+  // Publish first. If embeddings or upsert fail, the last known-good points
+  // remain intact and WorkspaceSync never advances to the failed generation.
+  const upserted = yield* populateQdrantFromStructuralIndex(
+    index,
+    qdrant,
+    embeddings,
+    indexKey,
+    new Map(),
+    embeddingProviderIdentity,
+    sparseEmbeddings,
+    new Set(currentPaths),
+  );
+  if (upserted._tag === 'Err') return upserted;
+
+  if (currentPaths.size > 0) {
+    if (verification === undefined) {
+      return err(domainError(
+        'NOT_READY',
+        'qdrant',
+        'changed-path publication requires membership verification before pruning old versions',
+      ));
+    }
+    for (const repoPath of [...currentPaths].sort()) {
+      const expectedCandidateIds = index.candidates
+        .filter((candidate) => candidate.repoPath === repoPath)
+        .map((candidate) => candidate.candidateId);
+      const verified = yield* verifyQdrantSnapshotMembership(
+        verification.http,
+        verification.baseUrl,
+        verification.collection,
+        workspaceId,
+        indexKey,
+        expectedCandidateIds,
+        verification.allowedHosts ?? [],
+        verification.client,
+        repoPath,
+      );
+      if (verified._tag === 'Err') return verified;
+      if (!verified.value) {
+        return err(domainError(
+          'INVALID_EXTERNAL_RESPONSE',
+          'qdrant_snapshot',
+          repoPath + ': changed-path publication is incomplete; refusing to prune last-known-good path versions',
+        ));
+      }
+    }
+    const cleaned = yield* qdrant.deletePaths({
+      workspaceId,
+      repoPaths: [...currentPaths],
+      exceptIndexKey: indexKey,
+    });
+    if (cleaned._tag === 'Err') return cleaned;
+  }
+  if (removedOrEmptyPaths.length > 0) {
+    const deleted = yield* qdrant.deletePaths({ workspaceId, repoPaths: removedOrEmptyPaths });
+    if (deleted._tag === 'Err') return deleted;
+  }
+  return ok({ count: upserted.value, reused: false, reusedVectorCount: 0 });
 });
 
 export const probeQdrantService = (
@@ -604,12 +702,10 @@ export const codeIndexKey = (
     ]);
   const coverageIdentity = coverage === undefined ? undefined : {
     schemaVersion: coverage.schemaVersion,
-    sourceSnapshotDigest: coverage.sourceSnapshotDigest,
     parserVersion: coverage.parserVersion,
-    attemptedPaths: coverage.attemptedPaths,
-    indexedPaths: coverage.indexedPaths,
-    policyExcludedPaths: coverage.policyExcludedPaths,
-    outOfScopePaths: coverage.outOfScopePaths,
+    // Source membership/digests already come from fileManifest and candidates.
+    // Do not fold observation-only HEAD/state or out-of-scope diagnostic counts
+    // back into the stable Qdrant identity via sourceSnapshotDigest.
     failedPaths: coverage.failedPaths,
     failureCounts: coverage.failureCounts,
     failures: [...coverage.failures]
@@ -642,6 +738,7 @@ export const verifyQdrantSnapshotMembership = (
   expectedCandidateIds: readonly string[],
   allowedHosts: readonly string[] = [],
   client?: QdrantClient,
+  repoPath?: RepoPath,
 ): Effect.Effect<Result<boolean, DomainError>> => Effect.gen(function* () {
   const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
   if (endpoint._tag === 'Err') return endpoint;
@@ -650,6 +747,7 @@ export const verifyQdrantSnapshotMembership = (
   const filter = { must: [
     { key: 'workspace_id', match: { value: workspaceId } },
     { key: 'index_key', match: { value: indexKey } },
+    ...(repoPath === undefined ? [] : [{ key: 'repo_path', match: { value: repoPath } }]),
   ] };
   for (let page = 0; page < 10_000; page += 1) {
     let points: unknown;
@@ -823,7 +921,13 @@ export const reuseOrPopulateQdrantSnapshot = (
         http, baseUrl, collection, workspaceId, indexKey, expectedCandidateIds, allowedHosts, client,
       );
       if (membership._tag === 'Err') return membership;
-      if (membership.value) return ok({ count: index.candidates.length, reused: true, reusedVectorCount: index.candidates.length });
+      if (membership.value) {
+        if (qdrant.deleteWorkspaceVersions !== undefined) {
+          const cleaned = yield* qdrant.deleteWorkspaceVersions({ workspaceId, exceptIndexKey: indexKey });
+          if (cleaned._tag === 'Err') return cleaned;
+        }
+        return ok({ count: index.candidates.length, reused: true, reusedVectorCount: index.candidates.length });
+      }
     }
   }
   // Do not delete an in-use snapshot while another process may still read it.
@@ -846,6 +950,8 @@ export const reuseOrPopulateQdrantSnapshot = (
       : embeddingContentKey(embeddingProviderIdentity, candidate.text)));
     seedVectors = new Map([...prior.value].filter(([key]) => currentKeys.has(key)));
   }
+  // Upsert the complete current snapshot before pruning any older points.
+  // This keeps the last known-good index recoverable if embeddings/upsert fail.
   const indexed = yield* populateQdrantFromStructuralIndex(
     index,
     qdrant,
@@ -861,15 +967,24 @@ export const reuseOrPopulateQdrantSnapshot = (
   );
   if (verified._tag === 'Err') return verified;
   if (!verified.value) {
-    return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_snapshot', 'rebuilt snapshot membership does not match the structural index'));
+    return err(domainError(
+      'INVALID_EXTERNAL_RESPONSE',
+      'qdrant_snapshot',
+      'rebuilt snapshot membership is incomplete; refusing to prune the last-known-good workspace version',
+    ));
+  }
+  if (qdrant.deleteWorkspaceVersions !== undefined) {
+    const cleaned = yield* qdrant.deleteWorkspaceVersions({ workspaceId, exceptIndexKey: indexKey });
+    if (cleaned._tag === 'Err') return cleaned;
   }
   return ok({ count: indexed.value, reused: false, reusedVectorCount: seedVectors.size });
 });
 
 export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
   let activeConfig = config;
-  return {
-    search: (input: {
+  /* eslint-disable @typescript-eslint/indent -- the generator body retains the existing Effect indentation. */
+  const search = (
+    input: {
       readonly workspaceId: WorkspaceId;
       readonly query: string;
       readonly includeCode?: boolean;
@@ -878,12 +993,21 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
       readonly includeHistory?: boolean;
       readonly sourceRequirements?: SourceRequirements;
       readonly workingContextHints?: WorkingContextHints;
-    }): Effect.Effect<Result<ContextBundle, DomainError>> => Effect.gen(function* () {
+    },
+    retryBudget = 0,
+  ): Effect.Effect<Result<ContextBundle, DomainError>> => Effect.gen(function* () {
       if (input.workspaceId !== activeConfig.workspaceId) {
         return err(domainError('POLICY_DENIED', 'workspace_id', 'Qdrant provider belongs to another workspace'));
       }
       let requestWorkingContext: WorkingContext | undefined;
       if (activeConfig.workspaceManifest !== undefined) {
+        if (activeConfig.qdrantStableCollection && activeConfig.workspaceSync === undefined) {
+          return err(domainError(
+            'NOT_READY',
+            'workspace_sync',
+            'stable synchronized retrieval requires the WorkspaceSync owner',
+          ));
+        }
         if (activeConfig.workspaceSync !== undefined) {
           const refreshed = yield* activeConfig.workspaceSync.refresh();
           if (refreshed._tag === 'Err') return refreshed;
@@ -1090,8 +1214,8 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
             queryText: input.query,
             strategy: retrievalStrategy,
             limit: retrievalLimit,
-            ...(activeConfig.generation === undefined ? {} : { generation: activeConfig.generation }),
-            ...(activeConfig.indexKey === undefined ? {} : { indexKey: activeConfig.indexKey }),
+            ...(activeConfig.qdrantStableCollection || activeConfig.generation === undefined ? {} : { generation: activeConfig.generation }),
+            ...(activeConfig.qdrantStableCollection || activeConfig.indexKey === undefined ? {} : { indexKey: activeConfig.indexKey }),
             requestId: requestId.value,
           });
           if (result._tag === 'Err') {
@@ -1224,6 +1348,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
         readonly handle: string;
         readonly sizeBytes: number;
       }>();
+      const stalePaths: RepoPath[] = [];
 
       const initialFailures = new Map<RepoPath, string>();
       for (const ranked of rankedResults) {
@@ -1504,11 +1629,27 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
         if (!verifiedCurrent) {
           warnings.push(path + ': source changed during retrieval');
           failed.push('code');
+          stalePaths.push(path);
           for (let i = 0; i < evidence.length; i += 1) {
             if (evidence[i]?.citation.startsWith(path + ':')) {
               const existing = evidence[i];
               if (existing !== undefined) evidence[i] = { ...existing, freshness: 'changed_during_request', proofClass: 'uncertain' };
             }
+          }
+        }
+      }
+      if (stalePaths.length > 0 && retryBudget === 0
+        && activeConfig.workspaceSync !== undefined
+        && activeConfig.reconcile !== undefined) {
+        const refreshed = yield* activeConfig.workspaceSync.refreshExact(stalePaths);
+        if (refreshed._tag === 'Ok') {
+          const reconciled = yield* activeConfig.reconcile(
+            refreshed.value.state.workspaceManifest,
+            refreshed.value.delta,
+          );
+          if (reconciled._tag === 'Ok') {
+            activeConfig = reconciled.value;
+            return yield* search(input, 1);
           }
         }
       }
@@ -1556,6 +1697,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
         ...(activeConfig.coverage === undefined ? {} : { indexCoverage: activeConfig.coverage }),
       };
       return ok(covered);
-    }),
-  };
+    }) as Effect.Effect<Result<ContextBundle, DomainError>>;
+  /* eslint-enable @typescript-eslint/indent */
+  return { search };
 };

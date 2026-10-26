@@ -4,6 +4,7 @@ export interface WorkspaceManifestFile {
   readonly repoPath: RepoPath;
   readonly sourceDigest: ContentDigest;
   readonly sizeBytes: number;
+  readonly mtimeMs?: number;
   readonly state: FileState;
 }
 
@@ -30,7 +31,13 @@ const contentIdentityFor = (
   files: readonly WorkspaceManifestFile[],
 ): string => JSON.stringify({
   scopeFingerprint,
-  files: sortedFiles(files),
+  // Cheap observation metadata and Git tracked/untracked state are sync hints,
+  // not source identity. Only exact source membership/digests define the index.
+  files: sortedFiles(files).map((file) => ({
+    repoPath: file.repoPath,
+    sourceDigest: file.sourceDigest,
+    sizeBytes: file.sizeBytes,
+  })),
 });
 
 export const workspaceManifestFromFiles = (input: {
@@ -61,6 +68,7 @@ export const workspaceManifestFromSnapshot = (
     repoPath: file.repoPath,
     sourceDigest: file.digest,
     sizeBytes: file.sizeBytes,
+    ...(file.mtimeMs === undefined ? {} : { mtimeMs: file.mtimeMs }),
     state: file.state,
   })),
   removedPaths: snapshot.removedPaths,
@@ -75,6 +83,7 @@ export const workspaceSnapshotFromManifest = (
     repoPath: file.repoPath,
     digest: file.sourceDigest,
     sizeBytes: file.sizeBytes,
+    ...(file.mtimeMs === undefined ? {} : { mtimeMs: file.mtimeMs }),
     state: file.state,
     observedAtMs,
   })),

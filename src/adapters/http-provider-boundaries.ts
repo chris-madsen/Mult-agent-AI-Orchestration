@@ -223,8 +223,12 @@ const qdrantPoint = (point: CodePoint): Readonly<Record<string, unknown>> => {
 };
 
 const qdrantPointId = (point: CodePoint): string => {
+  // Physical point identity follows the source candidate, not the global
+  // workspace snapshot. index_key remains publication metadata used for
+  // verification/cleanup, while unchanged source chunks keep the same point ID
+  // across incremental generations and restarts.
   const hex = createHash('sha256')
-    .update([point.candidate.workspaceId, point.indexKey ?? 'unscoped', point.candidate.candidateId].join('\0'))
+    .update([point.candidate.workspaceId, point.candidate.candidateId].join('\0'))
     .digest('hex')
     .slice(0, 32);
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
@@ -377,6 +381,116 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
         provider: 'qdrant',
         providerVersion: config.providerVersion ?? 'qdrant/unknown',
         operation: 'upsert_points',
+        status: result._tag === 'Ok' ? 'success' : 'failure',
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        collection: config.collection,
+        ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
+      });
+      return result;
+    });
+  },
+  deletePaths: (input) => {
+    const startedAtMs = Date.now();
+    const operation = Effect.catchAll(Effect.gen(function* () {
+      const endpoint = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
+      if (endpoint._tag === 'Err') return endpoint;
+      const paths = [...new Set(input.repoPaths)];
+      for (const repoPath of paths) {
+        const filter = {
+          must: [
+            { key: 'workspace_id', match: { value: input.workspaceId } },
+            { key: 'repo_path', match: { value: repoPath } },
+          ],
+          ...(input.exceptIndexKey === undefined ? {} : {
+            must_not: [{ key: 'index_key', match: { value: input.exceptIndexKey } }],
+          }),
+        };
+        if (config.client !== undefined) {
+          const deleted = yield* Effect.tryPromise<Result<void, DomainError>, DomainError>({
+            try: async () => {
+              try {
+                await config.client!.delete(config.collection, {
+                  wait: true,
+                  filter,
+                } as Parameters<QdrantClient['delete']>[1]);
+                return ok(undefined);
+              } catch (cause) {
+                return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', cause instanceof Error ? cause.message : 'Qdrant SDK delete failed'));
+              }
+            },
+            catch: () => domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'Qdrant SDK delete failed'),
+          });
+          if (deleted._tag === 'Err') return deleted;
+        } else {
+          const response = yield* config.http.request({
+            method: 'POST',
+            url: `${endpoint.value}/collections/${encodeURIComponent(config.collection)}/points/delete?wait=true`,
+            ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
+            body: { filter },
+          });
+          if (response._tag === 'Err') return response;
+          if (!successful(response.value)) return externalFailure(response.value, 'qdrant');
+        }
+      }
+      return ok(undefined);
+    }), (failure) => Effect.succeed(err(failure)));
+    return Effect.map(operation, (result) => {
+      providerTraceEvent(config.trace ?? noopProviderTrace, {
+        provider: 'qdrant',
+        providerVersion: config.providerVersion ?? 'qdrant/unknown',
+        operation: 'delete_path_points',
+        status: result._tag === 'Ok' ? 'success' : 'failure',
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        collection: config.collection,
+        ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
+      });
+      return result;
+    });
+  },
+  deleteWorkspaceVersions: (input) => {
+    const startedAtMs = Date.now();
+    const operation = Effect.catchAll(Effect.gen(function* () {
+      const endpoint = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
+      if (endpoint._tag === 'Err') return endpoint;
+      const filter = {
+        must: [{ key: 'workspace_id', match: { value: input.workspaceId } }],
+        must_not: [{ key: 'index_key', match: { value: input.exceptIndexKey } }],
+      };
+      if (config.client !== undefined) {
+        const deleted = yield* Effect.tryPromise<Result<void, DomainError>, DomainError>({
+          try: async () => {
+            try {
+              await config.client!.delete(config.collection, {
+                wait: true,
+                filter,
+              } as Parameters<QdrantClient['delete']>[1]);
+              return ok(undefined);
+            } catch (cause) {
+              return err(domainError(
+                'EXTERNAL_UNAVAILABLE',
+                'qdrant',
+                cause instanceof Error ? cause.message : 'Qdrant SDK workspace cleanup failed',
+              ));
+            }
+          },
+          catch: () => domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'Qdrant SDK workspace cleanup failed'),
+        });
+        return deleted;
+      }
+      const response = yield* config.http.request({
+        method: 'POST',
+        url: endpoint.value + '/collections/' + encodeURIComponent(config.collection) + '/points/delete?wait=true',
+        ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
+        body: { filter },
+      });
+      if (response._tag === 'Err') return response;
+      return successful(response.value) ? ok(undefined) : externalFailure(response.value, 'qdrant');
+    }), (failure) => Effect.succeed(err(failure)));
+    return Effect.map(operation, (result) => {
+      providerTraceEvent(config.trace ?? noopProviderTrace, {
+        provider: 'qdrant',
+        providerVersion: config.providerVersion ?? 'qdrant/unknown',
+        operation: 'delete_stale_workspace_versions',
         status: result._tag === 'Ok' ? 'success' : 'failure',
         durationMs: Math.max(0, Date.now() - startedAtMs),
         collection: config.collection,
