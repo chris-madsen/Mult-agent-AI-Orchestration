@@ -1430,6 +1430,10 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
           const read = yield* activeConfig.files.readExact(activeConfig.rootPath, candidate.repoPath);
           if (read._tag === 'Err') {
             initialFailures.set(candidate.repoPath, read.error.code);
+            // A path may disappear between the cheap workspace observation and
+            // the first Qdrant hit. Give the bounded exact-refresh path a chance
+            // to reconcile the deletion rather than returning only stale hits.
+            stalePaths.push(candidate.repoPath);
             warnings.push(candidate.repoPath + ': ' + read.error.code);
             failed.push('code');
             continue;
@@ -1453,6 +1457,10 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
         const verified = current && verifiedText !== undefined && verifiedText === candidate.text;
         const freshness = current ? (verified ? 'current' : 'unknown') : 'stale';
         if (!verified) {
+          // Stable collections can still contain crash leftovers from a prior
+          // source generation. Initial verification must trigger the same
+          // bounded repair as a race at the final exact-source boundary.
+          stalePaths.push(candidate.repoPath);
           warnings.push(candidate.repoPath + ': stale index or AST slice disagrees with current original bytes');
           failed.push('code');
         }
