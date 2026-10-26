@@ -313,8 +313,8 @@ const main = async (): Promise<void> => {
         version: feedbackHermesVersion,
         reasoning_effort: reasoning,
         ace_context_enabled: false,
-        ace_workspace_root: '/workspace/repo',
-        ace_allowed_roots: '/workspace/repo',
+        ace_workspace_root: '/workspace',
+        ace_allowed_roots: '/workspace',
       },
     } as const;
     const common = {
@@ -360,8 +360,8 @@ const main = async (): Promise<void> => {
     ]);
     const sourceEvidenceEnv = [
       `--agent-env ${shellQuote(`ACE_EVIDENCE_SOURCE_COMMIT=${sourceRevision}`)}`,
-      `--agent-env ${shellQuote('ACE_WORKSPACE_ROOT=/workspace/repo')}`,
-      `--agent-env ${shellQuote('ACE_ALLOWED_ROOTS=/workspace/repo')}`,
+      `--agent-env ${shellQuote('ACE_WORKSPACE_ROOT=/workspace')}`,
+      `--agent-env ${shellQuote('ACE_ALLOWED_ROOTS=/workspace')}`,
     ].join(' ');
     const nativeCommand = `export PYTHONPATH=/ace:` + '${PYTHONPATH:-}' + '\n' + `exec harbor run --config ${shellQuote(nativeJobPath)} --env docker --mounts ${shellQuote(mounts)} ${sourceEvidenceEnv}`;
     const aceCommand = `export PYTHONPATH=/ace:` + '${PYTHONPATH:-}' + '\n' + `exec harbor run --config ${shellQuote(aceJobPath)} --env docker --mounts ${shellQuote(mounts)} ${sourceEvidenceEnv}`;
