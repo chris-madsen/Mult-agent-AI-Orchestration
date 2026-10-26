@@ -53,11 +53,22 @@ import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
 import type { MemorySearchPort, WorkspaceFilePort } from '../application/ports.js';
 import { defaultLocalPolicy } from '../domain/policy.js';
 import { makeWorkspaceId, type WorkspaceId } from '../domain/workspace.js';
+import { isSensitiveSourcePath } from '../domain/sensitive-path.js';
+import { structuralLanguageForPath } from '../domain/structural-language.js';
 import type { RetrievalBenchmarkTraceSink } from '../domain/retrieval-benchmark.js';
-import { workspaceManifestFromSnapshot, workspaceManifestEqual } from '../domain/workspace-manifest.js';
+import {
+  workspaceManifestFromSnapshot,
+  workspaceManifestEqual,
+  workspaceSnapshotFromManifest,
+} from '../domain/workspace-manifest.js';
 import { observeWorkspace, registerWorkspace } from '../application/workspace-service.js';
 import { readVerifiedSemanticSnapshot, semanticSnapshotIdentity } from '../application/semantic-snapshot.js';
-import { candidateMembershipByPath, makeWorkspaceSync, type WorkspaceSync } from '../application/workspace-sync.js';
+import {
+  candidateMembershipByPath,
+  makeWorkspaceSync,
+  observeWorkspaceManifest,
+  type WorkspaceSync,
+} from '../application/workspace-sync.js';
 import { verifyCompiledRuntimeProvenance } from '../application/runtime-provenance.js';
 import { makeMcpGateway, type CapabilityReadiness } from '../gateway/mcp-gateway.js';
 import { makeContextTransformService } from '../application/context-transform-service.js';
@@ -629,9 +640,14 @@ const main = async (): Promise<void> => {
           let nextGeneration = generation;
           let workspaceSync: WorkspaceSync | undefined;
           let latestPublished: QdrantContextConfig | undefined;
+          const retrievalRelevantPath = (repoPath: string): boolean =>
+            !isSensitiveSourcePath(repoPath)
+            && (structuralLanguageForPath(repoPath) !== undefined
+              || /(?:^|\/)(?:tsconfig(?:\..+)?\.json|package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock)$/u.test(repoPath));
           const publishBuild = async (
             build: LocalCodeIndexBuild,
             buildGeneration: number,
+            verification: 'full' | 'incremental' = 'full',
           ): Promise<Result<QdrantContextConfig, DomainError>> => {
             for (const warning of build.warnings) process.stderr.write(`ace retrieval warning: ${warning}\n`);
             const sourceKey = codeIndexKey(build.index, build.coverage, retrievalFingerprint, build.fileManifest);
@@ -732,12 +748,27 @@ const main = async (): Promise<void> => {
                 ? 'ace-mcp semantic LSP NOT_READY: no LSP-capable source language is present in this workspace\n'
                 : `ace-mcp semantic LSP NOT_READY: ${lspServerName} identity is unavailable\n`);
             }
-            const finalSnapshot = await Effect.runPromise(files.snapshot(registered.value.rootPath, Date.now()));
-            if (finalSnapshot._tag === 'Err') {
-              semantics.close();
-              return finalSnapshot;
+            let finalManifest;
+            if (verification === 'incremental') {
+              const observed = await Effect.runPromise(observeWorkspaceManifest(
+                files,
+                registered.value.rootPath,
+                build.workspaceManifest,
+                retrievalRelevantPath,
+              ));
+              if (observed._tag === 'Err') {
+                semantics.close();
+                return observed;
+              }
+              finalManifest = observed.value.manifest ?? build.workspaceManifest;
+            } else {
+              const finalSnapshot = await Effect.runPromise(files.snapshot(registered.value.rootPath, Date.now()));
+              if (finalSnapshot._tag === 'Err') {
+                semantics.close();
+                return finalSnapshot;
+              }
+              finalManifest = workspaceManifestFromSnapshot(finalSnapshot.value, scopeFingerprint);
             }
-            const finalManifest = workspaceManifestFromSnapshot(finalSnapshot.value, scopeFingerprint);
             if (!workspaceManifestEqual(build.workspaceManifest, finalManifest)) {
               semantics.close();
               return err(domainError('WORKTREE_RACED', 'workspace_manifest', 'workspace changed while assembling the semantic snapshot'));
@@ -802,7 +833,7 @@ const main = async (): Promise<void> => {
               ...(reranker === undefined ? {} : { reranker }),
               ...(rerankerMode === 'disabled' ? {} : { rerankerCandidateLimit }),
               coverage: build.coverage,
-              workspaceManifest: build.workspaceManifest,
+              workspaceManifest: finalManifest,
               scopeFingerprint,
               semanticSnapshotIdentity: semanticIdentity,
               trace: providerTrace,
@@ -873,22 +904,12 @@ const main = async (): Promise<void> => {
                     indexKey: initialIndexKey,
                     candidateIdsByPath: candidateMembershipByPath(built.value.index.candidates.map((candidate) => ({ candidate, score: 0, freshness: 'unknown' }))),
                   },
-                  observeChanges: () => Effect.gen(function*() {
-                    const changeSet = yield* files.observeChanges(
-                      registered.value.rootPath,
-                      built.value.workspaceManifest.headRevision,
-                    );
-                    if (changeSet._tag === 'Err') return changeSet;
-                    const changed = changeSet.value.headRevision !== built.value.workspaceManifest.headRevision
-                      || changeSet.value.changedPaths.length > 0
-                      || changeSet.value.addedPaths.length > 0
-                      || changeSet.value.deletedPaths.length > 0
-                      || changeSet.value.renamed.length > 0;
-                    if (!changed) return ok({ changed: false });
-                    const snapshot = yield* files.snapshot(registered.value.rootPath, Date.now());
-                    if (snapshot._tag === 'Err') return snapshot;
-                    return ok({ changed: true, manifest: workspaceManifestFromSnapshot(snapshot.value, scopeFingerprint) });
-                  }),
+                  observeChanges: (current) => observeWorkspaceManifest(
+                    files,
+                    registered.value.rootPath,
+                    current.workspaceManifest,
+                    retrievalRelevantPath,
+                  ),
                   rebuild: ({ nextManifest }) => Effect.promise(async () => {
                     if (latestBuild === undefined) return err(domainError('NOT_READY', 'workspace_sync', 'initial retrieval snapshot is not available'));
                     const rebuildGeneration = nextGeneration + 1;
@@ -902,13 +923,14 @@ const main = async (): Promise<void> => {
                         scopeFingerprint,
                         structural,
                         parserVersion: structuralFingerprint,
+                        snapshot: workspaceSnapshotFromManifest(nextManifest, Date.now()),
                       },
                     ));
                     if (rebuilt._tag === 'Err') return rebuilt;
                     if (!workspaceManifestEqual(rebuilt.value.workspaceManifest, nextManifest)) {
                       return err(domainError('WORKTREE_RACED', 'workspace_manifest', 'workspace changed during reconciliation'));
                     }
-                    const nextPublished = await publishBuild(rebuilt.value, rebuildGeneration);
+                    const nextPublished = await publishBuild(rebuilt.value, rebuildGeneration, 'incremental');
                     if (nextPublished._tag === 'Err') return nextPublished;
                     const nextIndexKey = nextPublished.value.indexKey;
                     if (nextIndexKey === undefined) return err(domainError('NOT_READY', 'workspace_sync', 'synchronized publication has no index key'));
@@ -917,7 +939,7 @@ const main = async (): Promise<void> => {
                     latestPublished = nextPublished.value;
                     return ok({
                       workspaceId: registered.value.workspaceId,
-                      workspaceManifest: rebuilt.value.workspaceManifest,
+                      workspaceManifest: nextPublished.value.workspaceManifest ?? rebuilt.value.workspaceManifest,
                       generation: rebuildGeneration,
                       indexKey: nextIndexKey,
                       candidateIdsByPath: candidateMembershipByPath(rebuilt.value.index.candidates.map((candidate) => ({ candidate, score: 0, freshness: 'unknown' }))),
