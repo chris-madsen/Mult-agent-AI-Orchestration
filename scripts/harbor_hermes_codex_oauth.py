@@ -222,6 +222,10 @@ class HermesCodexOAuth(Hermes):
 
         await self._stage_hermes_auth(environment)
         env = {"HERMES_HOME": "/tmp/hermes", "TERMINAL_ENV": "local", "HARBOR_INSTRUCTION": instruction}
+        for name in ("ACE_EVIDENCE_SOURCE_COMMIT", "ACE_EVIDENCE_SOURCE_MANIFEST_SHA256"):
+            value = self._extra_env.get(name) or os.environ.get(name)
+            if value:
+                env[name] = value
         if self.options.ace_context_enabled:
             await self._stage_context_engine(environment)
             env.update({

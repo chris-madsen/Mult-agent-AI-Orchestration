@@ -121,6 +121,8 @@ test('feedback jobs use Hermes openai-codex OAuth and native ContextEngine regis
   assert.doesNotMatch(adapter, /curl -fsSL.*install\.sh/u);
   assert.doesNotMatch(adapter, /ensure_system_dependencies/u);
   assert.match(adapter, /ACE_CONTEXT_BRIDGE_COMMAND/u);
+  assert.match(adapter, /ACE_EVIDENCE_SOURCE_COMMIT/u);
+  assert.match(adapter, /ACE_EVIDENCE_SOURCE_MANIFEST_SHA256/u);
   assert.match(adapter, /ace_workspace_root.*default="\/workspace"/u);
   assert.match(adapter, /ace_allowed_roots.*default="\/workspace"/u);
   assert.match(adapter, /config\["plugins"\]/u);
