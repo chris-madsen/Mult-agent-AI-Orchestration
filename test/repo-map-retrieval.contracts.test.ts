@@ -50,3 +50,28 @@ test('RepoMap prior reorders canonical source ranges without replacing Qdrant sc
   assert.equal(result[0]?.score, 0.74);
   assert.equal(result[1]?.candidate.symbolName, 'first');
 });
+
+
+test('RepoMap never boosts a candidate using a different source digest at the same path and range', () => {
+  const current = ranked('current', 1, 0.4);
+  const staleSymbol = makeRepoMapSymbol({
+    repoPath: current.candidate.repoPath,
+    name: 'current',
+    kind: 'function',
+    sourceDigest: 'b'.repeat(64) as never,
+    range: current.candidate.range,
+    text: current.candidate.text,
+    references: [],
+  });
+  const result = applyRepoMapPrior(
+    [current],
+    {
+      ranked: [{ symbol: staleSymbol, score: 1 }],
+      rendered: '',
+      estimatedTokens: 0,
+      truncated: false,
+    },
+    1,
+  );
+  assert.equal(result[0]?.score, 0.4);
+});
