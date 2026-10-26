@@ -17,7 +17,9 @@
 
 - **Aider RepoMap**: no lexical post-Qdrant reranker is called RepoMap. The actual phase requires a repo-wide def/ref graph, PageRank-style ranking/personalization and a token-budgeted rendered map.
 - **Claw LSP lifecycle**: no tiny refcount registry is presented as the Claw integration. The later phase should mine Claw Code PR #3016 discovery/lazy lifecycle/action design while retaining `vscode-jsonrpc` transport.
-- **Stable per-path Qdrant mutation**: filesystem hashing/parsing is changed-path scoped, but publication still uses the existing snapshot/alias collection lifecycle. PR A is not complete until a one-file edit mutates only affected Qdrant points instead of publishing a new whole-snapshot collection. Measured NFS/non-Git fallback behavior also remains open work.
+- **Stable per-path Qdrant mutation**: structural hashing/parsing is changed-path scoped, but publication still uses the existing snapshot/alias collection lifecycle. PR A is not complete until a one-file edit mutates only affected Qdrant points instead of publishing a new whole-snapshot collection.
+- **LSP refresh I/O**: the current pre-Claw LSP adapter still rebuilds its static semantic snapshot by exact-reading all indexed source files during publication. This is not a filesystem snapshot/hash anymore, but it remains O(indexed source bytes) I/O and is explicitly deferred to the Claw-style LSP lifecycle phase.
+- **Dirty-path cheap fingerprinting / non-Git fallback**: Git narrows the candidate set, but already-dirty/untracked files are still exact-read to prove whether their digest changed. Size+mtime caching and measured NFS/non-Git behavior remain open.
 - **New multi-arm benchmark infrastructure**: intentionally absent. First establish one live retrieval path, then measure native Hermes vs Hermes+ACE.
 
 ## Next evidence
