@@ -430,6 +430,25 @@ export const mutateQdrantChangedPaths = (
     const deleted = yield* qdrant.deletePaths({ workspaceId, repoPaths: removedOrEmptyPaths });
     if (deleted._tag === 'Err') return deleted;
   }
+  // A successful delete response is not proof that obsolete points vanished.
+  // Check physical path membership without index_key; otherwise old versions
+  // can consume top-K slots even though the newly published version is valid.
+  if (verification !== undefined) {
+    for (const repoPath of paths.sort()) {
+      const expected = index.candidates
+        .filter((candidate) => candidate.repoPath === repoPath)
+        .map((candidate) => candidate.candidateId);
+      const checked = yield* verifyQdrantSnapshotMembership(
+        verification.http, verification.baseUrl, verification.collection,
+        workspaceId, undefined, expected, verification.allowedHosts ?? [], verification.client, repoPath,
+      );
+      if (checked._tag === 'Err') return checked;
+      if (!checked.value) return err(domainError(
+        'INVALID_EXTERNAL_RESPONSE', 'qdrant_snapshot',
+        repoPath + ': obsolete points remain after deletion; refusing synchronized publication',
+      ));
+    }
+  }
   return ok({ count: upserted.value, reused: false, reusedVectorCount: 0 });
 });
 
@@ -743,7 +762,7 @@ export const verifyQdrantSnapshotMembership = (
   baseUrl: string,
   collection: string,
   workspaceId: WorkspaceId,
-  indexKey: string,
+  indexKey: string | undefined,
   expectedCandidateIds: readonly string[],
   allowedHosts: readonly string[] = [],
   client?: QdrantClient,
@@ -755,7 +774,7 @@ export const verifyQdrantSnapshotMembership = (
   let offset: unknown;
   const filter = { must: [
     { key: 'workspace_id', match: { value: workspaceId } },
-    { key: 'index_key', match: { value: indexKey } },
+    ...(indexKey === undefined ? [] : [{ key: 'index_key', match: { value: indexKey } }]),
     ...(repoPath === undefined ? [] : [{ key: 'repo_path', match: { value: repoPath } }]),
   ] };
   for (let page = 0; page < 10_000; page += 1) {
@@ -918,6 +937,7 @@ export const reuseOrPopulateQdrantSnapshot = (
   priorCollection?: string,
   sparseEmbeddings?: SparseEmbeddingPort,
   client?: QdrantClient,
+  stableCollection = false,
 ): Effect.Effect<Result<{ readonly count: number; readonly reused: boolean; readonly reusedVectorCount: number }, DomainError>> => Effect.gen(function* () {
   const expectedCandidateIds = index.candidates.map((candidate) => candidate.candidateId);
   if (reuseAllowed) {
@@ -939,9 +959,22 @@ export const reuseOrPopulateQdrantSnapshot = (
       }
     }
   }
-  // Do not delete an in-use snapshot while another process may still read it.
-  // Snapshot-scoped deterministic point IDs make same-snapshot writes idempotent
-  // and different snapshots independent.
+  if (reuseAllowed && stableCollection) {
+    // Incremental publication only updates index_key on changed candidates.
+    // The complete *physical* membership is authoritative for warm reuse:
+    // unchanged points may legitimately retain earlier publication keys.
+    // An exact set match proves there are no crash leftovers to prune. Never
+    // deleteWorkspaceVersions here: that would erase still-current old-key points.
+    const membership = yield* verifyQdrantSnapshotMembership(
+      http, baseUrl, collection, workspaceId, undefined, expectedCandidateIds, allowedHosts, client,
+    );
+    if (membership._tag === 'Err') return membership;
+    if (membership.value) {
+      return ok({ count: index.candidates.length, reused: true, reusedVectorCount: index.candidates.length });
+    }
+  }
+  // A mismatched physical membership requires a full, verified publication
+  // before obsolete workspace points may be pruned.
   let seedVectors: ReadonlyMap<string, readonly number[]> = new Map();
   if (priorCollection !== undefined || priorIndexKey !== undefined) {
     const prior = yield* readQdrantSnapshotVectors(
