@@ -71,7 +71,7 @@ const normalizedKind = (value: string): StructuralKind =>
 // it is unambiguous in the node's declaration header; never guess from the
 // function body or treat arbitrary text matches as semantic proof.
 const anchorableKinds: ReadonlySet<StructuralKind> = new Set([
-  'class', 'function', 'interface', 'type', 'enum', 'method', 'struct', 'trait', 'impl', 'module',
+  'class', 'function', 'interface', 'type', 'enum', 'method', 'struct', 'trait', 'impl', 'module', 'field', 'enum_variant',
 ]);
 const identifierName = /^[\p{ID_Start}_$][\p{ID_Continue}$]*$/u;
 const identifierBoundaryEnd = /[\p{ID_Continue}$]$/u;
@@ -177,7 +177,9 @@ const parseOutline = (
       || byteOffset.end > source.byteLength) {
       return invalidResponse(`${path}.range`, 'outline item has an invalid byte range');
     }
-    const kind = normalizedKind(symbolType);
+    const kind = symbolType === 'enumMember'
+      ? 'enum_variant'
+      : normalizedKind(symbolType);
     const nameAnchor = nameAnchorFromOutline(source, byteOffset.start, byteOffset.end, name, kind, position);
     symbols.push({
       name,

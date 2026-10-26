@@ -59,6 +59,30 @@ test('semantic snapshot does not silently skip exact-read failures', async () =>
   if (result._tag === 'Err') assert.equal(result.error.code, 'FILE_NOT_FOUND');
 });
 
+test('semantic snapshot reuses a verified unchanged source without exact-reading it again', async () => {
+  let reads = 0;
+  const files: WorkspaceFilePort = {
+    canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+    snapshot: () => { throw new Error('not used'); },
+    observeChanges: () => Effect.succeed(ok({
+      headRevision: 'unavailable', changedPaths: [], addedPaths: [], deletedPaths: [], renamed: [],
+    })),
+    readExact: () => {
+      reads += 1;
+      return Effect.succeed(err(domainError('FILE_NOT_FOUND', repoPath, 'must not read unchanged source')));
+    },
+  };
+  const result = await Effect.runPromise(readVerifiedSemanticSnapshot(
+    files,
+    '/repo',
+    [repoPath],
+    manifest,
+    { files: { [repoPath]: source.toString('utf8') }, manifest },
+  ));
+  assert.equal(result._tag, 'Ok');
+  assert.equal(reads, 0);
+});
+
 test('semantic snapshot rejects a path absent from the manifest and malformed text', async () => {
   const missing = await Effect.runPromise(readVerifiedSemanticSnapshot(
     filesReturning(source, digest),

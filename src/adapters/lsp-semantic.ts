@@ -54,6 +54,14 @@ export interface LspProviderIdentity {
   readonly fingerprint: string;
 }
 
+export interface LspSemanticSession extends SemanticAnalysisPort {
+  readonly close: () => void;
+  readonly refresh: (
+    files: Readonly<Record<string, string>>,
+    snapshotIdentity: string,
+  ) => Effect.Effect<Result<void, DomainError>>;
+}
+
 interface LspPosition { readonly line: number; readonly character: number }
 interface LspRange { readonly start: LspPosition; readonly end: LspPosition }
 interface LspLocation { readonly uri: string; readonly range: LspRange }
@@ -73,9 +81,10 @@ interface LspDiagnostic {
 interface LspRuntime {
   readonly child: ChildProcessWithoutNullStreams;
   readonly connection: MessageConnection;
-  readonly files: ReadonlyMap<string, string>;
+  readonly files: Map<string, string>;
   readonly diagnostics: ReadonlyMap<string, readonly LspDiagnostic[]>;
   readonly waitForDiagnostics: (uri: string, timeoutMs: number) => Promise<readonly LspDiagnostic[]>;
+  readonly updateFiles: (nextFiles: Readonly<Record<string, string>>) => Promise<Result<void, DomainError>>;
   readonly refProcess: () => void;
   readonly unrefProcess: () => void;
   readonly close: () => void;
@@ -260,6 +269,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
       setStreamRef(child.stderr, false);
     };
     const files = new Map(Object.entries(options.files));
+    const versions = new Map<string, number>();
     const connection = createMessageConnection(
       new StreamMessageReader(child.stdout),
       new StreamMessageWriter(child.stdin),
@@ -310,6 +320,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
     for (const [repoPath, source] of files) {
       const languageId = languageIdForPath(repoPath, options.languageIds);
       if (languageId === undefined) continue;
+      versions.set(repoPath, 1);
       await connection.sendNotification('textDocument/didOpen', {
         textDocument: { uri: uriFor(options.rootPath, repoPath), languageId, version: 1, text: source },
       });
@@ -341,9 +352,47 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
         diagnosticWaiters.set(uri, [...(diagnosticWaiters.get(uri) ?? []), waiter]);
       });
     };
+    const updateFiles = async (nextFiles: Readonly<Record<string, string>>): Promise<Result<void, DomainError>> => {
+      try {
+        const next = new Map(Object.entries(nextFiles));
+        for (const repoPath of files.keys()) {
+          if (next.has(repoPath)) continue;
+          const languageId = languageIdForPath(repoPath, options.languageIds);
+          if (languageId !== undefined) {
+            await connection.sendNotification('textDocument/didClose', {
+              textDocument: { uri: uriFor(options.rootPath, repoPath) },
+            });
+          }
+          files.delete(repoPath);
+          versions.delete(repoPath);
+        }
+        for (const [repoPath, source] of next) {
+          const languageId = languageIdForPath(repoPath, options.languageIds);
+          if (languageId === undefined) continue;
+          const previous = files.get(repoPath);
+          if (previous === undefined) {
+            versions.set(repoPath, 1);
+            await connection.sendNotification('textDocument/didOpen', {
+              textDocument: { uri: uriFor(options.rootPath, repoPath), languageId, version: 1, text: source },
+            });
+          } else if (previous !== source) {
+            const version = (versions.get(repoPath) ?? 1) + 1;
+            versions.set(repoPath, version);
+            await connection.sendNotification('textDocument/didChange', {
+              textDocument: { uri: uriFor(options.rootPath, repoPath), version },
+              contentChanges: [{ text: source }],
+            });
+          }
+          files.set(repoPath, source);
+        }
+        return ok(undefined);
+      } catch (cause) {
+        return failure('lsp.refresh', cause instanceof Error ? cause.message : 'LSP document refresh failed');
+      }
+    };
     if (options.keepProcessAlive !== false) refProcess();
     else unrefProcess();
-    return ok({ child, connection, files, diagnostics, waitForDiagnostics, refProcess, unrefProcess, close });
+    return ok({ child, connection, files, diagnostics, waitForDiagnostics, updateFiles, refProcess, unrefProcess, close });
   } catch (cause) {
     return failure('lsp.start', cause instanceof Error ? cause.message : 'LSP server failed to initialize', 'UNSUPPORTED_PROVIDER');
   }
@@ -363,8 +412,9 @@ const withTimeout = async <Value>(promise: Promise<Value>, timeoutMs: number): P
   }
 };
 
-export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): SemanticAnalysisPort & { readonly close: () => void } => {
+export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSemanticSession => {
   let runtimePromise: Promise<Result<LspRuntime, DomainError>> | undefined;
+  let activeSnapshotIdentity = options.snapshotIdentity;
   const runtime = (): Promise<Result<LspRuntime, DomainError>> => {
     runtimePromise ??= startRuntime(options);
     return runtimePromise;
@@ -379,7 +429,7 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): Semant
         const active = await runtime();
         let result: Result<Value, DomainError>;
         if (active._tag === 'Err') result = active;
-        else if (options.snapshotIdentity !== undefined && queryInput.snapshotIdentity !== options.snapshotIdentity) {
+        else if (activeSnapshotIdentity !== undefined && queryInput.snapshotIdentity !== activeSnapshotIdentity) {
           result = failure('snapshot_identity', 'semantic query is bound to a different source/configuration generation', 'NOT_READY');
         } else {
           const source = active.value.files.get(queryInput.repoPath);
@@ -515,5 +565,16 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): Semant
     close: (): void => {
       if (runtimePromise !== undefined) void runtimePromise.then((active) => { if (active._tag === 'Ok') active.value.close(); });
     },
+    refresh: (nextFiles: Readonly<Record<string, string>>, snapshotIdentity: string): Effect.Effect<Result<void, DomainError>> => recoverResult(Effect.tryPromise({
+      try: async () => {
+        const active = await runtime();
+        if (active._tag === 'Err') return active;
+        const updated = await active.value.updateFiles(nextFiles);
+        if (updated._tag === 'Err') return updated;
+        activeSnapshotIdentity = snapshotIdentity;
+        return ok(undefined);
+      },
+      catch: (cause) => domainError('EXTERNAL_UNAVAILABLE', 'lsp.refresh', cause instanceof Error ? cause.message : 'LSP refresh failed'),
+    })),
   };
 };

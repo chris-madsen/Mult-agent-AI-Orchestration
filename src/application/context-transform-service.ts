@@ -3,6 +3,7 @@ import { domainError, type DomainError } from '../domain/errors.js';
 import { err, isErr, ok, type Result } from '../domain/result.js';
 import type { ContextProvider } from '../gateway/mcp-gateway.js';
 import type { WorkspaceStore, IdPort } from './ports.js';
+import { makeContextAssembler, type ContextAssembler } from './context-assembler.js';
 import { projectContextForDelivery, resolveDeliveryIntent } from '../domain/context-delivery.js';
 import { ingestRepoPath, makeWorkspaceId, type WorkingContextHints, type WorkspaceId } from '../domain/workspace.js';
 import type { RetrievalEvidence } from '../domain/retrieval.js';
@@ -54,6 +55,7 @@ export interface ContextTransformPorts {
   readonly store: WorkspaceStore;
   readonly context: ContextProvider;
   readonly providerIdentities?: Readonly<Record<string, string>>;
+  readonly assembler?: ContextAssembler;
 }
 
 export interface ContextTransformService {
@@ -107,36 +109,9 @@ const workingContextFor = (
   });
 };
 
-const evidenceText = (item: RetrievalEvidence): string => {
-  const header = `[${item.source}] ${item.citation}`;
-  if (item.content.length === 0) return `${header}\n[exact evidence available via expansion handle]`;
-  return `${header}\n${item.content}`;
-};
-
-const tokensFor = (text: string): number => Math.ceil(text.length / 4);
-
-const boundedEvidence = (
-  evidence: readonly RetrievalEvidence[],
-  budgetTokens: number,
-): { readonly selected: readonly RetrievalEvidence[]; readonly text: string; readonly estimatedTokens: number } => {
-  const selected: RetrievalEvidence[] = [];
-  const blocks: string[] = [];
-  let estimatedTokens = 0;
-  for (const item of evidence) {
-    const block = evidenceText(item);
-    const separator = blocks.length === 0 ? 0 : 2;
-    const nextTokens = tokensFor(`${blocks.length === 0 ? '' : '\n\n'}${block}`);
-    if (selected.length > 0 && estimatedTokens + nextTokens > budgetTokens) break;
-    if (selected.length === 0 && nextTokens > budgetTokens) break;
-    selected.push(item);
-    blocks.push(block);
-    estimatedTokens += nextTokens + Math.ceil(separator / 4);
-  }
-  return { selected, text: blocks.join('\n\n'), estimatedTokens };
-};
-
 export const makeContextTransformService = (ports: ContextTransformPorts): ContextTransformService => ({
   transform: (request) => Effect.gen(function* () {
+    const assembler = ports.assembler ?? makeContextAssembler();
     if (request.schemaVersion !== 1) return err(domainError('INVALID_INPUT', 'schemaVersion', 'unsupported transform schema version'));
     const requestId = nonEmpty(request.requestId, 'requestId');
     if (requestId._tag === 'Err') return requestId;
@@ -180,20 +155,25 @@ export const makeContextTransformService = (ports: ContextTransformPorts): Conte
     if (projected.evidence.length === 0) {
       return err(domainError('NOT_READY', 'context', 'ACE returned no evidence for the transformation request'));
     }
-    const bounded = boundedEvidence(projected.evidence, request.budgetTokens);
-    if (bounded.selected.length === 0) {
+    const assembled = yield* assembler.assemble({
+      evidence: projected.evidence,
+      budgetTokens: request.budgetTokens,
+    });
+    if (assembled._tag === 'Err') return assembled;
+    if (assembled.value.selected.length === 0) {
       return err(domainError('NOT_READY', 'budgetTokens', 'ACE evidence cannot fit the requested context budget'));
     }
-    const selectedIds = bounded.selected.map((item) => String(item.evidenceId));
+    const selectedIds = assembled.value.selected.map((item) => String(item.evidenceId));
     const omittedIds = projected.evidence
       .filter((item) => !selectedIds.includes(String(item.evidenceId)))
       .map((item) => String(item.evidenceId));
     const limitations = [
       ...projected.warnings,
       ...projected.partialSources.map((source) => `${source}: partial`),
-      ...(omittedIds.length === 0 ? [] : [`${omittedIds.length} evidence items omitted by budget`]),
+      ...assembled.value.limitations,
     ];
-    const status = projected.complete ? 'ready' as const : 'partial' as const;
+    // A complete provider bundle can still become partial after budget packing.
+    const status = projected.complete && !assembled.value.truncated ? 'ready' as const : 'partial' as const;
     const receiptId = `ace-transform-${projected.bundleId ?? requestId.value}`;
     return ok({
       schemaVersion: 1,
@@ -202,11 +182,11 @@ export const makeContextTransformService = (ports: ContextTransformPorts): Conte
       turnId: turnId.value,
       workspaceId: workspaceId.value,
       status,
-      contextText: bounded.text,
-      evidence: bounded.selected,
+      contextText: assembled.value.text,
+      evidence: assembled.value.selected,
       selectedEvidenceIds: selectedIds,
       omittedEvidenceIds: omittedIds,
-      estimatedTokens: bounded.estimatedTokens,
+      estimatedTokens: assembled.value.estimatedTokens,
       ...(workspace.value.lastObservation?.headRevision === undefined
         ? {}
         : { sourceCommit: workspace.value.lastObservation.headRevision }),

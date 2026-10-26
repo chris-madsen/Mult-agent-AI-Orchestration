@@ -49,6 +49,7 @@ import {
   makeLspSemanticAnalysisPort,
   resolveLspProviderIdentity,
 } from '../adapters/lsp-semantic.js';
+import { buildRepoMapDelta } from '../adapters/repo-map-structural.js';
 import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
 import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
 import type { MemorySearchPort, WorkspaceFilePort } from '../application/ports.js';
@@ -74,6 +75,9 @@ import {
 import { verifyCompiledRuntimeProvenance } from '../application/runtime-provenance.js';
 import { makeMcpGateway, type CapabilityReadiness } from '../gateway/mcp-gateway.js';
 import { makeContextTransformService } from '../application/context-transform-service.js';
+import { makeContextAssembler } from '../application/context-assembler.js';
+import { makeRepoMapService } from '../application/repo-map-service.js';
+import { makeLspServerRegistry } from '../application/lsp/server-registry.js';
 import { makeGatewayProjectionService } from '../application/gateway-projection-service.js';
 import { runContextBridgeStdio } from '../transport/context-bridge-stdio.js';
 import { runGatewayProjectionHttp } from '../transport/gateway-projection-http.js';
@@ -321,6 +325,7 @@ const main = async (): Promise<void> => {
   let memory: MemorySearchPort | undefined;
   let closeMemory: (() => Promise<void>) | undefined;
   let closeSemantics: (() => void) | undefined;
+  const lspRegistry = makeLspServerRegistry();
   let closeReranker: (() => void) | undefined;
   let closeSparseEmbeddings: (() => void) | undefined;
   if (process.env.ACE_ENABLE_GRAPHITI === 'true') {
@@ -642,6 +647,10 @@ const main = async (): Promise<void> => {
           let nextGeneration = generation;
           let workspaceSync: WorkspaceSync | undefined;
           let latestPublished: QdrantContextConfig | undefined;
+          let semanticSnapshot: {
+            readonly files: Readonly<Record<string, string>>;
+            readonly manifest: LocalCodeIndexBuild['fileManifest'];
+          } | undefined;
           const retrievalRelevantPath = (repoPath: string): boolean =>
             !isSensitiveSourcePath(repoPath)
             && (structuralLanguageForPath(repoPath) !== undefined
@@ -691,7 +700,11 @@ const main = async (): Promise<void> => {
               trace: providerTrace,
             });
             const sourceFiles = await Effect.runPromise(readVerifiedSemanticSnapshot(
-              files, registered.value.rootPath, build.indexedPaths, build.fileManifest,
+              files,
+              registered.value.rootPath,
+              build.indexedPaths,
+              build.fileManifest,
+              semanticSnapshot,
             ));
             if (sourceFiles._tag === 'Err') return sourceFiles;
             const lspProviderIdentity = existsSync(lspCommand) && commandBoundaryExists(lspCommand)
@@ -723,7 +736,19 @@ const main = async (): Promise<void> => {
               packageLockIdentity,
               providerIdentity: `${lspCommand}|${semanticProviderVersion}|${lspProviderIdentity?._tag === 'Ok' ? lspProviderIdentity.value.fingerprint : 'unverified'}`,
             });
-            const semantics = makeLspSemanticAnalysisPort({
+            // Stage an immutable LSP generation. Refreshing the *published*
+            // server before the manifest/Qdrant commit can invalidate live
+            // requests and even close the new session on failed publication.
+            const key = JSON.stringify({
+              workspace: registered.value.workspaceId,
+              rootPath: registered.value.rootPath,
+              command: lspCommand,
+              args: lspArgs,
+              serverName: lspServerName,
+              languageIds: lspLanguageIds ?? null,
+              snapshotIdentity: semanticIdentity,
+            });
+            const acquired = await Effect.runPromise(lspRegistry.acquire(key, () => makeLspSemanticAnalysisPort({
               command: lspCommand,
               args: lspArgs,
               serverName: lspServerName,
@@ -733,7 +758,10 @@ const main = async (): Promise<void> => {
               providerVersion: semanticProviderVersion,
               snapshotIdentity: semanticIdentity,
               trace: providerTrace,
-            });
+            })));
+            if (acquired._tag === 'Err') return acquired;
+            const semanticLease = acquired.value;
+            const semantics = semanticLease.session;
             const firstLspPath = build.indexedPaths.find((repoPath) => lspLanguageIdForPath(repoPath, lspLanguageIds) !== undefined);
             let lspReady = lspProviderIdentity?._tag === 'Ok' && firstLspPath !== undefined;
             if (firstLspPath !== undefined && lspProviderIdentity?._tag === 'Ok') {
@@ -745,6 +773,30 @@ const main = async (): Promise<void> => {
                 ? 'ace-mcp semantic LSP NOT_READY: no LSP-capable source language is present in this workspace\n'
                 : `ace-mcp semantic LSP NOT_READY: ${lspServerName} identity is unavailable\n`);
             }
+            let repoMapService: ReturnType<typeof makeRepoMapService> | undefined;
+            if (lspReady) {
+              const repoMap = makeRepoMapService();
+              const repoMapDelta = await Effect.runPromise(buildRepoMapDelta({
+                candidates: build.index.candidates,
+                semantics,
+                sourceBytesByPath: new Map(Object.entries(sourceFiles.value).map(([repoPath, source]) => [
+                  repoPath as RepoPath,
+                  new TextEncoder().encode(source),
+                ])) as ReadonlyMap<RepoPath, Uint8Array>,
+                snapshotIdentity: semanticIdentity,
+                requestId: randomUUID(),
+              }));
+              if (repoMapDelta._tag === 'Err') {
+                process.stderr.write(`ace-mcp RepoMap NOT_READY: semantic reference graph failed (${repoMapDelta.error.code})\n`);
+              } else {
+                const updated = await Effect.runPromise(repoMap.update(repoMapDelta.value));
+                if (updated._tag === 'Err') {
+                  process.stderr.write(`ace-mcp RepoMap NOT_READY: graph update failed (${updated.error.code})\n`);
+                } else {
+                  repoMapService = repoMap;
+                }
+              }
+            }
             let finalManifest;
             if (verification === 'incremental') {
               const verificationProbe = await Effect.runPromise(observeWorkspaceManifest(
@@ -754,22 +806,23 @@ const main = async (): Promise<void> => {
                 retrievalRelevantPath,
               ));
               if (verificationProbe._tag === 'Err') {
-                semantics.close();
+                semanticLease.release();
                 return verificationProbe;
               }
               finalManifest = verificationProbe.value.manifest ?? build.workspaceManifest;
             } else {
               const finalSnapshot = await Effect.runPromise(files.snapshot(registered.value.rootPath, Date.now()));
               if (finalSnapshot._tag === 'Err') {
-                semantics.close();
+                semanticLease.release();
                 return finalSnapshot;
               }
               finalManifest = workspaceManifestFromSnapshot(finalSnapshot.value, scopeFingerprint);
             }
             if (!workspaceManifestEqual(build.workspaceManifest, finalManifest)) {
-              semantics.close();
+              semanticLease.release();
               return err(domainError('WORKTREE_RACED', 'workspace_manifest', 'workspace changed while assembling the semantic snapshot'));
             }
+            semanticSnapshot = { files: sourceFiles.value, manifest: build.fileManifest };
             // Verify authoritative source bytes and prepare semantic context before
             // publishing or pruning Qdrant points. On a raced/failed exact read,
             // retain the last-known-good physical index for the active generation.
@@ -800,7 +853,7 @@ const main = async (): Promise<void> => {
                 qdrantClient,
                 true, // stable physical membership permits mixed index_key values after changed-path publication
               ));
-            if (indexed._tag === 'Err') { semantics.close(); return indexed; }
+            if (indexed._tag === 'Err') { semanticLease.release(); return indexed; }
             process.stderr.write(`ace-mcp qdrant candidate verified workspace_id=${registered.value.workspaceId} index_key=${sourceKey} collection=${collection} alias=${currentAlias} reused_vectors=${indexed.value.reusedVectorCount}\n`);
             if (runtimeTestFailpoint === 'after_qdrant_verify_before_publish') {
               process.stderr.write('ace test failpoint reached name=after_qdrant_verify_before_publish\n');
@@ -811,7 +864,7 @@ const main = async (): Promise<void> => {
               http, qdrantUrl, currentAlias, collection, qdrantAllowedHosts, qdrantClient,
             ));
             if (switched._tag === 'Err') {
-              semantics.close();
+              semanticLease.release();
               return switched;
             }
             const qdrant = makeQdrantCodeCandidatePort({
@@ -824,7 +877,7 @@ const main = async (): Promise<void> => {
               trace: providerTrace,
             });
             const oldCloseSemantics = closeSemantics;
-            closeSemantics = semantics.close;
+            closeSemantics = semanticLease.release;
             if (oldCloseSemantics !== undefined) oldCloseSemantics();
             readiness.semantic_lsp = lspReady
               ? { state: 'ready', reason: 'real_lsp_provider_preflight_passed' }
@@ -883,6 +936,7 @@ const main = async (): Promise<void> => {
                 semantic: `${lspServerName}|${semanticProviderVersion}`,
                 reranker: rerankerModel === undefined ? 'disabled' : `fastembed/cross-encoder|model=${rerankerModel}`,
               },
+              ...(repoMapService === undefined ? {} : { repoMap: repoMapService }),
               history,
               ...(documentation === undefined ? {} : { documentation }),
               ...(memory === undefined ? {} : { memory }),
@@ -1031,6 +1085,7 @@ const main = async (): Promise<void> => {
       ids: ports.ids,
       store,
       context,
+      assembler: makeContextAssembler(),
       providerIdentities: {
         dense: process.env.ACE_EMBEDDING_PROVIDER?.trim() || 'fastembed/onnx',
         sparse: process.env.ACE_SPARSE_EMBEDDING_MODEL?.trim() || 'Qdrant/bm25',
@@ -1053,6 +1108,7 @@ const main = async (): Promise<void> => {
     let cleanupError: unknown;
     try {
       if (closeSemantics !== undefined) closeSemantics();
+      await Effect.runPromise(lspRegistry.close());
       if (closeReranker !== undefined) closeReranker();
       if (closeSparseEmbeddings !== undefined) closeSparseEmbeddings();
       if (closeMemory !== undefined) await closeMemory();
