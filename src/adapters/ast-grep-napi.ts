@@ -20,8 +20,6 @@ interface NapiNode {
   readonly ancestors: () => readonly NapiNode[];
   readonly field: (name: string) => NapiNode | null;
 }
-export interface AstGrepNapiOptions { readonly providerVersion?: string; }
-
 const languageFor = (repoPath: string): { readonly language: string; readonly parser: Lang } | undefined => {
   const language = structuralLanguageForPath(repoPath)?.language;
   switch (language) {
@@ -146,9 +144,7 @@ const extractOne = (
   }
 };
 
-export const makeAstGrepNapiStructuralPort = (
-  _options: AstGrepNapiOptions = {},
-): StructuralAnalysisPort => ({
+export const makeAstGrepNapiStructuralPort = (): StructuralAnalysisPort => ({
   extract: (input) => Effect.sync(() => extractOne(input)),
   extractMany: (inputs) => Effect.sync(() => inputs.map(extractOne)),
 });
