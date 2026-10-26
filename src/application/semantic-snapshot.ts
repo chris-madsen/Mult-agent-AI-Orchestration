@@ -32,9 +32,14 @@ export const readVerifiedSemanticSnapshot = (
   rootPath: string,
   paths: readonly RepoPath[],
   manifest: readonly IndexFileIdentity[],
+  previous?: {
+    readonly files: Readonly<Record<string, string>>;
+    readonly manifest: readonly IndexFileIdentity[];
+  },
 ): Effect.Effect<Result<Readonly<Record<string, string>>, DomainError>> =>
   Effect.gen(function* () {
     const expectedByPath = new Map(manifest.map((item) => [item.repoPath, item] as const));
+    const previousByPath = new Map((previous?.manifest ?? []).map((item) => [item.repoPath, item] as const));
     const entries: Array<readonly [string, string]> = [];
     for (const repoPath of paths) {
       const expected = expectedByPath.get(repoPath);
@@ -44,6 +49,12 @@ export const readVerifiedSemanticSnapshot = (
           'semantic_snapshot',
           'indexed path is missing from the source snapshot manifest',
         ));
+      }
+      const previousEntry = previousByPath.get(repoPath);
+      const previousSource = previous?.files[repoPath];
+      if (previousEntry?.sourceDigest === expected.sourceDigest && previousSource !== undefined) {
+        entries.push([repoPath, previousSource]);
+        continue;
       }
       const source = yield* files.readExact(rootPath, repoPath);
       if (source._tag === 'Err') return source;

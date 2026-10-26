@@ -33,6 +33,8 @@ import type {
   WorkspaceFilePort,
 } from '../application/ports.js';
 import type { WorkspaceSync } from '../application/workspace-sync.js';
+import type { RepoMapService } from '../application/repo-map-service.js';
+import type { RepoMapResult } from '../domain/repo-map.js';
 import {
   canonicalBenchmarkCandidateId,
   type RetrievalBenchmarkStageStatus,
@@ -142,6 +144,8 @@ export interface QdrantContextConfig {
   readonly workspaceSync?: WorkspaceSync;
   /** Stable collection mode keeps unchanged points across changed-path mutations. */
   readonly qdrantStableCollection?: boolean;
+  /** Optional bounded structural prior; Qdrant remains semantic authority. */
+  readonly repoMap?: RepoMapService;
 }
 
 export const embeddingContentKey = (providerIdentity: string, chunk: string): string =>
@@ -189,6 +193,40 @@ export const applyWorkingContextPriors = (
   })
   .sort((left, right) => right.score - left.score || left.candidate.repoPath.localeCompare(right.candidate.repoPath))
   .slice(0, limit);
+
+const repoMapKey = (candidate: RankedCandidate['candidate']): string => [
+  candidate.repoPath,
+  candidate.range.startLine,
+  candidate.range.startColumn ?? '',
+  candidate.range.endLine,
+  candidate.range.endColumn ?? '',
+].join(':');
+
+export const applyRepoMapPrior = (
+  candidates: readonly RankedCandidate[],
+  repoMap: RepoMapResult,
+  limit: number,
+): readonly RankedCandidate[] => {
+  const rankByKey = new Map(repoMap.ranked.map((item, index) => [
+    [
+      item.symbol.repoPath,
+      item.symbol.range.startLine,
+      item.symbol.range.startColumn ?? '',
+      item.symbol.range.endLine,
+      item.symbol.range.endColumn ?? '',
+    ].join(':'),
+    index,
+  ]));
+  return [...candidates]
+    .map((candidate) => {
+      const rank = rankByKey.get(repoMapKey(candidate.candidate));
+      return rank === undefined
+        ? candidate
+        : { ...candidate, score: candidate.score + 0.05 / (rank + 1) };
+    })
+    .sort((left, right) => right.score - left.score || left.candidate.repoPath.localeCompare(right.candidate.repoPath))
+    .slice(0, limit);
+};
 
 const recordBenchmarkStage = (
   trace: RetrievalBenchmarkTraceSink | undefined,
@@ -1295,12 +1333,28 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
               activeConfig.benchmarkRepositoryId,
             );
             const workingContextStartedAtMs = Date.now();
-            const prioritized = applyWorkingContextPriors(
+            let prioritized = applyWorkingContextPriors(
               result.value,
               requestWorkingContext,
               input.workingContextHints,
               retrievalLimit,
             );
+            if (activeConfig.repoMap !== undefined) {
+              const repoMap = yield* activeConfig.repoMap.render({
+                query: input.query,
+                openFiles: input.workingContextHints?.openPaths
+                  ?? (requestWorkingContext?.unstagedPaths ?? []),
+                mentionedFiles: input.workingContextHints?.focusedPath === undefined
+                  ? []
+                  : [input.workingContextHints.focusedPath],
+                tokenBudget: Math.max(128, retrievalLimit * 16),
+              });
+              if (repoMap._tag === 'Err') {
+                warnings.push('RepoMap unavailable: ' + repoMap.error.code);
+              } else {
+                prioritized = applyRepoMapPrior(prioritized, repoMap.value, retrievalLimit);
+              }
+            }
             recordBenchmarkStage(
               activeConfig.benchmarkTrace,
               activeConfig.benchmarkProviderIdentities,
