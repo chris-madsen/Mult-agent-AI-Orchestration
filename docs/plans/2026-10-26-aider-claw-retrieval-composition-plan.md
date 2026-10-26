@@ -16,9 +16,11 @@
   - `rust/crates/runtime/src/lsp_client.rs`: useful action/status vocabulary only; **not** a complete external LSP transport.
 - **ACE baseline:** `chris-madsen/Mult-agent-AI-Orchestration@b0484c7b189e2fd0b505430e8448f7560489e7df`.
 
-### Provenance rule for Claw Code
+### Provenance rule for Claude Code / Claw Code
 
-Claw Code historically grew out of the Claude Code leak. Do **not** copy reconstructed Anthropic TypeScript, parity reference snapshots, `src/reference_data/subsystems/`, or any material whose authorship is ambiguous. If code is reused, restrict it to clearly later, independently authored MIT Rust modules with normal commit provenance (for example the RAG service added by `a4efdc43` on 2026-05-25), preserve license notices, and prefer reimplementation of small ideas over wholesale copying.
+Use reconstructed Claude Code material as an **engineering reference** when it exposes useful harness design: lifecycle boundaries, tool contracts, compaction invariants, file/LSP behavior, provider normalization, and context-delivery strategies are all valid inputs to the architecture review. The objective is to take the good engineering ideas seriously rather than exclude them because they originated in leaked material.
+
+For code landing in this repository, keep provenance explicit. Prefer either (a) clearly MIT-authored later Claw Code modules/commits, or (b) a fresh implementation of the observed design against public protocols/libraries. Do not paste large verbatim proprietary/reconstructed Anthropic source blobs into ACE without a separate licensing/ownership decision. This is a repository-risk rule, not a ban on studying or adopting the engineering design.
 
 ## Executive decision
 
@@ -117,20 +119,31 @@ The adapter should use `@ast-grep/napi` parse/traversal APIs. The current PR #17
 
 ### Reuse
 
-Keep ACE's **real** LSP transport/process implementation (`src/adapters/lsp-semantic.ts` and the smallest necessary support around it).
+Do **not** judge Claw LSP only by current `main`. Closed PR #3016 (`feat: Language Server Protocol (LSP) integration`, head `5e7d7edb8e82782371f8747aca63e63412ccfca6`) contains the more complete design we should mine:
 
-Borrow from Claw Code only the clean LSP surface vocabulary:
+- `lsp_discovery.rs`: known-server descriptors, PATH discovery, language/extension mapping, install hints;
+- `lsp_process/`: initialize/initialized lifecycle, didOpen/didChange/didClose, hover, definition, references, completion, document/workspace symbols, formatting, code action, rename, signature help and code lens;
+- `lsp_client/`: lazy server start, registry/lifecycle/status and dispatch;
+- `lsp_transport/`: stdio framing and request/notification handling.
 
-- diagnostics;
-- hover/type info;
-- definition;
-- references;
-- symbols;
-- connected/disconnected/starting/error status.
+**Adopt the Claw process/discovery/client architecture, but do not blindly port its hand-written transport.** ACE already depends on `vscode-jsonrpc`, which handles JSON-RPC/LSP framing and server requests more robustly. The target is therefore:
 
-### Important finding
+```text
+Claw #3016 discovery + lifecycle + action surface
+                    +
+        vscode-jsonrpc transport
+                    +
+     ACE source/freshness contracts
+```
 
-Claw Code's current `LspRegistry` is **not** a complete replacement for our LSP implementation. Its own parity document says external language-server process orchestration remains separate, and non-diagnostics dispatch currently returns a structured “dispatched” placeholder. Replacing ACE LSP with it would be a regression.
+This removes most of the bespoke ACE LSP lifecycle without replacing it with another bespoke protocol implementation.
+
+### Known #3016 issues to fix rather than inherit
+
+- `lsp_transport::shutdown()` sends `shutdown` as a notification, while `LspProcess::shutdown()` already sends the proper request then calls transport shutdown; do not preserve this duplicate/incorrect path.
+- The transport serially waits for one matching response and models server-initiated notifications but not the full server-request surface; `vscode-jsonrpc` already solves this class.
+- Registry dispatch builds a fresh Tokio runtime and blocks per call; do not reproduce that architecture in Node.
+- URI/path handling and Windows behavior need public-LSP-library semantics rather than ad-hoc `file://` formatting.
 
 ### Target behavior
 
@@ -358,7 +371,7 @@ Hermes must receive the ACE projection only when it replaces more expensive hist
 
 | Current ACE area | Decision |
 | --- | --- |
-| `src/adapters/lsp-semantic.ts` | **KEEP/SIMPLIFY** — it is more real than Claw's placeholder registry. |
+| `src/adapters/lsp-semantic.ts` | **REPLACE MOST OF LIFECYCLE/DISCOVERY** with the Claw #3016 design while retaining `vscode-jsonrpc` as transport and ACE freshness/source contracts. |
 | `src/adapters/typescript-language-service.ts` | **AUDIT** — keep only if it owns behavior not covered by generic LSP; otherwise choose one semantic path. |
 | `src/adapters/ast-grep-structural.ts` | **REPLACE** CLI process boundary with `@ast-grep/napi`; retain only normalization/byte-range contracts that add value. |
 | `src/adapters/local-code-index.ts` | **REPLACE** with incremental changed-file indexer + metadata cache. |
@@ -427,12 +440,14 @@ Names are illustrative; avoid creating duplicate parallel modules before deletin
 
 **Exit:** no stale result can be labelled current and normal query cost is not O(repository bytes).
 
-## Phase 4 — on-demand LSP enrichment
+## Phase 4 — Claw-style LSP lifecycle on a standard transport
 
-- [ ] Retain one real ACE LSP transport.
-- [ ] Start/reuse server per workspace/language.
-- [ ] Call definitions/references only on top candidates.
-- [ ] Remove duplicate semantic path if equivalent.
+- [ ] Port/adapt server discovery, descriptors, lazy start, open/change/close lifecycle and action surface from Claw #3016.
+- [ ] Keep `vscode-jsonrpc` instead of porting Claw's custom framing loop.
+- [ ] Start/reuse one server per workspace/language.
+- [ ] Expose definition/references/hover first; add completion/symbols/rename/code-action only when useful to the agent.
+- [ ] Call semantic enrichment only on top retrieval candidates.
+- [ ] Delete duplicate ACE LSP lifecycle code and the separate TypeScript semantic path if it becomes redundant.
 
 **Exit:** LSP improves evidence without being required for basic retrieval.
 
