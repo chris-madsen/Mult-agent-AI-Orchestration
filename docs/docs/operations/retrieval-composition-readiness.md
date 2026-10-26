@@ -9,17 +9,17 @@
 - Warm index reuse is bound to source digest, parser identity and scope identity; the linear candidate accumulator and batched extraction already on `main` are preserved.
 - `@qdrant/js-client-rest@1.20.0` owns probe, collection/alias lifecycle, query, upsert, snapshot count/membership verification and vector-reuse scrolls on the runtime path. Direct SDK response shapes are not confused with the legacy REST envelope; authenticated runtimes no longer fall back to unauthenticated raw HTTP during snapshot verification.
 - Existing `ACE_RETRIEVAL_STRATEGY=dense` remains the first planned strategy: no sparse worker is started and dense-only collections do not create or require sparse vectors.
-- `src/application/ast-grep-parity.ts` and `scripts/ast-grep-provider-parity.ts` now produce a digest-bound CLI/NAPI symbol/range comparison. The production default remains CLI until the frozen-fixture and real-repository parity gate passes.
+- `src/application/ast-grep-parity.ts` and `scripts/ast-grep-provider-parity.ts` now produce a digest-bound CLI/NAPI symbol/range comparison. The representative frozen TypeScript fixture is equivalent after normalizing export declaration ranges, enum-member kinds, and UTF-8 name anchors. The production default remains CLI because the real-repository gate is still blocked.
 - `WorkspaceSync` owns serialized workspace refresh state, generation/index identity, manifest race rejection, and the rebuild/publish transition. Git workspaces use bounded NUL-delimited change metadata; non-Git workspaces use a size+mtime metadata walk as a cheap detector. Exact reads remain authoritative before index mutation. The host-worktree helper carries the same typed operation.
 - Synchronized queries materialize the current retrieval manifest from the previous verified manifest + Git path delta + exact reads of affected retrieval-relevant files. They no longer require a recursive content-hashing snapshot on either the no-change path or the changed-path structural rebuild.
 - An already-indexed dirty file is re-read but does not trigger a rebuild when its digest is unchanged; a HEAD-only change advances the sync baseline without rebuilding. The legacy full-snapshot path remains only for initial cold verification and contexts without `WorkspaceSync`.
 
 ## Explicitly deferred
 
-- **Aider RepoMap**: no lexical post-Qdrant reranker is called RepoMap. The actual phase requires a repo-wide def/ref graph, PageRank-style ranking/personalization and a token-budgeted rendered map.
-- **Claw LSP lifecycle**: no tiny refcount registry is presented as the Claw integration. The later phase should mine Claw Code PR #3016 discovery/lazy lifecycle/action design while retaining `vscode-jsonrpc` transport.
+- **Aider RepoMap evidence**: the current branch now has a provenance-bound structural/LSP def-ref adapter, deterministic PageRank-style ranking, bounded rendering, and an optional Qdrant prior. Real-repository graph evidence and agent-facing quality evidence are still required before calling this production-ready.
+- **Claw LSP evidence**: the current branch now has a workspace-keyed lazy/refcount registry, reusable LSP session, didOpen/didChange/didClose refresh, and one cleanup owner while retaining `vscode-jsonrpc`. Claw action parity, non-TS provider evidence, crash/restart evidence and agent-facing proof remain open.
 - **Stable per-path Qdrant mutation:** the synchronized incremental path uses one stable workspace/embedding/retrieval-schema collection. Changed paths publish new points before pruning older path versions; deleted/empty paths are removed; cold/restart publication upserts the complete current snapshot before pruning all older workspace versions. This prevents embedding/upsert failure from destroying the last known-good vectors. Cross-process concurrency and real crash/restart evidence on the reviewed head remain required before production claims.
-- **LSP refresh I/O**: the current pre-Claw LSP adapter still rebuilds its static semantic snapshot by exact-reading all indexed source files during publication. This is not a filesystem snapshot/hash anymore, but it remains O(indexed source bytes) I/O and is explicitly deferred to the Claw-style LSP lifecycle phase.
+- **LSP refresh I/O**: initial publication still exact-reads the indexed source set, but verified unchanged files are reused across incremental publication and the active LSP session receives only changed/open/close document notifications. Measured large-workspace I/O and race evidence remain open.
 - **Dirty Git paths / filesystem portability**: non-Git workspaces now retain size+mtime baselines from race-checked exact reads, but Git dirty/untracked paths are still exact-read on every observation to prove digest equality. Measured NFS/network-filesystem behavior remains open.
 - **New multi-arm benchmark infrastructure**: intentionally absent. First establish one live retrieval path, then measure native Hermes vs Hermes+ACE.
 
@@ -39,10 +39,19 @@ Required on the final reviewed SHA:
 
 Still deferred:
 
-- NAPI-vs-CLI symbol/range parity before making NAPI the default; the initial representative fixture currently reports range/export/symbol-class differences, so NAPI remains opt-in;
-- Claw-style LSP lifecycle and removal of O(indexed source bytes) semantic-snapshot refresh;
+- NAPI-vs-CLI symbol/range parity before making NAPI the default; the frozen representative fixture passes, but `npm exec -- tsx scripts/ast-grep-provider-parity.ts src` still reports real-repository differences in import records, anonymous/nested function classification, object/type fields, and declaration ranges, so NAPI remains opt-in;
+- real-provider/agent evidence for the LSP registry and measured large-workspace refresh I/O;
 - real cross-process Qdrant concurrency acceptance;
-- Aider RepoMap and the token-budgeted ContextAssembler;
+- real-repository/agent evidence for RepoMap and ContextAssembler source-priority behavior;
 - provider-measured Hermes native-vs-ACE A/B.
 
 No production-readiness, quality-parity or token-savings claim follows from this PR.
+
+## Current working-tree evidence
+
+- `npm run verify:pr` — `PASS` on the current working tree: TypeScript checks, `621/621` deterministic tests, Hermes plugin `20/20`, lint and build all passed.
+- `openspec validate --all --strict --no-interactive --report full` — `9/9 PASS`.
+- `npm run test:real-same-name` — provider `PASS` observed locally; its tracked report remains historical because the working tree was dirty and the result was not promoted to the current SHA.
+- `npm run test:real-provider` — `BLOCKED`: compiled runtime provenance rejects the dirty working tree (`source_worktree_dirty`); no real Qdrant/ACE success is claimed from this run.
+- `npm run test:real-non-ts-lsp` — `BLOCKED`: configured `rust-analyzer` is unavailable in the installed stable toolchain; no non-TypeScript parity claim is made.
+- Qdrant concurrency, restart and benchmark gates require a clean reviewed SHA and remain open; a dirty working-tree run must not be promoted to provider evidence.
