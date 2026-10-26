@@ -1,0 +1,25 @@
+# Retrieval replacement foundation readiness
+
+> Status: implementation PR only. This is the first infrastructure slice of the Aider/Claw retrieval-composition plan; it is **not** the finished composition and makes no production or token-savings claim.
+
+## Implemented here
+
+- `@ast-grep/napi@0.51.0` parses its built-in JS/TS/TSX/CSS/HTML grammars in-process.
+- `ACE_AST_GREP_PROVIDER=auto` uses NAPI where supported and preserves the already-existing **batched CLI fallback** for other registered languages.
+- Warm index reuse is bound to source digest, parser identity and scope identity; the linear candidate accumulator and batched extraction already on `main` are preserved.
+- `@qdrant/js-client-rest@1.20.0` owns probe, collection/alias lifecycle, query and upsert on the runtime path. Direct SDK response shapes are not confused with the legacy REST envelope.
+- Existing `ACE_RETRIEVAL_STRATEGY=dense` remains the first planned strategy: no sparse worker is started and dense-only collections do not create or require sparse vectors.
+
+## Explicitly deferred
+
+- **Aider RepoMap**: no lexical post-Qdrant reranker is called RepoMap. The actual phase requires a repo-wide def/ref graph, PageRank-style ranking/personalization and a token-budgeted rendered map.
+- **Claw LSP lifecycle**: no tiny refcount registry is presented as the Claw integration. The later phase should mine Claw Code PR #3016 discovery/lazy lifecycle/action design while retaining `vscode-jsonrpc` transport.
+- **Freshness hot path**: `QdrantContextProvider.search()` still uses the existing workspace-snapshot reconciliation. Replacing full-repository hot-path hashing with cheap changed-path detection plus exact selected-file verification remains Phase 3.
+- **New multi-arm benchmark infrastructure**: intentionally absent. First establish one live retrieval path, then measure native Hermes vs Hermes+ACE.
+
+## Next evidence
+
+1. CI on this exact head.
+2. Real local Qdrant dense E2E on the SDK path.
+3. Cold/warm/edit-one-file timings.
+4. Then implement the actual Aider RepoMap and freshness redesign.
