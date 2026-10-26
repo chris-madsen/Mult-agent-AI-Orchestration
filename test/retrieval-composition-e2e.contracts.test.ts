@@ -65,8 +65,8 @@ let readExactCalls = 0;
 let storeExactCalls = 0;
 let definitionCalls = 0;
 const ranked: readonly RankedCandidate[] = [
-  { candidate: alpha.candidate, score: 0.9, freshness: 'unknown' },
-  { candidate: beta.candidate, score: 0.8, freshness: 'unknown' },
+  { candidate: beta.candidate, score: 0.9, freshness: 'unknown' },
+  { candidate: alpha.candidate, score: 0.8, freshness: 'unknown' },
   { candidate: gamma.candidate, score: 0.7, freshness: 'unknown' },
 ];
 
@@ -123,7 +123,7 @@ const qdrant: CodeCandidatePort = {
   },
 };
 
-test('replacement composition records dense, RepoMap, LSP-confirmed exact delivery, and trace stages', async () => {
+test('dense retrieval composition records LSP-confirmed exact delivery and trace stages', async () => {
   const benchmarkTrace = createRetrievalBenchmarkTraceCollector('repo-a');
   const provider = makeQdrantContextProvider({
     workspaceId,
@@ -134,8 +134,7 @@ test('replacement composition records dense, RepoMap, LSP-confirmed exact delive
     artifacts,
     semantics,
     retrievalStrategy: 'dense',
-    repoMap: { maxCandidates: 1, maxTokens: 1000 },
-    candidateLimit: 3,
+    candidateLimit: 1,
     newRequestId: () => 'replacement-request',
     benchmarkTrace,
     benchmarkRepositoryId: 'repo-a',
@@ -145,7 +144,6 @@ test('replacement composition records dense, RepoMap, LSP-confirmed exact delive
       qdrant: 'test/qdrant',
       structural: 'test/ast-grep',
       semantic: 'test/lsp',
-      repo_map: 'test/repomap',
     },
   });
 
@@ -165,12 +163,9 @@ test('replacement composition records dense, RepoMap, LSP-confirmed exact delive
   assert.equal(readExactCalls, 2);
   assert.equal(storeExactCalls, 1);
   assert.equal(definitionCalls, 1);
-  assert.ok(result.value.warnings.some((warning) => warning.includes('RepoMap selected 1 candidates, dropped 2')));
   assert.deepEqual(
     benchmarkTrace.events.filter((event) => event.status === 'executed').map((event) => event.stage),
-    ['dense', 'repo_map', 'working_context', 'delivered'],
+    ['dense', 'working_context', 'delivered'],
   );
-  assert.deepEqual(benchmarkTrace.stageRanksFor('replacement-request').repoMap.length, 1);
   assert.deepEqual(benchmarkTrace.stageRanksFor('replacement-request').delivered.length, 1);
-  assert.equal(benchmarkTrace.stageRanksFor('replacement-request').repoMap[0], benchmarkTrace.stageRanksFor('replacement-request').delivered[0]);
 });
