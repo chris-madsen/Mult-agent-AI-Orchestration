@@ -652,12 +652,13 @@ export const verifyQdrantSnapshotMembership = (
     let points: unknown;
     let nextPageOffset: unknown;
     if (client !== undefined) {
+      const currentOffset = offset;
       const scrolled = yield* qdrantSdkCall(() => client.scroll(collection, {
         limit: 256,
         with_payload: ['candidate_id'],
         with_vector: false,
         filter,
-        ...(offset === undefined ? {} : { offset }),
+        ...(currentOffset === undefined ? {} : { offset: currentOffset }),
       } as Parameters<QdrantClient['scroll']>[1]));
       if (scrolled._tag === 'Err') return scrolled;
       const direct = scrolled.value as { points?: unknown; next_page_offset?: unknown };
@@ -729,12 +730,13 @@ export const readQdrantSnapshotVectors = (
     let points: unknown;
     let nextPageOffset: unknown;
     if (client !== undefined) {
+      const currentOffset = offset;
       const scrolled = yield* qdrantSdkCall(() => client.scroll(collection, {
         limit: 256,
         with_payload: ['candidate_id', 'embedding_key'],
         with_vector: true,
         filter,
-        ...(offset === undefined ? {} : { offset }),
+        ...(currentOffset === undefined ? {} : { offset: currentOffset }),
       } as Parameters<QdrantClient['scroll']>[1]));
       if (scrolled._tag === 'Err') return scrolled;
       const direct = scrolled.value as { points?: unknown; next_page_offset?: unknown };
