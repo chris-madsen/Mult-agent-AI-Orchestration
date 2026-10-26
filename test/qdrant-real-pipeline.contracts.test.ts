@@ -1552,3 +1552,175 @@ test('W10 docs-only route skips embeddings, Qdrant, source reads and LSP entirel
   assert.equal(result.complete, true);
   assert.deepEqual(result.evidence.map((item) => item.source), ['documentation']);
 });
+
+
+test('stable warm restart reuses an exact mixed-key workspace without embeddings or unsafe cleanup', async () => {
+  const second = {
+    ...candidate,
+    repoPath: 'src/other.ts' as never,
+    candidateId: mustOk(makeCandidateId('warm-mixed-other')),
+  };
+  const index = mustOk(createCodeIndex(2, [candidate, second]));
+  let embeddings = 0;
+  let upserts = 0;
+  let deletions = 0;
+  let countRequests = 0;
+  let membershipRequests = 0;
+  const qdrant: CodeCandidatePort = {
+    search: () => Effect.succeed(ok([])),
+    upsert: () => { upserts += 1; return Effect.succeed(ok(undefined)); },
+    deleteWorkspaceVersions: () => { deletions += 1; return Effect.succeed(ok(undefined)); },
+  };
+  const http: HttpPort = {
+    request: (request) => {
+      const filter = request.body?.filter as { must?: Array<{ key: string }> } | undefined;
+      if (request.url.endsWith('/points/count')) {
+        countRequests += 1;
+        // Only the edited candidate carries the newest global publication key.
+        return Effect.succeed(ok({ status: 200, body: { result: { count: 1 } } }));
+      }
+      assert.ok(request.url.endsWith('/points/scroll'));
+      membershipRequests += 1;
+      assert.deepEqual(filter?.must, [{ key: 'workspace_id', match: { value: workspaceId } }],
+        'mixed-key reuse must verify complete physical workspace membership, not latest index_key');
+      return Effect.succeed(ok({
+        status: 200,
+        body: { result: {
+          points: [
+            { payload: { candidate_id: candidate.candidateId } },
+            { payload: { candidate_id: second.candidateId } },
+          ],
+          next_page_offset: null,
+        } },
+      }));
+    },
+  };
+  const result = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
+    index, qdrant,
+    { embedMany: () => { embeddings += 1; return Effect.succeed(ok([])); } },
+    http, 'http://127.0.0.1:6333', 'ace-stable', workspaceId, 'latest-key',
+    [], true, undefined, undefined, undefined, undefined, undefined, true,
+  )));
+  assert.deepEqual(result, { count: 2, reused: true, reusedVectorCount: 2 });
+  assert.equal(countRequests, 1);
+  assert.equal(membershipRequests, 1);
+  assert.equal(embeddings, 0);
+  assert.equal(upserts, 0);
+  assert.equal(deletions, 0, 'old publication keys may still hold current unchanged points');
+});
+
+test('stable warm restart refuses incomplete mixed-key membership and rebuilds', async () => {
+  const second = {
+    ...candidate,
+    repoPath: 'src/other.ts' as never,
+    candidateId: mustOk(makeCandidateId('warm-missing-other')),
+  };
+  const index = mustOk(createCodeIndex(2, [candidate, second]));
+  let upserts = 0;
+  let deletes = 0;
+  let scrolls = 0;
+  const http: HttpPort = {
+    request: (request) => {
+      if (request.url.endsWith('/points/count')) {
+        return Effect.succeed(ok({ status: 200, body: { result: { count: 1 } } }));
+      }
+      scrolls += 1;
+      return Effect.succeed(ok({
+        status: 200,
+        body: { result: {
+          points: scrolls === 1
+            ? [{ payload: { candidate_id: candidate.candidateId } }]
+            : [
+              { payload: { candidate_id: candidate.candidateId } },
+              { payload: { candidate_id: second.candidateId } },
+            ],
+          next_page_offset: null,
+        } },
+      }));
+    },
+  };
+  const qdrant: CodeCandidatePort = {
+    search: () => Effect.succeed(ok([])),
+    upsert: () => { upserts += 1; return Effect.succeed(ok(undefined)); },
+    deleteWorkspaceVersions: () => { deletes += 1; return Effect.succeed(ok(undefined)); },
+  };
+  const result = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
+    index, qdrant,
+    { embedMany: (chunks: readonly string[]) => Effect.succeed(ok(chunks.map(() => [0.2, 0.7]))) },
+    http, 'http://127.0.0.1:6333', 'ace-stable', workspaceId, 'latest-key',
+    [], true, undefined, undefined, undefined, undefined, undefined, true,
+  )));
+  assert.equal(result.reused, false);
+  assert.equal(upserts, 1);
+  assert.equal(scrolls, 2);
+  assert.equal(deletes, 1, 'only a fully verified rebuilt workspace may prune obsolete points');
+});
+
+test('changed-path publication rejects a falsely successful stale-version delete', async () => {
+  const index = mustOk(createCodeIndex(2, [candidate]));
+  let deleted = 0;
+  let scrolls = 0;
+  const qdrant: CodeCandidatePort = {
+    search: () => Effect.succeed(ok([])),
+    upsert: () => Effect.succeed(ok(undefined)),
+    deletePaths: () => { deleted += 1; return Effect.succeed(ok(undefined)); },
+  };
+  const http: HttpPort = {
+    request: (request) => {
+      scrolls += 1;
+      const filter = request.body?.filter as { must?: Array<{ key: string }> };
+      const withIndexKey = filter.must?.some((item) => item.key === 'index_key');
+      return Effect.succeed(ok({
+        status: 200,
+        body: { result: {
+          points: withIndexKey
+            ? [{ payload: { candidate_id: candidate.candidateId } }]
+            : [
+              { payload: { candidate_id: candidate.candidateId } },
+              { payload: { candidate_id: 'stale-previous-version' } },
+            ],
+          next_page_offset: null,
+        } },
+      }));
+    },
+  };
+  const result = await Effect.runPromise(mutateQdrantChangedPaths(
+    index, qdrant,
+    { embedMany: (input: readonly string[]) => Effect.succeed(ok(input.map(() => [0.2, 0.7]))) },
+    workspaceId, [candidate.repoPath], 'latest-key',
+    undefined, undefined,
+    { http, baseUrl: 'http://127.0.0.1:6333', collection: 'ace-stable' },
+  ));
+  assert.equal(result._tag, 'Err');
+  if (result._tag === 'Err') assert.equal(result.error.code, 'INVALID_EXTERNAL_RESPONSE');
+  assert.equal(deleted, 1);
+  assert.equal(scrolls, 2, 'verify current publication, then verify complete physical membership after prune');
+});
+
+test('deleted source must have zero remaining physical Qdrant points', async () => {
+  const index = mustOk(createCodeIndex(2, []));
+  let deletions = 0;
+  const qdrant: CodeCandidatePort = {
+    search: () => Effect.succeed(ok([])),
+    upsert: () => { throw new Error('deletion does not upsert'); },
+    deletePaths: () => { deletions += 1; return Effect.succeed(ok(undefined)); },
+  };
+  const http: HttpPort = {
+    request: () => Effect.succeed(ok({
+      status: 200,
+      body: { result: {
+        points: [{ payload: { candidate_id: candidate.candidateId } }],
+        next_page_offset: null,
+      } },
+    })),
+  };
+  const result = await Effect.runPromise(mutateQdrantChangedPaths(
+    index, qdrant,
+    { embedMany: () => { throw new Error('deletion does not embed'); } },
+    workspaceId, [candidate.repoPath], 'latest-key',
+    undefined, undefined,
+    { http, baseUrl: 'http://127.0.0.1:6333', collection: 'ace-stable' },
+  ));
+  assert.equal(result._tag, 'Err');
+  assert.equal(deletions, 1);
+});
