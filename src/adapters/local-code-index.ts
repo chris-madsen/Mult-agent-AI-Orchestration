@@ -4,7 +4,6 @@ import { domainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import {
   createCodeIndex,
-  indexCandidate,
   makeCandidateId,
   makeCodeCandidate,
   type CandidateId,
@@ -246,9 +245,13 @@ export const buildLocalCodeIndex = (
         warnings.push(...(previousWarnings.get(observation.repoPath) ?? []));
       }
     }
-    const indexResult = createCodeIndex(options.generation, reusableCandidates);
-    if (indexResult._tag === 'Err') return indexResult;
-    let index = indexResult.value;
+    // Build once: linear duplicate detection + one array allocation, rather than
+    // O(n²) scans/copies for every structural symbol.
+    const candidates: CodeCandidate[] = [...reusableCandidates];
+    const candidateIds = new Set(candidates.map((candidate) => candidate.candidateId));
+    if (candidateIds.size !== candidates.length) {
+      return err(domainError('INVALID_RETRIEVAL', 'candidate_id', 'duplicate candidate id'));
+    }
     if (options.structural === undefined) {
       warnings.push('Structural provider is not configured; no parser fallback is used');
     }
@@ -356,15 +359,19 @@ export const buildLocalCodeIndex = (
           indexedAtMs: Date.now(),
         });
         if (candidate._tag === 'Err') return candidate;
-        const next = indexCandidate(index, candidate.value);
-        if (next._tag === 'Err') return next;
-        index = next.value;
+        if (candidateIds.has(candidate.value.candidateId)) {
+          return err(domainError('INVALID_RETRIEVAL', 'candidate_id', 'duplicate candidate id'));
+        }
+        candidateIds.add(candidate.value.candidateId);
+        candidates.push(candidate.value);
         fileManifest.get(observation.repoPath)?.candidateIds.push(candidate.value.candidateId);
       }
       indexedPaths.push(observation.repoPath);
     }
+    const indexResult = createCodeIndex(options.generation, candidates);
+    if (indexResult._tag === 'Err') return indexResult;
     return ok({
-      index,
+      index: indexResult.value,
       warnings,
       indexedPaths,
       coverage: {
