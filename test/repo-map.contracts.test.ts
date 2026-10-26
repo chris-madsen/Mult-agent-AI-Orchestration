@@ -57,3 +57,77 @@ test('RepoMap delta removes deleted symbols and replaces changed symbols', () =>
   assert.equal(next.symbols.has(oldSymbol.id), false);
   assert.equal(next.symbols.has(nextSymbol.id), true);
 });
+
+
+test('RepoMap PageRank conserves probability with dangling symbols', () => {
+  const a = symbol('a', 1);
+  const b = symbol('b', 2, [{ targetId: a.id, kind: 'reference' }]);
+  const graph = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [a, b], removed: [] });
+  const ranked = rankRepoMap(graph, { query: '', openFiles: [], mentionedFiles: [], tokenBudget: 20 });
+  const mass = ranked.reduce((sum, item) => sum + item.score, 0);
+  assert.ok(Math.abs(mass - 1) < 1e-10,
+    'dangling vertices must redistribute their rank instead of leaking probability');
+  assert.equal(ranked[0]?.symbol.id, a.id);
+});
+
+test('unresolved and duplicate references cannot dilute or inflate a live edge', () => {
+  const target = symbol('target', 1);
+  const plain = symbol('caller', 2, [{ targetId: target.id, kind: 'reference' }]);
+  const duplicateAndMissing = symbol('caller', 2, [
+    { targetId: target.id, kind: 'reference' },
+    { targetId: target.id, kind: 'reference' },
+    { targetId: 'deleted-reference-id' as never, kind: 'reference' },
+  ]);
+  const input = { query: '', openFiles: [], mentionedFiles: [], tokenBudget: 20 };
+  const baseline = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [target, plain], removed: [] });
+  const noisy = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [target, duplicateAndMissing], removed: [] });
+  const first = rankRepoMap(baseline, input);
+  const second = rankRepoMap(noisy, input);
+  assert.deepEqual(first.map((item) => item.symbol.id), second.map((item) => item.symbol.id));
+  for (let i = 0; i < first.length; i += 1) {
+    assert.ok(Math.abs(first[i]!.score - second[i]!.score) < 1e-10);
+  }
+});
+
+test('RepoMap prioritizes personalized files even when every vertex is dangling', () => {
+  const a = symbol('alpha', 1);
+  const b = symbol('beta', 2);
+  const graph = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [a, b], removed: [] });
+  const input = { query: '', openFiles: [b.repoPath], mentionedFiles: [], tokenBudget: 20 };
+  const ranked = rankRepoMap(graph, input);
+  assert.equal(ranked[0]?.symbol.id, b.id);
+  assert.ok(Math.abs(ranked.reduce((sum, item) => sum + item.score, 0) - 1) < 1e-10);
+});
+
+test('RepoMap budget packing skips oversized ranked entries and includes shorter ones', () => {
+  const longName = 'an-extremely-long-path-that-does-not-fit-any-small-token-budget'.repeat(2);
+  const big = makeRepoMapSymbol({
+    repoPath: path(`src/${longName}.ts`),
+    name: 'long',
+    kind: 'function',
+    sourceDigest: digest,
+    range: range(1),
+    text: 'function long() {}',
+    references: [],
+  });
+  const short = makeRepoMapSymbol({
+    repoPath: path('s.ts'),
+    name: 'ok',
+    kind: 'function',
+    sourceDigest: digest,
+    range: range(1),
+    text: 'function ok() {}',
+    references: [],
+  });
+  const graph = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [big, short], removed: [] });
+  const result = renderRepoMapFor(graph, {
+    query: 'long',
+    openFiles: [big.repoPath],
+    mentionedFiles: [big.repoPath],
+    tokenBudget: 6,
+  });
+  assert.match(result.rendered, /s\.ts:1 function ok/u);
+  assert.doesNotMatch(result.rendered, /an-extremely-long/u);
+  assert.equal(result.truncated, true);
+  assert.ok(result.estimatedTokens <= 6);
+});

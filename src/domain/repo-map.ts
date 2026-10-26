@@ -93,25 +93,46 @@ const personalization = (symbol: RepoMapSymbol, input: RepoMapRenderInput): numb
 export const rankRepoMap = (graph: RepoMapGraph, input: RepoMapRenderInput): readonly RepoMapRankedSymbol[] => {
   const symbols = [...graph.symbols.values()].sort((left, right) => left.id.localeCompare(right.id));
   if (symbols.length === 0) return [];
-  const scores = new Map<RepoMapSymbolId, number>(symbols.map((symbol) => [symbol.id, 1 / symbols.length]));
-  const inbound = new Map<RepoMapSymbolId, RepoMapSymbolId[]>();
-  for (const symbol of symbols) {
-    for (const reference of symbol.references) {
-      if (!graph.symbols.has(reference.targetId)) continue;
-      inbound.set(reference.targetId, [...(inbound.get(reference.targetId) ?? []), symbol.id]);
-    }
-  }
-  for (let iteration = 0; iteration < 20; iteration += 1) {
-    const next = new Map<RepoMapSymbolId, number>();
+
+  // Calculate personalized teleport probabilities once. A vertex with no
+  // outgoing *valid* references must redistribute its rank instead of losing
+  // it. This also prevents unresolved references from diluting live edges.
+  const personalWeights = symbols.map((symbol) => 1 + 8 * Math.min(1, personalization(symbol, input)));
+  const totalWeight = personalWeights.reduce((sum, weight) => sum + weight, 0);
+  const teleport = personalWeights.map((weight) => weight / totalWeight);
+  const outgoing = new Map<RepoMapSymbolId, readonly RepoMapSymbolId[]>(
+    symbols.map((symbol) => [symbol.id, [...new Set(symbol.references
+      .map((reference) => reference.targetId)
+      .filter((targetId) => graph.symbols.has(targetId)))] ]),
+  );
+  const scores = new Map<RepoMapSymbolId, number>(
+    symbols.map((symbol, index) => [symbol.id, teleport[index] ?? 0]),
+  );
+  const damping = 0.85;
+  for (let iteration = 0; iteration < 30; iteration += 1) {
+    const danglingMass = symbols.reduce((sum, symbol) => (
+      (outgoing.get(symbol.id)?.length ?? 0) === 0 ? sum + (scores.get(symbol.id) ?? 0) : sum
+    ), 0);
+    const next = new Map<RepoMapSymbolId, number>(
+      symbols.map((symbol, index) => [
+        symbol.id,
+        ((1 - damping) + damping * danglingMass) * (teleport[index] ?? 0),
+      ]),
+    );
     for (const symbol of symbols) {
-      const incoming = inbound.get(symbol.id) ?? [];
-      const propagated = incoming.reduce((sum, sourceId) => sum + (scores.get(sourceId) ?? 0) / Math.max(1, graph.symbols.get(sourceId)?.references.length ?? 0), 0);
-      next.set(symbol.id, 0.15 / symbols.length + 0.85 * propagated + personalization(symbol, input) / 20);
+      const targets = outgoing.get(symbol.id) ?? [];
+      if (targets.length === 0) continue;
+      const share = damping * (scores.get(symbol.id) ?? 0) / targets.length;
+      for (const targetId of targets) next.set(targetId, (next.get(targetId) ?? 0) + share);
     }
     for (const symbol of symbols) scores.set(symbol.id, next.get(symbol.id) ?? 0);
   }
-  return symbols.map((symbol) => ({ symbol, score: (scores.get(symbol.id) ?? 0) + personalization(symbol, input) }))
-    .sort((left, right) => right.score - left.score || left.symbol.repoPath.localeCompare(right.symbol.repoPath) || left.symbol.name.localeCompare(right.symbol.name));
+  return symbols.map((symbol) => ({ symbol, score: scores.get(symbol.id) ?? 0 }))
+    .sort((left, right) =>
+      right.score - left.score
+      || left.symbol.repoPath.localeCompare(right.symbol.repoPath)
+      || left.symbol.name.localeCompare(right.symbol.name)
+      || left.symbol.id.localeCompare(right.symbol.id));
 };
 
 export const renderRepoMap = (
@@ -126,8 +147,10 @@ export const renderRepoMap = (
     const line = `${item.symbol.repoPath}:${item.symbol.range.startLine} ${item.symbol.kind} ${item.symbol.name}`;
     const lineTokens = Math.max(1, Math.ceil(line.length / 4));
     if (estimatedTokens + lineTokens > safeBudget) {
+      // A long high-ranked path must not prevent shorter lower-ranked entries
+      // from using the remaining budget.
       truncated = true;
-      break;
+      continue;
     }
     lines.push(line);
     estimatedTokens += lineTokens;
