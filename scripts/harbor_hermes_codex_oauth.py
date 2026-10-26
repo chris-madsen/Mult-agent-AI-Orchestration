@@ -38,6 +38,8 @@ class HermesCodexOAuthOptions(HermesOptions):
     )
     ace_workspace_root: str = Field(default="/workspace")
     ace_allowed_roots: str = Field(default="/workspace")
+    ace_evidence_source_commit: str = ""
+    ace_evidence_source_manifest_sha256: str = ""
     ace_context_bridge_sha256: str = ""
     context_plugin_sha256: str = ""
 
@@ -222,6 +224,14 @@ class HermesCodexOAuth(Hermes):
 
         await self._stage_hermes_auth(environment)
         env = {"HERMES_HOME": "/tmp/hermes", "TERMINAL_ENV": "local", "HARBOR_INSTRUCTION": instruction}
+        evidence_options = {
+            "ACE_EVIDENCE_SOURCE_COMMIT": self.options.ace_evidence_source_commit,
+            "ACE_EVIDENCE_SOURCE_MANIFEST_SHA256": self.options.ace_evidence_source_manifest_sha256,
+        }
+        for name, option_value in evidence_options.items():
+            value = option_value or self._extra_env.get(name) or os.environ.get(name)
+            if value:
+                env[name] = value
         if self.options.ace_context_enabled:
             await self._stage_context_engine(environment)
             env.update({
