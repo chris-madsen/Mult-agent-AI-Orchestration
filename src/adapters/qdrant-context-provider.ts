@@ -954,6 +954,16 @@ export const reuseOrPopulateQdrantSnapshot = (
         if (qdrant.deleteWorkspaceVersions !== undefined) {
           const cleaned = yield* qdrant.deleteWorkspaceVersions({ workspaceId, exceptIndexKey: indexKey });
           if (cleaned._tag === 'Err') return cleaned;
+          if (stableCollection) {
+            const physical = yield* verifyQdrantSnapshotMembership(
+              http, baseUrl, collection, workspaceId, undefined, expectedCandidateIds, allowedHosts, client,
+            );
+            if (physical._tag === 'Err') return physical;
+            if (!physical.value) return err(domainError(
+              'INVALID_EXTERNAL_RESPONSE', 'qdrant_snapshot',
+              'stale workspace points remain after warm cleanup',
+            ));
+          }
         }
         return ok({ count: index.candidates.length, reused: true, reusedVectorCount: index.candidates.length });
       }
@@ -1018,6 +1028,18 @@ export const reuseOrPopulateQdrantSnapshot = (
   if (qdrant.deleteWorkspaceVersions !== undefined) {
     const cleaned = yield* qdrant.deleteWorkspaceVersions({ workspaceId, exceptIndexKey: indexKey });
     if (cleaned._tag === 'Err') return cleaned;
+    if (stableCollection) {
+      // Full publication may also encounter crash leftovers. A successful
+      // deletion acknowledgement alone must not publish a false clean index.
+      const physical = yield* verifyQdrantSnapshotMembership(
+        http, baseUrl, collection, workspaceId, undefined, expectedCandidateIds, allowedHosts, client,
+      );
+      if (physical._tag === 'Err') return physical;
+      if (!physical.value) return err(domainError(
+        'INVALID_EXTERNAL_RESPONSE', 'qdrant_snapshot',
+        'stale workspace points remain after full publication cleanup',
+      ));
+    }
   }
   return ok({ count: indexed.value, reused: false, reusedVectorCount: seedVectors.size });
 });
