@@ -38,3 +38,59 @@ test('ContextAssembler rejects invalid budgets before packing', async () => {
   assert.equal(result._tag, 'Err');
   if (result._tag === 'Err') assert.equal(result.error.code, 'INVALID_INPUT');
 });
+
+
+test('ContextAssembler deduplicates identical exact spans across providers despite different receipts', async () => {
+  const code = {
+    ...evidence('code', 'code', 'export function run() {}'),
+    receiptId: 'code-receipt' as never,
+    sourceDigest: 'a'.repeat(64) as never,
+    citation: 'src/run.ts:1',
+  };
+  const structural = {
+    ...evidence('outline', 'structural', 'export function run() {}'),
+    receiptId: 'structural-receipt' as never,
+    sourceDigest: code.sourceDigest,
+    citation: code.citation,
+  };
+  const result = await Effect.runPromise(makeContextAssembler().assemble({
+    budgetTokens: 200,
+    evidence: [structural, code],
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Ok') {
+    assert.deepEqual(result.value.selected.map((item) => item.evidenceId), [code.evidenceId]);
+    assert.equal(result.value.omitted.length, 1);
+    assert.equal(result.value.truncated, false, 'deduplication is not budget truncation');
+    assert.deepEqual(result.value.limitations, []);
+  }
+});
+
+test('ContextAssembler does not collapse distinct LSP relationships sharing a citation and digest', async () => {
+  const base = {
+    ...evidence('def', 'lsp', 'definition: function run'),
+    sourceDigest: 'b'.repeat(64) as never,
+    citation: 'src/run.ts:1',
+  };
+  const result = await Effect.runPromise(makeContextAssembler().assemble({
+    budgetTokens: 200,
+    evidence: [base, { ...base, evidenceId: 'ref' as never, content: 'references: src/caller.ts:8' }],
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Ok') assert.equal(result.value.selected.length, 2);
+});
+
+test('ContextAssembler distinguishes a budget omission from duplicate suppression', async () => {
+  const first = evidence('first', 'code', 'some code');
+  const second = evidence('second', 'documentation', 'this documentation is too large to include');
+  const result = await Effect.runPromise(makeContextAssembler().assemble({
+    budgetTokens: 8,
+    evidence: [first, second],
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Ok') {
+    assert.equal(result.value.selected.length, 1);
+    assert.equal(result.value.truncated, true);
+    assert.match(result.value.limitations[0] ?? '', /context budget/u);
+  }
+});
