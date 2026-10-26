@@ -349,6 +349,9 @@ const main = async (): Promise<void> => {
   const scopeFingerprint = process.env.ACE_INDEX_SCOPE_FINGERPRINT?.trim()
     || createHash('sha256').update('ace-scope/default-v1', 'utf8').digest('hex');
   let context: ReturnType<typeof makeQdrantContextProvider> | undefined;
+  let effectiveStructuralProviderIdentity = astGrepProvider === 'cli'
+    ? process.env.ACE_AST_GREP_VERSION?.trim() || 'ast-grep/0.51.0'
+    : process.env.ACE_AST_GREP_NAPI_VERSION?.trim() || 'ast-grep/napi@0.51.0';
   if (process.env.ACE_ENABLE_EXPERIMENTAL_QDRANT === 'true') {
     const http = makeFetchHttpPort();
     const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
@@ -596,6 +599,7 @@ const main = async (): Promise<void> => {
             trace: providerTrace,
           };
           const structuralIdentity = await Effect.runPromise(resolveAstGrepProviderIdentity(structuralOptions));
+          if (structuralIdentity._tag === 'Ok') effectiveStructuralProviderIdentity = structuralIdentity.value.version;
           const structuralFingerprint = structuralIdentity._tag === 'Ok'
             ? structuralIdentity.value.fingerprint
             : createHash('sha256')
@@ -806,7 +810,7 @@ const main = async (): Promise<void> => {
                   ? 'disabled'
                   : `${effectiveSparseEmbedding.provider}|model=${effectiveSparseEmbedding.model}|runtime=${effectiveSparseEmbedding.runtimeVersion}|artifact=${effectiveSparseEmbedding.artifactDigest}`,
                 qdrant: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
-                structural: structuralOptions.providerVersion,
+                structural: effectiveStructuralProviderIdentity,
                 semantic: `${lspServerName}|${semanticProviderVersion}`,
                 reranker: rerankerModel === undefined ? 'disabled' : `fastembed/cross-encoder|model=${rerankerModel}`,
               },
@@ -828,7 +832,7 @@ const main = async (): Promise<void> => {
                   previous: latestBuild,
                   scopeFingerprint,
                   structural,
-                  parserVersion: structuralOptions.providerVersion,
+                  parserVersion: structuralFingerprint,
                 },
               ));
               if (rebuilt._tag === 'Err') return rebuilt;
@@ -850,7 +854,7 @@ const main = async (): Promise<void> => {
             generation,
             scopeFingerprint,
             structural,
-            parserVersion: structuralOptions.providerVersion,
+            parserVersion: structuralFingerprint,
           }));
           if (built._tag === 'Err') {
             embeddings.close();
@@ -897,7 +901,7 @@ const main = async (): Promise<void> => {
         dense: process.env.ACE_EMBEDDING_PROVIDER?.trim() || 'fastembed/onnx',
         sparse: process.env.ACE_SPARSE_EMBEDDING_MODEL?.trim() || 'Qdrant/bm25',
         qdrant: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
-        structural: process.env.ACE_AST_GREP_VERSION?.trim() || 'ast-grep/0.51.0',
+        structural: effectiveStructuralProviderIdentity,
         semantic: process.env.ACE_LSP_VERSION?.trim() || 'typescript-language-server/6.0.2',
       },
     });

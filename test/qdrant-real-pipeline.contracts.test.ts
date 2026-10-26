@@ -227,7 +227,15 @@ test('snapshot maintenance scrolls request only the payload fields they consume'
         const withPayload = request.body?.with_payload;
         const points = JSON.stringify(withPayload) === JSON.stringify(['index_key'])
           ? [{ payload: { index_key: 'a'.repeat(64) } }]
-          : [{ payload: { candidate_id: candidate.candidateId }, vector: [0.1, 0.9] }];
+          : [{
+            payload: {
+              candidate_id: candidate.candidateId,
+              ...(Array.isArray(withPayload) && withPayload.includes('embedding_key')
+                ? { embedding_key: 'content-key' }
+                : {}),
+            },
+            vector: [0.1, 0.9],
+          }];
         return Effect.succeed(ok({ status: 200, body: { result: { points, next_page_offset: null } } }));
       }
       throw new Error('unexpected HTTP request: ' + request.url);
@@ -241,10 +249,10 @@ test('snapshot maintenance scrolls request only the payload fields they consume'
   const vectors = await Effect.runPromise(readQdrantSnapshotVectors(
     http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'a'.repeat(64),
   ));
-  assert.deepEqual([...mustOk(vectors).entries()], [[candidate.candidateId, [0.1, 0.9]]]);
+  assert.deepEqual([...mustOk(vectors).entries()], [['content-key', [0.1, 0.9]]]);
   assert.deepEqual(requests.map((body) => body.with_payload), [
     ['candidate_id'],
-    ['candidate_id'],
+    ['candidate_id', 'embedding_key'],
   ]);
   assert.deepEqual(requests.map((body) => body.with_vector), [false, true]);
 });
