@@ -25,16 +25,17 @@ const symbolKey = (symbol: StructuralSymbol): string => [
   symbol.endColumn,
 ].join('\0');
 
+const normalizedKind = (symbol: StructuralSymbol): string =>
+  symbol.kind === 'struct' && symbol.language === 'typescript' ? 'type' : symbol.kind;
+
 const bySemanticIdentity = (symbols: readonly StructuralSymbol[]): Map<string, StructuralSymbol> =>
-  new Map(symbols.map((symbol) => [`${symbol.name}\0${symbol.kind}`, symbol]));
+  new Map(symbols.map((symbol) => [`${symbol.name}\0${normalizedKind(symbol)}`, symbol]));
 
 const range = (symbol: StructuralSymbol): string => [
-  symbol.startLine,
-  symbol.startColumn,
-  symbol.endLine,
-  symbol.endColumn,
-  symbol.startByteOffset ?? '',
-  symbol.endByteOffset ?? '',
+  symbol.nameStartLine ?? symbol.startLine,
+  symbol.nameStartColumn ?? symbol.startColumn,
+  symbol.nameEndLine ?? symbol.endLine,
+  symbol.nameEndColumn ?? symbol.endColumn,
 ].join(':');
 
 export const compareStructuralAnalyses = (

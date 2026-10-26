@@ -42,6 +42,7 @@ const declarationKind = (nodeKind: string): StructuralKind | undefined => {
     case 'interface_declaration': return 'interface';
     case 'type_alias_declaration': return 'type';
     case 'enum_declaration': return 'enum';
+    case 'property_signature': return 'field';
     case 'method_definition':
     case 'method_signature': return 'method';
     case 'import_statement': return 'import';
@@ -56,7 +57,7 @@ const isIdentifier = (node: NapiNode | null | undefined): node is NapiNode =>
   && /^[\p{ID_Start}_$][\p{ID_Continue}$]*$/u.test(node.text());
 
 const isExported = (node: NapiNode): boolean =>
-  node.kind() === 'export_statement' || node.ancestors().some((ancestor) => ancestor.kind() === 'export_statement');
+  node.kind() === 'export_statement' || node.ancestors()[0]?.kind() === 'export_statement';
 
 const utf16ToUtf8ByteOffsets = (source: string): readonly number[] => {
   const offsets = new Array<number>(source.length + 1).fill(-1);
@@ -84,6 +85,11 @@ const nodeSymbol = (
 ): StructuralSymbol | undefined => {
   let kind = declarationKind(node.kind());
   let nameNode = node.field('name');
+
+  if (node.kind() === 'property_identifier' && node.ancestors().some((ancestor) => ancestor.kind() === 'enum_body')) {
+    kind = 'enum_variant';
+    nameNode = node;
+  }
 
   // Attribute "const retry = (...) => ..." to the declarator, not to the
   // first identifier in the arrow's parameters/body.
