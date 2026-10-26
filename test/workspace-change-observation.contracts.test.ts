@@ -51,8 +51,9 @@ test('NodeWorkspacePort observes changed, added, deleted, and renamed paths with
     assert.deepEqual(observed.value.renamed, [{ from: 'src/renamed.ts', to: 'src/moved.ts' }]);
     assert.deepEqual(observed.value.untrackedPaths, []);
     assert.deepEqual(observed.value.stagedPaths?.sort(), [
-      'src/added.ts', 'src/changed.ts', 'src/deleted.ts', 'src/moved.ts',
+      'src/added.ts', 'src/changed.ts', 'src/moved.ts',
     ]);
+    assert.deepEqual(observed.value.deletedPaths, ['src/deleted.ts']);
     assert.deepEqual(observed.value.unstagedPaths, []);
     assert.equal(typeof observed.value.branch, 'string');
   } finally {
