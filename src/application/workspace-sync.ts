@@ -92,11 +92,14 @@ export const observeWorkspaceManifest = (
   const byPath = new Map(current.files.map((file) => [file.repoPath, { ...file }] as const));
   const renameState = new Map<RepoPath, string>();
   for (const entry of observation.value.renamed) {
+    if (!includePath(entry.from) && !includePath(entry.to)) continue;
     const prior = byPath.get(entry.from);
     if (prior !== undefined) renameState.set(entry.to, prior.state);
     byPath.delete(entry.from);
   }
-  for (const repoPath of observation.value.deletedPaths) byPath.delete(repoPath);
+  for (const repoPath of observation.value.deletedPaths) {
+    if (includePath(repoPath)) byPath.delete(repoPath);
+  }
 
   const deleted = new Set(observation.value.deletedPaths);
   const renamedFrom = new Set(observation.value.renamed.map((entry) => entry.from));

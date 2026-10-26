@@ -201,3 +201,42 @@ test('changed-path observation exact-reads only affected files and does not rebu
   }
   assert.equal(reads, 1);
 });
+
+
+test('retrieval-scoped observation ignores out-of-scope and sensitive path changes without reading them', async () => {
+  const current = workspaceManifestFromFiles({
+    headRevision: 'a'.repeat(40),
+    scopeFingerprint: 'scope-v1',
+    files: [
+      { repoPath: path('src/one.ts'), sourceDigest: digest('a') as never, sizeBytes: 1, state: 'tracked' },
+      { repoPath: path('README.md'), sourceDigest: digest('b') as never, sizeBytes: 1, state: 'tracked' },
+      { repoPath: path('.env'), sourceDigest: digest('c') as never, sizeBytes: 1, state: 'untracked' },
+    ],
+  });
+  let reads = 0;
+  const files: WorkspaceFilePort = {
+    canonicalizeRoot: () => { throw new Error('not used'); },
+    snapshot: () => { throw new Error('scoped observation must not snapshot'); },
+    observeChanges: () => Effect.succeed(ok({
+      headRevision: current.headRevision,
+      changedPaths: [path('.env')],
+      addedPaths: [],
+      deletedPaths: [path('README.md')],
+      renamed: [],
+      untrackedPaths: [path('.env')],
+    })),
+    readExact: () => {
+      reads += 1;
+      throw new Error('out-of-scope or sensitive paths must not be exact-read');
+    },
+  };
+  const observed = await Effect.runPromise(observeWorkspaceManifest(
+    files,
+    '/repo',
+    current,
+    (repoPath) => repoPath.endsWith('.ts'),
+  ));
+  assert.equal(observed._tag, 'Ok');
+  if (observed._tag === 'Ok') assert.equal(observed.value.changed, false);
+  assert.equal(reads, 0);
+});
