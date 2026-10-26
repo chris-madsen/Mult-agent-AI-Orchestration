@@ -35,6 +35,8 @@ Raw provider and benchmark artifacts remain outside the checkout. Any future ada
 
 ## Current blockers
 
-- No valid real-provider semantic artifact exists: the available run ended with `Connection closed`.
+- Same-name TypeScript LSP conformance passed with `ast-grep 0.51.0 + typescript-language-server 6.0.2` at the current commit, but the full semantic retrieval run ended with `Connection closed` and produced no valid retrieval artifact.
+- Non-TypeScript LSP conformance is blocked because the configured `rust-analyzer` binary is unavailable in the official toolchain.
+- Qdrant concurrency/crash and index-scale runs are blocked by the current foundation runtime returning `unified_context` `NOT_READY`; the Qdrant publication path also observed `Internal Server Error`.
 - Frozen retrieval runs require a clean compiled source checkout; the current worktree contains review artifacts and cannot be used as release evidence until built from a clean committed snapshot.
 - The four-arm benchmark remains `BLOCKED` until native and RepoMap-only normalized artifacts are supplied; no token-savings or production claim is made from the composition wrapper.
