@@ -26,8 +26,9 @@ const languageFor = (repoPath: string): { readonly language: string; readonly pa
     case 'javascript': return { language, parser: Lang.JavaScript };
     case 'typescript': return { language, parser: Lang.TypeScript };
     case 'tsx': return { language, parser: Lang.Tsx };
-    case 'css': return { language, parser: Lang.Css };
-    case 'html': return { language, parser: Lang.Html };
+    // Keep auto mode on the CLI for languages whose NAPI grammar is available
+    // but whose symbol extractor below has not reached outline parity yet.
+    // Treating parseability as symbol-extraction support silently drops code.
     default: return undefined;
   }
 };

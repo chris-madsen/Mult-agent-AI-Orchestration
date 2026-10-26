@@ -531,23 +531,34 @@ export const hasExactQdrantSnapshot = (
   indexKey: string,
   expectedCount: number,
   allowedHosts: readonly string[] = [],
+  client?: QdrantClient,
 ): Effect.Effect<Result<boolean, DomainError>> => Effect.gen(function* () {
   const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
   if (endpoint._tag === 'Err') return endpoint;
   if (indexKey.length === 0 || !Number.isSafeInteger(expectedCount) || expectedCount <= 0) {
     return err(domainError('INVALID_INPUT', 'snapshot', 'snapshot identity and expected positive candidate count are required'));
   }
+  const filter = {
+    must: [
+      { key: 'workspace_id', match: { value: workspaceId } },
+      { key: 'index_key', match: { value: indexKey } },
+    ],
+  };
+  if (client !== undefined) {
+    const counted = yield* qdrantSdkCall(() => client.count(collection, { exact: true, filter }));
+    if (counted._tag === 'Err') return counted;
+    const count = (counted.value as { count?: unknown }).count;
+    if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) {
+      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_count', 'invalid exact snapshot count'));
+    }
+    return ok(count === expectedCount);
+  }
   const response = yield* http.request({
     method: 'POST',
     url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/count',
     body: {
       exact: true,
-      filter: {
-        must: [
-          { key: 'workspace_id', match: { value: workspaceId } },
-          { key: 'index_key', match: { value: indexKey } },
-        ],
-      },
+      filter,
     },
   });
   if (response._tag === 'Err') return response;
@@ -627,32 +638,51 @@ export const verifyQdrantSnapshotMembership = (
   indexKey: string,
   expectedCandidateIds: readonly string[],
   allowedHosts: readonly string[] = [],
+  client?: QdrantClient,
 ): Effect.Effect<Result<boolean, DomainError>> => Effect.gen(function* () {
   const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
   if (endpoint._tag === 'Err') return endpoint;
   const observed: string[] = [];
   let offset: unknown;
+  const filter = { must: [
+    { key: 'workspace_id', match: { value: workspaceId } },
+    { key: 'index_key', match: { value: indexKey } },
+  ] };
   for (let page = 0; page < 10_000; page += 1) {
-    const response = yield* http.request({
-      method: 'POST',
-      url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/scroll',
-      body: {
+    let points: unknown;
+    let nextPageOffset: unknown;
+    if (client !== undefined) {
+      const scrolled = yield* qdrantSdkCall(() => client.scroll(collection, {
         limit: 256,
         with_payload: ['candidate_id'],
         with_vector: false,
-        filter: { must: [
-          { key: 'workspace_id', match: { value: workspaceId } },
-          { key: 'index_key', match: { value: indexKey } },
-        ] },
+        filter,
         ...(offset === undefined ? {} : { offset }),
-      },
-    });
-    if (response._tag === 'Err') return response;
-    if (response.value.status < 200 || response.value.status >= 300) {
-      return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not verify snapshot membership'));
+      } as Parameters<QdrantClient['scroll']>[1]));
+      if (scrolled._tag === 'Err') return scrolled;
+      const direct = scrolled.value as { points?: unknown; next_page_offset?: unknown };
+      points = direct.points;
+      nextPageOffset = direct.next_page_offset;
+    } else {
+      const response = yield* http.request({
+        method: 'POST',
+        url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/scroll',
+        body: {
+          limit: 256,
+          with_payload: ['candidate_id'],
+          with_vector: false,
+          filter,
+          ...(offset === undefined ? {} : { offset }),
+        },
+      });
+      if (response._tag === 'Err') return response;
+      if (response.value.status < 200 || response.value.status >= 300) {
+        return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not verify snapshot membership'));
+      }
+      const body = response.value.body as { result?: { points?: unknown; next_page_offset?: unknown } };
+      points = body?.result?.points;
+      nextPageOffset = body?.result?.next_page_offset;
     }
-    const body = response.value.body as { result?: { points?: unknown; next_page_offset?: unknown } };
-    const points = body?.result?.points;
     if (!Array.isArray(points)) {
       return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'snapshot membership response must contain points'));
     }
@@ -667,7 +697,6 @@ export const verifyQdrantSnapshotMembership = (
       }
       observed.push((payload as { candidate_id: string }).candidate_id);
     }
-    const nextPageOffset = body?.result?.next_page_offset;
     if (nextPageOffset === undefined || nextPageOffset === null) break;
     offset = nextPageOffset;
     if (page === 9_999) {
@@ -686,35 +715,55 @@ export const readQdrantSnapshotVectors = (
   workspaceId: WorkspaceId,
   indexKey?: string,
   allowedHosts: readonly string[] = [],
+  client?: QdrantClient,
 ): Effect.Effect<Result<ReadonlyMap<string, readonly number[]>, DomainError>> => Effect.gen(function* () {
   const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
   if (endpoint._tag === 'Err') return endpoint;
   const vectors = new Map<string, readonly number[]>();
   let offset: unknown;
+  const filter = { must: [
+    { key: 'workspace_id', match: { value: workspaceId } },
+    ...(indexKey === undefined ? [] : [{ key: 'index_key', match: { value: indexKey } }]),
+  ] };
   for (let page = 0; page < 10_000; page += 1) {
-    const response = yield* http.request({
-      method: 'POST',
-      url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/scroll',
-      body: {
+    let points: unknown;
+    let nextPageOffset: unknown;
+    if (client !== undefined) {
+      const scrolled = yield* qdrantSdkCall(() => client.scroll(collection, {
         limit: 256,
-        with_payload: ['candidate_id'],
+        with_payload: ['candidate_id', 'embedding_key'],
         with_vector: true,
-        filter: { must: [
-          { key: 'workspace_id', match: { value: workspaceId } },
-          ...(indexKey === undefined ? [] : [{ key: 'index_key', match: { value: indexKey } }]),
-        ] },
+        filter,
         ...(offset === undefined ? {} : { offset }),
-      },
-    });
-    if (response._tag === 'Err') return response;
-    if (response.value.status < 200 || response.value.status >= 300) {
-      return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not read prior snapshot vectors'));
+      } as Parameters<QdrantClient['scroll']>[1]));
+      if (scrolled._tag === 'Err') return scrolled;
+      const direct = scrolled.value as { points?: unknown; next_page_offset?: unknown };
+      points = direct.points;
+      nextPageOffset = direct.next_page_offset;
+    } else {
+      const response = yield* http.request({
+        method: 'POST',
+        url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/scroll',
+        body: {
+          limit: 256,
+          with_payload: ['candidate_id', 'embedding_key'],
+          with_vector: true,
+          filter,
+          ...(offset === undefined ? {} : { offset }),
+        },
+      });
+      if (response._tag === 'Err') return response;
+      if (response.value.status < 200 || response.value.status >= 300) {
+        return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not read prior snapshot vectors'));
+      }
+      const body = response.value.body as { result?: { points?: unknown; next_page_offset?: unknown } };
+      points = body?.result?.points;
+      nextPageOffset = body?.result?.next_page_offset;
     }
-    const body = response.value.body as { result?: { points?: unknown; next_page_offset?: unknown } };
-    if (!Array.isArray(body?.result?.points)) {
+    if (!Array.isArray(points)) {
       return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior snapshot vector response requires points'));
     }
-    for (const point of body.result.points) {
+    for (const point of points) {
       if (typeof point !== 'object' || point === null || Array.isArray(point)) continue;
       const record = point as { payload?: unknown; vector?: unknown };
       if (typeof record.payload !== 'object' || record.payload === null || Array.isArray(record.payload)) continue;
@@ -732,9 +781,8 @@ export const readQdrantSnapshotVectors = (
       }
       vectors.set(typeof embeddingKey === 'string' ? embeddingKey : candidateId, denseVector as number[]);
     }
-    const next = body.result.next_page_offset;
-    if (next === undefined || next === null) break;
-    offset = next;
+    if (nextPageOffset === undefined || nextPageOffset === null) break;
+    offset = nextPageOffset;
     if (page === 9_999) {
       return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior vector pagination did not terminate'));
     }
@@ -757,16 +805,17 @@ export const reuseOrPopulateQdrantSnapshot = (
   embeddingProviderIdentity?: string,
   priorCollection?: string,
   sparseEmbeddings?: SparseEmbeddingPort,
+  client?: QdrantClient,
 ): Effect.Effect<Result<{ readonly count: number; readonly reused: boolean; readonly reusedVectorCount: number }, DomainError>> => Effect.gen(function* () {
   const expectedCandidateIds = index.candidates.map((candidate) => candidate.candidateId);
   if (reuseAllowed) {
     const checked = yield* hasExactQdrantSnapshot(
-      http, baseUrl, collection, workspaceId, indexKey, index.candidates.length, allowedHosts,
+      http, baseUrl, collection, workspaceId, indexKey, index.candidates.length, allowedHosts, client,
     );
     if (checked._tag === 'Err') return checked;
     if (checked.value) {
       const membership = yield* verifyQdrantSnapshotMembership(
-        http, baseUrl, collection, workspaceId, indexKey, expectedCandidateIds, allowedHosts,
+        http, baseUrl, collection, workspaceId, indexKey, expectedCandidateIds, allowedHosts, client,
       );
       if (membership._tag === 'Err') return membership;
       if (membership.value) return ok({ count: index.candidates.length, reused: true, reusedVectorCount: index.candidates.length });
@@ -784,6 +833,7 @@ export const reuseOrPopulateQdrantSnapshot = (
       workspaceId,
       priorIndexKey === indexKey ? undefined : priorIndexKey,
       allowedHosts,
+      client,
     );
     if (prior._tag === 'Err') return prior;
     const currentKeys = new Set<string>(index.candidates.map((candidate) => embeddingProviderIdentity === undefined
@@ -802,7 +852,7 @@ export const reuseOrPopulateQdrantSnapshot = (
   );
   if (indexed._tag === 'Err') return indexed;
   const verified = yield* verifyQdrantSnapshotMembership(
-    http, baseUrl, collection, workspaceId, indexKey, expectedCandidateIds, allowedHosts,
+    http, baseUrl, collection, workspaceId, indexKey, expectedCandidateIds, allowedHosts, client,
   );
   if (verified._tag === 'Err') return verified;
   if (!verified.value) {

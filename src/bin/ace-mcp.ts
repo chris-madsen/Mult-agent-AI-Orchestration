@@ -660,6 +660,7 @@ const main = async (): Promise<void> => {
               registered.value.workspaceId, sourceKey, qdrantAllowedHosts, true, undefined,
               embeddingFingerprint, previousAlias._tag === 'Ok' ? previousAlias.value : undefined,
               sparseEmbeddings,
+              qdrantClient,
             ));
             if (indexed._tag === 'Err') return indexed;
             process.stderr.write(`ace-mcp qdrant candidate verified workspace_id=${registered.value.workspaceId} index_key=${sourceKey} collection=${collection} alias=${currentAlias} reused_vectors=${indexed.value.reusedVectorCount}\n`);

@@ -4,10 +4,10 @@
 
 ## Implemented here
 
-- `@ast-grep/napi@0.51.0` parses its built-in JS/TS/TSX/CSS/HTML grammars in-process.
-- `ACE_AST_GREP_PROVIDER=auto` uses NAPI where supported and preserves the already-existing **batched CLI fallback** for other registered languages.
+- `@ast-grep/napi@0.51.0` parses JS/TS/TSX in-process where the new symbol extractor has verified outline parity.
+- `ACE_AST_GREP_PROVIDER=auto` uses NAPI only for that verified subset and preserves the already-existing **batched CLI fallback** for CSS/HTML and other registered languages. A bundled NAPI grammar alone is not treated as extraction support.
 - Warm index reuse is bound to source digest, parser identity and scope identity; the linear candidate accumulator and batched extraction already on `main` are preserved.
-- `@qdrant/js-client-rest@1.20.0` owns probe, collection/alias lifecycle, query and upsert on the runtime path. Direct SDK response shapes are not confused with the legacy REST envelope.
+- `@qdrant/js-client-rest@1.20.0` owns probe, collection/alias lifecycle, query, upsert, snapshot count/membership verification and vector-reuse scrolls on the runtime path. Direct SDK response shapes are not confused with the legacy REST envelope; authenticated runtimes no longer fall back to unauthenticated raw HTTP during snapshot verification.
 - Existing `ACE_RETRIEVAL_STRATEGY=dense` remains the first planned strategy: no sparse worker is started and dense-only collections do not create or require sparse vectors.
 
 ## Explicitly deferred

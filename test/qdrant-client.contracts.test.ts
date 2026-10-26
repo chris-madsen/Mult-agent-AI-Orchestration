@@ -6,9 +6,12 @@ import type { QdrantClient } from '@qdrant/js-client-rest';
 import { makeQdrantCodeCandidatePort } from '../src/adapters/http-provider-boundaries.js';
 import {
   ensureQdrantCollection,
+  hasExactQdrantSnapshot,
   probeQdrantService,
+  readQdrantSnapshotVectors,
   resolveQdrantAlias,
   switchQdrantAlias,
+  verifyQdrantSnapshotMembership,
 } from '../src/adapters/qdrant-context-provider.js';
 import { makeCandidateId, makeCodeCandidate } from '../src/domain/retrieval.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
@@ -128,4 +131,60 @@ test('Qdrant SDK lifecycle accepts direct collection and alias shapes with dense
 
   const create = actions[0] as [string, string, { sparse_vectors?: unknown }];
   assert.equal(create[2].sparse_vectors, undefined);
+});
+
+
+test('snapshot verification and vector reuse stay on the authenticated Qdrant SDK path', async () => {
+  const httpCalls: unknown[] = [];
+  const scrollRequests: unknown[] = [];
+  const client = {
+    count: async (_collection: string, request: unknown) => {
+      assert.equal((request as { exact?: unknown }).exact, true);
+      return { count: 1 };
+    },
+    scroll: async (_collection: string, request: unknown) => {
+      scrollRequests.push(request);
+      const withVector = (request as { with_vector?: unknown }).with_vector === true;
+      return {
+        points: [{
+          id: 'point-1',
+          payload: {
+            candidate_id: candidate.candidateId,
+            embedding_key: 'content-key',
+          },
+          ...(withVector ? { vector: { dense: [0.1, 0.2] } } : {}),
+        }],
+        next_page_offset: null,
+      };
+    },
+  } as unknown as QdrantClient;
+  const http = {
+    request: (request: unknown) => {
+      httpCalls.push(request);
+      return Effect.succeed(ok({ status: 500, body: {} }));
+    },
+  };
+
+  const exact = await Effect.runPromise(hasExactQdrantSnapshot(
+    http, 'http://127.0.0.1:6333', 'ace-sdk', workspaceId, 'index-key', 1, [], client,
+  ));
+  assert.equal(exact._tag, 'Ok');
+  if (exact._tag === 'Ok') assert.equal(exact.value, true);
+
+  const membership = await Effect.runPromise(verifyQdrantSnapshotMembership(
+    http, 'http://127.0.0.1:6333', 'ace-sdk', workspaceId, 'index-key', [candidate.candidateId], [], client,
+  ));
+  assert.equal(membership._tag, 'Ok');
+  if (membership._tag === 'Ok') assert.equal(membership.value, true);
+
+  const vectors = await Effect.runPromise(readQdrantSnapshotVectors(
+    http, 'http://127.0.0.1:6333', 'ace-sdk', workspaceId, undefined, [], client,
+  ));
+  assert.equal(vectors._tag, 'Ok');
+  if (vectors._tag === 'Ok') assert.deepEqual(vectors.value.get('content-key'), [0.1, 0.2]);
+
+  assert.equal(httpCalls.length, 0);
+  assert.ok(scrollRequests.some((request) =>
+    Array.isArray((request as { with_payload?: unknown }).with_payload)
+    && (request as { with_payload: string[] }).with_payload.includes('embedding_key')));
 });
