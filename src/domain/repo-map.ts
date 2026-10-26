@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type { ContentDigest, RepoPath } from './workspace.js';
 import type { SourceRange } from './retrieval.js';
 
@@ -49,18 +48,16 @@ export interface RepoMapResult {
   readonly truncated: boolean;
 }
 
-const stableSymbolId = (symbol: Omit<RepoMapSymbol, 'id'>): RepoMapSymbolId => createHash('sha256')
-  .update([
-    symbol.repoPath,
-    symbol.sourceDigest,
-    symbol.name,
-    symbol.kind,
-    symbol.range.startLine,
-    symbol.range.startColumn ?? '',
-    symbol.range.endLine,
-    symbol.range.endColumn ?? '',
-  ].join('\0'), 'utf8')
-  .digest('hex') as RepoMapSymbolId;
+const stableSymbolId = (symbol: Omit<RepoMapSymbol, 'id'>): RepoMapSymbolId => [
+  symbol.repoPath,
+  symbol.sourceDigest,
+  symbol.name,
+  symbol.kind,
+  symbol.range.startLine,
+  symbol.range.startColumn ?? '',
+  symbol.range.endLine,
+  symbol.range.endColumn ?? '',
+].join('\0') as RepoMapSymbolId;
 
 export const makeRepoMapSymbol = (input: Omit<RepoMapSymbol, 'id'>): RepoMapSymbol => ({
   ...input,
