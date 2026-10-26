@@ -14,6 +14,13 @@ const workspaceId = (() => {
 
 const files = (source: Uint8Array): WorkspaceFilePort => ({
   canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+  observeChanges: () => Effect.succeed(ok({
+    headRevision: 'a'.repeat(40),
+    changedPaths: [],
+    addedPaths: [],
+    deletedPaths: [],
+    renamed: [],
+  })),
   snapshot: () => Effect.succeed(ok({
     headRevision: 'a'.repeat(40),
     files: [{
@@ -72,4 +79,45 @@ test('warm structural reuse is invalidated when parser identity changes', async 
   }));
   assert.equal(rebuilt._tag, 'Ok');
   assert.equal(calls, 2);
+});
+
+
+test('pre-materialized snapshot avoids a second repository snapshot during incremental rebuild', async () => {
+  const source = Buffer.from('export function index() { return true; }\n');
+  let snapshotCalls = 0;
+  const port: WorkspaceFilePort = {
+    ...files(source),
+    snapshot: () => {
+      snapshotCalls += 1;
+      throw new Error('incremental rebuild must use the supplied authoritative snapshot');
+    },
+  };
+  const structural: StructuralAnalysisPort = {
+    extract: (input) => Effect.succeed(ok({
+      repoPath: input.repoPath,
+      sourceDigest: 'b'.repeat(64) as never,
+      symbols: [],
+      hasSyntaxErrors: false,
+    })),
+  };
+  const snapshot = {
+    headRevision: 'a'.repeat(40),
+    files: [{
+      repoPath: 'src/index.ts' as never,
+      digest: 'b'.repeat(64) as never,
+      sizeBytes: source.byteLength,
+      state: 'tracked' as const,
+      observedAtMs: 2,
+    }],
+    removedPaths: [],
+  };
+  const built = await Effect.runPromise(buildLocalCodeIndex(port, workspaceId, '/repo', {
+    generation: 2,
+    parserVersion: 'parser-v1',
+    scopeFingerprint: 'scope-v1',
+    structural,
+    snapshot,
+  }));
+  assert.equal(built._tag, 'Ok');
+  assert.equal(snapshotCalls, 0);
 });

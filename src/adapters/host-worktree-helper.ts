@@ -13,17 +13,19 @@ import {
   type WorkspaceId,
   type WorkspaceSnapshot,
 } from '../domain/workspace.js';
-import type { ExactRead, WorkspaceFilePort } from '../application/ports.js';
+import type { ExactRead, WorkspaceChangeObservation, WorkspaceFilePort } from '../application/ports.js';
 import { makeNodeWorkspacePort } from './node-workspace-port.js';
 
 export type HostWorktreeRequest =
   | { readonly operation: 'canonicalize'; readonly workspaceId: string }
   | { readonly operation: 'snapshot'; readonly workspaceId: string; readonly observedAtMs: number }
+  | { readonly operation: 'observe_changes'; readonly workspaceId: string; readonly previousHeadRevision?: string }
   | { readonly operation: 'read_exact'; readonly workspaceId: string; readonly repoPath: string };
 
 export type HostWorktreeValue =
   | { readonly logicalRoot: string }
   | { readonly snapshot: WorkspaceSnapshot }
+  | { readonly changeObservation: WorkspaceChangeObservation }
   | { readonly bytesBase64: string; readonly digest: string };
 
 export interface HostWorktreeWireResult {
@@ -78,6 +80,10 @@ export const makeHostWorktreeHelperService = async (
         }
         const snapshot = await Effect.runPromise(files.snapshot(selected.value.root, input.observedAtMs));
         return snapshot._tag === 'Err' ? snapshot : ok({ snapshot: snapshot.value });
+      }
+      if (input.operation === 'observe_changes') {
+        const observed = await Effect.runPromise(files.observeChanges(selected.value.root, input.previousHeadRevision));
+        return observed._tag === 'Err' ? observed : ok({ changeObservation: observed.value });
       }
       const repoPath = ingestRepoPath(input.repoPath);
       if (repoPath._tag === 'Err') return repoPath;
@@ -257,6 +263,61 @@ const parseSnapshot = (value: HostWorktreeValue): Result<WorkspaceSnapshot, Doma
   });
 };
 
+const parseChangeObservation = (value: HostWorktreeValue): Result<WorkspaceChangeObservation, DomainError> => {
+  if (!('changeObservation' in value) || typeof value.changeObservation !== 'object' || value.changeObservation === null) {
+    return err(domainError('INVALID_EXTERNAL_RESPONSE', 'observe_changes', 'host helper change observation is missing'));
+  }
+  const raw = value.changeObservation as WorkspaceChangeObservation;
+  const parsePaths = (input: unknown): Result<RepoPath[], DomainError> => {
+    if (!Array.isArray(input)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'observe_changes', 'change paths must be arrays'));
+    const paths: RepoPath[] = [];
+    for (const item of input) {
+      const path = ingestRepoPath(item);
+      if (path._tag === 'Err') return err(domainError('INVALID_EXTERNAL_RESPONSE', 'observe_changes', 'change path is invalid'));
+      paths.push(path.value);
+    }
+    return ok(paths);
+  };
+  if (!/^[a-f0-9]{40,64}$/iu.test(raw.headRevision)) {
+    return err(domainError('INVALID_EXTERNAL_RESPONSE', 'observe_changes.head_revision', 'head revision is invalid'));
+  }
+  const changed = parsePaths(raw.changedPaths);
+  const added = parsePaths(raw.addedPaths);
+  const deleted = parsePaths(raw.deletedPaths);
+  const untracked = raw.untrackedPaths === undefined ? ok<RepoPath[]>([]) : parsePaths(raw.untrackedPaths);
+  const staged = raw.stagedPaths === undefined ? ok<RepoPath[]>([]) : parsePaths(raw.stagedPaths);
+  const unstaged = raw.unstagedPaths === undefined ? ok<RepoPath[]>([]) : parsePaths(raw.unstagedPaths);
+  if (changed._tag === 'Err') return changed;
+  if (added._tag === 'Err') return added;
+  if (deleted._tag === 'Err') return deleted;
+  if (untracked._tag === 'Err') return untracked;
+  if (staged._tag === 'Err') return staged;
+  if (unstaged._tag === 'Err') return unstaged;
+  if (raw.branch !== undefined && typeof raw.branch !== 'string') {
+    return err(domainError('INVALID_EXTERNAL_RESPONSE', 'observe_changes.branch', 'branch must be a string'));
+  }
+  if (!Array.isArray(raw.renamed)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'observe_changes.renamed', 'renamed paths must be an array'));
+  const renamed: WorkspaceChangeObservation['renamed'][number][] = [];
+  for (const item of raw.renamed) {
+    if (typeof item !== 'object' || item === null) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'observe_changes.renamed', 'rename entry is invalid'));
+    const from = ingestRepoPath((item as { readonly from?: unknown }).from);
+    const to = ingestRepoPath((item as { readonly to?: unknown }).to);
+    if (from._tag === 'Err' || to._tag === 'Err') return err(domainError('INVALID_EXTERNAL_RESPONSE', 'observe_changes.renamed', 'rename path is invalid'));
+    renamed.push({ from: from.value, to: to.value });
+  }
+  return ok({
+    headRevision: raw.headRevision,
+    changedPaths: changed.value,
+    addedPaths: added.value,
+    deletedPaths: deleted.value,
+    renamed,
+    untrackedPaths: untracked.value,
+    stagedPaths: staged.value,
+    unstagedPaths: unstaged.value,
+    ...(typeof raw.branch === 'string' && raw.branch.length > 0 ? { branch: raw.branch } : {}),
+  });
+};
+
 export const makeHostWorkspacePort = (
   workspaceId: WorkspaceId,
   transport: HostHelperTransport,
@@ -267,6 +328,10 @@ export const makeHostWorkspacePort = (
     return 'logicalRoot' in response.value && typeof response.value.logicalRoot === 'string'
       ? ok(response.value.logicalRoot)
       : err(domainError('INVALID_EXTERNAL_RESPONSE', 'root_path', 'host helper did not return a logical workspace root'));
+  }),
+  observeChanges: (_logicalRoot, previousHeadRevision) => Effect.promise(async () => {
+    const response = await transport.invoke({ operation: 'observe_changes', workspaceId, ...(previousHeadRevision === undefined ? {} : { previousHeadRevision }) });
+    return response._tag === 'Err' ? response : parseChangeObservation(response.value);
   }),
   snapshot: (_logicalRoot, observedAtMs) => Effect.promise(async () => {
     const response = await transport.invoke({ operation: 'snapshot', workspaceId, observedAtMs });

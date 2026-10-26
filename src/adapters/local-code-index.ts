@@ -22,7 +22,7 @@ import type {
 } from '../application/ports.js';
 import type { StructuralSymbol } from '../domain/semantic.js';
 import { decodeStrictSourceText } from '../domain/source-text.js';
-import type { ContentDigest, RepoPath, WorkspaceId } from '../domain/workspace.js';
+import type { ContentDigest, RepoPath, WorkspaceId, WorkspaceSnapshot } from '../domain/workspace.js';
 import { isSensitiveSourcePath } from '../domain/sensitive-path.js';
 import { workspaceManifestFromSnapshot, type WorkspaceManifest } from '../domain/workspace-manifest.js';
 import { structuralExtensions, structuralLanguageForPath } from '../domain/structural-language.js';
@@ -50,6 +50,8 @@ export interface LocalCodeIndexerOptions {
   readonly parserVersion?: string;
   /** Include/exclude configuration identity; changes invalidate warm reuse. */
   readonly scopeFingerprint?: string;
+  /** Authoritative pre-materialized snapshot for changed-only rebuilds. */
+  readonly snapshot?: WorkspaceSnapshot;
 }
 
 interface Span {
@@ -180,7 +182,9 @@ export const buildLocalCodeIndex = (
 ): Effect.Effect<Result<LocalCodeIndexBuild, ReturnType<typeof domainError>>> =>
   Effect.gen(function* () {
     const extensions = new Set(options.extensions ?? defaultExtensions);
-    const snapshot = yield* files.snapshot(rootPath, Date.now());
+    const snapshot = options.snapshot === undefined
+      ? yield* files.snapshot(rootPath, Date.now())
+      : ok(options.snapshot);
     if (snapshot._tag === 'Err') return snapshot;
     const sourceSnapshotDigest = snapshotDigest(snapshot.value);
     const workspaceManifest = workspaceManifestFromSnapshot(

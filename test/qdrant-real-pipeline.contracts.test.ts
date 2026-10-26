@@ -19,6 +19,8 @@ import { makeWorkspaceId } from '../src/domain/workspace.js';
 import { err, ok, type Result } from '../src/domain/result.js';
 import { domainError } from '../src/domain/errors.js';
 import { exactUtf8Span, utf16ColumnAtUtf8Byte } from '../src/domain/utf8-range.js';
+import { makeWorkspaceSync } from '../src/application/workspace-sync.js';
+import { workspaceManifestFromSnapshot } from '../src/domain/workspace-manifest.js';
 import type { ProviderTraceEvent } from '../src/domain/provider-trace.js';
 import type {
   ArtifactStore,
@@ -279,6 +281,7 @@ test('Qdrant→current filesystem→LSP→ContextBundle includes verified snippe
   assert.equal(mustOk(await Effect.runPromise(populateQdrantFromStructuralIndex(index, qdrant, embeddings))), 1);
   const files: WorkspaceFilePort = {
     canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+    observeChanges: () => Effect.succeed(ok({ headRevision: 'a'.repeat(40), changedPaths: [], addedPaths: [], deletedPaths: [], renamed: [] })),
     snapshot: () => { throw new Error('query must not snapshot repository'); },
     readExact: () => Effect.succeed(ok({ bytes: source, digest: digest as never })),
   };
@@ -298,8 +301,21 @@ test('Qdrant→current filesystem→LSP→ContextBundle includes verified snippe
     typeInfo: () => Effect.succeed(ok(undefined)),
     diagnostics: () => Effect.succeed(ok([])),
   };
+  const workspaceManifest = workspaceManifestFromSnapshot({ headRevision: 'a'.repeat(40), files: [], removedPaths: [] }, 'scope-v1');
+  const workspaceSync = makeWorkspaceSync({
+    initial: {
+      workspaceId,
+      workspaceManifest,
+      generation: 1,
+      indexKey: 'index-v1',
+      candidateIdsByPath: new Map(),
+    },
+    observeChanges: () => Effect.succeed(ok({ changed: false })),
+    rebuild: () => Effect.succeed(err(domainError('NOT_READY', 'workspace_sync', 'not needed by the no-change fixture'))),
+  });
   const provider = makeQdrantContextProvider({
     workspaceId, rootPath: '/repo', files, qdrant, embeddings, artifacts, semantics, newRequestId: () => 'qdrant-request',
+    workspaceManifest, workspaceSync,
   });
   const context = mustOk(await Effect.runPromise(provider.search({
     workspaceId, query: 'retry database connection', includeDocs: false, includeMemory: false,
@@ -317,6 +333,84 @@ test('Qdrant→current filesystem→LSP→ContextBundle includes verified snippe
   assert.equal(source.subarray(spanOffset, spanOffset + spanLength).toString('utf8'), candidate.text,
     'one precise expansion range restores only the verified AST symbol, not the entire file');
   assert.equal(context.evidence[0]?.content, source.toString('utf8').trim());
+});
+
+
+test('synchronized provider catches up when another request already published a newer index key', async () => {
+  let searchedIndexKey: string | undefined;
+  let reconcileCalls = 0;
+  const qdrant: CodeCandidatePort = {
+    upsert: () => Effect.succeed(ok(undefined)),
+    search: (input) => {
+      searchedIndexKey = input.indexKey;
+      return Effect.succeed(ok([{ candidate, score: 0.96, freshness: 'unknown' as const }]));
+    },
+  };
+  const files: WorkspaceFilePort = {
+    canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+    observeChanges: () => Effect.succeed(ok({
+      headRevision: 'a'.repeat(40), changedPaths: [], addedPaths: [], deletedPaths: [], renamed: [],
+    })),
+    snapshot: () => { throw new Error('synchronized catch-up must not snapshot repository'); },
+    readExact: () => Effect.succeed(ok({ bytes: source, digest: digest as never })),
+  };
+  const artifacts: ArtifactStore = {
+    storeExact: () => Effect.succeed(ok({ handle: 'catch-up-file', digest: digest as never, sizeBytes: source.length })),
+    readRange: () => Effect.succeed(err(domainError('ARTIFACT_NOT_FOUND', 'handle', 'not used'))),
+  };
+  const semantics: SemanticAnalysisPort = {
+    definition: () => Effect.succeed(ok([{
+      location: { repoPath: 'src/connection.ts', startLine: 1, startColumn: 17, endLine: 1, endColumn: 26 },
+      name: 'reconnect', kind: 'function',
+    }])),
+    references: () => Effect.succeed(ok([])),
+    typeInfo: () => Effect.succeed(ok(undefined)),
+    diagnostics: () => Effect.succeed(ok([])),
+  };
+  const workspaceManifest = workspaceManifestFromSnapshot({
+    headRevision: 'a'.repeat(40), files: [], removedPaths: [],
+  }, 'scope-v1');
+  const syncState = {
+    workspaceId,
+    workspaceManifest,
+    generation: 2,
+    indexKey: 'index-v2',
+    candidateIdsByPath: new Map(),
+  };
+  const workspaceSync = {
+    initialize: () => Effect.succeed(ok(syncState)),
+    refresh: () => Effect.succeed(ok({
+      state: syncState,
+      delta: { changed: [], added: [], deleted: [], renamed: [], scopeChanged: false },
+      refreshed: false,
+    })),
+  };
+  let config: Parameters<typeof makeQdrantContextProvider>[0];
+  const reconcile = () => {
+    reconcileCalls += 1;
+    return Effect.succeed(ok({ ...config, indexKey: 'index-v2' }));
+  };
+  config = {
+    workspaceId,
+    rootPath: '/repo',
+    files,
+    qdrant,
+    embeddings: { embedMany: () => Effect.succeed(ok([[0.2, 0.7]])) },
+    artifacts,
+    semantics,
+    newRequestId: () => 'sync-catch-up',
+    workspaceManifest,
+    workspaceSync,
+    indexKey: 'index-v1',
+    reconcile,
+  };
+  const provider = makeQdrantContextProvider(config);
+  const context = await Effect.runPromise(provider.search({
+    workspaceId, query: 'retry database connection', includeDocs: false, includeMemory: false,
+  }));
+  assert.equal(context._tag, 'Ok');
+  assert.equal(reconcileCalls, 1);
+  assert.equal(searchedIndexKey, 'index-v2');
 });
 
 test('LSP disagreement keeps exact code visible only as uncertain partial evidence', async () => {

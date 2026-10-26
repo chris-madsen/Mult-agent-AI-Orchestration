@@ -7,7 +7,7 @@ import { Effect } from 'effect';
 import { domainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import { ingestRepoPath, makeContentDigest, type FileObservation, type RepoPath, type WorkspaceSnapshot } from '../domain/workspace.js';
-import type { ExactRead, WorkspaceFilePort } from '../application/ports.js';
+import type { ExactRead, WorkspaceChangeObservation, WorkspaceFilePort } from '../application/ports.js';
 import type { DomainError } from '../domain/errors.js';
 import { recoverResult } from '../application/effect-result.js';
 
@@ -103,6 +103,119 @@ const gitPaths = (values: ReadonlySet<string> | undefined): Result<RepoPath[], R
   return ok(paths.sort((left, right) => left.localeCompare(right)));
 };
 
+interface GitNameStatus {
+  readonly status: string;
+  readonly path?: string;
+  readonly from?: string;
+  readonly to?: string;
+}
+
+const parseGitNameStatus = (raw: string): Result<readonly GitNameStatus[], ReturnType<typeof domainError>> => {
+  const tokens = raw.split('\0').filter((value) => value.length > 0);
+  const entries: GitNameStatus[] = [];
+  for (let index = 0; index < tokens.length;) {
+    const status = tokens[index];
+    if (status === undefined) return errorResult('SNAPSHOT_FAILED', 'git', 'Git name-status output is truncated');
+    index += 1;
+    if (status.startsWith('R')) {
+      const from = tokens[index];
+      const to = tokens[index + 1];
+      if (from === undefined || to === undefined) return errorResult('SNAPSHOT_FAILED', 'git', 'Git rename output is truncated');
+      entries.push({ status: 'R', from, to });
+      index += 2;
+    } else {
+      const path = tokens[index];
+      if (path === undefined) return errorResult('SNAPSHOT_FAILED', 'git', 'Git name-status path is missing');
+      entries.push({ status: status.slice(0, 1), path });
+      index += 1;
+    }
+  }
+  return ok(entries);
+};
+
+const observeGitChanges = async (
+  rootPath: string,
+  previousHeadRevision?: string,
+): Promise<Result<WorkspaceChangeObservation, ReturnType<typeof domainError>>> => {
+  let headRevision: string;
+  try {
+    const head = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: rootPath, encoding: 'utf8' });
+    headRevision = head.stdout.trim();
+  } catch (cause) {
+    return isNotGitRepository(cause)
+      ? errorResult('SNAPSHOT_FAILED', 'git', 'incremental workspace observation requires a Git repository')
+      : errorResult('SNAPSHOT_FAILED', 'git', 'Git HEAD could not be observed');
+  }
+  if (!/^[a-f0-9]{40,64}$/iu.test(headRevision)) return errorResult('SNAPSHOT_FAILED', 'git', 'Git HEAD revision is invalid');
+  try {
+    const ranges = previousHeadRevision !== undefined
+      && /^[a-f0-9]{40,64}$/iu.test(previousHeadRevision)
+      && previousHeadRevision !== headRevision
+      ? [
+        ['diff', '--name-status', '-z', '-M', `${previousHeadRevision}..${headRevision}`],
+        ['diff', '--name-status', '-z', '-M', 'HEAD'],
+      ] as const
+      : [['diff', '--name-status', '-z', '-M', 'HEAD']] as const;
+    const outputs = await Promise.all(ranges.map((args) => execFileAsync('git', [...args], { cwd: rootPath, encoding: 'utf8' })));
+    const [untracked, staged, unstaged, branchResult] = await Promise.all([
+      gitList(rootPath, ['ls-files', '--others', '--exclude-standard', '-z']),
+      gitList(rootPath, ['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMRT']),
+      gitList(rootPath, ['diff', '--name-only', '-z', '--diff-filter=ACMRT']),
+      execFileAsync('git', ['branch', '--show-current'], { cwd: rootPath, encoding: 'utf8' }),
+    ]);
+    const parsed: GitNameStatus[] = [];
+    for (const output of outputs) {
+      const result = parseGitNameStatus(output.stdout);
+      if (result._tag === 'Err') return result;
+      parsed.push(...result.value);
+    }
+    const changed = new Set<RepoPath>();
+    const added = new Set<RepoPath>();
+    const deleted = new Set<RepoPath>();
+    const renamed: { readonly from: RepoPath; readonly to: RepoPath }[] = [];
+    for (const entry of parsed) {
+      if (entry.status === 'R') {
+        const from = ingestRepoPath(entry.from);
+        const to = ingestRepoPath(entry.to);
+        if (from._tag === 'Err') return from;
+        if (to._tag === 'Err') return to;
+        renamed.push({ from: from.value, to: to.value });
+        continue;
+      }
+      const repoPath = ingestRepoPath(entry.path);
+      if (repoPath._tag === 'Err') return repoPath;
+      if (entry.status === 'D') deleted.add(repoPath.value);
+      else if (entry.status === 'A') added.add(repoPath.value);
+      else changed.add(repoPath.value);
+    }
+    for (const value of untracked) {
+      const repoPath = ingestRepoPath(value);
+      if (repoPath._tag === 'Err') return repoPath;
+      added.add(repoPath.value);
+    }
+    const untrackedPaths = gitPaths(untracked);
+    const stagedPaths = gitPaths(staged);
+    const unstagedPaths = gitPaths(unstaged);
+    if (untrackedPaths._tag === 'Err') return untrackedPaths;
+    if (stagedPaths._tag === 'Err') return stagedPaths;
+    if (unstagedPaths._tag === 'Err') return unstagedPaths;
+    const branch = branchResult.stdout.trim();
+    return ok({
+      headRevision,
+      changedPaths: [...changed].sort(),
+      addedPaths: [...added].filter((path) => !changed.has(path)).sort(),
+      deletedPaths: [...deleted].sort(),
+      renamed: renamed.sort((left, right) => left.from.localeCompare(right.from)),
+      untrackedPaths: untrackedPaths.value,
+      stagedPaths: stagedPaths.value,
+      unstagedPaths: unstagedPaths.value,
+      ...(branch.length === 0 ? {} : { branch }),
+    });
+  } catch {
+    return errorResult('SNAPSHOT_FAILED', 'git', 'Git change observation failed');
+  }
+};
+
 const resolveSafePath = async (rootPath: string, repoPath: RepoPath): Promise<Result<string, ReturnType<typeof domainError>>> => {
   const candidate = resolve(rootPath, repoPath);
   if (!isWithin(rootPath, candidate)) return errorResult('PATH_ESCAPE', 'repo_path', 'path escapes workspace root');
@@ -155,6 +268,11 @@ export const makeNodeWorkspacePort = (options: NodeWorkspacePortOptions): Worksp
             : errorResult('WORKSPACE_ROOT_NOT_ALLOWED', 'root_path', 'workspace root is outside the allowlist');
         },
         catch: () => makePortError('WORKSPACE_ROOT_NOT_ALLOWED', 'root_path', 'workspace root check failed'),
+      })),
+    observeChanges: (rootPath, previousHeadRevision) =>
+      recoverResult(Effect.tryPromise<Result<WorkspaceChangeObservation, DomainError>, DomainError>({
+        try: () => observeGitChanges(rootPath, previousHeadRevision),
+        catch: () => makePortError('SNAPSHOT_FAILED', 'git', 'Git change observation failed'),
       })),
     snapshot: (rootPath, observedAtMs) =>
       recoverResult(Effect.tryPromise<Result<WorkspaceSnapshot, DomainError>, DomainError>({

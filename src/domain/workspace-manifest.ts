@@ -1,10 +1,10 @@
-import type { ContentDigest, RepoPath, WorkspaceSnapshot } from './workspace.js';
+import type { ContentDigest, FileState, RepoPath, WorkspaceSnapshot } from './workspace.js';
 
 export interface WorkspaceManifestFile {
   readonly repoPath: RepoPath;
   readonly sourceDigest: ContentDigest;
   readonly sizeBytes: number;
-  readonly state: string;
+  readonly state: FileState;
 }
 
 /**
@@ -14,6 +14,7 @@ export interface WorkspaceManifestFile {
  */
 export interface WorkspaceManifest {
   readonly schemaVersion: 1;
+  readonly headRevision: string;
   readonly scopeFingerprint: string;
   readonly files: readonly WorkspaceManifestFile[];
   readonly removedPaths: readonly RepoPath[];
@@ -27,32 +28,59 @@ const sortedFiles = (files: readonly WorkspaceManifestFile[]): readonly Workspac
 const contentIdentityFor = (
   scopeFingerprint: string,
   files: readonly WorkspaceManifestFile[],
-  removedPaths: readonly RepoPath[],
 ): string => JSON.stringify({
   scopeFingerprint,
   files: sortedFiles(files),
-  removedPaths: [...removedPaths].sort(),
 });
+
+export const workspaceManifestFromFiles = (input: {
+  readonly headRevision: string;
+  readonly scopeFingerprint: string;
+  readonly files: readonly WorkspaceManifestFile[];
+  readonly removedPaths?: readonly RepoPath[];
+}): WorkspaceManifest => {
+  const files = sortedFiles(input.files);
+  return {
+    schemaVersion: 1,
+    headRevision: input.headRevision,
+    scopeFingerprint: input.scopeFingerprint,
+    files,
+    removedPaths: [...(input.removedPaths ?? [])].sort(),
+    // HEAD and Git-status metadata are synchronization baselines, not source content identity.
+    contentIdentity: contentIdentityFor(input.scopeFingerprint, files),
+  };
+};
 
 export const workspaceManifestFromSnapshot = (
   snapshot: WorkspaceSnapshot,
   scopeFingerprint: string,
-): WorkspaceManifest => {
-  const files = sortedFiles(snapshot.files.map((file) => ({
+): WorkspaceManifest => workspaceManifestFromFiles({
+  headRevision: snapshot.headRevision,
+  scopeFingerprint,
+  files: snapshot.files.map((file) => ({
     repoPath: file.repoPath,
     sourceDigest: file.digest,
     sizeBytes: file.sizeBytes,
     state: file.state,
-  })));
-  const removedPaths = [...snapshot.removedPaths].sort();
-  return {
-    schemaVersion: 1,
-    scopeFingerprint,
-    files,
-    removedPaths,
-    contentIdentity: contentIdentityFor(scopeFingerprint, files, removedPaths),
-  };
-};
+  })),
+  removedPaths: snapshot.removedPaths,
+});
+
+export const workspaceSnapshotFromManifest = (
+  manifest: WorkspaceManifest,
+  observedAtMs: number,
+): WorkspaceSnapshot => ({
+  headRevision: manifest.headRevision,
+  files: manifest.files.map((file) => ({
+    repoPath: file.repoPath,
+    digest: file.sourceDigest,
+    sizeBytes: file.sizeBytes,
+    state: file.state,
+    observedAtMs,
+  })),
+  removedPaths: manifest.removedPaths,
+  gitStatus: 'available',
+});
 
 export interface WorkspaceManifestDelta {
   readonly changed: readonly RepoPath[];

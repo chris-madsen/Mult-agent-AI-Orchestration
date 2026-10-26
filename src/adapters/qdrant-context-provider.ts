@@ -32,6 +32,7 @@ import type {
   VectorEmbeddingPort,
   WorkspaceFilePort,
 } from '../application/ports.js';
+import type { WorkspaceSync } from '../application/workspace-sync.js';
 import {
   canonicalBenchmarkCandidateId,
   type RetrievalBenchmarkStageStatus,
@@ -137,6 +138,8 @@ export interface QdrantContextConfig {
   readonly benchmarkTrace?: RetrievalBenchmarkTraceSink;
   readonly benchmarkRepositoryId?: string;
   readonly benchmarkProviderIdentities?: Readonly<Record<string, string>>;
+  /** Request-local synchronization owner; avoids a full snapshot on no-change requests. */
+  readonly workspaceSync?: WorkspaceSync;
 }
 
 export const embeddingContentKey = (providerIdentity: string, chunk: string): string =>
@@ -881,40 +884,71 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
       }
       let requestWorkingContext: WorkingContext | undefined;
       if (activeConfig.workspaceManifest !== undefined) {
-        const currentSnapshot = yield* activeConfig.files.snapshot(activeConfig.rootPath, Date.now());
-        if (currentSnapshot._tag === 'Err') return currentSnapshot;
-        requestWorkingContext = workingContextFromSnapshot(currentSnapshot.value);
-        const currentManifest = workspaceManifestFromSnapshot(
-          currentSnapshot.value,
-          activeConfig.scopeFingerprint ?? activeConfig.workspaceManifest.scopeFingerprint,
-        );
-        if (!workspaceManifestEqual(activeConfig.workspaceManifest, currentManifest)) {
-          const delta = diffWorkspaceManifests(activeConfig.workspaceManifest, currentManifest);
-          if (activeConfig.reconcile === undefined) {
-            return err(domainError(
-              'NOT_READY',
-              'workspace_manifest',
-              'authoritative workspace manifest changed; indexed context requires reconciliation before complete delivery',
-              {
-                changed: delta.changed.length,
-                added: delta.added.length,
-                deleted: delta.deleted.length,
-                renamed: delta.renamed.length,
-                scopeChanged: delta.scopeChanged,
-              },
-            ));
+        if (activeConfig.workspaceSync !== undefined) {
+          const refreshed = yield* activeConfig.workspaceSync.refresh();
+          if (refreshed._tag === 'Err') return refreshed;
+          requestWorkingContext = refreshed.value.workingContext;
+          const configBehindSync = activeConfig.indexKey !== undefined
+            && refreshed.value.state.indexKey !== activeConfig.indexKey;
+          if (refreshed.value.refreshed || configBehindSync) {
+            if (activeConfig.reconcile === undefined) {
+              return err(domainError(
+                'NOT_READY',
+                'workspace_manifest',
+                'workspace synchronization is ahead of the active provider config; reconciliation is required before delivery',
+              ));
+            }
+            const reconciled = yield* activeConfig.reconcile(
+              refreshed.value.state.workspaceManifest,
+              refreshed.value.delta,
+            );
+            if (reconciled._tag === 'Err') return reconciled;
+            if (reconciled.value.workspaceManifest === undefined
+            || !workspaceManifestEqual(reconciled.value.workspaceManifest, refreshed.value.state.workspaceManifest)) {
+              return err(domainError(
+                'NOT_READY',
+                'workspace_manifest',
+                'workspace changed again while reconciliation was publishing; refusing stale semantic context',
+              ));
+            }
+            activeConfig = reconciled.value;
           }
-          const reconciled = yield* activeConfig.reconcile(currentManifest, delta);
-          if (reconciled._tag === 'Err') return reconciled;
-          if (reconciled.value.workspaceManifest === undefined
-          || !workspaceManifestEqual(reconciled.value.workspaceManifest, currentManifest)) {
-            return err(domainError(
-              'NOT_READY',
-              'workspace_manifest',
-              'workspace changed again while reconciliation was publishing; refusing stale semantic context',
-            ));
+        } else {
+          const currentSnapshot = yield* activeConfig.files.snapshot(activeConfig.rootPath, Date.now());
+          if (currentSnapshot._tag === 'Err') return currentSnapshot;
+          requestWorkingContext = workingContextFromSnapshot(currentSnapshot.value);
+          const currentManifest = workspaceManifestFromSnapshot(
+            currentSnapshot.value,
+            activeConfig.scopeFingerprint ?? activeConfig.workspaceManifest.scopeFingerprint,
+          );
+          if (!workspaceManifestEqual(activeConfig.workspaceManifest, currentManifest)) {
+            const delta = diffWorkspaceManifests(activeConfig.workspaceManifest, currentManifest);
+            if (activeConfig.reconcile === undefined) {
+              return err(domainError(
+                'NOT_READY',
+                'workspace_manifest',
+                'authoritative workspace manifest changed; indexed context requires reconciliation before complete delivery',
+                {
+                  changed: delta.changed.length,
+                  added: delta.added.length,
+                  deleted: delta.deleted.length,
+                  renamed: delta.renamed.length,
+                  scopeChanged: delta.scopeChanged,
+                },
+              ));
+            }
+            const reconciled = yield* activeConfig.reconcile(currentManifest, delta);
+            if (reconciled._tag === 'Err') return reconciled;
+            if (reconciled.value.workspaceManifest === undefined
+            || !workspaceManifestEqual(reconciled.value.workspaceManifest, currentManifest)) {
+              return err(domainError(
+                'NOT_READY',
+                'workspace_manifest',
+                'workspace changed again while reconciliation was publishing; refusing stale semantic context',
+              ));
+            }
+            activeConfig = reconciled.value;
           }
-          activeConfig = reconciled.value;
         }
       }
       const requestId = makeRequestId(activeConfig.newRequestId());
