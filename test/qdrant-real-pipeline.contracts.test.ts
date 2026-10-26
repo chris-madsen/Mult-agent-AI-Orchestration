@@ -1807,3 +1807,82 @@ test('stable cold rebuild rejects a falsely successful stale-workspace cleanup',
   assert.equal(cleanups, 1);
   assert.equal(scrolls, 3, 'unfiltered membership must be checked after full publication cleanup');
 });
+
+
+test('initial stale Qdrant hit triggers one bounded exact refresh and retries current evidence', async () => {
+  const staleCandidate = {
+    ...candidate,
+    candidateId: mustOk(makeCandidateId('outdated-reconnect')),
+    sourceDigest: 'f'.repeat(64) as never,
+  };
+  let searches = 0;
+  let exactRefreshes = 0;
+  let reconciles = 0;
+  const qdrant: CodeCandidatePort = {
+    upsert: () => Effect.succeed(ok(undefined)),
+    search: () => {
+      searches += 1;
+      return Effect.succeed(ok([{
+        candidate: searches === 1 ? staleCandidate : candidate,
+        score: 0.97,
+        freshness: 'unknown' as const,
+      }]));
+    },
+  };
+  const files: WorkspaceFilePort = {
+    canonicalizeRoot: () => Effect.succeed(ok('/repo')),
+    snapshot: () => { throw new Error('retry must not snapshot the whole repository'); },
+    observeChanges: () => { throw new Error('workspace sync owns the observation'); },
+    readExact: () => Effect.succeed(ok({ bytes: source, digest: digest as never })),
+  };
+  const artifacts: ArtifactStore = {
+    storeExact: () => Effect.succeed(ok({ handle: 'exact-current-file', digest: digest as never, sizeBytes: source.length })),
+    readRange: () => Effect.succeed(err(domainError('ARTIFACT_NOT_FOUND', 'handle', 'not used'))),
+  };
+  const semantics: SemanticAnalysisPort = {
+    definition: () => Effect.succeed(ok([])),
+    references: () => Effect.succeed(ok([])),
+    typeInfo: () => Effect.succeed(ok(undefined)),
+    diagnostics: () => Effect.succeed(ok([])),
+  };
+  const workspaceManifest = workspaceManifestFromSnapshot({
+    headRevision: 'a'.repeat(40), files: [], removedPaths: [],
+  }, 'scope-v1');
+  const state = {
+    workspaceId,
+    workspaceManifest,
+    generation: 1,
+    indexKey: 'stable-published',
+    candidateIdsByPath: new Map(),
+  };
+  const delta = { changed: [], added: [], deleted: [], renamed: [], scopeChanged: false };
+  const workspaceSync = {
+    initialize: () => Effect.succeed(ok(state)),
+    refresh: () => Effect.succeed(ok({ state, delta, refreshed: false })),
+    refreshExact: (paths: readonly string[]) => {
+      exactRefreshes += 1;
+      assert.deepEqual(paths, [candidate.repoPath]);
+      return Effect.succeed(ok({ state, delta, refreshed: false }));
+    },
+  };
+  let config: Parameters<typeof makeQdrantContextProvider>[0];
+  const reconcile = () => {
+    reconciles += 1;
+    return Effect.succeed(ok(config));
+  };
+  config = {
+    workspaceId, rootPath: '/repo', files, qdrant,
+    embeddings: { embedMany: () => Effect.succeed(ok([[0.2, 0.7]])) },
+    artifacts, semantics,
+    workspaceManifest, workspaceSync, reconcile, qdrantStableCollection: true,
+    newRequestId: () => 'initial-stale-retry',
+  };
+  const result = mustOk(await Effect.runPromise(makeQdrantContextProvider(config).search({
+    workspaceId, query: 'reconnect', includeDocs: false, includeMemory: false,
+  })));
+  assert.equal(searches, 2, 'initial stale hit should cause exactly one retry');
+  assert.equal(exactRefreshes, 1);
+  assert.equal(reconciles, 1);
+  assert.ok(result.evidence.some((item) => item.sourceDigest === candidate.sourceDigest
+    && item.freshness === 'current'));
+});
