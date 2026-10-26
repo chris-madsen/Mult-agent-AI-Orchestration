@@ -10,7 +10,7 @@ import {
   type WorkspaceManifest,
   type WorkspaceManifestDelta,
 } from '../domain/workspace-manifest.js';
-import type { RepoPath, WorkspaceId } from '../domain/workspace.js';
+import type { RepoPath, WorkingContext, WorkspaceId } from '../domain/workspace.js';
 
 export interface WorkspaceSyncState {
   readonly workspaceId: WorkspaceId;
@@ -26,6 +26,7 @@ export interface WorkspaceSyncRefreshResult {
   readonly state: WorkspaceSyncState;
   readonly delta: WorkspaceSyncDelta;
   readonly refreshed: boolean;
+  readonly workingContext?: WorkingContext;
 }
 
 export interface WorkspaceSyncRebuildInput {
@@ -46,6 +47,7 @@ export interface WorkspaceSyncProbe {
   readonly changed: boolean;
   readonly manifest?: WorkspaceManifest;
   readonly delta?: WorkspaceSyncDelta;
+  readonly workingContext?: WorkingContext;
 }
 
 export interface WorkspaceSyncObservedManifest {
@@ -138,6 +140,14 @@ export const observeWorkspaceManifest = (
     changed: manifest.headRevision !== current.headRevision || deltaHasChanges(delta),
     manifest,
     delta,
+    workingContext: {
+      headRevision: observation.value.headRevision,
+      ...(observation.value.branch === undefined ? {} : { branch: observation.value.branch }),
+      stagedPaths: observation.value.stagedPaths ?? [],
+      unstagedPaths: observation.value.unstagedPaths ?? [],
+      untrackedPaths: observation.value.untrackedPaths ?? [],
+      deletedPaths: observation.value.deletedPaths,
+    },
   });
 });
 
@@ -163,6 +173,7 @@ export const makeWorkspaceSync = (options: WorkspaceSyncOptions): WorkspaceSync 
           state: active,
           delta: emptyDelta(),
           refreshed: false,
+          ...(probe.value.workingContext === undefined ? {} : { workingContext: probe.value.workingContext }),
         });
       }
       if (probe.value.manifest === undefined) {
@@ -174,7 +185,12 @@ export const makeWorkspaceSync = (options: WorkspaceSyncOptions): WorkspaceSync 
         if (active.workspaceManifest.headRevision !== manifest.headRevision) {
           active = { ...active, workspaceManifest: manifest };
         }
-        return ok({ state: active, delta, refreshed: false });
+        return ok({
+          state: active,
+          delta,
+          refreshed: false,
+          ...(probe.value.workingContext === undefined ? {} : { workingContext: probe.value.workingContext }),
+        });
       }
       const rebuilt = await Effect.runPromise(options.rebuild({
         previous: active,
@@ -190,7 +206,12 @@ export const makeWorkspaceSync = (options: WorkspaceSyncOptions): WorkspaceSync 
         ));
       }
       active = rebuilt.value;
-      return ok({ state: active, delta, refreshed: true });
+      return ok({
+        state: active,
+        delta,
+        refreshed: true,
+        ...(probe.value.workingContext === undefined ? {} : { workingContext: probe.value.workingContext }),
+      });
     })),
   };
 };

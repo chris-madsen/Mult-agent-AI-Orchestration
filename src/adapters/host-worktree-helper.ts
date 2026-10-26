@@ -285,10 +285,17 @@ const parseChangeObservation = (value: HostWorktreeValue): Result<WorkspaceChang
   const added = parsePaths(raw.addedPaths);
   const deleted = parsePaths(raw.deletedPaths);
   const untracked = raw.untrackedPaths === undefined ? ok<RepoPath[]>([]) : parsePaths(raw.untrackedPaths);
+  const staged = raw.stagedPaths === undefined ? ok<RepoPath[]>([]) : parsePaths(raw.stagedPaths);
+  const unstaged = raw.unstagedPaths === undefined ? ok<RepoPath[]>([]) : parsePaths(raw.unstagedPaths);
   if (changed._tag === 'Err') return changed;
   if (added._tag === 'Err') return added;
   if (deleted._tag === 'Err') return deleted;
   if (untracked._tag === 'Err') return untracked;
+  if (staged._tag === 'Err') return staged;
+  if (unstaged._tag === 'Err') return unstaged;
+  if (raw.branch !== undefined && typeof raw.branch !== 'string') {
+    return err(domainError('INVALID_EXTERNAL_RESPONSE', 'observe_changes.branch', 'branch must be a string'));
+  }
   if (!Array.isArray(raw.renamed)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'observe_changes.renamed', 'renamed paths must be an array'));
   const renamed: WorkspaceChangeObservation['renamed'][number][] = [];
   for (const item of raw.renamed) {
@@ -305,6 +312,9 @@ const parseChangeObservation = (value: HostWorktreeValue): Result<WorkspaceChang
     deletedPaths: deleted.value,
     renamed,
     untrackedPaths: untracked.value,
+    stagedPaths: staged.value,
+    unstagedPaths: unstaged.value,
+    ...(typeof raw.branch === 'string' && raw.branch.length > 0 ? { branch: raw.branch } : {}),
   });
 };
 

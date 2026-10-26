@@ -157,7 +157,12 @@ const observeGitChanges = async (
       ] as const
       : [['diff', '--name-status', '-z', '-M', 'HEAD']] as const;
     const outputs = await Promise.all(ranges.map((args) => execFileAsync('git', [...args], { cwd: rootPath, encoding: 'utf8' })));
-    const untracked = await gitList(rootPath, ['ls-files', '--others', '--exclude-standard', '-z']);
+    const [untracked, staged, unstaged, branchResult] = await Promise.all([
+      gitList(rootPath, ['ls-files', '--others', '--exclude-standard', '-z']),
+      gitList(rootPath, ['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMRT']),
+      gitList(rootPath, ['diff', '--name-only', '-z', '--diff-filter=ACMRT']),
+      execFileAsync('git', ['branch', '--show-current'], { cwd: rootPath, encoding: 'utf8' }),
+    ]);
     const parsed: GitNameStatus[] = [];
     for (const output of outputs) {
       const result = parseGitNameStatus(output.stdout);
@@ -189,7 +194,12 @@ const observeGitChanges = async (
       added.add(repoPath.value);
     }
     const untrackedPaths = gitPaths(untracked);
+    const stagedPaths = gitPaths(staged);
+    const unstagedPaths = gitPaths(unstaged);
     if (untrackedPaths._tag === 'Err') return untrackedPaths;
+    if (stagedPaths._tag === 'Err') return stagedPaths;
+    if (unstagedPaths._tag === 'Err') return unstagedPaths;
+    const branch = branchResult.stdout.trim();
     return ok({
       headRevision,
       changedPaths: [...changed].sort(),
@@ -197,6 +207,9 @@ const observeGitChanges = async (
       deletedPaths: [...deleted].sort(),
       renamed: renamed.sort((left, right) => left.from.localeCompare(right.from)),
       untrackedPaths: untrackedPaths.value,
+      stagedPaths: stagedPaths.value,
+      unstagedPaths: unstagedPaths.value,
+      ...(branch.length === 0 ? {} : { branch }),
     });
   } catch {
     return errorResult('SNAPSHOT_FAILED', 'git', 'Git change observation failed');

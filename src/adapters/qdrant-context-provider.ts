@@ -887,6 +887,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
         if (activeConfig.workspaceSync !== undefined) {
           const refreshed = yield* activeConfig.workspaceSync.refresh();
           if (refreshed._tag === 'Err') return refreshed;
+          requestWorkingContext = refreshed.value.workingContext;
           if (refreshed.value.refreshed) {
             if (activeConfig.reconcile === undefined) {
               return err(domainError(

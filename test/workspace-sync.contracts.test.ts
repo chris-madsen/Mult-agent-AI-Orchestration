@@ -184,6 +184,10 @@ test('changed-path observation exact-reads only affected files and does not rebu
         addedPaths: [],
         deletedPaths: [],
         renamed: [],
+        stagedPaths: [path('src/one.ts')],
+        unstagedPaths: [],
+        untrackedPaths: [],
+        branch: 'main',
       }));
     },
     readExact: (_root, repoPath) => {
@@ -198,6 +202,8 @@ test('changed-path observation exact-reads only affected files and does not rebu
   if (observed._tag === 'Ok') {
     assert.equal(observed.value.changed, false);
     assert.deepEqual(observed.value.delta?.changed, []);
+    assert.deepEqual(observed.value.workingContext?.stagedPaths, [path('src/one.ts')]);
+    assert.equal(observed.value.workingContext?.branch, 'main');
   }
   assert.equal(reads, 1);
 });
