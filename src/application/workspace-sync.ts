@@ -2,7 +2,7 @@ import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import type { CandidateId, RankedCandidate } from '../domain/retrieval.js';
-import type { WorkspaceFilePort } from './ports.js';
+import type { WorkspaceChangeBaseline, WorkspaceFilePort } from './ports.js';
 import {
   diffWorkspaceManifests,
   workspaceManifestEqual,
@@ -37,7 +37,10 @@ export interface WorkspaceSyncRebuildInput {
 
 export interface WorkspaceSyncOptions {
   readonly initial: WorkspaceSyncState;
-  readonly observeChanges: (current: WorkspaceSyncState) => Effect.Effect<Result<WorkspaceSyncProbe, DomainError>>;
+  readonly observeChanges: (
+    current: WorkspaceSyncState,
+    forceExactPaths?: ReadonlySet<RepoPath>,
+  ) => Effect.Effect<Result<WorkspaceSyncProbe, DomainError>>;
   readonly rebuild: (
     input: WorkspaceSyncRebuildInput,
   ) => Effect.Effect<Result<WorkspaceSyncState, DomainError>>;
@@ -58,6 +61,11 @@ export interface WorkspaceSyncObservedManifest {
 export interface WorkspaceSync {
   readonly initialize: () => Effect.Effect<Result<WorkspaceSyncState, DomainError>>;
   readonly refresh: (observed?: WorkspaceSyncObservedManifest) => Effect.Effect<Result<WorkspaceSyncRefreshResult, DomainError>>;
+  /**
+   * Run the normal full workspace observation and additionally exact-read the
+   * supplied paths even when cheap metadata did not flag them.
+   */
+  readonly refreshExact: (paths: readonly RepoPath[]) => Effect.Effect<Result<WorkspaceSyncRefreshResult, DomainError>>;
 }
 
 const candidateIdsByPath = (
@@ -87,8 +95,17 @@ export const observeWorkspaceManifest = (
   rootPath: string,
   current: WorkspaceManifest,
   includePath: (repoPath: RepoPath) => boolean = () => true,
+  forceExactPaths: ReadonlySet<RepoPath> = new Set(),
 ): Effect.Effect<Result<WorkspaceSyncProbe, DomainError>> => Effect.gen(function* () {
-  const observation = yield* files.observeChanges(rootPath, current.headRevision);
+  const baseline: WorkspaceChangeBaseline = {
+    headRevision: current.headRevision,
+    files: current.files.map((file) => ({
+      repoPath: file.repoPath,
+      sizeBytes: file.sizeBytes,
+      ...(file.mtimeMs === undefined ? {} : { mtimeMs: file.mtimeMs }),
+    })),
+  };
+  const observation = yield* files.observeChanges(rootPath, baseline);
   if (observation._tag === 'Err') return observation;
 
   const byPath = new Map(current.files.map((file) => [file.repoPath, { ...file }] as const));
@@ -110,6 +127,7 @@ export const observeWorkspaceManifest = (
     ...observation.value.changedPaths,
     ...observation.value.addedPaths,
     ...observation.value.renamed.map((entry) => entry.to),
+    ...forceExactPaths,
   ]);
 
   for (const repoPath of [...toRead].sort()) {
@@ -124,7 +142,10 @@ export const observeWorkspaceManifest = (
     byPath.set(repoPath, {
       repoPath,
       sourceDigest: exact.value.digest,
-      sizeBytes: exact.value.bytes.byteLength,
+      sizeBytes: exact.value.sizeBytes ?? exact.value.bytes.byteLength,
+      ...(exact.value.mtimeMs === undefined
+        ? (prior?.mtimeMs === undefined ? {} : { mtimeMs: prior.mtimeMs })
+        : { mtimeMs: exact.value.mtimeMs }),
       state: untracked.has(repoPath) ? 'untracked' : prior?.state ?? renameState.get(repoPath) ?? 'tracked',
     });
   }
@@ -161,61 +182,79 @@ export const makeWorkspaceSync = (options: WorkspaceSyncOptions): WorkspaceSync 
     return run;
   };
 
-  return {
-    initialize: () => Effect.succeed(ok(active)),
-    refresh: (provided) => Effect.promise(() => enqueue<WorkspaceSyncRefreshResult>(async () => {
-      const probe: Result<WorkspaceSyncProbe, DomainError> = provided === undefined
-        ? await Effect.runPromise(options.observeChanges(active))
-        : ok<WorkspaceSyncProbe>({
-          changed: true,
-          manifest: provided.manifest,
-          ...(provided.delta === undefined ? {} : { delta: provided.delta }),
-        });
-      if (probe._tag === 'Err') return probe;
-      if (!probe.value.changed) {
-        return ok({
-          state: active,
-          delta: emptyDelta(),
-          refreshed: false,
-          ...(probe.value.workingContext === undefined ? {} : { workingContext: probe.value.workingContext }),
-        });
-      }
-      if (probe.value.manifest === undefined) {
-        return err(domainError('NOT_READY', 'workspace_manifest', 'changed workspace has no authoritative manifest'));
-      }
-      const manifest = probe.value.manifest;
-      const delta = probe.value.delta ?? diffWorkspaceManifests(active.workspaceManifest, manifest);
-      if (workspaceManifestEqual(active.workspaceManifest, manifest)) {
-        if (active.workspaceManifest.headRevision !== manifest.headRevision) {
-          active = { ...active, workspaceManifest: manifest };
+  const refreshInternal = (
+    provided: WorkspaceSyncObservedManifest | undefined,
+    forceExactPaths?: ReadonlySet<RepoPath>,
+  ): Effect.Effect<Result<WorkspaceSyncRefreshResult, DomainError>> => Effect.promise(() => enqueue<WorkspaceSyncRefreshResult>(async () => {
+    const probe: Result<WorkspaceSyncProbe, DomainError> = provided === undefined
+      ? await Effect.runPromise(options.observeChanges(active, forceExactPaths))
+      : ok<WorkspaceSyncProbe>({
+        changed: true,
+        manifest: provided.manifest,
+        ...(provided.delta === undefined ? {} : { delta: provided.delta }),
+      });
+    if (probe._tag === 'Err') return probe;
+    if (!probe.value.changed) {
+      if (probe.value.manifest !== undefined) {
+        if (!workspaceManifestEqual(active.workspaceManifest, probe.value.manifest)) {
+          return err(domainError(
+            'WORKTREE_RACED',
+            'workspace_manifest',
+            'workspace observer reported no change with a different source identity',
+          ));
         }
-        return ok({
-          state: active,
-          delta,
-          refreshed: false,
-          ...(probe.value.workingContext === undefined ? {} : { workingContext: probe.value.workingContext }),
-        });
+        // Advance cheap mtime/size/state observation metadata without rebuilding.
+        active = { ...active, workspaceManifest: probe.value.manifest };
       }
-      const rebuilt = await Effect.runPromise(options.rebuild({
-        previous: active,
-        nextManifest: manifest,
-        delta,
-      }));
-      if (rebuilt._tag === 'Err') return rebuilt;
-      if (!workspaceManifestEqual(rebuilt.value.workspaceManifest, manifest)) {
-        return err(domainError(
-          'WORKTREE_RACED',
-          'workspace_manifest',
-          'workspace changed while rebuilding synchronized context',
-        ));
-      }
-      active = rebuilt.value;
+      return ok({
+        state: active,
+        delta: emptyDelta(),
+        refreshed: false,
+        ...(probe.value.workingContext === undefined ? {} : { workingContext: probe.value.workingContext }),
+      });
+    }
+    if (probe.value.manifest === undefined) {
+      return err(domainError('NOT_READY', 'workspace_manifest', 'changed workspace has no authoritative manifest'));
+    }
+    const manifest = probe.value.manifest;
+    const delta = probe.value.delta ?? diffWorkspaceManifests(active.workspaceManifest, manifest);
+    if (workspaceManifestEqual(active.workspaceManifest, manifest)) {
+      // Source identity is unchanged. Always advance cheap observation metadata
+      // (HEAD, mtime/size and tracked/untracked state) so the next refresh does
+      // not rediscover the same metadata-only transition.
+      active = { ...active, workspaceManifest: manifest };
       return ok({
         state: active,
         delta,
-        refreshed: true,
+        refreshed: false,
         ...(probe.value.workingContext === undefined ? {} : { workingContext: probe.value.workingContext }),
       });
-    })),
+    }
+    const rebuilt = await Effect.runPromise(options.rebuild({
+      previous: active,
+      nextManifest: manifest,
+      delta,
+    }));
+    if (rebuilt._tag === 'Err') return rebuilt;
+    if (!workspaceManifestEqual(rebuilt.value.workspaceManifest, manifest)) {
+      return err(domainError(
+        'WORKTREE_RACED',
+        'workspace_manifest',
+        'workspace changed while rebuilding synchronized context',
+      ));
+    }
+    active = rebuilt.value;
+    return ok({
+      state: active,
+      delta,
+      refreshed: true,
+      ...(probe.value.workingContext === undefined ? {} : { workingContext: probe.value.workingContext }),
+    });
+  }));
+
+  return {
+    initialize: () => Effect.succeed(ok(active)),
+    refresh: (provided) => refreshInternal(provided),
+    refreshExact: (paths) => refreshInternal(undefined, new Set(paths)),
   };
 };

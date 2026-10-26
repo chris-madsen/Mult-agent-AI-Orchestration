@@ -342,16 +342,22 @@ try {
 
   const afterCrash = await reader.query('stableSnapshotSentinel stable-sentinel-v1', true);
   const afterCrashStatus = assertCurrentOrNotReady(afterCrash, 'src/stable.ts', 'stable-sentinel-v1');
+  const afterCrashMutable = await reader.query('mutableSnapshotSentinel mutable-sentinel-v2', true);
+  const afterCrashMutableStatus = assertCurrentOrNotReady(
+    afterCrashMutable,
+    'src/mutable.ts',
+    'mutable-sentinel-v2',
+  );
 
   restartedWriter = makeProtocolProcess('writer-c', writerState, traces.restartedWriter);
   await restartedWriter.initialize();
   const v2 = await restartedWriter.query('mutableSnapshotSentinel mutable-sentinel-v2');
   assertEvidence(v2, 'src/mutable.ts', 'mutable-sentinel-v2');
   const restartedWriterMetrics = parseStartupMetrics(restartedWriter.stderr());
-  assert.notEqual(restartedWriterMetrics.collection, initialAliasTarget,
-    'changed source must publish a distinct immutable collection');
+  assert.equal(restartedWriterMetrics.collection, initialAliasTarget,
+    'changed source must mutate the stable workspace collection');
   assert.equal(await qdrantAliasTarget(restartedWriterMetrics.alias), restartedWriterMetrics.collection,
-    'restart must atomically publish the rebuilt collection through the current alias');
+    'restart must keep the current alias bound to the stable workspace collection');
 
   const afterPublish = await reader.query('stableSnapshotSentinel stable-sentinel-v1', true);
   const afterPublishStatus = assertCurrentOrNotReady(afterPublish, 'src/stable.ts', 'stable-sentinel-v1');
@@ -390,13 +396,15 @@ try {
       writerKilledAfterQdrantVerifyBeforePublish: crash.signal === 'SIGKILL' ? 'PASS' : 'FAIL',
       currentAliasStayedOnS1DuringInterruptedBuild: aliasAfterCrash === initialAliasTarget ? 'PASS' : 'FAIL',
       readerDirtyTreeOutcome: afterCrashStatus === 'complete' ? 'PASS_RECONCILED' : 'PASS_NOT_READY',
+      readerChangedPathAfterCrash: afterCrashMutableStatus === 'complete' ? 'PASS_CURRENT' : 'PASS_NOT_READY',
       restartPublishedS2: (await qdrantAliasTarget(restartedWriterMetrics.alias)) === restartedWriterMetrics.collection ? 'PASS' : 'FAIL',
       readerPostPublishOutcome: afterPublishStatus === 'complete' ? 'PASS_RECONCILED' : 'PASS_NOT_READY',
-      immutableCollectionsAreDistinct: initialAliasTarget !== restartedWriterMetrics.collection ? 'PASS' : 'FAIL',
+      stableCollectionReused: initialAliasTarget === restartedWriterMetrics.collection ? 'PASS' : 'FAIL',
     },
     requestIds: {
       readerInitial: initial.requestId,
       readerAfterCrash: afterCrash.requestId,
+      readerChangedPathAfterCrash: afterCrashMutable.requestId,
       writerV2: v2.requestId,
       readerAfterPublish: afterPublish.requestId,
     },

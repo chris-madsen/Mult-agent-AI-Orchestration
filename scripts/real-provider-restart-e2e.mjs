@@ -133,7 +133,7 @@ try {
   const second = await runOnce();
   const secondContext = second.response.result?.structuredContent;
   assert.equal(second.response.result?.isError, undefined, JSON.stringify(second.response));
-  assert.equal(secondContext.complete, true, JSON.stringify(secondContext));
+  assert.equal(secondContext.complete, true, JSON.stringify({ context: secondContext, stderr: second.stderr }));
   const secondMetrics = metricsFrom(second.stderr, 3);
   assert.notEqual(secondMetrics.sourceSnapshotDigest, firstMetrics.sourceSnapshotDigest,
     `changed source must change the authoritative snapshot digest\nfirst=${first.stderr}\nsecond=${second.stderr}`);
@@ -142,8 +142,8 @@ try {
   assert.match(second.stderr, /index_mode=rebuilt/u, 'changed source must rebuild semantic vectors');
   assert.equal(secondContext.evidence[0]?.sourceDigest, secondDigest);
   assert.notEqual(secondDigest, firstDigest);
-  assert.notEqual(secondMetrics.collection, firstMetrics.collection,
-    'changed source must publish a distinct immutable collection');
+  assert.equal(secondMetrics.collection, firstMetrics.collection,
+    'changed source must mutate the stable workspace collection');
   assert.equal(secondMetrics.alias, firstMetrics.alias);
   const aliases = await fetch(`${qdrantUrl.replace(/\/$/u, '')}/aliases`);
   const aliasesBodyText = await aliases.text();

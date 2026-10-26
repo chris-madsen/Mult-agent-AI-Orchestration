@@ -90,6 +90,48 @@ test('host workspace client independently rejects bytes that do not match helper
   if (read._tag === 'Err') assert.equal(read.error.code, 'DIGEST_MISMATCH');
 });
 
+test('host workspace client accepts explicit non-Git change observations', async () => {
+  const workspaceId = mustOk(makeWorkspaceId('workspace-non-git'));
+  const transport: HostHelperTransport = {
+    invoke: (request) => {
+      if (request.operation === 'observe_changes') {
+        return Promise.resolve(ok({
+          changeObservation: {
+            headRevision: 'unavailable',
+            changedPaths: ['src/a.ts' as never],
+            addedPaths: [],
+            deletedPaths: [],
+            renamed: [],
+            untrackedPaths: ['src/a.ts' as never],
+          },
+        }));
+      }
+      if (request.operation === 'canonicalize') {
+        return Promise.resolve(ok({ logicalRoot: '/ace-host-workspace/non-git' }));
+      }
+      if (request.operation === 'snapshot') {
+        return Promise.resolve(ok({
+          snapshot: { headRevision: 'unavailable', files: [], removedPaths: [], gitStatus: 'not_repository' },
+        }));
+      }
+      return Promise.resolve(ok({
+        bytesBase64: Buffer.from('x').toString('base64'),
+        digest: createHash('sha256').update('x').digest('hex'),
+      }));
+    },
+  };
+  const files = makeHostWorkspacePort(workspaceId, transport);
+  const observed = await Effect.runPromise(files.observeChanges('/ignored', {
+    headRevision: 'unavailable',
+    files: [],
+  }));
+  assert.equal(observed._tag, 'Ok');
+  if (observed._tag === 'Ok') {
+    assert.equal(observed.value.headRevision, 'unavailable');
+    assert.deepEqual(observed.value.changedPaths, ['src/a.ts']);
+  }
+});
+
 test('host helper transport refuses plaintext HTTP before reading TLS credentials', async () => {
   const result = await makeMtlsHostHelperTransport({
     endpoint: 'http://127.0.0.1:7443/v1/worktree',

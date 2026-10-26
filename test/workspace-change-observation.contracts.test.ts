@@ -61,13 +61,57 @@ test('NodeWorkspacePort observes changed, added, deleted, and renamed paths with
   }
 });
 
-test('NodeWorkspacePort fails closed for incremental observation outside Git', async () => {
+test('NodeWorkspacePort reconciles all prior paths once when a non-Git workspace becomes Git', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-workspace-git-transition-'));
+  try {
+    await mkdir(join(root, 'src'), { recursive: true });
+    await writeFile(join(root, 'src', 'one.ts'), 'export const one = 1;\n');
+    const port = makeNodeWorkspacePort({ allowedRoots: [root] });
+    const before = await Effect.runPromise(port.snapshot(root, 1));
+    assert.equal(before._tag, 'Ok');
+    if (before._tag === 'Err') return;
+    assert.equal(before.value.headRevision, 'unavailable');
+
+    await git(root, ['init', '--quiet']);
+    await git(root, ['add', '.']);
+    await git(root, [
+      '-c', 'user.name=ACE Transition Fixture',
+      '-c', 'user.email=ace-transition@example.invalid',
+      'commit', '--quiet', '-m', 'first git snapshot',
+    ]);
+
+    const observed = await Effect.runPromise(port.observeChanges(root, {
+      headRevision: before.value.headRevision,
+      files: before.value.files.map((file) => ({
+        repoPath: file.repoPath,
+        sizeBytes: file.sizeBytes,
+        ...(file.mtimeMs === undefined ? {} : { mtimeMs: file.mtimeMs }),
+      })),
+    }));
+    assert.equal(observed._tag, 'Ok');
+    if (observed._tag === 'Err') return;
+    assert.match(observed.value.headRevision, /^[a-f0-9]{40,64}$/u);
+    assert.ok(observed.value.changedPaths.includes('src/one.ts' as never),
+      'first real Git HEAD must force exact reconciliation of pre-Git source');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('NodeWorkspacePort keeps a clean non-Git workspace as an explicit no-change observation', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ace-workspace-non-git-'));
   try {
     const port = makeNodeWorkspacePort({ allowedRoots: [root] });
     const observed = await Effect.runPromise(port.observeChanges(root));
-    assert.equal(observed._tag, 'Err');
-    assert.equal(observed.error.code, 'SNAPSHOT_FAILED');
+    assert.equal(observed._tag, 'Ok');
+    assert.deepEqual(observed.value, {
+      headRevision: 'unavailable',
+      changedPaths: [],
+      addedPaths: [],
+      deletedPaths: [],
+      renamed: [],
+      untrackedPaths: [],
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

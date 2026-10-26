@@ -11,6 +11,7 @@ export interface FileObservation {
   readonly repoPath: RepoPath;
   readonly digest: ContentDigest;
   readonly sizeBytes: number;
+  readonly mtimeMs?: number;
   readonly state: FileState;
   readonly observedAtMs: number;
 }

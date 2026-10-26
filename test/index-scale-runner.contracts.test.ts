@@ -13,7 +13,8 @@ test('real index scale runner is syntactically valid and preserves the productio
   assert.doesNotMatch(script, /ACE_ALLOW_LOCAL_FALLBACK/u);
   assert.match(script, /phase: 'cold'|runOnce\(workspace, state, workspaceId, 'cold'\)/u);
   assert.match(script, /runOnce\(workspace, state, workspaceId, 'warm'\)/u);
-  assert.match(script, /runOnce\(workspace, state, workspaceId, 'change-only'\)/u);
+  assert.match(script, /runOnce\(workspace, state, workspaceId, 'change-only', async \(\) =>/u);
+  assert.match(script, /if \(beforeQuery !== undefined\) await beforeQuery\(\)/u);
   assert.match(script, /const stopChild = async/u);
   assert.match(script, /await stopChild\(\)/u);
   assert.match(script, /maxRetries: 10/u);
@@ -42,9 +43,11 @@ test('scale runner records machine-readable timing/cache/delta metrics without c
   const script = await readFile('scripts/index-scale-e2e.mjs', 'utf8');
   for (const token of [
     'elapsedMs',
+    'requestElapsedMs',
     'reusedVectors',
     'warmReuseVerified',
     'changeOnlyMeasured',
+    'changeOnlyRequestLatencyMeasured',
   ]) assert.ok(script.includes(token), token);
   assert.match(script, /Production acceptance still requires/u);
 });

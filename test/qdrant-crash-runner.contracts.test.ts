@@ -19,17 +19,20 @@ test('real Qdrant crash runner is syntactically valid and uses the production AC
   ]) assert.ok(script.includes(token), token);
 });
 
-test('interrupted-writer runner proves alias-not-switched recovery and active S1 survival', async () => {
+test('interrupted-writer runner proves stable-collection freshness and restart recovery', async () => {
   const script = await readFile('scripts/qdrant-snapshot-crash-e2e.mjs', 'utf8');
   assert.match(script, /currentAliasStayedOnS1DuringInterruptedBuild/u);
   assert.match(script, /restartPublishedS2/u);
   assert.match(script, /reader\.query\('stableSnapshotSentinel stable-sentinel-v1'\)/u);
   assert.match(script, /reader\.query\('stableSnapshotSentinel stable-sentinel-v1', true\)/u);
+  assert.match(script, /reader\.query\('mutableSnapshotSentinel mutable-sentinel-v2', true\)/u);
   assert.match(script, /readerDirtyTreeOutcome/u);
+  assert.match(script, /readerChangedPathAfterCrash/u);
   assert.match(script, /readerPostPublishOutcome/u);
   assert.match(script, /restartedWriter\.query\('mutableSnapshotSentinel mutable-sentinel-v2'\)/u);
   assert.match(script, /current alias/u);
-  assert.match(script, /immutableCollectionsAreDistinct/u);
+  assert.match(script, /stable workspace collection/u);
+  assert.match(script, /stableCollectionReused/u);
 });
 
 test('runtime failpoint is double-opt-in and release config capture refuses failpoint environments', async () => {
