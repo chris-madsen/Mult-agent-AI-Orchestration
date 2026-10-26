@@ -48,7 +48,6 @@ import {
   lspLanguageIdForPath,
   makeLspSemanticAnalysisPort,
   resolveLspProviderIdentity,
-  type LspSemanticSession,
 } from '../adapters/lsp-semantic.js';
 import { buildRepoMapDelta } from '../adapters/repo-map-structural.js';
 import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
@@ -78,7 +77,7 @@ import { makeMcpGateway, type CapabilityReadiness } from '../gateway/mcp-gateway
 import { makeContextTransformService } from '../application/context-transform-service.js';
 import { makeContextAssembler } from '../application/context-assembler.js';
 import { makeRepoMapService } from '../application/repo-map-service.js';
-import { makeLspServerRegistry, type LspRegistryLease } from '../application/lsp/server-registry.js';
+import { makeLspServerRegistry } from '../application/lsp/server-registry.js';
 import { makeGatewayProjectionService } from '../application/gateway-projection-service.js';
 import { runContextBridgeStdio } from '../transport/context-bridge-stdio.js';
 import { runGatewayProjectionHttp } from '../transport/gateway-projection-http.js';
@@ -326,14 +325,7 @@ const main = async (): Promise<void> => {
   let memory: MemorySearchPort | undefined;
   let closeMemory: (() => Promise<void>) | undefined;
   let closeSemantics: (() => void) | undefined;
-  let semanticSession: LspSemanticSession | undefined;
-  let semanticLease: LspRegistryLease<LspSemanticSession> | undefined;
   const lspRegistry = makeLspServerRegistry();
-  const releaseSemanticLease = (): void => {
-    semanticLease?.release();
-    semanticLease = undefined;
-    semanticSession = undefined;
-  };
   let closeReranker: (() => void) | undefined;
   let closeSparseEmbeddings: (() => void) | undefined;
   if (process.env.ACE_ENABLE_GRAPHITI === 'true') {
@@ -744,38 +736,32 @@ const main = async (): Promise<void> => {
               packageLockIdentity,
               providerIdentity: `${lspCommand}|${semanticProviderVersion}|${lspProviderIdentity?._tag === 'Ok' ? lspProviderIdentity.value.fingerprint : 'unverified'}`,
             });
-            if (semanticSession !== undefined) {
-              const refreshed = await Effect.runPromise(semanticSession.refresh(sourceFiles.value, semanticIdentity));
-              if (refreshed._tag === 'Err') {
-                releaseSemanticLease();
-                semanticSession = undefined;
-              }
-            }
-            if (semanticSession === undefined) {
-              const key = JSON.stringify({
-                workspace: registered.value.workspaceId,
-                rootPath: registered.value.rootPath,
-                command: lspCommand,
-                args: lspArgs,
-                serverName: lspServerName,
-                languageIds: lspLanguageIds ?? null,
-              });
-              const acquired = await Effect.runPromise(lspRegistry.acquire(key, () => makeLspSemanticAnalysisPort({
-                command: lspCommand,
-                args: lspArgs,
-                serverName: lspServerName,
-                rootPath: registered.value.rootPath,
-                files: sourceFiles.value,
-                ...(lspLanguageIds === undefined ? {} : { languageIds: lspLanguageIds }),
-                providerVersion: semanticProviderVersion,
-                snapshotIdentity: semanticIdentity,
-                trace: providerTrace,
-              })));
-              if (acquired._tag === 'Err') return acquired;
-              semanticLease = acquired.value;
-              semanticSession = acquired.value.session;
-            }
-            const semantics = semanticSession;
+            // Stage an immutable LSP generation. Refreshing the *published*
+            // server before the manifest/Qdrant commit can invalidate live
+            // requests and even close the new session on failed publication.
+            const key = JSON.stringify({
+              workspace: registered.value.workspaceId,
+              rootPath: registered.value.rootPath,
+              command: lspCommand,
+              args: lspArgs,
+              serverName: lspServerName,
+              languageIds: lspLanguageIds ?? null,
+              snapshotIdentity: semanticIdentity,
+            });
+            const acquired = await Effect.runPromise(lspRegistry.acquire(key, () => makeLspSemanticAnalysisPort({
+              command: lspCommand,
+              args: lspArgs,
+              serverName: lspServerName,
+              rootPath: registered.value.rootPath,
+              files: sourceFiles.value,
+              ...(lspLanguageIds === undefined ? {} : { languageIds: lspLanguageIds }),
+              providerVersion: semanticProviderVersion,
+              snapshotIdentity: semanticIdentity,
+              trace: providerTrace,
+            })));
+            if (acquired._tag === 'Err') return acquired;
+            const semanticLease = acquired.value;
+            const semantics = semanticLease.session;
             const firstLspPath = build.indexedPaths.find((repoPath) => lspLanguageIdForPath(repoPath, lspLanguageIds) !== undefined);
             let lspReady = lspProviderIdentity?._tag === 'Ok' && firstLspPath !== undefined;
             if (firstLspPath !== undefined && lspProviderIdentity?._tag === 'Ok') {
@@ -820,20 +806,20 @@ const main = async (): Promise<void> => {
                 retrievalRelevantPath,
               ));
               if (verificationProbe._tag === 'Err') {
-                releaseSemanticLease();
+                semanticLease.release();
                 return verificationProbe;
               }
               finalManifest = verificationProbe.value.manifest ?? build.workspaceManifest;
             } else {
               const finalSnapshot = await Effect.runPromise(files.snapshot(registered.value.rootPath, Date.now()));
               if (finalSnapshot._tag === 'Err') {
-                releaseSemanticLease();
+                semanticLease.release();
                 return finalSnapshot;
               }
               finalManifest = workspaceManifestFromSnapshot(finalSnapshot.value, scopeFingerprint);
             }
             if (!workspaceManifestEqual(build.workspaceManifest, finalManifest)) {
-              releaseSemanticLease();
+              semanticLease.release();
               return err(domainError('WORKTREE_RACED', 'workspace_manifest', 'workspace changed while assembling the semantic snapshot'));
             }
             semanticSnapshot = { files: sourceFiles.value, manifest: build.fileManifest };
@@ -867,7 +853,7 @@ const main = async (): Promise<void> => {
                 qdrantClient,
                 true, // stable physical membership permits mixed index_key values after changed-path publication
               ));
-            if (indexed._tag === 'Err') { releaseSemanticLease(); return indexed; }
+            if (indexed._tag === 'Err') { semanticLease.release(); return indexed; }
             process.stderr.write(`ace-mcp qdrant candidate verified workspace_id=${registered.value.workspaceId} index_key=${sourceKey} collection=${collection} alias=${currentAlias} reused_vectors=${indexed.value.reusedVectorCount}\n`);
             if (runtimeTestFailpoint === 'after_qdrant_verify_before_publish') {
               process.stderr.write('ace test failpoint reached name=after_qdrant_verify_before_publish\n');
@@ -878,7 +864,7 @@ const main = async (): Promise<void> => {
               http, qdrantUrl, currentAlias, collection, qdrantAllowedHosts, qdrantClient,
             ));
             if (switched._tag === 'Err') {
-              releaseSemanticLease();
+              semanticLease.release();
               return switched;
             }
             const qdrant = makeQdrantCodeCandidatePort({
@@ -891,7 +877,7 @@ const main = async (): Promise<void> => {
               trace: providerTrace,
             });
             const oldCloseSemantics = closeSemantics;
-            closeSemantics = releaseSemanticLease;
+            closeSemantics = semanticLease.release;
             if (oldCloseSemantics !== undefined) oldCloseSemantics();
             readiness.semantic_lsp = lspReady
               ? { state: 'ready', reason: 'real_lsp_provider_preflight_passed' }
