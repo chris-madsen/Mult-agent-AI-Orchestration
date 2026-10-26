@@ -33,3 +33,23 @@ test('LSP registry lazily starts one session, reference-counts leases, and close
   await Effect.runPromise(registry.close());
   assert.equal(counters.closes, 1);
 });
+
+
+test('LSP registry shutdown closes a leased session once even if leases release later', async () => {
+  const counters = { starts: 0, closes: 0 };
+  const registry = makeLspServerRegistry();
+  const first = await Effect.runPromise(registry.acquire('workspace|typescript', () => session(counters)));
+  const second = await Effect.runPromise(registry.acquire('workspace|typescript', () => session(counters)));
+  assert.equal(first._tag, 'Ok');
+  assert.equal(second._tag, 'Ok');
+  await Effect.runPromise(registry.close());
+  assert.equal(counters.closes, 1);
+  if (first._tag === 'Ok' && second._tag === 'Ok') {
+    first.value.release();
+    second.value.release();
+    first.value.release();
+  }
+  await Effect.runPromise(registry.close());
+  assert.equal(counters.closes, 1);
+  assert.equal(counters.starts, 1);
+});
