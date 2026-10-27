@@ -1751,7 +1751,7 @@ test('deleted source must have zero remaining physical Qdrant points', async () 
 });
 
 
-test('stable warm reuse rejects a falsely successful workspace cleanup', async () => {
+test('stable warm reuse verifies cleanup instead of trusting a successful acknowledgement', async () => {
   const index = mustOk(createCodeIndex(2, [candidate]));
   let cleanups = 0;
   let scrolls = 0;
@@ -1787,8 +1787,8 @@ test('stable warm reuse rejects a falsely successful workspace cleanup', async (
     [], true, undefined, undefined, undefined, undefined, sdk(http), true,
   ));
   assert.equal(result._tag, 'Err');
-  assert.equal(cleanups, 0, 'stable reuse must not invoke workspace-wide version cleanup');
-  assert.equal(scrolls, 2, 'current-key and physical membership must be checked before refusing unsafe cleanup');
+  assert.equal(cleanups, 1, 'exact current-key membership makes older workspace versions safe to prune');
+  assert.equal(scrolls, 2, 'cleanup acknowledgement must be followed by unfiltered physical verification');
 });
 
 test('stable cold rebuild removes stale workspace leftovers after full current publication', async () => {
