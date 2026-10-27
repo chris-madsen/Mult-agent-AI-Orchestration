@@ -275,30 +275,12 @@ export const resolveQdrantAlias = (
   if (!/^[a-zA-Z0-9_.-]{1,255}$/u.test(alias)) {
     return err(domainError('INVALID_INPUT', 'qdrant_alias', 'Qdrant alias name is invalid'));
   }
-  if (client !== undefined) {
-    const listed = yield* qdrantSdkCall(() => client.getAliases());
-    if (listed._tag === 'Err') return listed;
-    const aliases = (listed.value as { aliases?: unknown }).aliases;
-    if (!Array.isArray(aliases)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_alias', 'Qdrant SDK alias response is malformed'));
-    const target = aliases.find((item) =>
-      typeof item === 'object' && item !== null && !Array.isArray(item)
-      && (item as { alias_name?: unknown }).alias_name === alias);
-    if (target === undefined) return ok(undefined);
-    const collection = (target as { collection_name?: unknown }).collection_name;
-    return typeof collection === 'string' && /^[a-zA-Z0-9_.-]{1,255}$/u.test(collection)
-      ? ok(collection)
-      : err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_alias', 'Qdrant SDK alias target is malformed'));
-  }
-  const listed = yield* http.request({ method: 'GET', url: `${endpoint.value}/aliases` });
+  if (client === undefined) return err(domainError('NOT_READY', 'qdrant_alias', 'official Qdrant SDK client is required'));
+  const listed = yield* qdrantSdkCall(() => client.getAliases());
   if (listed._tag === 'Err') return listed;
-  if (listed.value.status < 200 || listed.value.status >= 300) {
-    return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant_alias', 'could not inspect Qdrant aliases'));
-  }
-  const body = listed.value.body as { result?: { aliases?: unknown } };
-  if (!Array.isArray(body.result?.aliases)) {
-    return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_alias', 'Qdrant alias response is malformed'));
-  }
-  const target = body.result.aliases.find((item) =>
+  const aliases = (listed.value as { aliases?: unknown }).aliases;
+  if (!Array.isArray(aliases)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_alias', 'Qdrant SDK alias response is malformed'));
+  const target = aliases.find((item) =>
     typeof item === 'object' && item !== null && !Array.isArray(item)
     && (item as { alias_name?: unknown }).alias_name === alias);
   if (target === undefined) return ok(undefined);
@@ -500,22 +482,9 @@ export const probeQdrantService = (
 ): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
   const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
   if (endpoint._tag === 'Err') return endpoint;
-  if (client !== undefined) {
-    const listed = yield* qdrantSdkCall(() => client.getCollections());
-    return listed._tag === 'Ok' ? ok(undefined) : listed;
-  }
-  const response = yield* http.request({
-    method: 'GET',
-    url: endpoint.value + '/collections',
-  });
-  if (response._tag === 'Err') return response;
-  return response.value.status >= 200 && response.value.status < 300
-    ? ok(undefined)
-    : err(domainError(
-      'EXTERNAL_UNAVAILABLE',
-      'qdrant',
-      'Qdrant service probe failed: HTTP ' + response.value.status,
-    ));
+  if (client === undefined) return err(domainError('NOT_READY', 'qdrant', 'official Qdrant SDK client is required'));
+  const listed = yield* qdrantSdkCall(() => client.getCollections());
+  return listed._tag === 'Ok' ? ok(undefined) : listed;
 });
 
 // Collection bootstrap never replaces an existing collection. After a successful
@@ -536,8 +505,6 @@ export const ensureQdrantCollection = (
   if (!Number.isSafeInteger(dimension) || dimension < 1) {
     return err(domainError('INVALID_INPUT', 'vector_dimension', 'invalid embedding dimension'));
   }
-  const url = endpoint.value + '/collections/' + encodeURIComponent(collection);
-  const headers = apiKey === undefined ? {} : { 'api-key': apiKey };
   const verifyExisting = (body: unknown): Result<void, DomainError> => {
     const outer = typeof body === 'object' && body !== null && !Array.isArray(body)
       ? body as Record<string, unknown> : {};
@@ -570,56 +537,23 @@ export const ensureQdrantCollection = (
           : 'collection schema must expose dense cosine vectors and IDF-modified sparse vectors',
       ));
   };
-  if (client !== undefined) {
-    const found = yield* qdrantSdkCall(() => client.getCollection(collection));
-    if (found._tag === 'Ok') return verifyExisting(found.value);
-    if (!/\b404\b|not found/iu.test(found.error.message)) return found;
-    const created = yield* qdrantSdkCall(() => client.createCollection(collection, {
-      vectors: { dense: { size: dimension, distance: 'Cosine' } },
-      ...(mode === 'dense' ? {} : { sparse_vectors: { sparse: { modifier: 'idf' } } }),
-    } as Parameters<QdrantClient['createCollection']>[1]));
-    if (created._tag === 'Ok') return ok(undefined);
+  if (client === undefined) return err(domainError('NOT_READY', 'qdrant', 'official Qdrant SDK client is required'));
+  const found = yield* qdrantSdkCall(() => client.getCollection(collection));
+  if (found._tag === 'Ok') return verifyExisting(found.value);
+  if (!/\b404\b|not found/iu.test(found.error.message)) return found;
+  const created = yield* qdrantSdkCall(() => client.createCollection(collection, {
+    vectors: { dense: { size: dimension, distance: 'Cosine' } },
+    ...(mode === 'dense' ? {} : { sparse_vectors: { sparse: { modifier: 'idf' } } }),
+  } as Parameters<QdrantClient['createCollection']>[1]));
+  if (created._tag === 'Ok') return ok(undefined);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
     const raced = yield* qdrantSdkCall(() => client.getCollection(collection));
-    return raced._tag === 'Ok' ? verifyExisting(raced.value) : raced;
+    if (raced._tag === 'Ok') return verifyExisting(raced.value);
+    const transient = /\b404\b|\b409\b|\b500\b|internal server error/iu.test(raced.error.message);
+    if (!transient || attempt === 4) return raced;
+    yield* Effect.sleep('100 millis');
   }
-  const found = yield* http.request({ method: 'GET', url, headers });
-  if (found._tag === 'Err') return found;
-  if (found.value.status === 200) {
-    return verifyExisting(found.value.body);
-  }
-  if (found.value.status !== 404) {
-    return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'cannot inspect collection: HTTP ' + found.value.status));
-  }
-  const created = yield* http.request({
-    method: 'PUT',
-    url,
-    headers,
-    body: {
-      vectors: { dense: { size: dimension, distance: 'Cosine' } },
-      ...(mode === 'dense' ? {} : { sparse_vectors: { sparse: { modifier: 'idf' } } }),
-    },
-  });
-  if (created._tag === 'Err') return created;
-  if (created.value.status >= 200 && created.value.status < 300) return ok(undefined);
-  if (created.value.status === 409) {
-    // Two ACE writers may both observe 404 and race to create the same
-    // content-addressed collection. Qdrant's 409 is success only after the
-    // winner's resulting schema is re-read and verified. Older Qdrant builds
-    // can briefly return 404/409/500 while the winner materializes metadata.
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const raced = yield* http.request({ method: 'GET', url, headers });
-      if (raced._tag === 'Ok' && raced.value.status === 200) return verifyExisting(raced.value.body);
-      const transient = raced._tag === 'Err'
-        || raced.value.status === 404
-        || raced.value.status === 409
-        || raced.value.status >= 500;
-      if (!transient || attempt === 4) {
-        return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not verify concurrently created collection'));
-      }
-      yield* Effect.sleep('100 millis');
-    }
-  }
-  return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not create dedicated collection'));
+  return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not verify concurrently created collection'));
 });
 
 /**
@@ -640,47 +574,22 @@ export const switchQdrantAlias = (
   if (!/^[a-zA-Z0-9_.-]{1,255}$/u.test(alias) || !/^[a-zA-Z0-9_.-]{1,255}$/u.test(collection)) {
     return err(domainError('INVALID_INPUT', 'qdrant_alias', 'Qdrant alias and collection names are invalid'));
   }
-  if (client !== undefined) {
-    const listed = yield* qdrantSdkCall(() => client.getAliases());
-    if (listed._tag === 'Err') return listed;
-    const aliases = (listed.value as { aliases?: unknown }).aliases;
-    if (!Array.isArray(aliases)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_alias', 'Qdrant SDK alias response is malformed'));
-    const existing = aliases.some((item) =>
-      typeof item === 'object' && item !== null && !Array.isArray(item)
-      && (item as { alias_name?: unknown }).alias_name === alias);
-    const actions = [
-      ...(existing ? [{ delete_alias: { alias_name: alias } }] : []),
-      { create_alias: { collection_name: collection, alias_name: alias } },
-    ];
-    const switched = yield* qdrantSdkCall(() => client.updateCollectionAliases({
-      actions,
-    } as Parameters<QdrantClient['updateCollectionAliases']>[0]));
-    return switched._tag === 'Ok' ? ok(undefined) : switched;
-  }
-  const listed = yield* http.request({ method: 'GET', url: `${endpoint.value}/aliases` });
+  if (client === undefined) return err(domainError('NOT_READY', 'qdrant_alias', 'official Qdrant SDK client is required'));
+  const listed = yield* qdrantSdkCall(() => client.getAliases());
   if (listed._tag === 'Err') return listed;
-  if (listed.value.status < 200 || listed.value.status >= 300) {
-    return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant_alias', 'could not inspect Qdrant aliases'));
-  }
-  const body = listed.value.body as { result?: { aliases?: unknown } };
-  if (!Array.isArray(body.result?.aliases)) {
-    return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_alias', 'Qdrant alias response is malformed'));
-  }
-  const existing = body.result.aliases.find((item) =>
+  const aliases = (listed.value as { aliases?: unknown }).aliases;
+  if (!Array.isArray(aliases)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_alias', 'Qdrant SDK alias response is malformed'));
+  const existing = aliases.some((item) =>
     typeof item === 'object' && item !== null && !Array.isArray(item)
     && (item as { alias_name?: unknown }).alias_name === alias);
-  const actions: Array<Readonly<Record<string, unknown>>> = [];
-  if (existing !== undefined) actions.push({ delete_alias: { alias_name: alias } });
-  actions.push({ create_alias: { collection_name: collection, alias_name: alias } });
-  const switched = yield* http.request({
-    method: 'POST',
-    url: `${endpoint.value}/collections/aliases`,
-    body: { actions },
-  });
-  if (switched._tag === 'Err') return switched;
-  return switched.value.status >= 200 && switched.value.status < 300
-    ? ok(undefined)
-    : err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant_alias', 'atomic Qdrant alias switch failed'));
+  const actions = [
+    ...(existing ? [{ delete_alias: { alias_name: alias } }] : []),
+    { create_alias: { collection_name: collection, alias_name: alias } },
+  ];
+  const switched = yield* qdrantSdkCall(() => client.updateCollectionAliases({
+    actions,
+  } as Parameters<QdrantClient['updateCollectionAliases']>[0]));
+  return switched._tag === 'Ok' ? ok(undefined) : switched;
 });
 
 /**
@@ -713,29 +622,10 @@ export const hasExactQdrantSnapshot = (
       { key: 'index_key', match: { value: indexKey } },
     ],
   };
-  if (client !== undefined) {
-    const counted = yield* qdrantSdkCall(() => client.count(collection, { exact: true, filter }));
-    if (counted._tag === 'Err') return counted;
-    const count = (counted.value as { count?: unknown }).count;
-    if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) {
-      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_count', 'invalid exact snapshot count'));
-    }
-    return ok(count === expectedCount);
-  }
-  const response = yield* http.request({
-    method: 'POST',
-    url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/count',
-    body: {
-      exact: true,
-      filter,
-    },
-  });
-  if (response._tag === 'Err') return response;
-  if (response.value.status < 200 || response.value.status >= 300) {
-    return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not verify current snapshot count'));
-  }
-  const body = response.value.body as { result?: { count?: unknown } };
-  const count = body?.result?.count;
+  if (client === undefined) return err(domainError('NOT_READY', 'qdrant_count', 'official Qdrant SDK client is required'));
+  const counted = yield* qdrantSdkCall(() => client.count(collection, { exact: true, filter }));
+  if (counted._tag === 'Err') return counted;
+  const count = (counted.value as { count?: unknown }).count;
   if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) {
     return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_count', 'invalid exact snapshot count'));
   }
@@ -820,39 +710,19 @@ export const verifyQdrantSnapshotMembership = (
   for (let page = 0; page < 10_000; page += 1) {
     let points: unknown;
     let nextPageOffset: unknown;
-    if (client !== undefined) {
-      const currentOffset = offset;
-      const scrolled = yield* qdrantSdkCall(() => client.scroll(collection, {
-        limit: 256,
-        with_payload: ['candidate_id'],
-        with_vector: false,
-        filter,
-        ...(currentOffset === undefined ? {} : { offset: currentOffset }),
-      } as Parameters<QdrantClient['scroll']>[1]));
-      if (scrolled._tag === 'Err') return scrolled;
-      const direct = scrolled.value as { points?: unknown; next_page_offset?: unknown };
-      points = direct.points;
-      nextPageOffset = direct.next_page_offset;
-    } else {
-      const response = yield* http.request({
-        method: 'POST',
-        url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/scroll',
-        body: {
-          limit: 256,
-          with_payload: ['candidate_id'],
-          with_vector: false,
-          filter,
-          ...(offset === undefined ? {} : { offset }),
-        },
-      });
-      if (response._tag === 'Err') return response;
-      if (response.value.status < 200 || response.value.status >= 300) {
-        return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not verify snapshot membership'));
-      }
-      const body = response.value.body as { result?: { points?: unknown; next_page_offset?: unknown } };
-      points = body?.result?.points;
-      nextPageOffset = body?.result?.next_page_offset;
-    }
+    if (client === undefined) return err(domainError('NOT_READY', 'qdrant_scroll', 'official Qdrant SDK client is required'));
+    const currentOffset = offset;
+    const scrolled = yield* qdrantSdkCall(() => client.scroll(collection, {
+      limit: 256,
+      with_payload: ['candidate_id'],
+      with_vector: false,
+      filter,
+      ...(currentOffset === undefined ? {} : { offset: currentOffset }),
+    } as Parameters<QdrantClient['scroll']>[1]));
+    if (scrolled._tag === 'Err') return scrolled;
+    const direct = scrolled.value as { points?: unknown; next_page_offset?: unknown };
+    points = direct.points;
+    nextPageOffset = direct.next_page_offset;
     if (!Array.isArray(points)) {
       return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'snapshot membership response must contain points'));
     }
@@ -898,39 +768,19 @@ export const readQdrantSnapshotVectors = (
   for (let page = 0; page < 10_000; page += 1) {
     let points: unknown;
     let nextPageOffset: unknown;
-    if (client !== undefined) {
-      const currentOffset = offset;
-      const scrolled = yield* qdrantSdkCall(() => client.scroll(collection, {
-        limit: 256,
-        with_payload: ['candidate_id', 'embedding_key'],
-        with_vector: true,
-        filter,
-        ...(currentOffset === undefined ? {} : { offset: currentOffset }),
-      } as Parameters<QdrantClient['scroll']>[1]));
-      if (scrolled._tag === 'Err') return scrolled;
-      const direct = scrolled.value as { points?: unknown; next_page_offset?: unknown };
-      points = direct.points;
-      nextPageOffset = direct.next_page_offset;
-    } else {
-      const response = yield* http.request({
-        method: 'POST',
-        url: endpoint.value + '/collections/' + encodeURIComponent(collection) + '/points/scroll',
-        body: {
-          limit: 256,
-          with_payload: ['candidate_id', 'embedding_key'],
-          with_vector: true,
-          filter,
-          ...(offset === undefined ? {} : { offset }),
-        },
-      });
-      if (response._tag === 'Err') return response;
-      if (response.value.status < 200 || response.value.status >= 300) {
-        return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'could not read prior snapshot vectors'));
-      }
-      const body = response.value.body as { result?: { points?: unknown; next_page_offset?: unknown } };
-      points = body?.result?.points;
-      nextPageOffset = body?.result?.next_page_offset;
-    }
+    if (client === undefined) return err(domainError('NOT_READY', 'qdrant_scroll', 'official Qdrant SDK client is required'));
+    const currentOffset = offset;
+    const scrolled = yield* qdrantSdkCall(() => client.scroll(collection, {
+      limit: 256,
+      with_payload: ['candidate_id', 'embedding_key'],
+      with_vector: true,
+      filter,
+      ...(currentOffset === undefined ? {} : { offset: currentOffset }),
+    } as Parameters<QdrantClient['scroll']>[1]));
+    if (scrolled._tag === 'Err') return scrolled;
+    const direct = scrolled.value as { points?: unknown; next_page_offset?: unknown };
+    points = direct.points;
+    nextPageOffset = direct.next_page_offset;
     if (!Array.isArray(points)) {
       return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior snapshot vector response requires points'));
     }
