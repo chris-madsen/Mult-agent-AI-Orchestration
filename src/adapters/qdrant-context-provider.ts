@@ -59,6 +59,7 @@ import {
 } from '../domain/source-coverage.js';
 import {
   qdrantLexicalTextForCandidate,
+  qdrantSdkBooleanMutation,
   qdrantSdkCall,
   validateLocalQdrantBaseUrl,
 } from './http-provider-boundaries.js';
@@ -522,11 +523,14 @@ export const ensureQdrantCollection = (
   const found = yield* qdrantSdkCall(() => client.getCollection(collection));
   if (found._tag === 'Ok') return verifyExisting(found.value);
   if (!/\b404\b|not found/iu.test(found.error.message)) return found;
-  const created = yield* qdrantSdkCall(() => client.createCollection(collection, {
-    vectors: { dense: { size: dimension, distance: 'Cosine' } },
-    ...(mode === 'dense' ? {} : { sparse_vectors: { sparse: { modifier: 'idf' } } }),
-  } as Parameters<QdrantClient['createCollection']>[1]));
-  if (created._tag === 'Ok') return ok(undefined);
+  const created = yield* qdrantSdkBooleanMutation(
+    () => client.createCollection(collection, {
+      vectors: { dense: { size: dimension, distance: 'Cosine' } },
+      ...(mode === 'dense' ? {} : { sparse_vectors: { sparse: { modifier: 'idf' } } }),
+    } as Parameters<QdrantClient['createCollection']>[1]),
+    'collection creation',
+  );
+  if (created._tag === 'Ok') return created;
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const raced = yield* qdrantSdkCall(() => client.getCollection(collection));
     if (raced._tag === 'Ok') return verifyExisting(raced.value);
@@ -567,10 +571,12 @@ export const switchQdrantAlias = (
     ...(existing ? [{ delete_alias: { alias_name: alias } }] : []),
     { create_alias: { collection_name: collection, alias_name: alias } },
   ];
-  const switched = yield* qdrantSdkCall(() => client.updateCollectionAliases({
-    actions,
-  } as Parameters<QdrantClient['updateCollectionAliases']>[0]));
-  return switched._tag === 'Ok' ? ok(undefined) : switched;
+  return yield* qdrantSdkBooleanMutation(
+    () => client.updateCollectionAliases({
+      actions,
+    } as Parameters<QdrantClient['updateCollectionAliases']>[0]),
+    'alias update',
+  );
 });
 
 /**
