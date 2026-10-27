@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -12,7 +12,7 @@ const workspace = join(root, 'workspace');
 const state = join(root, 'state');
 await mkdir(workspace);
 const sourcePath = join(workspace, 'versioned.ts');
-const workspaceId = 'real-provider-restart';
+const workspaceId = `real-provider-restart-${randomUUID()}`;
 const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
 const publishedCollections = new Set();
 
