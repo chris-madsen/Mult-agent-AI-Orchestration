@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { Effect } from 'effect';
+import type { QdrantClient } from '@qdrant/js-client-rest';
 import { makeVertexRagRetrievalPort } from '../src/adapters/vertex-rag.js';
-import { validateLocalQdrantBaseUrl } from '../src/adapters/http-provider-boundaries.js';
+import { makeQdrantCodeCandidatePort, validateLocalQdrantBaseUrl } from '../src/adapters/http-provider-boundaries.js';
 import { makeFileArtifactStore } from '../src/adapters/file-artifact-store.js';
 import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
 import { makeQdrantContextProvider } from '../src/adapters/qdrant-context-provider.js';
@@ -153,10 +154,31 @@ test('Vertex empty Europe corpus is a valid empty result, never invented documen
   assert.deepEqual(result, []);
 });
 
-test('Qdrant code payload is local-only and rejects external HTTPS before network', async () => {
-  const result = validateLocalQdrantBaseUrl('https://vector.example.com');
+test('Qdrant code payload is local-only and rejects external HTTPS before SDK network', async () => {
+  let queries = 0;
+  const client = {
+    query: async () => {
+      queries += 1;
+      return { points: [] };
+    },
+  } as unknown as QdrantClient;
+  const qdrant = makeQdrantCodeCandidatePort({
+    baseUrl: 'https://vector.example.com',
+    collection: 'ace-code',
+    client,
+  });
+  const result = await Effect.runPromise(qdrant.search({
+    workspaceId: ws,
+    vector: [1],
+    strategy: 'dense',
+    limit: 1,
+  }));
   assert.equal(result._tag, 'Err');
   if (result._tag === 'Err') assert.equal(result.error.code, 'POLICY_DENIED');
+  assert.equal(queries, 0, 'policy denial must happen before the SDK client is invoked');
+
+  const validator = validateLocalQdrantBaseUrl('https://vector.example.com');
+  assert.equal(validator._tag, 'Err');
 });
 
 test('Vertex blocks secret-like documentation queries before outbound HTTP even when cloud opt-in is enabled', async () => {
