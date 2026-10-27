@@ -691,8 +691,10 @@ const main = async (): Promise<void> => {
               process.stderr.write(`ace retrieval warning: previous Qdrant alias could not be resolved; vectors will be recomputed (${previousAlias.error.code})\n`);
             }
             const buildQdrant = makeQdrantCodeCandidatePort({
+              baseUrl: qdrantUrl,
               collection,
               client: qdrantClient,
+              allowedHosts: qdrantAllowedHosts,
               providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
               trace: providerTrace,
             });
@@ -865,8 +867,10 @@ const main = async (): Promise<void> => {
               return switched;
             }
             const qdrant = makeQdrantCodeCandidatePort({
+              baseUrl: qdrantUrl,
               collection: currentAlias,
               client: qdrantClient,
+              allowedHosts: qdrantAllowedHosts,
               providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
               trace: providerTrace,
             });
