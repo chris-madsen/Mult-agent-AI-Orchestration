@@ -15,7 +15,7 @@ import { type IdPort, type WorkspaceFilePort } from '../src/application/ports.js
 import { registerWorkspace, observeWorkspace, readVerified } from '../src/application/workspace-service.js';
 import { makeMcpGateway } from '../src/gateway/mcp-gateway.js';
 import { defaultLocalPolicy } from '../src/domain/policy.js';
-import { makeWorkspaceId, type RepoPath } from '../src/domain/workspace.js';
+import { makeContentDigest, makeWorkspaceId, type RepoPath } from '../src/domain/workspace.js';
 import { isErr, isOk, ok } from '../src/domain/result.js';
 
 const run = <Value>(effect: Effect.Effect<Value>) => Effect.runPromise(effect);
@@ -364,6 +364,49 @@ test('gateway validates arguments, exposes exact expansion and refuses fake retr
   assert.equal(expanded.status, 'ok');
   if (expanded.status !== 'ok') return;
   assert.equal(Buffer.from(String(expanded.result.content_base64), 'base64').toString('utf8'), 'exact-content');
+});
+
+test('workspace persistence round-trips observation metadata used by race convergence', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-workspace-store-roundtrip-'));
+  const store = makeFileWorkspaceStore(join(root, 'state', 'workspaces.json'));
+  const workspaceId = makeWorkspaceId('workspace-roundtrip');
+  const digest = makeContentDigest('a'.repeat(64));
+  assert.equal(workspaceId._tag, 'Ok');
+  assert.equal(digest._tag, 'Ok');
+  if (isErr(workspaceId) || isErr(digest)) return;
+
+  const base = {
+    workspaceId: workspaceId.value,
+    rootPath: root,
+    observationEpoch: 0,
+    createdAtMs: 1,
+  };
+  assert.equal((await run(store.save(base)))._tag, 'Ok');
+
+  const observed = {
+    ...base,
+    observationEpoch: 1,
+    lastObservation: {
+      headRevision: 'b'.repeat(40),
+      observationEpoch: 1,
+      files: [{
+        repoPath: 'src/roundtrip.ts' as RepoPath,
+        digest: digest.value,
+        sizeBytes: 7,
+        mtimeMs: 123,
+        state: 'tracked' as const,
+        observedAtMs: 456,
+      }],
+      removedPaths: [] as RepoPath[],
+      gitStatus: 'available' as const,
+    },
+  };
+  assert.equal((await run(store.save(observed)))._tag, 'Ok');
+
+  const loaded = await run(store.get(workspaceId.value));
+  assert.equal(loaded._tag, 'Ok', JSON.stringify(loaded));
+  if (isErr(loaded)) return;
+  assert.deepEqual(loaded.value, observed);
 });
 
 test('workspace persistence rejects stale observation epochs and preserves concurrent registrations', async () => {
