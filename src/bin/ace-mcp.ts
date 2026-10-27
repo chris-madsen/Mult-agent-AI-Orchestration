@@ -33,15 +33,12 @@ import { makeProcessRerankerPort } from '../adapters/process-reranker.js';
 import {
   codeIndexKey,
   qdrantCollectionName,
-  qdrantCurrentAlias,
   ensureQdrantCollection,
   makeQdrantContextProvider,
   type QdrantContextConfig,
   probeQdrantService,
-  resolveQdrantAlias,
   mutateQdrantChangedPaths,
   reuseOrPopulateQdrantSnapshot,
-  switchQdrantAlias,
 } from '../adapters/qdrant-context-provider.js';
 import { makeAstGrepStructuralPort, resolveAstGrepProviderIdentity } from '../adapters/ast-grep-structural.js';
 import {
@@ -672,7 +669,6 @@ const main = async (): Promise<void> => {
             for (const warning of build.warnings) process.stderr.write(`ace retrieval warning: ${warning}\n`);
             const sourceKey = codeIndexKey(build.index, build.coverage, retrievalFingerprint, build.fileManifest);
             const collection = qdrantCollectionName(workspaceKey, embeddingFingerprint, retrievalFingerprint);
-            const currentAlias = qdrantCurrentAlias(workspaceKey, embeddingFingerprint);
             const inspected = await Effect.runPromise(ensureQdrantCollection(
               http,
               qdrantUrl,
@@ -684,12 +680,6 @@ const main = async (): Promise<void> => {
               retrievalStrategy === 'dense' ? 'dense' : 'hybrid',
             ));
             if (inspected._tag === 'Err') return inspected;
-            const previousAlias = await Effect.runPromise(resolveQdrantAlias(
-              http, qdrantUrl, currentAlias, qdrantAllowedHosts, qdrantClient,
-            ));
-            if (previousAlias._tag === 'Err') {
-              process.stderr.write(`ace retrieval warning: previous Qdrant alias could not be resolved; vectors will be recomputed (${previousAlias.error.code})\n`);
-            }
             const buildQdrant = makeQdrantCodeCandidatePort({
               baseUrl: qdrantUrl,
               collection,
@@ -847,28 +837,21 @@ const main = async (): Promise<void> => {
               : reuseOrPopulateQdrantSnapshot(
                 build.index, buildQdrant, embeddings, http, qdrantUrl, collection,
                 registered.value.workspaceId, sourceKey, qdrantAllowedHosts, true, undefined,
-                embeddingFingerprint, previousAlias._tag === 'Ok' ? previousAlias.value : undefined,
+                embeddingFingerprint, collection,
                 sparseEmbeddings,
                 qdrantClient,
                 true, // stable physical membership permits mixed index_key values after changed-path publication
               ));
             if (indexed._tag === 'Err') { semanticLease.release(); return indexed; }
-            process.stderr.write(`ace-mcp qdrant candidate verified workspace_id=${registered.value.workspaceId} index_key=${sourceKey} collection=${collection} alias=${currentAlias} reused_vectors=${indexed.value.reusedVectorCount}\n`);
+            process.stderr.write(`ace-mcp qdrant candidate verified workspace_id=${registered.value.workspaceId} index_key=${sourceKey} collection=${collection} publication_mode=stable_collection_direct reused_vectors=${indexed.value.reusedVectorCount}\n`);
             if (runtimeTestFailpoint === 'after_qdrant_verify_before_publish') {
               process.stderr.write('ace test failpoint reached name=after_qdrant_verify_before_publish\n');
               process.kill(process.pid, 'SIGKILL');
               throw new Error('test failpoint failed to terminate the process');
             }
-            const switched = await Effect.runPromise(switchQdrantAlias(
-              http, qdrantUrl, currentAlias, collection, qdrantAllowedHosts, qdrantClient,
-            ));
-            if (switched._tag === 'Err') {
-              semanticLease.release();
-              return switched;
-            }
             const qdrant = makeQdrantCodeCandidatePort({
               baseUrl: qdrantUrl,
-              collection: currentAlias,
+              collection,
               client: qdrantClient,
               allowedHosts: qdrantAllowedHosts,
               providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
@@ -899,7 +882,7 @@ const main = async (): Promise<void> => {
               : build.coverage.failedPaths === 0
                 ? { state: 'ready', reason: 'real_code_context_preflight_passed' }
                 : { state: 'degraded', reason: 'index_coverage_partial' };
-            process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${buildGeneration} indexed_paths=${build.indexedPaths.length} candidates=${build.index.candidates.length} coverage_failed=${build.coverage.failedPaths} delta_added=${deltaMetrics?.added ?? delta?.added.length ?? 0} delta_changed=${deltaMetrics?.changed ?? delta?.changed.length ?? 0} delta_deleted=${deltaMetrics?.deleted ?? delta?.deleted.length ?? 0} delta_renamed=${deltaMetrics?.renamed ?? delta?.renamed.length ?? 0} delta_unchanged=${deltaMetrics?.unchanged ?? (delta === undefined ? build.indexedPaths.length : 0)} source_snapshot_digest=${build.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} sparse_identity=${sparseEmbeddingFingerprint.slice(0, 12)} retrieval_mode=${retrievalStrategy} sparse_model=${effectiveSparseEmbedding?.model ?? 'disabled'} structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} alias=${currentAlias}\n`);
+            process.stderr.write(`ace-mcp real retrieval workspace_id=${registered.value.workspaceId} generation=${buildGeneration} indexed_paths=${build.indexedPaths.length} candidates=${build.index.candidates.length} coverage_failed=${build.coverage.failedPaths} delta_added=${deltaMetrics?.added ?? delta?.added.length ?? 0} delta_changed=${deltaMetrics?.changed ?? delta?.changed.length ?? 0} delta_deleted=${deltaMetrics?.deleted ?? delta?.deleted.length ?? 0} delta_renamed=${deltaMetrics?.renamed ?? delta?.renamed.length ?? 0} delta_unchanged=${deltaMetrics?.unchanged ?? (delta === undefined ? build.indexedPaths.length : 0)} source_snapshot_digest=${build.coverage.sourceSnapshotDigest} embedding_identity=${embeddingFingerprint.slice(0, 12)} sparse_identity=${sparseEmbeddingFingerprint.slice(0, 12)} retrieval_mode=${retrievalStrategy} sparse_model=${effectiveSparseEmbedding?.model ?? 'disabled'} structural_identity=${structuralFingerprint.slice(0, 12)} lsp_identity=${semanticProviderVersion} retrieval_fingerprint=${retrievalFingerprint} index_key=${sourceKey} index_mode=${indexed.value.reused ? 'warm_reused' : 'rebuilt'} reused_vectors=${indexed.value.reusedVectorCount} collection=${collection} publication_mode=stable_collection_direct\n`);
             return ok({
               workspaceId: registered.value.workspaceId,
               rootPath: registered.value.rootPath,
