@@ -189,7 +189,7 @@ test('Qdrant sparse-only strategy sends BM25 query without a dense vector', asyn
   });
 });
 
-test('Qdrant explicit strategies fail before HTTP when required query inputs are absent', async () => {
+test('Qdrant explicit strategies fail before SDK calls when required query inputs are absent', async () => {
   let requests = 0;
   const qdrant = makeQdrantCodeCandidatePort({
     baseUrl: 'http://127.0.0.1:6333',
