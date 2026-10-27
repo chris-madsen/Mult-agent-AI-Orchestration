@@ -49,7 +49,7 @@ const externalFailure = (response: HttpResponse, provider: string): Result<never
 
 const successful = (response: HttpResponse): boolean => response.status >= 200 && response.status < 300;
 
-const qdrantSdkCall = <Value>(
+export const qdrantSdkCall = <Value>(
   action: () => Promise<Value>,
 ): Effect.Effect<Result<Value, DomainError>> => Effect.catchAll(
     Effect.tryPromise<Result<Value, DomainError>, DomainError>({
@@ -89,9 +89,13 @@ export const makeFetchHttpPort = (): HttpPort => ({
 });
 
 interface QdrantConfig {
+  /** Policy identity for the SDK destination. Transport remains SDK-only. */
+  readonly baseUrl: string;
   readonly collection: string;
   /** The official SDK is the only runtime Qdrant wire boundary. */
   readonly client: QdrantClient;
+  /** Explicit local bridge aliases (for example a Docker host gateway). */
+  readonly allowedHosts?: readonly string[];
   readonly providerVersion?: string;
   readonly trace?: ProviderTraceSink;
 }
@@ -253,6 +257,8 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
   search: (input) => {
     const startedAtMs = Date.now();
     const operation = Effect.catchAll(Effect.gen(function* () {
+      const policy = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
+      if (policy._tag === 'Err') return policy;
       if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 1000) {
         return err(domainError('INVALID_INPUT', 'limit', 'Qdrant limit must be between 1 and 1000'));
       }
@@ -337,6 +343,8 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
   upsert: (points) => {
     const startedAtMs = Date.now();
     const operation = Effect.catchAll(Effect.gen(function* () {
+      const policy = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
+      if (policy._tag === 'Err') return policy;
       return yield* qdrantSdkCall(async () => {
         await config.client.upsert(config.collection, {
           wait: true,
@@ -361,6 +369,8 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
   deletePaths: (input) => {
     const startedAtMs = Date.now();
     const operation = Effect.catchAll(Effect.gen(function* () {
+      const policy = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
+      if (policy._tag === 'Err') return policy;
       const paths = [...new Set(input.repoPaths)];
       for (const repoPath of paths) {
         const filter = {
@@ -396,6 +406,8 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
   deleteWorkspaceVersions: (input) => {
     const startedAtMs = Date.now();
     const operation = Effect.catchAll(Effect.gen(function* () {
+      const policy = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
+      if (policy._tag === 'Err') return policy;
       const filter = {
         must: [{ key: 'workspace_id', match: { value: input.workspaceId } }],
         must_not: [{ key: 'index_key', match: { value: input.exceptIndexKey } }],
