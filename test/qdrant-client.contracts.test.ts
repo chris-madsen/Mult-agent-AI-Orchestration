@@ -200,6 +200,7 @@ test('stable Qdrant mutation deletes only the changed workspace path through the
       { key: 'workspace_id', match: { value: workspaceId } },
       { key: 'generation', range: { lt: 7 } },
     ],
+    must_not: [{ key: 'index_key', match: { value: 'current-index' } }],
   });
 });
 

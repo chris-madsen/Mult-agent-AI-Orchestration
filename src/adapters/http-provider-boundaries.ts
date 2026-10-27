@@ -455,9 +455,7 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
             ? []
             : [{ key: 'generation', range: { lt: input.beforeGeneration } }]),
         ],
-        ...(input.beforeGeneration === undefined
-          ? { must_not: [{ key: 'index_key', match: { value: input.exceptIndexKey } }] }
-          : {}),
+        must_not: [{ key: 'index_key', match: { value: input.exceptIndexKey } }],
       };
       const deleted = yield* qdrantSdkCompletedMutation(
         () => config.client.delete(config.collection, {
