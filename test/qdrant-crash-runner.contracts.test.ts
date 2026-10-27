@@ -13,15 +13,15 @@ test('real Qdrant crash runner is syntactically valid and uses the production AC
     "ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true'",
     'dist/bin/ace-mcp.js',
     'after_qdrant_verify_before_publish',
-    '/aliases',
-    'currentAliasStayedOnS1DuringInterruptedBuild',
+    '/collections/',
+    'stableCollectionIdentityDuringInterruptedBuild',
     'real-qdrant-snapshot-crash-lifecycle',
   ]) assert.ok(script.includes(token), token);
 });
 
 test('interrupted-writer runner proves stable-collection freshness and restart recovery', async () => {
   const script = await readFile('scripts/qdrant-snapshot-crash-e2e.mjs', 'utf8');
-  assert.match(script, /currentAliasStayedOnS1DuringInterruptedBuild/u);
+  assert.match(script, /stableCollectionIdentityDuringInterruptedBuild/u);
   assert.match(script, /restartPublishedS2/u);
   assert.match(script, /reader\.query\('stableSnapshotSentinel stable-sentinel-v1'\)/u);
   assert.match(script, /reader\.query\('stableSnapshotSentinel stable-sentinel-v1', true\)/u);
@@ -30,7 +30,7 @@ test('interrupted-writer runner proves stable-collection freshness and restart r
   assert.match(script, /readerChangedPathAfterCrash/u);
   assert.match(script, /readerPostPublishOutcome/u);
   assert.match(script, /restartedWriter\.query\('mutableSnapshotSentinel mutable-sentinel-v2'\)/u);
-  assert.match(script, /current alias/u);
+  assert.match(script, /stable collection/u);
   assert.match(script, /stable workspace collection/u);
   assert.match(script, /stableCollectionReused/u);
 });

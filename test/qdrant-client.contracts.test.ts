@@ -74,7 +74,6 @@ test('Qdrant SDK query accepts the facade direct points response', async () => {
   const port = makeQdrantCodeCandidatePort({
     baseUrl: 'http://127.0.0.1:6333',
     collection: 'ace-sdk',
-    http: { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
     client,
   });
   const searched = await Effect.runPromise(port.search({
@@ -106,6 +105,53 @@ test('Qdrant SDK query accepts the facade direct points response', async () => {
     'stable point identity must follow source candidate identity, not the global publication key');
 });
 
+test('Qdrant SDK mutations require completed operation status', async () => {
+  const client = {
+    upsert: async () => ({ status: 'acknowledged' }),
+    delete: async () => ({ status: 'acknowledged' }),
+  } as unknown as QdrantClient;
+  const port = makeQdrantCodeCandidatePort({
+    baseUrl: 'http://127.0.0.1:6333',
+    collection: 'ace-sdk-status',
+    client,
+  });
+
+  const upserted = await Effect.runPromise(port.upsert([{
+    candidate,
+    vector: [0.1, 0.2],
+    indexKey: 'index-key',
+  }]));
+  assert.equal(upserted._tag, 'Err', 'wait=true upsert must not accept acknowledged-only status');
+
+  assert.ok(port.deleteWorkspaceVersions !== undefined);
+  const deleted = await Effect.runPromise(port.deleteWorkspaceVersions!({
+    workspaceId,
+    exceptIndexKey: 'index-key',
+  }));
+  assert.equal(deleted._tag, 'Err', 'wait=true delete must not accept acknowledged-only status');
+});
+
+test('Qdrant SDK lifecycle rejects false mutation results', async () => {
+  const http = { request: () => Effect.succeed(ok({ status: 500, body: {} })) };
+  const createClient = {
+    getCollection: async () => { throw new Error('404 Not Found'); },
+    createCollection: async () => false,
+  } as unknown as QdrantClient;
+  const created = await Effect.runPromise(ensureQdrantCollection(
+    http, 'http://127.0.0.1:6333', 'ace-false-create', 384, [], undefined, createClient, 'dense',
+  ));
+  assert.equal(created._tag, 'Err', 'false createCollection result must not be accepted as success');
+
+  const aliasClient = {
+    getAliases: async () => ({ aliases: [] }),
+    updateCollectionAliases: async () => false,
+  } as unknown as QdrantClient;
+  const switched = await Effect.runPromise(switchQdrantAlias(
+    http, 'http://127.0.0.1:6333', 'ace-current', 'ace-target', [], aliasClient,
+  ));
+  assert.equal(switched._tag, 'Err', 'false alias update result must not be accepted as success');
+});
+
 test('stable Qdrant mutation deletes only the changed workspace path through the SDK', async () => {
   const deletes: unknown[] = [];
   const client = {
@@ -114,7 +160,6 @@ test('stable Qdrant mutation deletes only the changed workspace path through the
   const port = makeQdrantCodeCandidatePort({
     baseUrl: 'http://127.0.0.1:6333',
     collection: 'ace-stable',
-    http: { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
     client,
   });
   assert.ok(port.deletePaths !== undefined);
@@ -141,6 +186,20 @@ test('stable Qdrant mutation deletes only the changed workspace path through the
   assert.equal(cleaned._tag, 'Ok');
   assert.deepEqual((deletes[1] as { filter?: unknown }).filter, {
     must: [{ key: 'workspace_id', match: { value: workspaceId } }],
+    must_not: [{ key: 'index_key', match: { value: 'current-index' } }],
+  });
+
+  const fenced = await Effect.runPromise(port.deleteWorkspaceVersions!({
+    workspaceId,
+    exceptIndexKey: 'current-index',
+    beforeGeneration: 7,
+  }));
+  assert.equal(fenced._tag, 'Ok');
+  assert.deepEqual((deletes[2] as { filter?: unknown }).filter, {
+    must: [
+      { key: 'workspace_id', match: { value: workspaceId } },
+      { key: 'generation', range: { lt: 7 } },
+    ],
     must_not: [{ key: 'index_key', match: { value: 'current-index' } }],
   });
 });

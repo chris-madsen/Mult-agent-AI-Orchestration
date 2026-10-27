@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -9,6 +9,7 @@ import { join, resolve } from 'node:path';
 const root = await mkdtemp(join(tmpdir(), 'ace-real-provider-'));
 const workspace = join(root, 'workspace');
 await mkdir(workspace);
+const workspaceId = `real-provider-2000-line-${randomUUID()}`;
 
 const targetLines = [
   'export function retryAfterTransientFailure(input: string) {',
@@ -57,7 +58,7 @@ const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
     ACE_WORKSPACE_ROOT: workspace,
     ACE_ALLOWED_ROOTS: root,
     ACE_STATE_DIR: join(root, 'state'),
-    ACE_WORKSPACE_ID: 'real-provider-2000-line',
+    ACE_WORKSPACE_ID: workspaceId,
     ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
     ACE_QDRANT_URL: outage || hardOutage ? 'http://127.0.0.1:6339' : qdrantUrl,
     ACE_EMBEDDING_WORKER: resolve(import.meta.dirname, 'fastembed-worker.sh'),
@@ -118,13 +119,13 @@ const request = (id, message) => new Promise((resolveResponse, reject) => {
 try {
   await request(1, { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2026-07-28', capabilities: {}, clientInfo: { name: 'ace-real-provider-e2e', version: '1' } } });
   child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
-  const contextRequest = request(2, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'ace_context', arguments: { workspace_id: 'real-provider-2000-line', query: outage ? 'retryAfterTransientFailure' : 'retry an operation after a transient failure' } } });
+  const contextRequest = request(2, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'ace_context', arguments: { workspace_id: workspaceId, query: outage ? 'retryAfterTransientFailure' : 'retry an operation after a transient failure' } } });
   if (!outage && race) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
     await writeFile(sourcePath, `${source.replace('return result;', 'return result + \'-changed\';')}`);
   }
   const contextResponse = await contextRequest;
-  const statusResponse = await request(4, { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'ace_workspace_status', arguments: { workspace_id: 'real-provider-2000-line' } } });
+  const statusResponse = await request(4, { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'ace_workspace_status', arguments: { workspace_id: workspaceId } } });
   // Provider outage is a live process with a not-ready capability. The
   // production composition has no lexical fallback, so an outage must not
   // be represented as a degraded-but-usable retrieval result.

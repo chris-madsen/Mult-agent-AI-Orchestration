@@ -49,6 +49,59 @@ const externalFailure = (response: HttpResponse, provider: string): Result<never
 
 const successful = (response: HttpResponse): boolean => response.status >= 200 && response.status < 300;
 
+export const qdrantSdkCall = <Value>(
+  action: () => Promise<Value>,
+): Effect.Effect<Result<Value, DomainError>> => Effect.catchAll(
+    Effect.tryPromise<Result<Value, DomainError>, DomainError>({
+      try: async () => {
+        try {
+          return ok(await action());
+        } catch (cause) {
+          return err(domainError(
+            'EXTERNAL_UNAVAILABLE',
+            'qdrant',
+            cause instanceof Error ? cause.message : 'Qdrant SDK call failed',
+          ));
+        }
+      },
+      catch: () => domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'Qdrant SDK call failed'),
+    }),
+    (failure) => Effect.succeed(err(failure)),
+  );
+
+export const qdrantSdkCompletedMutation = (
+  action: () => Promise<unknown>,
+  operation: string,
+): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
+  const result = yield* qdrantSdkCall(action);
+  if (result._tag === 'Err') return result;
+  const update = object(result.value);
+  if (update?.status !== 'completed') {
+    return err(domainError(
+      'INVALID_EXTERNAL_RESPONSE',
+      'qdrant_update',
+      `Qdrant ${operation} did not report completed status`,
+    ));
+  }
+  return ok(undefined);
+});
+
+export const qdrantSdkBooleanMutation = (
+  action: () => Promise<unknown>,
+  operation: string,
+): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
+  const result = yield* qdrantSdkCall(action);
+  if (result._tag === 'Err') return result;
+  if (result.value !== true) {
+    return err(domainError(
+      'INVALID_EXTERNAL_RESPONSE',
+      'qdrant_update',
+      `Qdrant ${operation} did not report success`,
+    ));
+  }
+  return ok(undefined);
+});
+
 export const makeFetchHttpPort = (): HttpPort => ({
   request: (request: HttpRequest) => Effect.catchAll(Effect.tryPromise<Result<HttpResponse, DomainError>, DomainError>({
     try: async (signal) => {
@@ -69,14 +122,13 @@ export const makeFetchHttpPort = (): HttpPort => ({
 });
 
 interface QdrantConfig {
+  /** Policy identity for the SDK destination. Transport remains SDK-only. */
   readonly baseUrl: string;
   readonly collection: string;
-  readonly http: HttpPort;
+  /** The official SDK is the only runtime Qdrant wire boundary. */
+  readonly client: QdrantClient;
   /** Explicit local bridge aliases (for example a Docker host gateway). */
   readonly allowedHosts?: readonly string[];
-  readonly apiKey?: () => string | undefined;
-  /** Official SDK client used by the replacement composition; tests may omit it and use HttpPort. */
-  readonly client?: QdrantClient;
   readonly providerVersion?: string;
   readonly trace?: ProviderTraceSink;
 }
@@ -238,8 +290,8 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
   search: (input) => {
     const startedAtMs = Date.now();
     const operation = Effect.catchAll(Effect.gen(function* () {
-      const endpoint = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
-      if (endpoint._tag === 'Err') return endpoint;
+      const policy = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
+      if (policy._tag === 'Err') return policy;
       if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 1000) {
         return err(domainError('INVALID_INPUT', 'limit', 'Qdrant limit must be between 1 and 1000'));
       }
@@ -286,37 +338,13 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
             with_payload: true,
             with_vector: false,
           };
-      let responseBody: unknown;
-      if (config.client !== undefined) {
-        const queried = yield* Effect.tryPromise<Result<unknown, DomainError>, DomainError>({
-          try: async () => {
-            try {
-              return ok(await config.client!.query(
-                config.collection,
-                queryBody as Parameters<QdrantClient['query']>[1],
-              ));
-            } catch (cause) {
-              return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', cause instanceof Error ? cause.message : 'Qdrant SDK query failed'));
-            }
-          },
-          catch: () => domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'Qdrant SDK query failed'),
-        });
-        if (queried._tag === 'Err') return queried;
-        responseBody = queried.value;
-      } else {
-        const responseResult = yield* config.http.request({
-          method: 'POST',
-          url: `${endpoint.value}/collections/${encodeURIComponent(config.collection)}/points/query`,
-          ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
-          body: queryBody,
-        });
-        if (responseResult._tag === 'Err') return responseResult;
-        if (!successful(responseResult.value)) return externalFailure(responseResult.value, 'qdrant');
-        responseBody = responseResult.value.body;
-      }
+      const queried = yield* qdrantSdkCall(() => config.client.query(
+        config.collection,
+        queryBody as Parameters<QdrantClient['query']>[1],
+      ));
+      if (queried._tag === 'Err') return queried;
+      const responseBody: unknown = queried.value;
       const body = object(responseBody);
-      // QdrantClient returns QueryResponse directly ({ points }); the legacy
-      // raw HTTP boundary returns a REST envelope ({ result: ... }).
       const result = body?.result ?? responseBody;
       const points = Array.isArray(result) ? result : object(result)?.points;
       if (!Array.isArray(points)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'result', 'Qdrant result must be an array'));
@@ -348,33 +376,15 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
   upsert: (points) => {
     const startedAtMs = Date.now();
     const operation = Effect.catchAll(Effect.gen(function* () {
-      const endpoint = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
-      if (endpoint._tag === 'Err') return endpoint;
-      if (config.client !== undefined) {
-        const written = yield* Effect.tryPromise<Result<void, DomainError>, DomainError>({
-          try: async () => {
-            try {
-              await config.client!.upsert(config.collection, {
-                wait: true,
-                points: points.map(qdrantPoint),
-              } as Parameters<QdrantClient['upsert']>[1]);
-              return ok(undefined);
-            } catch (cause) {
-              return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', cause instanceof Error ? cause.message : 'Qdrant SDK upsert failed'));
-            }
-          },
-          catch: () => domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'Qdrant SDK upsert failed'),
-        });
-        return written;
-      }
-      const responseResult = yield* config.http.request({
-        method: 'PUT',
-        url: `${endpoint.value}/collections/${encodeURIComponent(config.collection)}/points?wait=true`,
-        ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
-        body: { points: points.map(qdrantPoint) },
-      });
-      if (responseResult._tag === 'Err') return responseResult;
-      return successful(responseResult.value) ? ok(undefined) : externalFailure(responseResult.value, 'qdrant');
+      const policy = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
+      if (policy._tag === 'Err') return policy;
+      return yield* qdrantSdkCompletedMutation(
+        () => config.client.upsert(config.collection, {
+          wait: true,
+          points: points.map(qdrantPoint),
+        } as Parameters<QdrantClient['upsert']>[1]),
+        'upsert',
+      );
     }), (failure) => Effect.succeed(err(failure)));
     return Effect.map(operation, (result) => {
       providerTraceEvent(config.trace ?? noopProviderTrace, {
@@ -392,8 +402,8 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
   deletePaths: (input) => {
     const startedAtMs = Date.now();
     const operation = Effect.catchAll(Effect.gen(function* () {
-      const endpoint = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
-      if (endpoint._tag === 'Err') return endpoint;
+      const policy = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
+      if (policy._tag === 'Err') return policy;
       const paths = [...new Set(input.repoPaths)];
       for (const repoPath of paths) {
         const filter = {
@@ -405,32 +415,14 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
             must_not: [{ key: 'index_key', match: { value: input.exceptIndexKey } }],
           }),
         };
-        if (config.client !== undefined) {
-          const deleted = yield* Effect.tryPromise<Result<void, DomainError>, DomainError>({
-            try: async () => {
-              try {
-                await config.client!.delete(config.collection, {
-                  wait: true,
-                  filter,
-                } as Parameters<QdrantClient['delete']>[1]);
-                return ok(undefined);
-              } catch (cause) {
-                return err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', cause instanceof Error ? cause.message : 'Qdrant SDK delete failed'));
-              }
-            },
-            catch: () => domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'Qdrant SDK delete failed'),
-          });
-          if (deleted._tag === 'Err') return deleted;
-        } else {
-          const response = yield* config.http.request({
-            method: 'POST',
-            url: `${endpoint.value}/collections/${encodeURIComponent(config.collection)}/points/delete?wait=true`,
-            ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
-            body: { filter },
-          });
-          if (response._tag === 'Err') return response;
-          if (!successful(response.value)) return externalFailure(response.value, 'qdrant');
-        }
+        const deleted = yield* qdrantSdkCompletedMutation(
+          () => config.client.delete(config.collection, {
+            wait: true,
+            filter,
+          } as Parameters<QdrantClient['delete']>[1]),
+          'path delete',
+        );
+        if (deleted._tag === 'Err') return deleted;
       }
       return ok(undefined);
     }), (failure) => Effect.succeed(err(failure)));
@@ -450,41 +442,30 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
   deleteWorkspaceVersions: (input) => {
     const startedAtMs = Date.now();
     const operation = Effect.catchAll(Effect.gen(function* () {
-      const endpoint = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
-      if (endpoint._tag === 'Err') return endpoint;
+      const policy = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
+      if (policy._tag === 'Err') return policy;
+      if (input.beforeGeneration !== undefined
+        && (!Number.isSafeInteger(input.beforeGeneration) || input.beforeGeneration < 1)) {
+        return err(domainError('INVALID_INPUT', 'generation', 'cleanup generation fence must be a positive integer'));
+      }
       const filter = {
-        must: [{ key: 'workspace_id', match: { value: input.workspaceId } }],
+        must: [
+          { key: 'workspace_id', match: { value: input.workspaceId } },
+          ...(input.beforeGeneration === undefined
+            ? []
+            : [{ key: 'generation', range: { lt: input.beforeGeneration } }]),
+        ],
         must_not: [{ key: 'index_key', match: { value: input.exceptIndexKey } }],
       };
-      if (config.client !== undefined) {
-        const deleted = yield* Effect.tryPromise<Result<void, DomainError>, DomainError>({
-          try: async () => {
-            try {
-              await config.client!.delete(config.collection, {
-                wait: true,
-                filter,
-              } as Parameters<QdrantClient['delete']>[1]);
-              return ok(undefined);
-            } catch (cause) {
-              return err(domainError(
-                'EXTERNAL_UNAVAILABLE',
-                'qdrant',
-                cause instanceof Error ? cause.message : 'Qdrant SDK workspace cleanup failed',
-              ));
-            }
-          },
-          catch: () => domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'Qdrant SDK workspace cleanup failed'),
-        });
-        return deleted;
-      }
-      const response = yield* config.http.request({
-        method: 'POST',
-        url: endpoint.value + '/collections/' + encodeURIComponent(config.collection) + '/points/delete?wait=true',
-        ...(config.apiKey?.() === undefined ? {} : { headers: { 'api-key': config.apiKey() as string } }),
-        body: { filter },
-      });
-      if (response._tag === 'Err') return response;
-      return successful(response.value) ? ok(undefined) : externalFailure(response.value, 'qdrant');
+      const deleted = yield* qdrantSdkCompletedMutation(
+        () => config.client.delete(config.collection, {
+          wait: true,
+          filter,
+        } as Parameters<QdrantClient['delete']>[1]),
+        'workspace cleanup',
+      );
+      if (deleted._tag === 'Err') return deleted;
+      return ok(undefined);
     }), (failure) => Effect.succeed(err(failure)));
     return Effect.map(operation, (result) => {
       providerTraceEvent(config.trace ?? noopProviderTrace, {

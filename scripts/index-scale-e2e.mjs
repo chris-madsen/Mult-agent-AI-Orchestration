@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
@@ -324,7 +324,7 @@ const mutateFixture = async (workspace) => {
 const root = await mkdtemp(join(tmpdir(), 'ace-index-scale-'));
 const workspace = join(root, 'workspace');
 const state = join(root, 'state');
-const workspaceId = `index-scale-${options.files}`;
+const workspaceId = `index-scale-${options.files}-${randomUUID()}`;
 
 try {
   await writeFixtureFiles(workspace);

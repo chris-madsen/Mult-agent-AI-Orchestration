@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { Effect } from 'effect';
+import type { QdrantClient } from '@qdrant/js-client-rest';
 import { makeVertexRagRetrievalPort } from '../src/adapters/vertex-rag.js';
-import { makeQdrantCodeCandidatePort } from '../src/adapters/http-provider-boundaries.js';
+import { makeQdrantCodeCandidatePort, validateLocalQdrantBaseUrl } from '../src/adapters/http-provider-boundaries.js';
 import { makeFileArtifactStore } from '../src/adapters/file-artifact-store.js';
 import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
 import { makeQdrantContextProvider } from '../src/adapters/qdrant-context-provider.js';
@@ -153,17 +154,52 @@ test('Vertex empty Europe corpus is a valid empty result, never invented documen
   assert.deepEqual(result, []);
 });
 
-test('Qdrant code payload is local-only and rejects external HTTPS before network', async () => {
-  let requests = 0;
+test('Qdrant code payload is local-only and rejects external HTTPS before every SDK operation', async () => {
+  let sdkCalls = 0;
+  const client = {
+    query: async () => {
+      sdkCalls += 1;
+      return { points: [] };
+    },
+    upsert: async () => {
+      sdkCalls += 1;
+      return { status: 'completed' };
+    },
+    delete: async () => {
+      sdkCalls += 1;
+      return { status: 'completed' };
+    },
+  } as unknown as QdrantClient;
   const qdrant = makeQdrantCodeCandidatePort({
     baseUrl: 'https://vector.example.com',
     collection: 'ace-code',
-    http: { request: () => { requests += 1; return Effect.succeed(ok({ status: 200, body: {} })); } },
+    client,
   });
-  const result = await Effect.runPromise(qdrant.search({ workspaceId: ws, vector: [1], limit: 1, generation: 1 }));
-  assert.equal(result._tag, 'Err');
-  if (result._tag === 'Err') assert.equal(result.error.code, 'POLICY_DENIED');
-  assert.equal(requests, 0);
+  const results = [
+    await Effect.runPromise(qdrant.search({
+      workspaceId: ws,
+      vector: [1],
+      strategy: 'dense',
+      limit: 1,
+    })),
+    await Effect.runPromise(qdrant.upsert([])),
+    await Effect.runPromise(qdrant.deletePaths!({
+      workspaceId: ws,
+      repoPaths: ['src/private.ts' as never],
+    })),
+    await Effect.runPromise(qdrant.deleteWorkspaceVersions!({
+      workspaceId: ws,
+      exceptIndexKey: 'current-index',
+    })),
+  ];
+  for (const result of results) {
+    assert.equal(result._tag, 'Err');
+    if (result._tag === 'Err') assert.equal(result.error.code, 'POLICY_DENIED');
+  }
+  assert.equal(sdkCalls, 0, 'policy denial must happen before any SDK client method is invoked');
+
+  const validator = validateLocalQdrantBaseUrl('https://vector.example.com');
+  assert.equal(validator._tag, 'Err');
 });
 
 test('Vertex blocks secret-like documentation queries before outbound HTTP even when cloud opt-in is enabled', async () => {
