@@ -68,4 +68,5 @@ These provider results do not close NAPI real-repository parity, RepoMap quality
 - The SDK boundary still validates the declared destination against the local-only policy before every operation; transport consolidation did not move authorization out to callers.
 - `src/bin/ace-mcp.ts` and `scripts/qdrant-hybrid-rank-probe.ts` pass the authenticated SDK client plus the policy-bound local endpoint; direct contracts use SDK-shaped doubles.
 - Focused Qdrant/provider contracts — `84/84 PASS`; repository `verify:pr` — `631/631 PASS`, Hermes plugin `20/20`, OpenSpec `9/9`.
-- R1 real-provider rerun is `NOT_RUN` after the final SDK-boundary merge; previous real-provider evidence remains bound to its original SHA. Cross-process concurrency remains `BLOCKED` on the latest recorded local Qdrant `HTTP 500` and is not promoted by deterministic tests.
+- On runtime SHA `f36674734ed109230637e7b0bb6ef26cd92432cd`, `test:real-provider`, `test:real-provider-race`, `test:real-provider-restart`, `test:real-index-scale -- --files 100`, `test:real-qdrant-crash` and `test:real-qdrant-concurrency` all returned `PASS`; concurrency writers converged on one collection, alias and index key.
+- These are real local-provider R1 evidence only; they do not close NAPI real-repository parity, RepoMap/LSP/ContextAssembler conformance, Harbor A/B, production readiness or token-savings claims.
