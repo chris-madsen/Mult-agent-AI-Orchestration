@@ -62,9 +62,10 @@ Evidence below was collected against reviewed runtime SHA `4e44252db0fa63305398d
 
 These provider results do not close NAPI real-repository parity, RepoMap quality, Claw lifecycle parity, ContextAssembler quality, Harbor A/B, production readiness or token-savings claims.
 
-## Current R1 Qdrant boundary slice
+## Current R1 Qdrant boundary
 
-- `makeQdrantCodeCandidatePort` now uses the official `@qdrant/js-client-rest` client for query, upsert and delete operations; its primary runtime path no longer constructs raw Qdrant HTTP requests.
-- The candidate port still validates its declared Qdrant destination against the local-only policy before every SDK operation; moving transport ownership to the SDK does not move the security boundary out to callers.
-- `src/bin/ace-mcp.ts` and `scripts/qdrant-hybrid-rank-probe.ts` pass the authenticated SDK client plus the policy-bound local endpoint; direct candidate-port tests use SDK-shaped doubles.
-- R1 is not closed: collection/alias/count/scroll/membership helpers in `src/adapters/qdrant-context-provider.ts` still contain compatibility HTTP branches and require a separate focused deletion slice.
+- `makeQdrantCodeCandidatePort` and the collection/alias/count/scroll/membership helpers now use the official `@qdrant/js-client-rest` client; no Qdrant `http.request` branch remains in `src/adapters/qdrant-context-provider.ts`.
+- The SDK boundary still validates the declared destination against the local-only policy before every operation; transport consolidation did not move authorization out to callers.
+- `src/bin/ace-mcp.ts` and `scripts/qdrant-hybrid-rank-probe.ts` pass the authenticated SDK client plus the policy-bound local endpoint; direct contracts use SDK-shaped doubles.
+- Focused Qdrant/provider contracts — `84/84 PASS`; repository `verify:pr` — `631/631 PASS`, Hermes plugin `20/20`, OpenSpec `9/9`.
+- R1 real-provider rerun is `NOT_RUN` after the final SDK-boundary merge; previous real-provider evidence remains bound to its original SHA. Cross-process concurrency remains `BLOCKED` on the latest recorded local Qdrant `HTTP 500` and is not promoted by deterministic tests.
