@@ -11,12 +11,12 @@ import { makeFileAuditSink } from '../src/adapters/file-audit-sink.js';
 import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
 import { makeFileWorkspaceStore } from '../src/application/file-workspace-store.js';
 import { authorizeAndAudit } from '../src/application/policy-service.js';
-import { type IdPort } from '../src/application/ports.js';
+import { type IdPort, type WorkspaceFilePort } from '../src/application/ports.js';
 import { registerWorkspace, observeWorkspace, readVerified } from '../src/application/workspace-service.js';
 import { makeMcpGateway } from '../src/gateway/mcp-gateway.js';
 import { defaultLocalPolicy } from '../src/domain/policy.js';
-import { makeWorkspaceId } from '../src/domain/workspace.js';
-import { isErr, isOk } from '../src/domain/result.js';
+import { makeWorkspaceId, type RepoPath } from '../src/domain/workspace.js';
+import { isErr, isOk, ok } from '../src/domain/result.js';
 
 const run = <Value>(effect: Effect.Effect<Value>) => Effect.runPromise(effect);
 const exec = promisify(execFile);
@@ -106,6 +106,62 @@ test('concurrent observations of one persisted workspace converge instead of los
     first.value.lastObservation?.files.map((file) => file.digest),
     second.value.lastObservation?.files.map((file) => file.digest),
   );
+});
+
+test('equivalent concurrent observations with reordered removals converge on one epoch', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'ace-foundation-concurrent-removals-'));
+  const statePath = join(parent, 'state.json');
+  let snapshotCalls = 0;
+  const repoPath = (value: string): RepoPath => value as RepoPath;
+  const files: WorkspaceFilePort = {
+    canonicalizeRoot: (candidate) => Effect.succeed(ok(candidate)),
+    snapshot: (_rootPath, _observedAtMs) => {
+      snapshotCalls += 1;
+      const removedPaths = snapshotCalls % 2 === 1
+        ? [repoPath('src/one.ts'), repoPath('src/two.ts')]
+        : [repoPath('src/two.ts'), repoPath('src/one.ts')];
+      return Effect.succeed(ok({
+        headRevision: 'a'.repeat(40),
+        files: [],
+        removedPaths,
+        gitStatus: 'available',
+      }));
+    },
+    observeChanges: () => {
+      throw new Error('not used');
+    },
+    readExact: () => {
+      throw new Error('not used');
+    },
+  };
+  const service = () => ({
+    clock,
+    ids: {
+      newWorkspaceId: () => 'workspace-concurrent-removals',
+      newRequestId: () => 'request-concurrent-removals',
+    },
+    files,
+    store: makeFileWorkspaceStore(statePath),
+  });
+
+  const registered = await run(registerWorkspace(service(), { rootPath: parent }));
+  assert.equal(registered._tag, 'Ok');
+  if (isErr(registered)) return;
+
+  const [first, second] = await Promise.all([
+    run(observeWorkspace(service(), registered.value.workspaceId)),
+    run(observeWorkspace(service(), registered.value.workspaceId)),
+  ]);
+  assert.equal(first._tag, 'Ok', JSON.stringify(first));
+  assert.equal(second._tag, 'Ok', JSON.stringify(second));
+  if (isErr(first) || isErr(second)) return;
+  assert.equal(first.value.observationEpoch, 1, JSON.stringify(first));
+  assert.equal(second.value.observationEpoch, 1, JSON.stringify(second));
+
+  const persisted = await run(makeFileWorkspaceStore(statePath).get(registered.value.workspaceId));
+  assert.equal(persisted._tag, 'Ok', JSON.stringify(persisted));
+  if (isErr(persisted)) return;
+  assert.equal(persisted.value.observationEpoch, 1, JSON.stringify(persisted));
 });
 
 test('workspace snapshots remain usable for a non-git workspace', async () => {
