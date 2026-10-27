@@ -67,8 +67,17 @@ These provider results do not close NAPI real-repository parity, RepoMap quality
 - `makeQdrantCodeCandidatePort` and the collection/alias/count/scroll/membership helpers now use the official `@qdrant/js-client-rest` client; no Qdrant `http.request` branch remains in `src/adapters/qdrant-context-provider.ts`.
 - The SDK boundary still validates the declared destination against the local-only policy before every operation; transport consolidation did not move authorization out to callers.
 - `src/bin/ace-mcp.ts` and `scripts/qdrant-hybrid-rank-probe.ts` pass the authenticated SDK client plus the policy-bound local endpoint; direct contracts use SDK-shaped doubles.
-- The later direct-stable-collection change removed alias publication. Full current-snapshot publication may prune older workspace versions only after exact current-key membership is proven; mixed-key warm reuse does not perform workspace-wide cleanup.
-- Current reviewed head deterministic CI is affected-scope only: `126/126 PASS`, ESLint PASS, TypeScript build + clean runtime provenance PASS, and isolated Bifröst test/vet PASS. Full `verify:pr` has not been rerun on this reviewed head.
-- Historical real-provider evidence at runtime SHA `f36674734ed109230637e7b0bb6ef26cd92432cd` predates commits `6cdef48a5b92` (direct stable collection) and `e27ff36884f6` (stable publication fencing), and therefore does **not** validate the current publication/recovery semantics. Those runs remain historical SDK-lifecycle evidence only.
-- Real-provider restart/crash/concurrency/scale gates must be rerun on the final reviewed SHA before the direct stable publication path can claim current real-provider acceptance.
+- The later direct-stable-collection change removed alias publication from the replacement runtime. Full current-snapshot publication may prune older workspace versions only after exact current-key membership and completed SDK mutation status are proven; mixed-key warm reuse does not perform workspace-wide cleanup.
+- Current reviewed SHA `2a58463dab7c1f0483e704e526939d64c5abe1ec` passes `npm run verify:pr`: `633/633` TypeScript tests, Hermes context plugin `20/20`, ESLint, build and clean runtime provenance. OpenSpec validation is `9/9 PASS`.
+- Current real-provider evidence on SHA `2a58463dab7c1f0483e704e526939d64c5abe1ec` and local Qdrant `qdrant/1.19.2` is retained below; the previous `f366747` evidence remains historical and is not used for current R4 acceptance.
+- R4 direct stable publication now has current provider evidence for restart, crash, concurrency and scale; production readiness, NAPI parity, RepoMap/LSP/ContextAssembler conformance, Harbor A/B and token-savings claims remain open.
+
+## Current R4 direct stable publication evidence
+
+- `npm run test:real-provider` — `PASS`; current source citation and exact expansion verified.
+- `npm run test:real-provider-race` — `PASS`; outcome `reconciled-current`.
+- `npm run test:real-provider-restart` — `PASS`; warm reuse, changed-source rebuild and direct stable collection identity verified; `publication_mode=stable_collection_direct`.
+- `npm run test:real-index-scale -- --files 100` — `PASS`; cold/warm/change-only phases completed with current citations and the expected add/change/delete/rename deltas.
+- `npm run test:real-qdrant-crash` — `PASS`; interrupted publication retained direct stable collection identity, current-or-NOT_READY semantics and restart recovery.
+- `npm run test:real-qdrant-concurrency` — `PASS`; concurrent writers converged on one direct stable collection/index key/provider fingerprint with no duplicate collection.
 - These results do not close NAPI real-repository parity, RepoMap/LSP/ContextAssembler conformance, Harbor A/B, production readiness or token-savings claims.
