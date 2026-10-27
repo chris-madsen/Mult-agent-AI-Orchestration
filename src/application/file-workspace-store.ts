@@ -42,9 +42,17 @@ const parseWorkingTreeVersion = (value: unknown): NonNullable<WorkspaceRecord['l
     const repoPath = ingestRepoPath(item.repoPath);
     const digest = makeContentDigest(item.digest);
     if (repoPath._tag === 'Err' || digest._tag === 'Err' || item.sizeBytes < 0 || !Number.isSafeInteger(item.sizeBytes)) return undefined;
+    if (item.mtimeMs !== undefined && (typeof item.mtimeMs !== 'number' || !Number.isFinite(item.mtimeMs))) return undefined;
     const state = item.state;
     if (state !== 'tracked' && state !== 'untracked' && state !== 'deleted' && state !== 'unknown') return undefined;
-    files.push({ repoPath: repoPath.value, digest: digest.value, sizeBytes: item.sizeBytes, state, observedAtMs: item.observedAtMs });
+    files.push({
+      repoPath: repoPath.value,
+      digest: digest.value,
+      sizeBytes: item.sizeBytes,
+      ...(item.mtimeMs === undefined ? {} : { mtimeMs: item.mtimeMs }),
+      state,
+      observedAtMs: item.observedAtMs,
+    });
   }
   const removedPaths: RepoPath[] = [];
   for (const item of value.removedPaths) {
@@ -53,7 +61,15 @@ const parseWorkingTreeVersion = (value: unknown): NonNullable<WorkspaceRecord['l
     if (repoPath._tag === 'Err') return undefined;
     removedPaths.push(repoPath.value);
   }
-  return { headRevision: value.headRevision, observationEpoch: value.observationEpoch, files, removedPaths };
+  const gitStatus = value.gitStatus;
+  if (gitStatus !== undefined && gitStatus !== 'available' && gitStatus !== 'not_repository') return undefined;
+  return {
+    headRevision: value.headRevision,
+    observationEpoch: value.observationEpoch,
+    files,
+    removedPaths,
+    ...(gitStatus === undefined ? {} : { gitStatus }),
+  };
 };
 
 const parseState = (value: unknown): Result<PersistedState, ReturnType<typeof domainError>> => {

@@ -11,12 +11,12 @@ import { makeFileAuditSink } from '../src/adapters/file-audit-sink.js';
 import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
 import { makeFileWorkspaceStore } from '../src/application/file-workspace-store.js';
 import { authorizeAndAudit } from '../src/application/policy-service.js';
-import { type IdPort } from '../src/application/ports.js';
+import { type IdPort, type WorkspaceFilePort } from '../src/application/ports.js';
 import { registerWorkspace, observeWorkspace, readVerified } from '../src/application/workspace-service.js';
 import { makeMcpGateway } from '../src/gateway/mcp-gateway.js';
 import { defaultLocalPolicy } from '../src/domain/policy.js';
-import { makeWorkspaceId } from '../src/domain/workspace.js';
-import { isErr, isOk } from '../src/domain/result.js';
+import { makeContentDigest, makeWorkspaceId, type RepoPath } from '../src/domain/workspace.js';
+import { isErr, isOk, ok } from '../src/domain/result.js';
 
 const run = <Value>(effect: Effect.Effect<Value>) => Effect.runPromise(effect);
 const exec = promisify(execFile);
@@ -71,6 +71,97 @@ test('workspace registration, observation and digest verification are explicit',
   assert.equal(stale._tag, 'Err');
   if (isOk(stale)) return;
   assert.equal(stale.error.code, 'DIGEST_MISMATCH');
+});
+
+test('concurrent observations of one persisted workspace converge instead of losing the newer observation', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'ace-foundation-concurrent-'));
+  const root = join(parent, 'repo');
+  await mkdir(join(root, 'src'), { recursive: true });
+  await writeFile(join(root, 'src', 'concurrent.ts'), 'export const concurrent = true;\n', 'utf8');
+
+  const store = makeFileWorkspaceStore(join(root, '.ace', 'state.json'));
+  const service = () => ({
+    clock,
+    ids: {
+      newWorkspaceId: () => 'workspace-concurrent',
+      newRequestId: () => 'request-concurrent',
+    },
+    files: makeNodeWorkspacePort({ allowedRoots: [parent] }),
+    store,
+  });
+
+  const registered = await run(registerWorkspace(service(), { rootPath: root }));
+  assert.equal(registered._tag, 'Ok');
+  if (isErr(registered)) return;
+
+  const [first, second] = await Promise.all([
+    run(observeWorkspace(service(), registered.value.workspaceId)),
+    run(observeWorkspace(service(), registered.value.workspaceId)),
+  ]);
+  assert.equal(first._tag, 'Ok', JSON.stringify(first));
+  assert.equal(second._tag, 'Ok', JSON.stringify(second));
+  if (isErr(first) || isErr(second)) return;
+  assert.equal(first.value.lastObservation?.headRevision, second.value.lastObservation?.headRevision);
+  assert.deepEqual(
+    first.value.lastObservation?.files.map((file) => file.digest),
+    second.value.lastObservation?.files.map((file) => file.digest),
+  );
+});
+
+test('equivalent concurrent observations with reordered removals converge on one epoch', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'ace-foundation-concurrent-removals-'));
+  const statePath = join(parent, 'state.json');
+  let snapshotCalls = 0;
+  const repoPath = (value: string): RepoPath => value as RepoPath;
+  const files: WorkspaceFilePort = {
+    canonicalizeRoot: (candidate) => Effect.succeed(ok(candidate)),
+    snapshot: () => {
+      snapshotCalls += 1;
+      const removedPaths = snapshotCalls % 2 === 1
+        ? [repoPath('src/one.ts'), repoPath('src/two.ts')]
+        : [repoPath('src/two.ts'), repoPath('src/one.ts')];
+      return Effect.succeed(ok({
+        headRevision: 'a'.repeat(40),
+        files: [],
+        removedPaths,
+        gitStatus: 'available',
+      }));
+    },
+    observeChanges: () => {
+      throw new Error('not used');
+    },
+    readExact: () => {
+      throw new Error('not used');
+    },
+  };
+  const service = () => ({
+    clock,
+    ids: {
+      newWorkspaceId: () => 'workspace-concurrent-removals',
+      newRequestId: () => 'request-concurrent-removals',
+    },
+    files,
+    store: makeFileWorkspaceStore(statePath),
+  });
+
+  const registered = await run(registerWorkspace(service(), { rootPath: parent }));
+  assert.equal(registered._tag, 'Ok');
+  if (isErr(registered)) return;
+
+  const [first, second] = await Promise.all([
+    run(observeWorkspace(service(), registered.value.workspaceId)),
+    run(observeWorkspace(service(), registered.value.workspaceId)),
+  ]);
+  assert.equal(first._tag, 'Ok', JSON.stringify(first));
+  assert.equal(second._tag, 'Ok', JSON.stringify(second));
+  if (isErr(first) || isErr(second)) return;
+  assert.equal(first.value.observationEpoch, 1, JSON.stringify(first));
+  assert.equal(second.value.observationEpoch, 1, JSON.stringify(second));
+
+  const persisted = await run(makeFileWorkspaceStore(statePath).get(registered.value.workspaceId));
+  assert.equal(persisted._tag, 'Ok', JSON.stringify(persisted));
+  if (isErr(persisted)) return;
+  assert.equal(persisted.value.observationEpoch, 1, JSON.stringify(persisted));
 });
 
 test('workspace snapshots remain usable for a non-git workspace', async () => {
@@ -273,6 +364,49 @@ test('gateway validates arguments, exposes exact expansion and refuses fake retr
   assert.equal(expanded.status, 'ok');
   if (expanded.status !== 'ok') return;
   assert.equal(Buffer.from(String(expanded.result.content_base64), 'base64').toString('utf8'), 'exact-content');
+});
+
+test('workspace persistence round-trips observation metadata used by race convergence', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-workspace-store-roundtrip-'));
+  const store = makeFileWorkspaceStore(join(root, 'state', 'workspaces.json'));
+  const workspaceId = makeWorkspaceId('workspace-roundtrip');
+  const digest = makeContentDigest('a'.repeat(64));
+  assert.equal(workspaceId._tag, 'Ok');
+  assert.equal(digest._tag, 'Ok');
+  if (isErr(workspaceId) || isErr(digest)) return;
+
+  const base = {
+    workspaceId: workspaceId.value,
+    rootPath: root,
+    observationEpoch: 0,
+    createdAtMs: 1,
+  };
+  assert.equal((await run(store.save(base)))._tag, 'Ok');
+
+  const observed = {
+    ...base,
+    observationEpoch: 1,
+    lastObservation: {
+      headRevision: 'b'.repeat(40),
+      observationEpoch: 1,
+      files: [{
+        repoPath: 'src/roundtrip.ts' as RepoPath,
+        digest: digest.value,
+        sizeBytes: 7,
+        mtimeMs: 123,
+        state: 'tracked' as const,
+        observedAtMs: 456,
+      }],
+      removedPaths: [] as RepoPath[],
+      gitStatus: 'available' as const,
+    },
+  };
+  assert.equal((await run(store.save(observed)))._tag, 'Ok');
+
+  const loaded = await run(store.get(workspaceId.value));
+  assert.equal(loaded._tag, 'Ok', JSON.stringify(loaded));
+  if (isErr(loaded)) return;
+  assert.deepEqual(loaded.value, observed);
 });
 
 test('workspace persistence rejects stale observation epochs and preserves concurrent registrations', async () => {

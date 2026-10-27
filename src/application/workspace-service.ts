@@ -1,6 +1,6 @@
 import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
-import { err, isErr, ok, type Result } from '../domain/result.js';
+import { err, isErr, isOk, ok, type Result } from '../domain/result.js';
 import {
   ingestRepoPath,
   makeContentDigest,
@@ -26,6 +26,28 @@ const getWorkspace = (
   store: WorkspaceStore,
   workspaceId: WorkspaceId,
 ): Effect.Effect<Result<WorkspaceRecord, DomainError>> => store.get(workspaceId);
+
+const sameWorkingTreeObservation = (
+  left: NonNullable<WorkspaceRecord['lastObservation']> | undefined,
+  right: NonNullable<WorkspaceRecord['lastObservation']> | undefined,
+): boolean => {
+  if (left === undefined || right === undefined) return false;
+  if (left.headRevision !== right.headRevision || left.removedPaths.length !== right.removedPaths.length
+    || left.files.length !== right.files.length) return false;
+  const leftFiles = [...left.files].sort((a, b) => a.repoPath.localeCompare(b.repoPath));
+  const rightFiles = [...right.files].sort((a, b) => a.repoPath.localeCompare(b.repoPath));
+  const leftRemovedPaths = [...left.removedPaths].sort((a, b) => a.localeCompare(b));
+  const rightRemovedPaths = [...right.removedPaths].sort((a, b) => a.localeCompare(b));
+  return leftRemovedPaths.every((repoPath, index) => repoPath === rightRemovedPaths[index])
+    && leftFiles.every((file, index) => {
+      const other = rightFiles[index];
+      return other !== undefined
+        && file.repoPath === other.repoPath
+        && file.digest === other.digest
+        && file.sizeBytes === other.sizeBytes
+        && file.state === other.state;
+    });
+};
 
 export const registerWorkspace = (
   ports: WorkspaceServicePorts,
@@ -59,28 +81,35 @@ export const observeWorkspace = (
   workspaceId: WorkspaceId,
 ): Effect.Effect<Result<WorkspaceRecord, DomainError>> =>
   Effect.gen(function* () {
-    const current = yield* getWorkspace(ports.store, workspaceId);
-    if (isErr(current)) return current;
-    const observedAtMs = ports.clock.nowMs();
-    const snapshot = yield* ports.files.snapshot(current.value.rootPath, observedAtMs);
-    if (isErr(snapshot)) return snapshot;
-    const nextEpoch = current.value.observationEpoch + 1;
-    const version = makeWorkingTreeVersion(
-      snapshot.value.headRevision,
-      nextEpoch,
-      snapshot.value.files,
-      snapshot.value.removedPaths,
-      snapshot.value.gitStatus,
-    );
-    if (isErr(version)) return version;
-    const updated: WorkspaceRecord = {
-      ...current.value,
-      observationEpoch: nextEpoch,
-      lastObservation: version.value,
-    };
-    const saved = yield* ports.store.save(updated);
-    if (isErr(saved)) return saved;
-    return ok(updated);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const current = yield* getWorkspace(ports.store, workspaceId);
+      if (isErr(current)) return current;
+      const observedAtMs = ports.clock.nowMs();
+      const snapshot = yield* ports.files.snapshot(current.value.rootPath, observedAtMs);
+      if (isErr(snapshot)) return snapshot;
+      const nextEpoch = current.value.observationEpoch + 1;
+      const version = makeWorkingTreeVersion(
+        snapshot.value.headRevision,
+        nextEpoch,
+        snapshot.value.files,
+        snapshot.value.removedPaths,
+        snapshot.value.gitStatus,
+      );
+      if (isErr(version)) return version;
+      const updated: WorkspaceRecord = {
+        ...current.value,
+        observationEpoch: nextEpoch,
+        lastObservation: version.value,
+      };
+      const saved = yield* ports.store.save(updated);
+      if (isOk(saved)) return ok(updated);
+      if (saved.error.code !== 'WORKTREE_RACED') return saved;
+      const latest = yield* getWorkspace(ports.store, workspaceId);
+      if (isErr(latest)) return latest;
+      if (sameWorkingTreeObservation(latest.value.lastObservation, version.value)) return ok(latest.value);
+      if (attempt === 2) return saved;
+    }
+    return err(domainError('WORKTREE_RACED', 'observation_epoch', 'workspace observation could not converge after concurrent updates'));
   });
 
 export const readVerified = (

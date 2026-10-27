@@ -47,11 +47,17 @@ Still deferred:
 
 No production-readiness, quality-parity or token-savings claim follows from this PR.
 
-## Current working-tree evidence
+## Current PR-A evidence
 
-- `npm run verify:pr` — `PASS` on the current working tree: TypeScript checks, `621/621` deterministic tests, Hermes plugin `20/20`, lint and build all passed.
-- `openspec validate --all --strict --no-interactive --report full` — `9/9 PASS`.
-- `npm run test:real-same-name` — provider `PASS` observed locally; its tracked report remains historical because the working tree was dirty and the result was not promoted to the current SHA.
-- `npm run test:real-provider` — `BLOCKED`: compiled runtime provenance rejects the dirty working tree (`source_worktree_dirty`); no real Qdrant/ACE success is claimed from this run.
-- `npm run test:real-non-ts-lsp` — `BLOCKED`: configured `rust-analyzer` is unavailable in the installed stable toolchain; no non-TypeScript parity claim is made.
-- Qdrant concurrency, restart and benchmark gates require a clean reviewed SHA and remain open; a dirty working-tree run must not be promoted to provider evidence.
+Evidence below was collected against reviewed runtime SHA `4e44252db0fa63305398d87a96bde5e410e183f2` with `sourceCleanAtBuild=true` and local Qdrant `qdrant/1.19.2`:
+
+- `npm run test:real-provider` — `PASS`; current citation `service.ts:1-25`, `complete=true`, exact expansion verified.
+- `npm run test:real-provider-race` — `PASS`; outcome `reconciled-current`: when the source changes during the request, delivered evidence is the changed digest rather than the old digest mislabeled as current.
+- `npm run test:real-provider-restart` — `PASS`; cold generation, warm reuse and changed-source stable-collection mutation all passed.
+- `npm run test:real-index-scale -- --files 100` — `PASS`; cold/warm/change-only phases passed with `deltaAdded=1`, `deltaChanged=10`, `deltaDeleted=1`, `deltaRenamed=1`.
+- `npm run test:real-qdrant-crash` — `PASS`; interrupted writer, alias safety, reconciliation, restart publication and stable collection reuse passed.
+- `npm run test:real-qdrant-concurrency` — `BLOCKED` on the latest run by local Qdrant `HTTP 500 Internal Server Error`; the runner must remain blocked rather than treating the failure as successful convergence.
+- `npm run test:real-non-ts-lsp` — `BLOCKED`: configured `rust-analyzer` is unavailable; no non-TypeScript parity claim is made.
+- `npm run test:real-same-name` — not rerun for this PR-A slice; the existing tracked report remains historical.
+
+These provider results do not close NAPI real-repository parity, RepoMap quality, Claw lifecycle parity, ContextAssembler quality, Harbor A/B, production readiness or token-savings claims.
