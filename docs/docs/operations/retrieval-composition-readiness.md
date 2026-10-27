@@ -39,13 +39,21 @@ Required on the final reviewed SHA:
 
 Still deferred:
 
-- NAPI-vs-CLI symbol/range parity before making NAPI the default; the frozen representative fixture passes, but `npm exec -- tsx scripts/ast-grep-provider-parity.ts src` still reports real-repository differences in import records, anonymous/nested function classification, object/type fields, and declaration ranges, so NAPI remains opt-in;
+- NAPI-vs-CLI symbol/range parity before making NAPI the default; the frozen representative fixture passes, while the current `src` comparison remains `BLOCKED` with 125 files and 1,386 differences (`missing_from_cli=809`, `missing_from_napi=462`, `range_mismatch=114`, `syntax_mismatch=1`), so NAPI remains opt-in;
 - real-provider/agent evidence for the LSP registry and measured large-workspace refresh I/O;
 - real cross-process Qdrant concurrency acceptance;
 - real-repository/agent evidence for RepoMap and ContextAssembler source-priority behavior;
 - provider-measured Hermes native-vs-ACE A/B.
 
 No production-readiness, quality-parity or token-savings claim follows from this PR.
+
+## Current B1 NAPI parity evidence — runtime SHA `26cd8ef950230c7d7ef10f42fc4f2654d8481760`
+
+- Frozen parity — `PASS`: `equivalent=true`, matching source digest and zero differences for `test/fixtures/ast-grep-parity/representative.ts`.
+- NAPI contracts — `21/21 PASS`; CLI structural contracts and parity comparator contracts pass.
+- B1 fixes now align NAPI import records with CLI `module` identity and suppress type-alias object fields that the CLI does not expose.
+- Real repository parity — `BLOCKED`: `npm exec -- tsx scripts/ast-grep-provider-parity.ts src` reports the discrepancy counts above; no broad normalization is used to hide them.
+- `npm run test:real-same-name` — `PASS` on runtime SHA `26cd8ef`; CLI remains the production default and RepoMap work remains gated on B1 closure.
 
 ## Current PR-A evidence
 
