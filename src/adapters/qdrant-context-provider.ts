@@ -833,10 +833,10 @@ export const reuseOrPopulateQdrantSnapshot = (
         // older writer cannot delete points from a newer observation epoch.
         if (qdrant.deleteWorkspaceVersions !== undefined) {
           const cleaned = yield* qdrant.deleteWorkspaceVersions({
-            workspaceId,
-            exceptIndexKey: indexKey,
-            ...(stableCollection ? { beforeGeneration: index.generation } : {}),
-          });
+      workspaceId,
+      exceptIndexKey: indexKey,
+      ...(stableCollection ? { beforeGeneration: index.generation } : {}),
+    });
           if (cleaned._tag === 'Err') return cleaned;
         }
         if (stableCollection) {
