@@ -154,12 +154,20 @@ test('Vertex empty Europe corpus is a valid empty result, never invented documen
   assert.deepEqual(result, []);
 });
 
-test('Qdrant code payload is local-only and rejects external HTTPS before SDK network', async () => {
-  let queries = 0;
+test('Qdrant code payload is local-only and rejects external HTTPS before every SDK operation', async () => {
+  let sdkCalls = 0;
   const client = {
     query: async () => {
-      queries += 1;
+      sdkCalls += 1;
       return { points: [] };
+    },
+    upsert: async () => {
+      sdkCalls += 1;
+      return { status: 'completed' };
+    },
+    delete: async () => {
+      sdkCalls += 1;
+      return { status: 'completed' };
     },
   } as unknown as QdrantClient;
   const qdrant = makeQdrantCodeCandidatePort({
@@ -167,15 +175,28 @@ test('Qdrant code payload is local-only and rejects external HTTPS before SDK ne
     collection: 'ace-code',
     client,
   });
-  const result = await Effect.runPromise(qdrant.search({
-    workspaceId: ws,
-    vector: [1],
-    strategy: 'dense',
-    limit: 1,
-  }));
-  assert.equal(result._tag, 'Err');
-  if (result._tag === 'Err') assert.equal(result.error.code, 'POLICY_DENIED');
-  assert.equal(queries, 0, 'policy denial must happen before the SDK client is invoked');
+  const results = [
+    await Effect.runPromise(qdrant.search({
+      workspaceId: ws,
+      vector: [1],
+      strategy: 'dense',
+      limit: 1,
+    })),
+    await Effect.runPromise(qdrant.upsert([])),
+    await Effect.runPromise(qdrant.deletePaths!({
+      workspaceId: ws,
+      repoPaths: ['src/private.ts' as never],
+    })),
+    await Effect.runPromise(qdrant.deleteWorkspaceVersions!({
+      workspaceId: ws,
+      exceptIndexKey: 'current-index',
+    })),
+  ];
+  for (const result of results) {
+    assert.equal(result._tag, 'Err');
+    if (result._tag === 'Err') assert.equal(result.error.code, 'POLICY_DENIED');
+  }
+  assert.equal(sdkCalls, 0, 'policy denial must happen before any SDK client method is invoked');
 
   const validator = validateLocalQdrantBaseUrl('https://vector.example.com');
   assert.equal(validator._tag, 'Err');
