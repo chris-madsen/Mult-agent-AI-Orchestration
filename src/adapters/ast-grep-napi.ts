@@ -45,7 +45,7 @@ const declarationKind = (nodeKind: string): StructuralKind | undefined => {
     case 'property_signature': return 'field';
     case 'method_definition':
     case 'method_signature': return 'method';
-    case 'import_statement': return 'import';
+    case 'import_statement': return 'module';
     case 'export_statement': return 'export';
     default: return undefined;
   }
@@ -84,8 +84,11 @@ const nodeSymbol = (
   },
 ): StructuralSymbol | undefined => {
   if (node.kind() === 'export_statement') return undefined;
+  if (node.kind() === 'property_signature'
+    && node.ancestors().some((ancestor) => ancestor.kind() === 'type_alias_declaration')) return undefined;
   let kind = declarationKind(node.kind());
   let nameNode = node.field('name');
+  const moduleNode = node.kind() === 'import_statement' ? node.field('source') : null;
 
   if (node.kind() === 'property_identifier' && node.ancestors().some((ancestor) => ancestor.kind() === 'enum_body')) {
     kind = 'enum_variant';
@@ -107,9 +110,11 @@ const nodeSymbol = (
     : undefined;
   const range = (exportAncestor ?? node).range();
   const named = isIdentifier(nameNode) ? nameNode : undefined;
-  const name = kind === 'import' || kind === 'export'
-    ? node.text().split(/\s+/u)[0] ?? node.kind()
-    : named?.text();
+  const name = kind === 'module' && moduleNode !== null
+    ? moduleNode.text()
+    : kind === 'import' || kind === 'export'
+      ? node.text().split(/\s+/u)[0] ?? node.kind()
+      : named?.text();
   if (name === undefined || name.length === 0) return undefined;
   const start = toBytePosition(range.start);
   const end = toBytePosition(range.end);
@@ -135,7 +140,7 @@ const nodeSymbol = (
       nameEndColumn: nameEnd.column,
     }),
     ...(isExported(node) ? { isExported: true } : {}),
-    ...(kind === 'import' ? { isImport: true } : {}),
+    ...(node.kind() === 'import_statement' ? { isImport: true } : {}),
   };
 };
 

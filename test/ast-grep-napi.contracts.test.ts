@@ -55,3 +55,36 @@ test('NAPI semantic name ranges use UTF-8 byte columns', async () => {
     Buffer.byteLength('café', 'utf8'),
   );
 });
+
+test('NAPI import records use the CLI module identity and preserve import state', async () => {
+  const result = await Effect.runPromise(makeAstGrepNapiStructuralPort().extract({
+    repoPath: 'imports.ts',
+    source: Buffer.from("import { save } from './service.js';\n", 'utf8'),
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Err') return;
+  assert.deepEqual(result.value.symbols, [{
+    name: "'./service.js'",
+    kind: 'module',
+    providerKind: 'import_statement',
+    language: 'typescript',
+    startLine: 1,
+    startColumn: 1,
+    endLine: 1,
+    endColumn: 37,
+    startByteOffset: 0,
+    endByteOffset: 36,
+    isImport: true,
+  }]);
+});
+
+test('NAPI matches CLI field scope for interfaces without inventing type-alias object fields', async () => {
+  const result = await Effect.runPromise(makeAstGrepNapiStructuralPort().extract({
+    repoPath: 'fields.ts',
+    source: Buffer.from('interface Config { path: string; }\ntype Box = { value: string };\n', 'utf8'),
+  }));
+  if (result._tag === 'Ok') {
+    assert.equal(result.value.symbols.some((item) => item.name === 'path' && item.kind === 'field'), true);
+    assert.equal(result.value.symbols.some((item) => item.name === 'value' && item.kind === 'field'), false);
+  }
+});
