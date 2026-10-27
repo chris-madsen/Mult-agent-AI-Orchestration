@@ -822,19 +822,23 @@ export const reuseOrPopulateQdrantSnapshot = (
       );
       if (membership._tag === 'Err') return membership;
       if (membership.value) {
+        // Exact current-key membership proves every expected candidate is already
+        // published under indexKey. Older workspace versions are therefore stale
+        // and may be pruned even in stable-collection mode.
+        if (qdrant.deleteWorkspaceVersions !== undefined) {
+          const cleaned = yield* qdrant.deleteWorkspaceVersions({ workspaceId, exceptIndexKey: indexKey });
+          if (cleaned._tag === 'Err') return cleaned;
+        }
         if (stableCollection) {
           const physical = yield* verifyQdrantSnapshotMembership(
             http, baseUrl, collection, workspaceId, undefined, expectedCandidateIds, allowedHosts, client,
           );
           if (physical._tag === 'Err') return physical;
           if (!physical.value) return err(domainError(
-            'NOT_READY',
+            'INVALID_EXTERNAL_RESPONSE',
             'qdrant_snapshot',
-            'stable collection contains unexpected workspace points; affected-path reconciliation is required',
+            'stale workspace points remain after verified current-key cleanup',
           ));
-        } else if (qdrant.deleteWorkspaceVersions !== undefined) {
-          const cleaned = yield* qdrant.deleteWorkspaceVersions({ workspaceId, exceptIndexKey: indexKey });
-          if (cleaned._tag === 'Err') return cleaned;
         }
         return ok({ count: index.candidates.length, reused: true, reusedVectorCount: index.candidates.length });
       }
@@ -896,20 +900,22 @@ export const reuseOrPopulateQdrantSnapshot = (
       'rebuilt snapshot membership is incomplete; refusing to prune the last-known-good workspace version',
     ));
   }
-  if (qdrant.deleteWorkspaceVersions !== undefined && !stableCollection) {
+  // Full publication rewrites every current candidate with indexKey. At this
+  // point any other workspace version is stale, so cleanup is safe in both
+  // immutable and stable-collection modes.
+  if (qdrant.deleteWorkspaceVersions !== undefined) {
     const cleaned = yield* qdrant.deleteWorkspaceVersions({ workspaceId, exceptIndexKey: indexKey });
     if (cleaned._tag === 'Err') return cleaned;
   }
   if (stableCollection) {
-    // Stable mode has no workspace-wide version cleanup. A physical mismatch
-    // must be repaired through the affected-path mutation owner or rejected.
     const physical = yield* verifyQdrantSnapshotMembership(
       http, baseUrl, collection, workspaceId, undefined, expectedCandidateIds, allowedHosts, client,
     );
     if (physical._tag === 'Err') return physical;
     if (!physical.value) return err(domainError(
-      'NOT_READY', 'qdrant_snapshot',
-      'stable publication left unexpected workspace points; affected-path reconciliation is required',
+      'INVALID_EXTERNAL_RESPONSE',
+      'qdrant_snapshot',
+      'stale workspace points remain after full verified publication cleanup',
     ));
   }
   return ok({ count: indexed.value, reused: false, reusedVectorCount: seedVectors.size });
