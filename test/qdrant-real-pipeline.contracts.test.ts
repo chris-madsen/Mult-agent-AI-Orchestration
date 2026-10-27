@@ -1634,7 +1634,7 @@ test('stable warm restart reuses an exact mixed-key workspace without embeddings
   assert.equal(deletions, 0, 'old publication keys may still hold current unchanged points');
 });
 
-test('stable warm restart refuses incomplete mixed-key membership without workspace-wide cleanup', async () => {
+test('stable warm restart republishes incomplete mixed-key membership before pruning old keys', async () => {
   const second = {
     ...candidate,
     repoPath: 'src/other.ts' as never,
@@ -1678,7 +1678,7 @@ test('stable warm restart refuses incomplete mixed-key membership without worksp
   assert.equal(result.reused, false);
   assert.equal(upserts, 1);
   assert.equal(scrolls, 3, 'verify mixed membership, rebuilt membership, and final physical membership');
-  assert.equal(deletes, 0, 'stable publication must not prune the workspace by index key');
+  assert.equal(deletes, 1, 'full republish moves every current candidate to the latest key before pruning old keys');
 });
 
 test('changed-path publication rejects a falsely successful stale-version delete', async () => {
