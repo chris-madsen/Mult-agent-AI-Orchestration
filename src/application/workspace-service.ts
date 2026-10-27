@@ -36,7 +36,9 @@ const sameWorkingTreeObservation = (
     || left.files.length !== right.files.length) return false;
   const leftFiles = [...left.files].sort((a, b) => a.repoPath.localeCompare(b.repoPath));
   const rightFiles = [...right.files].sort((a, b) => a.repoPath.localeCompare(b.repoPath));
-  return left.removedPaths.every((repoPath, index) => repoPath === right.removedPaths[index])
+  const leftRemovedPaths = [...left.removedPaths].sort((a, b) => a.localeCompare(b));
+  const rightRemovedPaths = [...right.removedPaths].sort((a, b) => a.localeCompare(b));
+  return leftRemovedPaths.every((repoPath, index) => repoPath === rightRemovedPaths[index])
     && leftFiles.every((file, index) => {
       const other = rightFiles[index];
       return other !== undefined
