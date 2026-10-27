@@ -115,7 +115,7 @@ test('equivalent concurrent observations with reordered removals converge on one
   const repoPath = (value: string): RepoPath => value as RepoPath;
   const files: WorkspaceFilePort = {
     canonicalizeRoot: (candidate) => Effect.succeed(ok(candidate)),
-    snapshot: (_rootPath, _observedAtMs) => {
+    snapshot: () => {
       snapshotCalls += 1;
       const removedPaths = snapshotCalls % 2 === 1
         ? [repoPath('src/one.ts'), repoPath('src/two.ts')]
