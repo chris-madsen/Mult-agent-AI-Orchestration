@@ -40,7 +40,7 @@ const metricsFrom = (stderr) => {
   };
   return {
     collection: value('collection'),
-    alias: value('alias'),
+    publicationMode: value('publication_mode'),
     indexKey: value('index_key'),
     indexMode: value('index_mode'),
     reusedVectors: Number(value('reused_vectors')),
@@ -220,7 +220,7 @@ try {
     },
     mutation: {
       collection: first.metrics.collection,
-      alias: first.metrics.alias,
+      publicationMode: first.metrics.publicationMode,
       indexKey: first.metrics.indexKey,
       deletedPointId,
       firstGeneration: first.metrics.generation,

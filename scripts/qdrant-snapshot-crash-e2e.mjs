@@ -228,7 +228,7 @@ const parseStartupMetrics = (stderr) => {
     indexKey: digest('index_key'),
     retrievalFingerprint: digest('retrieval_fingerprint'),
     collection: required('collection'),
-    alias: required('alias'),
+    publicationMode: required('publication_mode'),
     indexMode: required('index_mode'),
   };
 };
@@ -244,16 +244,14 @@ const parseVerifiedCandidate = (stderr) => {
   return {
     indexKey: value('index_key'),
     collection: value('collection'),
-    alias: value('alias'),
+    publicationMode: value('publication_mode'),
   };
 };
 
-const qdrantAliasTarget = async (alias) => {
-  const response = await fetch(`${qdrantUrl.replace(/\/$/u, '')}/aliases`);
-  if (!response.ok) throw new Error(`Qdrant alias inspection failed: HTTP ${response.status}`);
-  const body = await response.json();
-  const target = body?.result?.aliases?.find((item) => item?.alias_name === alias);
-  return target?.collection_name;
+const qdrantCollectionExists = async (collection) => {
+  const response = await fetch(`${qdrantUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(collection)}`);
+  if (!response.ok) throw new Error(`Qdrant collection inspection failed: HTTP ${response.status}`);
+  return true;
 };
 
 const runCrashWriter = async () => {
@@ -329,16 +327,15 @@ try {
   const initial = await reader.query('stableSnapshotSentinel stable-sentinel-v1');
   assertEvidence(initial, 'src/stable.ts', 'stable-sentinel-v1');
   const readerMetrics = parseStartupMetrics(reader.stderr());
-  const initialAliasTarget = await qdrantAliasTarget(readerMetrics.alias);
-  assert.equal(initialAliasTarget, readerMetrics.collection,
-    'current alias must target the verified initial collection');
+  assert.equal(readerMetrics.publicationMode, 'stable_collection_direct');
+  assert.equal(await qdrantCollectionExists(readerMetrics.collection), true,
+    'stable collection must exist before the interrupted writer');
 
   await mutateToV2();
   const crash = await runCrashWriter();
   const crashedWriterMetrics = parseVerifiedCandidate(crash.stderr);
-  const aliasAfterCrash = await qdrantAliasTarget(readerMetrics.alias);
-  assert.equal(aliasAfterCrash, initialAliasTarget,
-    'writer killed before publication must not change the current alias');
+  assert.equal(crashedWriterMetrics.collection, readerMetrics.collection,
+    'interrupted writer must use the stable workspace collection');
 
   const afterCrash = await reader.query('stableSnapshotSentinel stable-sentinel-v1', true);
   const afterCrashStatus = assertCurrentOrNotReady(afterCrash, 'src/stable.ts', 'stable-sentinel-v1');
@@ -354,10 +351,11 @@ try {
   const v2 = await restartedWriter.query('mutableSnapshotSentinel mutable-sentinel-v2');
   assertEvidence(v2, 'src/mutable.ts', 'mutable-sentinel-v2');
   const restartedWriterMetrics = parseStartupMetrics(restartedWriter.stderr());
-  assert.equal(restartedWriterMetrics.collection, initialAliasTarget,
+  assert.equal(restartedWriterMetrics.publicationMode, 'stable_collection_direct');
+  assert.equal(restartedWriterMetrics.collection, readerMetrics.collection,
     'changed source must mutate the stable workspace collection');
-  assert.equal(await qdrantAliasTarget(restartedWriterMetrics.alias), restartedWriterMetrics.collection,
-    'restart must keep the current alias bound to the stable workspace collection');
+  assert.equal(await qdrantCollectionExists(restartedWriterMetrics.collection), true,
+    'restart must retain the stable workspace collection');
 
   const afterPublish = await reader.query('stableSnapshotSentinel stable-sentinel-v1', true);
   const afterPublishStatus = assertCurrentOrNotReady(afterPublish, 'src/stable.ts', 'stable-sentinel-v1');
@@ -378,8 +376,8 @@ try {
       urlKind: qdrantUrl.startsWith('http://127.0.0.1') || qdrantUrl.startsWith('http://localhost')
         ? 'local-loopback'
         : 'configured-local-host',
-      alias: readerMetrics.alias,
-      initialCollection: initialAliasTarget,
+      publicationMode: readerMetrics.publicationMode,
+      stableCollection: readerMetrics.collection,
       crashedWriterCollection: crashedWriterMetrics.collection,
       restartedWriterCollection: restartedWriterMetrics.collection,
       version: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
@@ -394,12 +392,12 @@ try {
     checks: {
       readerS1BeforeWriter: 'PASS',
       writerKilledAfterQdrantVerifyBeforePublish: crash.signal === 'SIGKILL' ? 'PASS' : 'FAIL',
-      currentAliasStayedOnS1DuringInterruptedBuild: aliasAfterCrash === initialAliasTarget ? 'PASS' : 'FAIL',
+      stableCollectionIdentityDuringInterruptedBuild: crashedWriterMetrics.collection === readerMetrics.collection ? 'PASS' : 'FAIL',
       readerDirtyTreeOutcome: afterCrashStatus === 'complete' ? 'PASS_RECONCILED' : 'PASS_NOT_READY',
       readerChangedPathAfterCrash: afterCrashMutableStatus === 'complete' ? 'PASS_CURRENT' : 'PASS_NOT_READY',
-      restartPublishedS2: (await qdrantAliasTarget(restartedWriterMetrics.alias)) === restartedWriterMetrics.collection ? 'PASS' : 'FAIL',
+      restartPublishedS2: (await qdrantCollectionExists(restartedWriterMetrics.collection)) ? 'PASS' : 'FAIL',
       readerPostPublishOutcome: afterPublishStatus === 'complete' ? 'PASS_RECONCILED' : 'PASS_NOT_READY',
-      stableCollectionReused: initialAliasTarget === restartedWriterMetrics.collection ? 'PASS' : 'FAIL',
+      stableCollectionReused: readerMetrics.collection === restartedWriterMetrics.collection ? 'PASS' : 'FAIL',
     },
     requestIds: {
       readerInitial: initial.requestId,

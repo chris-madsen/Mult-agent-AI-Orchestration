@@ -15,7 +15,6 @@ const sourcePath = join(workspace, 'versioned.ts');
 const workspaceId = 'real-provider-restart';
 const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
 const publishedCollections = new Set();
-let currentAlias;
 
 const digest = async () => createHash('sha256').update(await readFile(sourcePath)).digest('hex');
 
@@ -103,13 +102,12 @@ try {
     };
     const metrics = {
       collection: value('collection'),
-      alias: value('alias'),
+      publicationMode: value('publication_mode'),
       indexKey: value('index_key'),
       sourceSnapshotDigest: value('source_snapshot_digest'),
       indexMode: value('index_mode'),
     };
     publishedCollections.add(metrics.collection);
-    currentAlias = metrics.alias;
     return metrics;
   };
   const firstMetrics = metricsFrom(first.stderr, 1);
@@ -144,13 +142,9 @@ try {
   assert.notEqual(secondDigest, firstDigest);
   assert.equal(secondMetrics.collection, firstMetrics.collection,
     'changed source must mutate the stable workspace collection');
-  assert.equal(secondMetrics.alias, firstMetrics.alias);
-  const aliases = await fetch(`${qdrantUrl.replace(/\/$/u, '')}/aliases`);
-  const aliasesBodyText = await aliases.text();
-  assert.equal(aliases.ok, true, aliasesBodyText);
-  const aliasBody = JSON.parse(aliasesBodyText);
-  const aliasTarget = aliasBody?.result?.aliases?.find((item) => item?.alias_name === secondMetrics.alias)?.collection_name;
-  assert.equal(aliasTarget, secondMetrics.collection, 'current alias must point to the changed collection');
+  assert.equal(firstMetrics.publicationMode, 'stable_collection_direct');
+  assert.equal(warmMetrics.publicationMode, 'stable_collection_direct');
+  assert.equal(secondMetrics.publicationMode, 'stable_collection_direct');
 
   console.log(JSON.stringify({
     status: 'provider-pass',
@@ -161,20 +155,12 @@ try {
     initial_collection: firstMetrics.collection,
     warm_collection_reused: warmMetrics.collection === firstMetrics.collection,
     changed_collection: secondMetrics.collection,
-    current_alias: secondMetrics.alias,
-    current_alias_target: aliasTarget,
+    publication_mode: secondMetrics.publicationMode,
     first_digest: firstDigest,
     second_digest: secondDigest,
   }, null, 2));
 } finally {
   try {
-    if (currentAlias !== undefined) {
-      await fetch(`${qdrantUrl.replace(/\/$/u, '')}/collections/aliases`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ actions: [{ delete_alias: { alias_name: currentAlias } }] }),
-      });
-    }
     for (const collection of publishedCollections) {
       await fetch(`${qdrantUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(collection)}`, { method: 'DELETE' });
     }

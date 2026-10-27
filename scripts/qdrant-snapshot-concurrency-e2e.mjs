@@ -82,7 +82,7 @@ const parseStartupMetrics = (stderr) => {
     indexMode: required('index_mode'),
     embeddingIdentity: required('embedding_identity'),
     structuralIdentity: required('structural_identity'),
-    alias: required('alias'),
+    publicationMode: required('publication_mode'),
   };
 };
 
@@ -236,12 +236,10 @@ const findEvidence = (context) => {
   return evidence;
 };
 
-const qdrantAliasTarget = async (alias) => {
-  const response = await fetch(`${qdrantUrl.replace(/\/$/u, '')}/aliases`);
-  if (!response.ok) throw new Error(`Qdrant alias inspection failed: HTTP ${response.status}`);
-  const body = await response.json();
-  const target = body?.result?.aliases?.find((item) => item?.alias_name === alias);
-  return target?.collection_name;
+const qdrantCollectionExists = async (collection) => {
+  const response = await fetch(`${qdrantUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(collection)}`);
+  if (!response.ok) throw new Error(`Qdrant collection inspection failed: HTTP ${response.status}`);
+  return true;
 };
 
 const digestIfPresent = async (path) => {
@@ -269,11 +267,12 @@ try {
   assert.equal(firstMetrics.collection, secondMetrics.collection);
   assert.equal(firstMetrics.indexKey, secondMetrics.indexKey, 'writers must converge on one content snapshot');
   assert.equal(firstMetrics.retrievalFingerprint, secondMetrics.retrievalFingerprint);
-  assert.equal(firstMetrics.alias, secondMetrics.alias, 'writers must converge on one current alias');
+  assert.equal(firstMetrics.publicationMode, 'stable_collection_direct');
+  assert.equal(secondMetrics.publicationMode, 'stable_collection_direct');
   assert.equal(firstEvidence.sourceDigest, secondEvidence.sourceDigest);
   publishedCollections.add(firstMetrics.collection);
-  assert.equal(await qdrantAliasTarget(firstMetrics.alias), firstMetrics.collection,
-    'current alias must target the verified immutable collection');
+  assert.equal(await qdrantCollectionExists(firstMetrics.collection), true,
+    'stable collection must exist after verified concurrent publication');
 
   const result = {
     schemaVersion: 1,
@@ -299,7 +298,7 @@ try {
     concurrency: {
       elapsedMs,
       collection: firstMetrics.collection,
-      alias: firstMetrics.alias,
+      publicationMode: firstMetrics.publicationMode,
       indexKey: firstMetrics.indexKey,
       retrievalFingerprint: firstMetrics.retrievalFingerprint,
       writers: [
@@ -313,7 +312,7 @@ try {
       citationsShareD1Digest: 'PASS',
       writersConvergedOnIndexKey: 'PASS',
       writersConvergedOnProviderFingerprint: 'PASS',
-      currentAliasPublished: (await qdrantAliasTarget(firstMetrics.alias)) === firstMetrics.collection ? 'PASS' : 'FAIL',
+      stableCollectionExists: (await qdrantCollectionExists(firstMetrics.collection)) ? 'PASS' : 'FAIL',
       noDuplicateCollectionForSameIndex: firstMetrics.collection === secondMetrics.collection ? 'PASS' : 'FAIL',
     },
     providerTraceDigests: {
