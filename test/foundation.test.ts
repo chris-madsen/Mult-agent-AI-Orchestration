@@ -73,6 +73,41 @@ test('workspace registration, observation and digest verification are explicit',
   assert.equal(stale.error.code, 'DIGEST_MISMATCH');
 });
 
+test('concurrent observations of one persisted workspace converge instead of losing the newer observation', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'ace-foundation-concurrent-'));
+  const root = join(parent, 'repo');
+  await mkdir(join(root, 'src'), { recursive: true });
+  await writeFile(join(root, 'src', 'concurrent.ts'), 'export const concurrent = true;\n', 'utf8');
+
+  const store = makeFileWorkspaceStore(join(root, '.ace', 'state.json'));
+  const service = () => ({
+    clock,
+    ids: {
+      newWorkspaceId: () => 'workspace-concurrent',
+      newRequestId: () => 'request-concurrent',
+    },
+    files: makeNodeWorkspacePort({ allowedRoots: [parent] }),
+    store,
+  });
+
+  const registered = await run(registerWorkspace(service(), { rootPath: root }));
+  assert.equal(registered._tag, 'Ok');
+  if (isErr(registered)) return;
+
+  const [first, second] = await Promise.all([
+    run(observeWorkspace(service(), registered.value.workspaceId)),
+    run(observeWorkspace(service(), registered.value.workspaceId)),
+  ]);
+  assert.equal(first._tag, 'Ok', JSON.stringify(first));
+  assert.equal(second._tag, 'Ok', JSON.stringify(second));
+  if (isErr(first) || isErr(second)) return;
+  assert.equal(first.value.lastObservation?.headRevision, second.value.lastObservation?.headRevision);
+  assert.deepEqual(
+    first.value.lastObservation?.files.map((file) => file.digest),
+    second.value.lastObservation?.files.map((file) => file.digest),
+  );
+});
+
 test('workspace snapshots remain usable for a non-git workspace', async () => {
   const parent = await mkdtemp(join('/dev/shm', 'ace-non-git-'));
   const root = join(parent, 'workspace');
