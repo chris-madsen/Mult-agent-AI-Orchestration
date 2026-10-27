@@ -128,6 +128,11 @@ export interface CodeCandidatePort {
   readonly deleteWorkspaceVersions?: (input: {
     readonly workspaceId: WorkspaceId;
     readonly exceptIndexKey: string;
+    /**
+     * Stable-collection fencing: when set, delete only versions older than
+     * this observation generation. Newer concurrent writers are never matched.
+     */
+    readonly beforeGeneration?: number;
   }) => Effect.Effect<Result<void, DomainError>>;
 }
 

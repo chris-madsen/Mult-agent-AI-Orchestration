@@ -19,6 +19,17 @@ const makeRequest = async (
   return body;
 };
 
+const makeMutationRequest = async (
+  http: HttpPort,
+  request: Parameters<HttpPort['request']>[0],
+): Promise<unknown> => {
+  const result = await makeRequest(http, request);
+  // Older deterministic fixtures used { result: true } for successful raw
+  // mutations. The official SDK returns UpdateResult, so the SDK-shaped test
+  // double must expose the SDK contract rather than leak that legacy fixture.
+  return result === true ? { status: 'completed' } : result;
+};
+
 export const makeQdrantSdkTestDouble = (
   http: HttpPort,
   baseUrl = 'http://127.0.0.1:6333',
@@ -44,12 +55,12 @@ export const makeQdrantSdkTestDouble = (
       url: `${collectionUrl(collection)}/points/query`,
       body: body as Readonly<Record<string, unknown>>,
     }),
-    upsert: (collection: string, body: unknown) => makeRequest(http, {
+    upsert: (collection: string, body: unknown) => makeMutationRequest(http, {
       method: 'PUT',
       url: `${collectionUrl(collection)}/points?wait=true`,
       body: body as Readonly<Record<string, unknown>>,
     }),
-    delete: (collection: string, body: unknown) => makeRequest(http, {
+    delete: (collection: string, body: unknown) => makeMutationRequest(http, {
       method: 'POST',
       url: `${collectionUrl(collection)}/points/delete?wait=true`,
       body: body as Readonly<Record<string, unknown>>,
