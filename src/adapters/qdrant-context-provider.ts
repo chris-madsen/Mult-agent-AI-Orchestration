@@ -829,10 +829,14 @@ export const reuseOrPopulateQdrantSnapshot = (
       if (membership._tag === 'Err') return membership;
       if (membership.value) {
         // Exact current-key membership proves every expected candidate is already
-        // published under indexKey. Older workspace versions are therefore stale
-        // and may be pruned even in stable-collection mode.
+        // published under indexKey. Stable cleanup is generation-fenced so an
+        // older writer cannot delete points from a newer observation epoch.
         if (qdrant.deleteWorkspaceVersions !== undefined) {
-          const cleaned = yield* qdrant.deleteWorkspaceVersions({ workspaceId, exceptIndexKey: indexKey });
+          const cleaned = yield* qdrant.deleteWorkspaceVersions({
+            workspaceId,
+            exceptIndexKey: indexKey,
+            ...(stableCollection ? { beforeGeneration: index.generation } : {}),
+          });
           if (cleaned._tag === 'Err') return cleaned;
         }
         if (stableCollection) {
@@ -906,11 +910,15 @@ export const reuseOrPopulateQdrantSnapshot = (
       'rebuilt snapshot membership is incomplete; refusing to prune the last-known-good workspace version',
     ));
   }
-  // Full publication rewrites every current candidate with indexKey. At this
-  // point any other workspace version is stale, so cleanup is safe in both
-  // immutable and stable-collection modes.
+  // Full publication rewrites every current candidate with indexKey. Stable
+  // cleanup is additionally fenced by generation, preserving points written
+  // by any newer concurrent observation.
   if (qdrant.deleteWorkspaceVersions !== undefined) {
-    const cleaned = yield* qdrant.deleteWorkspaceVersions({ workspaceId, exceptIndexKey: indexKey });
+    const cleaned = yield* qdrant.deleteWorkspaceVersions({
+            workspaceId,
+            exceptIndexKey: indexKey,
+            ...(stableCollection ? { beforeGeneration: index.generation } : {}),
+          });
     if (cleaned._tag === 'Err') return cleaned;
   }
   if (stableCollection) {
