@@ -1798,7 +1798,11 @@ test('stable cold rebuild removes stale workspace leftovers after full current p
   const qdrant: CodeCandidatePort = {
     search: () => Effect.succeed(ok([])),
     upsert: () => Effect.succeed(ok(undefined)),
-    deleteWorkspaceVersions: () => { cleanups += 1; return Effect.succeed(ok(undefined)); },
+    deleteWorkspaceVersions: (input) => {
+      cleanups += 1;
+      assert.equal(input.beforeGeneration, index.generation, 'stable cleanup must be fenced by the current observation generation');
+      return Effect.succeed(ok(undefined));
+    },
   };
   const http: HttpPort = {
     request: (request) => {
