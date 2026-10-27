@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import {
   copyFile,
+  cp,
   mkdir,
   mkdtemp,
   readFile,
@@ -330,6 +331,7 @@ try {
   assert.equal(readerMetrics.publicationMode, 'stable_collection_direct');
   assert.equal(await qdrantCollectionExists(readerMetrics.collection), true,
     'stable collection must exist before the interrupted writer');
+  await cp(readerState, writerState, { recursive: true });
 
   await mutateToV2();
   const crash = await runCrashWriter();
