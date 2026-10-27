@@ -5,8 +5,8 @@ import { Effect } from 'effect';
 import { makeQdrantCodeCandidatePort } from '../src/adapters/http-provider-boundaries.js';
 import { makeCandidateId, makeCodeCandidate } from '../src/domain/retrieval.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
-import { ok, type Result } from '../src/domain/result.js';
-import type { HttpPort } from '../src/application/ports.js';
+import type { Result } from '../src/domain/result.js';
+import type { QdrantClient } from '@qdrant/js-client-rest';
 
 const mustOk = <T, E>(value: Result<T, E>): T => {
   assert.equal(value._tag, 'Ok');
@@ -32,18 +32,22 @@ const candidate = mustOk(makeCodeCandidate({
   indexedAtMs: 123,
 }));
 
+const makeClient = (handlers: {
+  readonly query?: (request: unknown) => unknown;
+  readonly upsert?: (request: unknown) => void;
+}): QdrantClient => ({
+  query: async (_collection, request) => handlers.query?.(request) ?? { points: [] },
+  upsert: async (_collection, request) => {
+    handlers.upsert?.(request);
+    return { status: 'completed' };
+  },
+} as unknown as QdrantClient);
+
 test('Qdrant upsert stores dense vector plus language-neutral BM25 document on the same point', async () => {
-  const requests: Array<{ readonly method: string; readonly body?: Readonly<Record<string, unknown>> }> = [];
-  const http: HttpPort = {
-    request: (request) => {
-      requests.push({ method: request.method, ...(request.body === undefined ? {} : { body: request.body }) });
-      return Effect.succeed(ok({ status: 200, body: { result: true } }));
-    },
-  };
+  let upsertRequest: unknown;
   const qdrant = makeQdrantCodeCandidatePort({
-    baseUrl: 'http://127.0.0.1:6333',
     collection: 'ace-hybrid',
-    http,
+    client: makeClient({ upsert: (request) => { upsertRequest = request; } }),
   });
   const result = await Effect.runPromise(qdrant.upsert([{
     candidate,
@@ -53,7 +57,7 @@ test('Qdrant upsert stores dense vector plus language-neutral BM25 document on t
     embeddingKey: 'embedding-key',
   }]));
   assert.equal(result._tag, 'Ok');
-  const points = requests[0]?.body?.points;
+  const points = (upsertRequest as { points?: unknown[] } | undefined)?.points;
   assert.ok(Array.isArray(points));
   const point = points[0] as { vector?: Record<string, unknown>; payload?: Record<string, unknown> };
   assert.deepEqual(point.vector?.dense, [0.1, 0.2, 0.3]);
@@ -72,43 +76,37 @@ test('Qdrant upsert stores dense vector plus language-neutral BM25 document on t
 
 test('Qdrant search uses dense and BM25 prefetch branches with root RRF fusion', async () => {
   let requestBody: Readonly<Record<string, unknown>> | undefined;
-  const http: HttpPort = {
-    request: (request) => {
-      requestBody = request.body;
-      return Effect.succeed(ok({
-        status: 200,
-        body: {
-          result: {
-            points: [{
-              score: 0.75,
-              payload: {
-                candidate_id: candidate.candidateId,
-                workspace_id: workspaceId,
-                repo_path: candidate.repoPath,
-                start_line: candidate.range.startLine,
-                end_line: candidate.range.endLine,
-                start_column: candidate.range.startColumn,
-                end_column: candidate.range.endColumn,
-                symbol_name: candidate.symbolName,
-                structural_kind: candidate.structuralKind,
-                structural_language: candidate.structuralLanguage,
-                structural_exported: candidate.structuralExported,
-                text: candidate.text,
-                source_digest: candidate.sourceDigest,
-                generation: candidate.generation,
-                index_key: 'index-key',
-                indexed_at_ms: candidate.indexedAtMs,
-              },
-            }],
+  const client = makeClient({
+    query: (request) => {
+      requestBody = request as Readonly<Record<string, unknown>>;
+      return {
+        points: [{
+          score: 0.75,
+          payload: {
+            candidate_id: candidate.candidateId,
+            workspace_id: workspaceId,
+            repo_path: candidate.repoPath,
+            start_line: candidate.range.startLine,
+            end_line: candidate.range.endLine,
+            start_column: candidate.range.startColumn,
+            end_column: candidate.range.endColumn,
+            symbol_name: candidate.symbolName,
+            structural_kind: candidate.structuralKind,
+            structural_language: candidate.structuralLanguage,
+            structural_exported: candidate.structuralExported,
+            text: candidate.text,
+            source_digest: candidate.sourceDigest,
+            generation: candidate.generation,
+            index_key: 'index-key',
+            indexed_at_ms: candidate.indexedAtMs,
           },
-        },
-      }));
+        }],
+      };
     },
-  };
+  });
   const qdrant = makeQdrantCodeCandidatePort({
-    baseUrl: 'http://127.0.0.1:6333',
     collection: 'ace-hybrid-current',
-    http,
+    client,
   });
   const result = await Effect.runPromise(qdrant.search({
     workspaceId,
@@ -139,16 +137,9 @@ test('Qdrant search uses dense and BM25 prefetch branches with root RRF fusion',
 
 test('Qdrant search can still issue a named dense-only query for explicit ablation paths', async () => {
   let requestBody: Readonly<Record<string, unknown>> | undefined;
-  const http: HttpPort = {
-    request: (request) => {
-      requestBody = request.body;
-      return Effect.succeed(ok({ status: 200, body: { result: { points: [] } } }));
-    },
-  };
   const qdrant = makeQdrantCodeCandidatePort({
-    baseUrl: 'http://127.0.0.1:6333',
     collection: 'ace-hybrid-current',
-    http,
+    client: makeClient({ query: (request) => { requestBody = request as Readonly<Record<string, unknown>>; return { points: [] }; } }),
   });
   const result = await Effect.runPromise(qdrant.search({
     workspaceId,
@@ -169,16 +160,9 @@ test('Qdrant search can still issue a named dense-only query for explicit ablati
 
 test('Qdrant sparse-only strategy sends BM25 query without a dense vector', async () => {
   let requestBody: Readonly<Record<string, unknown>> | undefined;
-  const http: HttpPort = {
-    request: (request) => {
-      requestBody = request.body;
-      return Effect.succeed(ok({ status: 200, body: { result: { points: [] } } }));
-    },
-  };
   const qdrant = makeQdrantCodeCandidatePort({
-    baseUrl: 'http://127.0.0.1:6333',
     collection: 'ace-hybrid-current',
-    http,
+    client: makeClient({ query: (request) => { requestBody = request as Readonly<Record<string, unknown>>; return { points: [] }; } }),
   });
   const result = await Effect.runPromise(qdrant.search({
     workspaceId,
@@ -203,16 +187,9 @@ test('Qdrant sparse-only strategy sends BM25 query without a dense vector', asyn
 
 test('Qdrant explicit strategies fail before HTTP when required query inputs are absent', async () => {
   let requests = 0;
-  const http: HttpPort = {
-    request: () => {
-      requests += 1;
-      return Effect.succeed(ok({ status: 200, body: { result: { points: [] } } }));
-    },
-  };
   const qdrant = makeQdrantCodeCandidatePort({
-    baseUrl: 'http://127.0.0.1:6333',
     collection: 'ace-hybrid-current',
-    http,
+    client: makeClient({ query: () => { requests += 1; return { points: [] }; } }),
   });
   const dense = await Effect.runPromise(qdrant.search({
     workspaceId,

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { Effect } from 'effect';
 import { makeVertexRagRetrievalPort } from '../src/adapters/vertex-rag.js';
-import { makeQdrantCodeCandidatePort } from '../src/adapters/http-provider-boundaries.js';
+import { validateLocalQdrantBaseUrl } from '../src/adapters/http-provider-boundaries.js';
 import { makeFileArtifactStore } from '../src/adapters/file-artifact-store.js';
 import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
 import { makeQdrantContextProvider } from '../src/adapters/qdrant-context-provider.js';
@@ -154,16 +154,9 @@ test('Vertex empty Europe corpus is a valid empty result, never invented documen
 });
 
 test('Qdrant code payload is local-only and rejects external HTTPS before network', async () => {
-  let requests = 0;
-  const qdrant = makeQdrantCodeCandidatePort({
-    baseUrl: 'https://vector.example.com',
-    collection: 'ace-code',
-    http: { request: () => { requests += 1; return Effect.succeed(ok({ status: 200, body: {} })); } },
-  });
-  const result = await Effect.runPromise(qdrant.search({ workspaceId: ws, vector: [1], limit: 1, generation: 1 }));
+  const result = validateLocalQdrantBaseUrl('https://vector.example.com');
   assert.equal(result._tag, 'Err');
   if (result._tag === 'Err') assert.equal(result.error.code, 'POLICY_DENIED');
-  assert.equal(requests, 0);
 });
 
 test('Vertex blocks secret-like documentation queries before outbound HTTP even when cloud opt-in is enabled', async () => {

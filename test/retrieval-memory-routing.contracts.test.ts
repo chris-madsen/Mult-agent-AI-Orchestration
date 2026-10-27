@@ -24,6 +24,7 @@ import { buildLocalCodeIndex } from '../src/adapters/local-code-index.js';
 import { makeLocalContextProvider } from '../src/adapters/local-context-provider.js';
 import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
 import { makeAstGrepStructuralPort } from '../src/adapters/ast-grep-structural.js';
+import type { QdrantClient } from '@qdrant/js-client-rest';
 import {
   makeGraphitiProjectionPort,
   makeQdrantCodeCandidatePort,
@@ -523,34 +524,28 @@ test('RTE-04 workspace status distinguishes ready, degraded, disabled and not-re
 });
 
 test('EXT-01 Qdrant boundary maps valid points but never claims freshness', async () => {
-  const requests: string[] = [];
-  const http: HttpPort = {
-    request: (request) => {
-      requests.push(request.url);
-      return Effect.succeed(ok({
-        status: 200,
-        body: {
-          result: [{
-            score: 0.91,
-            payload: {
-              candidate_id: 'qdrant-candidate',
-              workspace_id: workspaceId,
-              repo_path: 'src/save.ts',
-              source_digest: 'a'.repeat(64),
-              text: 'export function save() {}',
-              start_line: 1,
-              end_line: 1,
-              generation: 2,
-            },
-          }],
-        },
-      }));
-    },
-  };
-  const port = makeQdrantCodeCandidatePort({ baseUrl: 'http://127.0.0.1:6333', collection: 'code', http });
+  const port = makeQdrantCodeCandidatePort({
+    collection: 'code',
+    client: {
+      query: async () => ({
+        points: [{
+          score: 0.91,
+          payload: {
+            candidate_id: 'qdrant-candidate',
+            workspace_id: workspaceId,
+            repo_path: 'src/save.ts',
+            source_digest: 'a'.repeat(64),
+            text: 'export function save() {}',
+            start_line: 1,
+            end_line: 1,
+            generation: 2,
+          },
+        }],
+      }),
+    } as unknown as QdrantClient,
+  });
   const result = mustOk(await Effect.runPromise(port.search({ workspaceId, vector: [0.1, 0.2], limit: 3 })));
   assert.equal(result[0]?.freshness, 'unknown');
-  assert.equal(requests.length, 1);
   assert.equal(mustErr(await Effect.runPromise(port.search({ workspaceId, vector: [], limit: 0 }))).code, 'INVALID_INPUT');
 });
 
