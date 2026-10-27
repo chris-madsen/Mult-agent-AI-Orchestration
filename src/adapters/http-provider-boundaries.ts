@@ -86,6 +86,22 @@ export const qdrantSdkCompletedMutation = (
   return ok(undefined);
 });
 
+export const qdrantSdkBooleanMutation = (
+  action: () => Promise<unknown>,
+  operation: string,
+): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
+  const result = yield* qdrantSdkCall(action);
+  if (result._tag === 'Err') return result;
+  if (result.value !== true) {
+    return err(domainError(
+      'INVALID_EXTERNAL_RESPONSE',
+      'qdrant_update',
+      `Qdrant ${operation} did not report success`,
+    ));
+  }
+  return ok(undefined);
+});
+
 export const makeFetchHttpPort = (): HttpPort => ({
   request: (request: HttpRequest) => Effect.catchAll(Effect.tryPromise<Result<HttpResponse, DomainError>, DomainError>({
     try: async (signal) => {
