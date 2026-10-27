@@ -65,5 +65,6 @@ These provider results do not close NAPI real-repository parity, RepoMap quality
 ## Current R1 Qdrant boundary slice
 
 - `makeQdrantCodeCandidatePort` now uses the official `@qdrant/js-client-rest` client for query, upsert and delete operations; its primary runtime path no longer constructs raw Qdrant HTTP requests.
-- `src/bin/ace-mcp.ts` and `scripts/qdrant-hybrid-rank-probe.ts` pass the authenticated SDK client; direct candidate-port tests use SDK-shaped doubles.
+- The candidate port still validates its declared Qdrant destination against the local-only policy before every SDK operation; moving transport ownership to the SDK does not move the security boundary out to callers.
+- `src/bin/ace-mcp.ts` and `scripts/qdrant-hybrid-rank-probe.ts` pass the authenticated SDK client plus the policy-bound local endpoint; direct candidate-port tests use SDK-shaped doubles.
 - R1 is not closed: collection/alias/count/scroll/membership helpers in `src/adapters/qdrant-context-provider.ts` still contain compatibility HTTP branches and require a separate focused deletion slice.
