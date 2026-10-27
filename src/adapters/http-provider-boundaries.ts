@@ -69,6 +69,23 @@ export const qdrantSdkCall = <Value>(
     (failure) => Effect.succeed(err(failure)),
   );
 
+export const qdrantSdkCompletedMutation = (
+  action: () => Promise<unknown>,
+  operation: string,
+): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
+  const result = yield* qdrantSdkCall(action);
+  if (result._tag === 'Err') return result;
+  const update = object(result.value);
+  if (update?.status !== 'completed') {
+    return err(domainError(
+      'INVALID_EXTERNAL_RESPONSE',
+      'qdrant_update',
+      `Qdrant ${operation} did not report completed status`,
+    ));
+  }
+  return ok(undefined);
+});
+
 export const makeFetchHttpPort = (): HttpPort => ({
   request: (request: HttpRequest) => Effect.catchAll(Effect.tryPromise<Result<HttpResponse, DomainError>, DomainError>({
     try: async (signal) => {
@@ -345,13 +362,13 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
     const operation = Effect.catchAll(Effect.gen(function* () {
       const policy = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
       if (policy._tag === 'Err') return policy;
-      return yield* qdrantSdkCall(async () => {
-        await config.client.upsert(config.collection, {
+      return yield* qdrantSdkCompletedMutation(
+        () => config.client.upsert(config.collection, {
           wait: true,
           points: points.map(qdrantPoint),
-        } as Parameters<QdrantClient['upsert']>[1]);
-        return undefined;
-      });
+        } as Parameters<QdrantClient['upsert']>[1]),
+        'upsert',
+      );
     }), (failure) => Effect.succeed(err(failure)));
     return Effect.map(operation, (result) => {
       providerTraceEvent(config.trace ?? noopProviderTrace, {
@@ -382,10 +399,13 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
             must_not: [{ key: 'index_key', match: { value: input.exceptIndexKey } }],
           }),
         };
-        const deleted = yield* qdrantSdkCall(() => config.client.delete(config.collection, {
-          wait: true,
-          filter,
-        } as Parameters<QdrantClient['delete']>[1]));
+        const deleted = yield* qdrantSdkCompletedMutation(
+          () => config.client.delete(config.collection, {
+            wait: true,
+            filter,
+          } as Parameters<QdrantClient['delete']>[1]),
+          'path delete',
+        );
         if (deleted._tag === 'Err') return deleted;
       }
       return ok(undefined);
@@ -412,10 +432,13 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
         must: [{ key: 'workspace_id', match: { value: input.workspaceId } }],
         must_not: [{ key: 'index_key', match: { value: input.exceptIndexKey } }],
       };
-      const deleted = yield* qdrantSdkCall(() => config.client.delete(config.collection, {
-        wait: true,
-        filter,
-      } as Parameters<QdrantClient['delete']>[1]));
+      const deleted = yield* qdrantSdkCompletedMutation(
+        () => config.client.delete(config.collection, {
+          wait: true,
+          filter,
+        } as Parameters<QdrantClient['delete']>[1]),
+        'workspace cleanup',
+      );
       if (deleted._tag === 'Err') return deleted;
       return ok(undefined);
     }), (failure) => Effect.succeed(err(failure)));
