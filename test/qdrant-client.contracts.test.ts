@@ -74,7 +74,6 @@ test('Qdrant SDK query accepts the facade direct points response', async () => {
   const port = makeQdrantCodeCandidatePort({
     baseUrl: 'http://127.0.0.1:6333',
     collection: 'ace-sdk',
-    http: { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
     client,
   });
   const searched = await Effect.runPromise(port.search({
@@ -114,7 +113,6 @@ test('stable Qdrant mutation deletes only the changed workspace path through the
   const port = makeQdrantCodeCandidatePort({
     baseUrl: 'http://127.0.0.1:6333',
     collection: 'ace-stable',
-    http: { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
     client,
   });
   assert.ok(port.deletePaths !== undefined);
