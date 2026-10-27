@@ -139,12 +139,27 @@ try {
   } else {
     assert.equal(contextResponse.result?.isError, undefined, JSON.stringify(contextResponse));
     if (race) {
-      assert.equal(context.complete, false, JSON.stringify(context));
-      assert.ok(context.partialSources.includes('code'), JSON.stringify(context));
-      assert.ok(context.warnings.some((warning) => warning.includes('stale') || warning.includes('changed')), JSON.stringify(context));
       const evidence = context.evidence.find((item) => item.content.includes('retryAfterTransientFailure'));
-      assert.ok(evidence === undefined || evidence.freshness !== 'current', JSON.stringify(context));
-      console.log(JSON.stringify({ status: 'provider-pass', race: true, complete: context.complete, warnings: context.warnings, partial_sources: context.partialSources }, null, 2));
+      if (context.complete) {
+        // A concurrent request may finish by rebuilding against the changed
+        // bytes. That is valid only when the delivered evidence is the new
+        // source, never the old digest mislabeled as current.
+        assert.ok(evidence, JSON.stringify(context));
+        assert.notEqual(evidence.sourceDigest, sourceDigest, JSON.stringify(context));
+        assert.match(evidence.content, /return result \+ '-changed';/u, JSON.stringify(context));
+        console.log(JSON.stringify({
+          status: 'provider-pass',
+          race: true,
+          outcome: 'reconciled-current',
+          complete: true,
+          warnings: context.warnings,
+        }, null, 2));
+      } else {
+        assert.ok(context.partialSources.includes('code'), JSON.stringify(context));
+        assert.ok(context.warnings.some((warning) => warning.includes('stale') || warning.includes('changed')), JSON.stringify(context));
+        assert.ok(evidence === undefined || evidence.freshness !== 'current', JSON.stringify(context));
+        console.log(JSON.stringify({ status: 'provider-pass', race: true, outcome: 'partial-raced', complete: false, warnings: context.warnings, partial_sources: context.partialSources }, null, 2));
+      }
     } else {
       assert.equal(context.complete, true, JSON.stringify(context));
       const evidence = context.evidence.find((item) => item.content.includes('retryAfterTransientFailure'));
