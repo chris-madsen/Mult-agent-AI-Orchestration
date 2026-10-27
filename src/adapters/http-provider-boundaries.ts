@@ -444,9 +444,20 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
     const operation = Effect.catchAll(Effect.gen(function* () {
       const policy = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
       if (policy._tag === 'Err') return policy;
+      if (input.beforeGeneration !== undefined
+        && (!Number.isSafeInteger(input.beforeGeneration) || input.beforeGeneration < 1)) {
+        return err(domainError('INVALID_INPUT', 'generation', 'cleanup generation fence must be a positive integer'));
+      }
       const filter = {
-        must: [{ key: 'workspace_id', match: { value: input.workspaceId } }],
-        must_not: [{ key: 'index_key', match: { value: input.exceptIndexKey } }],
+        must: [
+          { key: 'workspace_id', match: { value: input.workspaceId } },
+          ...(input.beforeGeneration === undefined
+            ? []
+            : [{ key: 'generation', range: { lt: input.beforeGeneration } }]),
+        ],
+        ...(input.beforeGeneration === undefined
+          ? { must_not: [{ key: 'index_key', match: { value: input.exceptIndexKey } }] }
+          : {}),
       };
       const deleted = yield* qdrantSdkCompletedMutation(
         () => config.client.delete(config.collection, {
