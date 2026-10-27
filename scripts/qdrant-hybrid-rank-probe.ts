@@ -106,12 +106,14 @@ const qdrantEndpoint = validateLocalQdrantBaseUrl(qdrantUrl, allowedHosts);
 if (qdrantEndpoint._tag === 'Err') throw new Error(qdrantEndpoint.error.message);
 const qdrantApiKey = process.env.ACE_QDRANT_API_KEY?.trim();
 const qdrant = makeQdrantCodeCandidatePort({
+  baseUrl: qdrantUrl,
   collection,
   client: new QdrantClient({
     url: qdrantEndpoint.value,
     ...(qdrantApiKey === undefined || qdrantApiKey.length === 0 ? {} : { apiKey: qdrantApiKey }),
     checkCompatibility: false,
   }),
+  allowedHosts,
   providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/unknown',
 });
 const strategies: readonly CodeRetrievalStrategy[] = ['dense', 'sparse', 'hybrid_rrf'];

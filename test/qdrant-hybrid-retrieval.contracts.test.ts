@@ -46,6 +46,7 @@ const makeClient = (handlers: {
 test('Qdrant upsert stores dense vector plus language-neutral BM25 document on the same point', async () => {
   let upsertRequest: unknown;
   const qdrant = makeQdrantCodeCandidatePort({
+    baseUrl: 'http://127.0.0.1:6333',
     collection: 'ace-hybrid',
     client: makeClient({ upsert: (request) => { upsertRequest = request; } }),
   });
@@ -105,6 +106,7 @@ test('Qdrant search uses dense and BM25 prefetch branches with root RRF fusion',
     },
   });
   const qdrant = makeQdrantCodeCandidatePort({
+    baseUrl: 'http://127.0.0.1:6333',
     collection: 'ace-hybrid-current',
     client,
   });
@@ -138,6 +140,7 @@ test('Qdrant search uses dense and BM25 prefetch branches with root RRF fusion',
 test('Qdrant search can still issue a named dense-only query for explicit ablation paths', async () => {
   let requestBody: Readonly<Record<string, unknown>> | undefined;
   const qdrant = makeQdrantCodeCandidatePort({
+    baseUrl: 'http://127.0.0.1:6333',
     collection: 'ace-hybrid-current',
     client: makeClient({ query: (request) => { requestBody = request as Readonly<Record<string, unknown>>; return { points: [] }; } }),
   });
@@ -161,6 +164,7 @@ test('Qdrant search can still issue a named dense-only query for explicit ablati
 test('Qdrant sparse-only strategy sends BM25 query without a dense vector', async () => {
   let requestBody: Readonly<Record<string, unknown>> | undefined;
   const qdrant = makeQdrantCodeCandidatePort({
+    baseUrl: 'http://127.0.0.1:6333',
     collection: 'ace-hybrid-current',
     client: makeClient({ query: (request) => { requestBody = request as Readonly<Record<string, unknown>>; return { points: [] }; } }),
   });
@@ -185,9 +189,10 @@ test('Qdrant sparse-only strategy sends BM25 query without a dense vector', asyn
   });
 });
 
-test('Qdrant explicit strategies fail before HTTP when required query inputs are absent', async () => {
+test('Qdrant explicit strategies fail before SDK calls when required query inputs are absent', async () => {
   let requests = 0;
   const qdrant = makeQdrantCodeCandidatePort({
+    baseUrl: 'http://127.0.0.1:6333',
     collection: 'ace-hybrid-current',
     client: makeClient({ query: () => { requests += 1; return { points: [] }; } }),
   });

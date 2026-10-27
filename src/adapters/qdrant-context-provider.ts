@@ -59,6 +59,7 @@ import {
 } from '../domain/source-coverage.js';
 import {
   qdrantLexicalTextForCandidate,
+  qdrantSdkCall,
   validateLocalQdrantBaseUrl,
 } from './http-provider-boundaries.js';
 import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
@@ -75,26 +76,6 @@ import {
 } from '../domain/utf8-range.js';
 
 export { exactUtf8ByteRange, exactUtf8Span } from '../domain/utf8-range.js';
-
-const qdrantSdkCall = <Value>(
-  action: () => Promise<Value>,
-): Effect.Effect<Result<Value, DomainError>> => Effect.catchAll(
-    Effect.tryPromise<Result<Value, DomainError>, DomainError>({
-      try: async () => {
-        try {
-          return ok(await action());
-        } catch (cause) {
-          return err(domainError(
-            'EXTERNAL_UNAVAILABLE',
-            'qdrant',
-            cause instanceof Error ? cause.message : 'Qdrant SDK request failed',
-          ));
-        }
-      },
-      catch: () => domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'Qdrant SDK request failed'),
-    }),
-    (failure) => Effect.succeed(err(failure)),
-  );
 
 export interface QdrantContextConfig {
   readonly workspaceId: WorkspaceId;
