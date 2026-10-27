@@ -1634,7 +1634,7 @@ test('stable warm restart reuses an exact mixed-key workspace without embeddings
   assert.equal(deletions, 0, 'old publication keys may still hold current unchanged points');
 });
 
-test('stable warm restart refuses incomplete mixed-key membership and rebuilds', async () => {
+test('stable warm restart refuses incomplete mixed-key membership without workspace-wide cleanup', async () => {
   const second = {
     ...candidate,
     repoPath: 'src/other.ts' as never,
@@ -1677,8 +1677,8 @@ test('stable warm restart refuses incomplete mixed-key membership and rebuilds',
   )));
   assert.equal(result.reused, false);
   assert.equal(upserts, 1);
-  assert.equal(scrolls, 3, 'verify mixed membership, rebuilt membership, and final post-cleanup membership');
-  assert.equal(deletes, 1, 'only a fully verified rebuilt workspace may prune obsolete points');
+  assert.equal(scrolls, 3, 'verify mixed membership, rebuilt membership, and final physical membership');
+  assert.equal(deletes, 0, 'stable publication must not prune the workspace by index key');
 });
 
 test('changed-path publication rejects a falsely successful stale-version delete', async () => {
@@ -1787,8 +1787,8 @@ test('stable warm reuse rejects a falsely successful workspace cleanup', async (
     [], true, undefined, undefined, undefined, undefined, sdk(http), true,
   ));
   assert.equal(result._tag, 'Err');
-  assert.equal(cleanups, 1);
-  assert.equal(scrolls, 2, 'cleanup acknowledgement must be followed by unfiltered physical verification');
+  assert.equal(cleanups, 0, 'stable reuse must not invoke workspace-wide version cleanup');
+  assert.equal(scrolls, 2, 'current-key and physical membership must be checked before refusing unsafe cleanup');
 });
 
 test('stable cold rebuild rejects a falsely successful stale-workspace cleanup', async () => {
@@ -1829,8 +1829,8 @@ test('stable cold rebuild rejects a falsely successful stale-workspace cleanup',
     [], true, undefined, undefined, undefined, undefined, sdk(http), true,
   ));
   assert.equal(result._tag, 'Err');
-  assert.equal(cleanups, 1);
-  assert.equal(scrolls, 3, 'unfiltered membership must be checked after full publication cleanup');
+  assert.equal(cleanups, 0, 'stable rebuild must not invoke workspace-wide version cleanup');
+  assert.equal(scrolls, 3, 'unfiltered membership must be checked after full publication');
 });
 
 
