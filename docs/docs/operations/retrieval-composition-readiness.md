@@ -68,9 +68,9 @@ These provider results do not close NAPI real-repository parity, RepoMap quality
 - The SDK boundary still validates the declared destination against the local-only policy before every operation; transport consolidation did not move authorization out to callers.
 - `src/bin/ace-mcp.ts` and `scripts/qdrant-hybrid-rank-probe.ts` pass the authenticated SDK client plus the policy-bound local endpoint; direct contracts use SDK-shaped doubles.
 - The later direct-stable-collection change removed alias publication from the replacement runtime. Full current-snapshot publication may prune older workspace versions only after exact current-key membership, completed SDK mutation status and the generation fence `generation < currentGeneration` are proven. Here `generation` is the persisted workspace observation epoch advanced through the workspace-store CAS path, not an alias or `index_key`; mixed-key warm reuse does not perform workspace-wide cleanup.
-- SHA `2a58463dab7c1f0483e704e526939d64c5abe1ec` passed full `npm run verify:pr` (`633/633` TypeScript tests, Hermes context plugin `20/20`, ESLint, build and clean runtime provenance; OpenSpec `9/9 PASS`) and the real-provider R4 commands listed below.
-- Those `2a58463` runs are now **historical** because later production fixes changed stable cleanup fencing and SDK mutation postconditions. They remain evidence for the earlier direct-stable implementation, not acceptance evidence for the final reviewed SHA.
-- The final reviewed SHA must rerun deterministic acceptance and, before claiming current R4 provider acceptance, the applicable restart/crash/concurrency/scale real-provider gates. Production readiness, NAPI parity, RepoMap/LSP/ContextAssembler conformance, Harbor A/B and token-savings claims remain open.
+- Current reviewed runtime SHA `8867d94e3ebadf917e26bd9a24dd0dff8e354309` passed full `npm run verify:pr` (`633/633` TypeScript tests, Hermes context plugin `20/20`, ESLint, build and clean runtime provenance) and OpenSpec validation (`9/9 PASS`).
+- The `2a58463` runs below are historical because later production fixes changed stable cleanup fencing and SDK mutation postconditions. They are not used as final R4 acceptance evidence.
+- Current real-provider evidence is retained below for the final direct-stable implementation; production readiness, NAPI parity, RepoMap/LSP/ContextAssembler conformance, Harbor A/B and token-savings claims remain open.
 
 ## Historical R4 direct stable publication evidence — SHA `2a58463dab7c1f0483e704e526939d64c5abe1ec`
 
@@ -81,3 +81,12 @@ These provider results do not close NAPI real-repository parity, RepoMap quality
 - `npm run test:real-qdrant-crash` — `PASS`; interrupted publication retained direct stable collection identity, current-or-NOT_READY semantics and restart recovery for that SHA.
 - `npm run test:real-qdrant-concurrency` — `PASS`; same-snapshot concurrent writers converged on one direct stable collection/index key/provider fingerprint with no duplicate collection.
 - These historical results do not validate the later generation-fenced cleanup or strict mutation-result checks and do not close NAPI real-repository parity, RepoMap/LSP/ContextAssembler conformance, Harbor A/B, production readiness or token-savings claims.
+
+## Current R4 direct stable publication evidence — runtime SHA `8867d94e3ebadf917e26bd9a24dd0dff8e354309`
+
+- `npm run test:real-provider` — `PASS`; current citation `service.ts:1-25`, exact expansion and `complete=true` verified.
+- `npm run test:real-provider-race` — `PASS`; outcome `reconciled-current`.
+- `npm run test:real-provider-restart` — `PASS` on runtime SHA `5a85b44`; warm reuse, changed-source rebuild and direct stable collection identity verified.
+- `npm run test:real-index-scale -- --files 100` — `PASS` on runtime SHA `1efc987`; cold/warm/change-only phases passed with current citations and add/change/delete/rename deltas.
+- `npm run test:real-qdrant-crash` — `PASS`; interrupted writer, direct stable collection identity, current-or-NOT_READY semantics and restart recovery verified.
+- `npm run test:real-qdrant-concurrency` — `PASS`; concurrent writers converged on one direct stable collection, index key and provider fingerprint without duplicate collections.
