@@ -61,3 +61,9 @@ Evidence below was collected against reviewed runtime SHA `4e44252db0fa63305398d
 - `npm run test:real-same-name` — not rerun for this PR-A slice; the existing tracked report remains historical.
 
 These provider results do not close NAPI real-repository parity, RepoMap quality, Claw lifecycle parity, ContextAssembler quality, Harbor A/B, production readiness or token-savings claims.
+
+## Current R1 Qdrant boundary slice
+
+- `makeQdrantCodeCandidatePort` now uses the official `@qdrant/js-client-rest` client for query, upsert and delete operations; its primary runtime path no longer constructs raw Qdrant HTTP requests.
+- `src/bin/ace-mcp.ts` and `scripts/qdrant-hybrid-rank-probe.ts` pass the authenticated SDK client; direct candidate-port tests use SDK-shaped doubles.
+- R1 is not closed: collection/alias/count/scroll/membership helpers in `src/adapters/qdrant-context-provider.ts` still contain compatibility HTTP branches and require a separate focused deletion slice.
