@@ -1791,7 +1791,7 @@ test('stable warm reuse rejects a falsely successful workspace cleanup', async (
   assert.equal(scrolls, 2, 'current-key and physical membership must be checked before refusing unsafe cleanup');
 });
 
-test('stable cold rebuild rejects a falsely successful stale-workspace cleanup', async () => {
+test('stable cold rebuild removes stale workspace leftovers after full current publication', async () => {
   const index = mustOk(createCodeIndex(2, [candidate]));
   let cleanups = 0;
   let scrolls = 0;
@@ -1806,8 +1806,6 @@ test('stable cold rebuild rejects a falsely successful stale-workspace cleanup',
         return Effect.succeed(ok({ status: 200, body: { result: { count: 0 } } }));
       }
       scrolls += 1;
-      // Before upsert, physical membership is incomplete; after publication
-      // the latest-key filter looks complete while a stale crash point remains.
       const filter = request.body?.filter as { must?: Array<{ key: string }> };
       const filteredByKey = filter.must?.some((condition) => condition.key === 'index_key');
       return Effect.succeed(ok({
@@ -1815,22 +1813,22 @@ test('stable cold rebuild rejects a falsely successful stale-workspace cleanup',
         body: { result: {
           points: [
             { payload: { candidate_id: candidate.candidateId } },
-            ...(filteredByKey ? [] : [{ payload: { candidate_id: 'crash-leftover' } }]),
+            ...(filteredByKey || cleanups > 0 ? [] : [{ payload: { candidate_id: 'crash-leftover' } }]),
           ],
           next_page_offset: null,
         } },
       }));
     },
   };
-  const result = await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
+  const result = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
     index, qdrant,
     { embedMany: (chunks: readonly string[]) => Effect.succeed(ok(chunks.map(() => [0.2, 0.7]))) },
     http, 'http://127.0.0.1:6333', 'ace-stable', workspaceId, 'latest-key',
     [], true, undefined, undefined, undefined, undefined, sdk(http), true,
-  ));
-  assert.equal(result._tag, 'Err');
-  assert.equal(cleanups, 0, 'stable rebuild must not invoke workspace-wide version cleanup');
-  assert.equal(scrolls, 3, 'unfiltered membership must be checked after full publication');
+  )));
+  assert.equal(result.reused, false);
+  assert.equal(cleanups, 1, 'after a full upsert, old index keys are stale and may be pruned safely');
+  assert.equal(scrolls, 3, 'physical membership must be reverified after cleanup');
 });
 
 
