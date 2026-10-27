@@ -188,6 +188,19 @@ test('stable Qdrant mutation deletes only the changed workspace path through the
     must: [{ key: 'workspace_id', match: { value: workspaceId } }],
     must_not: [{ key: 'index_key', match: { value: 'current-index' } }],
   });
+
+  const fenced = await Effect.runPromise(port.deleteWorkspaceVersions!({
+    workspaceId,
+    exceptIndexKey: 'current-index',
+    beforeGeneration: 7,
+  }));
+  assert.equal(fenced._tag, 'Ok');
+  assert.deepEqual((deletes[2] as { filter?: unknown }).filter, {
+    must: [
+      { key: 'workspace_id', match: { value: workspaceId } },
+      { key: 'generation', range: { lt: 7 } },
+    ],
+  });
 });
 
 test('Qdrant SDK lifecycle accepts direct collection and alias shapes with dense-only schema', async () => {
