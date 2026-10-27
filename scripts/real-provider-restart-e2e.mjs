@@ -116,7 +116,7 @@ try {
   // content-derived snapshot must reuse already persisted Qdrant vectors.
   const warm = await runOnce();
   const warmContext = warm.response.result?.structuredContent;
-  assert.equal(warm.response.result?.isError, undefined, JSON.stringify(warm.response));
+  assert.equal(warm.response.result?.isError, undefined, JSON.stringify({ response: warm.response, stderr: warm.stderr }));
   assert.equal(warmContext.complete, true, JSON.stringify(warmContext));
   assert.equal(warmContext.evidence[0]?.sourceDigest, firstDigest);
   assert.match(warm.stderr, /generation=2 .*index_mode=warm_reused/u,
