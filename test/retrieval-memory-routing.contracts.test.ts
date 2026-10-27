@@ -525,6 +525,7 @@ test('RTE-04 workspace status distinguishes ready, degraded, disabled and not-re
 
 test('EXT-01 Qdrant boundary maps valid points but never claims freshness', async () => {
   const port = makeQdrantCodeCandidatePort({
+    baseUrl: 'http://127.0.0.1:6333',
     collection: 'code',
     client: {
       query: async () => ({
