@@ -1638,7 +1638,10 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
         });
         if (!verifiedCurrent) {
           warnings.push(path + ': source changed during retrieval');
-          failed.push('code');
+          // Semantic confirmation was computed from the same pre-race source
+          // generation, so a final digest race invalidates both direct code
+          // freshness and LSP coverage.
+          failed.push('code', 'lsp');
           stalePaths.push(path);
           for (let i = 0; i < evidence.length; i += 1) {
             if (evidence[i]?.citation.startsWith(path + ':')) {
