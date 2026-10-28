@@ -93,9 +93,11 @@ export const assembleContext = (input: ContextAssemblyInput): ContextAssemblyRes
     }
     seen.add(dedupeKey(item));
     const block = evidenceText(item);
-    const nextTokens = tokensFor(`${blocks.length === 0 ? '' : '\n\n'}${block}`);
+    const blockTokens = tokensFor(block);
+    const separatorTokens = blocks.length === 0 ? 0 : tokensFor('\n\n');
+    const nextTokens = blockTokens + separatorTokens;
     const section = sectionFor(item.source);
-    if (sectionUsage[section] + nextTokens > sectionBudgets[section]
+    if (sectionUsage[section] + blockTokens > sectionBudgets[section]
       || estimatedTokens + nextTokens > input.budgetTokens) {
       budgetOmitted += 1;
       omitted.push(item);
@@ -104,7 +106,7 @@ export const assembleContext = (input: ContextAssemblyInput): ContextAssemblyRes
     selected.push(item);
     blocks.push(block);
     estimatedTokens += nextTokens;
-    sectionUsage[section] += nextTokens;
+    sectionUsage[section] += blockTokens;
   }
 
   return {
