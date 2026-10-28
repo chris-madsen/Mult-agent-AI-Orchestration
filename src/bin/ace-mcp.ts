@@ -46,7 +46,6 @@ import {
   makeLspSemanticAnalysisPort,
   resolveLspProviderIdentity,
 } from '../adapters/lsp-semantic.js';
-import { buildRepoMapDelta } from '../adapters/repo-map-structural.js';
 import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
 import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
 import type { MemorySearchPort, WorkspaceFilePort } from '../application/ports.js';
@@ -73,7 +72,6 @@ import { verifyCompiledRuntimeProvenance } from '../application/runtime-provenan
 import { makeMcpGateway, type CapabilityReadiness } from '../gateway/mcp-gateway.js';
 import { makeContextTransformService } from '../application/context-transform-service.js';
 import { makeContextAssembler } from '../application/context-assembler.js';
-import { makeRepoMapService } from '../application/repo-map-service.js';
 import { makeLspServerRegistry } from '../application/lsp/server-registry.js';
 import { makeGatewayProjectionService } from '../application/gateway-projection-service.js';
 import { runContextBridgeStdio } from '../transport/context-bridge-stdio.js';
@@ -769,32 +767,13 @@ const main = async (): Promise<void> => {
                 ? 'ace-mcp semantic LSP NOT_READY: no LSP-capable source language is present in this workspace\n'
                 : `ace-mcp semantic LSP NOT_READY: ${lspServerName} identity is unavailable\n`);
             }
-            let repoMapService: ReturnType<typeof makeRepoMapService> | undefined;
-            if (lspReady) {
-              const repoMap = makeRepoMapService();
-              const repoMapDelta = await Effect.runPromise(buildRepoMapDelta({
-                candidates: build.index.candidates,
-                semantics,
-                snapshotIdentity: semanticIdentity,
-                requestId: randomUUID(),
-                sourceBytesByPath: new Map(Object.entries(sourceFiles.value).map(([repoPath, source]) => [
-                  repoPath as RepoPath,
-                  new TextEncoder().encode(source),
-                ])) as ReadonlyMap<RepoPath, Uint8Array>,
-              }));
-              if (repoMapDelta._tag === 'Err') {
-                process.stderr.write(`ace-mcp RepoMap NOT_READY: reference graph failed (${repoMapDelta.error.code})\n`);
-              } else {
-                const updated = await Effect.runPromise(repoMap.update(repoMapDelta.value));
-                if (updated._tag === 'Err') {
-                  process.stderr.write(`ace-mcp RepoMap NOT_READY: graph update failed (${updated.error.code})\n`);
-                } else {
-                  repoMapService = repoMap;
-                }
-              }
-            } else {
-              process.stderr.write('ace-mcp RepoMap NOT_READY: structural provider does not yet expose def/ref tags and LSP references are unavailable\n');
-            }
+            // The current structural outline provider does not expose the
+            // definition/reference tags required by the approved RepoMap plan.
+            // Do not substitute O(N) LSP reference scans here: LSP belongs after
+            // RepoMap + Qdrant candidate selection. Until the structural graph
+            // owner is adapted, runtime RepoMap remains explicitly unavailable.
+            const repoMapService = undefined;
+            process.stderr.write('ace-mcp RepoMap NOT_READY: structural def/ref graph provider is not implemented; refusing per-candidate LSP graph construction\n');
             let finalManifest;
             if (verification === 'incremental') {
               const verificationProbe = await Effect.runPromise(observeWorkspaceManifest(
