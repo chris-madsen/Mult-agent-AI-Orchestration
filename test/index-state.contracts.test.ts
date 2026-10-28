@@ -70,12 +70,33 @@ test('warm structural reuse is invalidated when parser identity changes', async 
   assert.equal(reused._tag, 'Ok');
   assert.equal(calls, 1);
   if (reused._tag === 'Ok') {
-    assert.equal(reused.value.structuralAnalyses?.length, 1);
-    assert.deepEqual(reused.value.structuralAnalyses, first.value.structuralAnalyses);
+    assert.equal(reused.value.structuralAnalysesByPath?.size, 1);
+    assert.deepEqual(
+      [...(reused.value.structuralAnalysesByPath ?? new Map()).entries()],
+      [...(first.value.structuralAnalysesByPath ?? new Map()).entries()],
+    );
   }
 
-  const rebuilt = await Effect.runPromise(buildLocalCodeIndex(files(source), workspaceId, '/repo', {
+  const priorAnalysis = first.value.structuralAnalysesByPath?.get('src/index.ts' as never);
+  assert.ok(priorAnalysis);
+  const corruptReuse = await Effect.runPromise(buildLocalCodeIndex(files(source), workspaceId, '/repo', {
     generation: 3,
+    previous: {
+      ...first.value,
+      structuralAnalysesByPath: new Map([[
+        'src/index.ts' as never,
+        { ...priorAnalysis!, sourceDigest: 'c'.repeat(64) as never },
+      ]]),
+    },
+    parserVersion: 'parser-v1',
+    scopeFingerprint: 'scope-v1',
+    structural,
+  }));
+  assert.equal(corruptReuse._tag, 'Err');
+  if (corruptReuse._tag === 'Err') assert.equal(corruptReuse.error.code, 'INVALID_RETRIEVAL');
+
+  const rebuilt = await Effect.runPromise(buildLocalCodeIndex(files(source), workspaceId, '/repo', {
+    generation: 4,
     previous: first.value,
     parserVersion: 'parser-v2',
     scopeFingerprint: 'scope-v1',
