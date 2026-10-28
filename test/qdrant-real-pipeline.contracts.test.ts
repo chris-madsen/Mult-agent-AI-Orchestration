@@ -776,7 +776,7 @@ test('synchronized provider catches up when another request already published a 
   assert.equal(searchedIndexKey, 'index-v2');
 });
 
-test('LSP disagreement keeps exact code visible only as uncertain partial evidence', async () => {
+test('explicitly required LSP disagreement keeps exact code direct while LSP coverage is partial', async () => {
   const qdrant: CodeCandidatePort = {
     upsert: () => Effect.succeed(ok(undefined)),
     search: () => Effect.succeed(ok([{ candidate, score: 0.95, freshness: 'unknown' as const }])),
@@ -802,12 +802,22 @@ test('LSP disagreement keeps exact code visible only as uncertain partial eviden
     newRequestId: () => 'lsp-disagreement',
   });
   const context = mustOk(await Effect.runPromise(provider.search({
-    workspaceId, query: 'retry database connection', includeDocs: false, includeMemory: false,
+    workspaceId,
+    query: 'retry database connection',
+    includeDocs: false,
+    includeMemory: false,
+    sourceRequirements: {
+      code: { requirement: 'required', allowed: true },
+      structural: { requirement: 'not_requested', allowed: true },
+      lsp: { requirement: 'required', allowed: true },
+      documentation: { requirement: 'not_requested', allowed: true },
+      memory: { requirement: 'not_requested', allowed: true },
+    },
   })));
   assert.equal(context.complete, false);
   assert.ok(context.partialSources.includes('lsp'));
   assert.equal(context.evidence[0]?.freshness, 'current');
-  assert.equal(context.evidence[0]?.proofClass, 'uncertain');
+  assert.equal(context.evidence[0]?.proofClass, 'direct');
   assert.equal(context.evidence[0]?.content, candidate.text);
 });
 
@@ -1101,11 +1111,21 @@ test('exact LSP confirmation rejects a different declaration on the same AST lin
     newRequestId: () => 'same-line-lsp',
   });
   const bundle = mustOk(await Effect.runPromise(provider.search({
-    workspaceId, query: 'beta', includeDocs: false, includeMemory: false,
+    workspaceId,
+    query: 'beta',
+    includeDocs: false,
+    includeMemory: false,
+    sourceRequirements: {
+      code: { requirement: 'required', allowed: true },
+      structural: { requirement: 'not_requested', allowed: true },
+      lsp: { requirement: 'required', allowed: true },
+      documentation: { requirement: 'not_requested', allowed: true },
+      memory: { requirement: 'not_requested', allowed: true },
+    },
   })));
   assert.equal(bundle.complete, false);
   assert.ok(bundle.partialSources.includes('lsp'));
-  assert.equal(bundle.evidence[0]?.proofClass, 'uncertain');
+  assert.equal(bundle.evidence[0]?.proofClass, 'direct');
 });
 
 test('index coverage failures make an otherwise current result incomplete', async () => {

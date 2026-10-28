@@ -14,6 +14,16 @@ export const makeContextAssembler = (): ContextAssembler => ({
     if (!Number.isSafeInteger(input.budgetTokens) || input.budgetTokens <= 0) {
       return err(domainError('INVALID_INPUT', 'budgetTokens', 'context budget must be a positive safe integer'));
     }
+    for (const [section, budget] of Object.entries(input.sectionBudgets ?? {})) {
+      if (!['code', 'repo_map', 'lsp', 'other'].includes(section)
+        || !Number.isSafeInteger(budget) || (budget as number) < 0) {
+        return err(domainError(
+          'INVALID_INPUT',
+          'sectionBudgets',
+          'context section budgets must be non-negative safe integers for known sections',
+        ));
+      }
+    }
     return ok(assembleContext(input));
   }),
 });

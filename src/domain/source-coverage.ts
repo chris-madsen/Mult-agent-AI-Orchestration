@@ -177,10 +177,11 @@ export const legacySourceRequirements = (input: {
 }): SourceRequirements => ({
   code: { requirement: input.includeCode ? 'required' : 'not_requested', allowed: true },
   structural: { requirement: input.includeCode ? 'optional' : 'not_requested', allowed: true },
-  // Preserve the historical boolean contract: an include_code request was
-  // complete only after semantic confirmation. Callers that want structural
-  // without semantic confirmation must use explicit source obligations.
-  lsp: { requirement: input.includeCode ? 'required' : 'not_requested', allowed: true },
+  // LSP is optional enrichment for legacy include_code callers. Exact source
+  // bytes and the selected structural span remain valid code evidence when the
+  // semantic provider is unavailable; callers that require LSP can say so via
+  // explicit source obligations.
+  lsp: { requirement: input.includeCode ? 'optional' : 'not_requested', allowed: true },
   documentation: { requirement: input.includeDocs ? 'required' : 'not_requested', allowed: true },
   memory: { requirement: input.includeMemory ? 'required' : 'not_requested', allowed: true },
 });

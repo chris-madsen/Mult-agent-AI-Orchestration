@@ -1038,12 +1038,16 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
         includeDocs: input.includeDocs,
         includeMemory: input.includeMemory,
       });
+      const lspRequirement = requirements.lsp ?? { requirement: 'not_requested' as const, allowed: true };
+      const useLsp = sourceIsRequested(lspRequirement);
       let sourceCoverage = initialSourceCoverage(requirements);
       const evidence: RetrievalEvidence[] = [];
       const warnings: string[] = [];
       const failed: string[] = [];
       let codeProviderError: DomainError | undefined;
       let rankedResults: readonly RankedCandidate[] = [];
+      let repoMapResult: RepoMapResult | undefined;
+      let repoMapError: DomainError | undefined;
       let lspConfirmedCount = 0;
       if (includeCode) {
         const retrievalStrategy = activeConfig.retrievalStrategy
@@ -1203,8 +1207,10 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
                 tokenBudget: Math.max(128, retrievalLimit * 16),
               });
               if (repoMap._tag === 'Err') {
+                repoMapError = repoMap.error;
                 warnings.push('RepoMap unavailable: ' + repoMap.error.code);
               } else {
+                repoMapResult = repoMap.value;
                 prioritized = applyRepoMapPrior(prioritized, repoMap.value, retrievalLimit);
               }
             }
@@ -1394,41 +1400,41 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
         const semanticEndColumn = candidate.semanticAnchor === undefined
           ? undefined
           : utf16ColumnAtUtf8Byte(full.bytes, candidate.semanticAnchor.endLine, candidate.semanticAnchor.endByteColumn);
-        let lspConfirmed = false;
-        if (candidate.semanticAnchor === undefined || semanticColumn === undefined || semanticEndColumn === undefined) {
-          warnings.push(candidate.repoPath + ': exact structural identifier anchor is unavailable');
-          failed.push('lsp');
-        } else {
-          const definitions = yield* activeConfig.semantics.definition({
-            repoPath: candidate.repoPath,
-            line: candidate.semanticAnchor.line,
-            column: semanticColumn,
-            requestId: requestId.value,
-            ...(activeConfig.semanticSnapshotIdentity === undefined ? {} : { snapshotIdentity: activeConfig.semanticSnapshotIdentity }),
-          });
-          if (definitions._tag === 'Err') {
-            warnings.push(candidate.repoPath + ': language service unavailable (' + definitions.error.code + ')');
+        if (useLsp) {
+          if (candidate.semanticAnchor === undefined || semanticColumn === undefined || semanticEndColumn === undefined) {
+            warnings.push(candidate.repoPath + ': exact structural identifier anchor is unavailable for requested LSP enrichment');
             failed.push('lsp');
           } else {
-            lspConfirmed = definitions.value.some((entry) =>
-              entry.location.repoPath === candidate.repoPath
-            && entry.location.startLine === candidate.semanticAnchor?.line
-            && entry.location.startColumn === semanticColumn
-            && entry.location.endLine === candidate.semanticAnchor?.endLine
-            && entry.location.endColumn === semanticEndColumn
-            && (candidate.symbolName === undefined || entry.name === undefined || entry.name === candidate.symbolName));
-            if (!lspConfirmed) {
-              warnings.push(candidate.repoPath + ': LSP definition does not agree with the selected structural node');
+            const definitions = yield* activeConfig.semantics.definition({
+              repoPath: candidate.repoPath,
+              line: candidate.semanticAnchor.line,
+              column: semanticColumn,
+              requestId: requestId.value,
+              ...(activeConfig.semanticSnapshotIdentity === undefined ? {} : { snapshotIdentity: activeConfig.semanticSnapshotIdentity }),
+            });
+            if (definitions._tag === 'Err') {
+              warnings.push(candidate.repoPath + ': language service unavailable (' + definitions.error.code + ')');
               failed.push('lsp');
             } else {
-              lspConfirmedCount += 1;
+              const lspConfirmed = definitions.value.some((entry) =>
+                entry.location.repoPath === candidate.repoPath
+              && entry.location.startLine === candidate.semanticAnchor?.line
+              && entry.location.startColumn === semanticColumn
+              && entry.location.endLine === candidate.semanticAnchor?.endLine
+              && entry.location.endColumn === semanticEndColumn
+              && (candidate.symbolName === undefined || entry.name === undefined || entry.name === candidate.symbolName));
+              if (!lspConfirmed) {
+                warnings.push(candidate.repoPath + ': LSP definition does not agree with the selected structural node');
+                failed.push('lsp');
+              } else {
+                lspConfirmedCount += 1;
+              }
             }
           }
         }
         const baseEvidence = evidenceFromCandidate({ ...ranked, freshness }, evidenceId.value);
         evidence.push({
           ...baseEvidence,
-          proofClass: lspConfirmed ? baseEvidence.proofClass : 'uncertain',
           content: verifiedText,
           expansionHandle: full.handle,
           expansionTotalBytes: full.sizeBytes,
@@ -1586,6 +1592,32 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
           }
         }
       }
+      if (repoMapResult !== undefined && repoMapResult.rendered.trim().length > 0) {
+        const evidenceId = makeEvidenceId('repo-map-' + createHash('sha256')
+          .update([
+            input.workspaceId,
+            input.query,
+            activeConfig.semanticSnapshotIdentity ?? activeConfig.indexKey ?? 'unbound',
+            repoMapResult.rendered,
+          ].join('\0'), 'utf8')
+          .digest('hex'));
+        if (evidenceId._tag === 'Err') return evidenceId;
+        evidence.push({
+          evidenceId: evidenceId.value,
+          source: 'structural',
+          citation: `repo-map:${activeConfig.semanticSnapshotIdentity ?? activeConfig.indexKey ?? 'unbound'}`,
+          content: repoMapResult.rendered,
+          proofClass: 'derived',
+          // The rendered map may include sources outside the selected Qdrant
+          // candidates, so the request-boundary exact reread below does not
+          // prove the aggregate map current. Fail closed until RepoMap exposes
+          // source-bound provenance that can be revalidated per rendered path.
+          freshness: 'unknown',
+          ...(activeConfig.semanticSnapshotIdentity === undefined
+            ? {}
+            : { sourceRevision: activeConfig.semanticSnapshotIdentity }),
+        });
+      }
       if (includeCode && (activeConfig.coverage?.failedPaths ?? 0) > 0) {
         warnings.push(`index coverage degraded: ${activeConfig.coverage?.failedPaths ?? 0} in-scope path(s) were not fully indexed`);
         failed.push('code');
@@ -1608,7 +1640,10 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
         });
         if (!verifiedCurrent) {
           warnings.push(path + ': source changed during retrieval');
-          failed.push('code');
+          // Semantic confirmation was computed from the same pre-race source
+          // generation, so a final digest race invalidates both direct code
+          // freshness and LSP coverage.
+          failed.push('code', 'lsp');
           stalePaths.push(path);
           for (let i = 0; i < evidence.length; i += 1) {
             if (evidence[i]?.citation.startsWith(path + ':')) {
@@ -1643,18 +1678,27 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
         );
       }
       if (requirements.structural.requirement !== 'not_requested' && requirements.structural.allowed) {
+        const renderedRepoMap = repoMapResult?.rendered.trim() ?? '';
+        const structuralStatus = !includeCode || codeProviderError !== undefined
+          ? 'unavailable'
+          : activeConfig.repoMap === undefined || repoMapError !== undefined || repoMapResult === undefined
+            ? 'unavailable'
+            : renderedRepoMap.length === 0
+              ? 'empty'
+              : 'partial';
         sourceCoverage = setSourceCoverage(
           sourceCoverage,
           'structural',
-          !includeCode || codeProviderError !== undefined
-            ? 'unavailable'
-            : rankedResults.length === 0
-              ? 'empty'
-              : (activeConfig.coverage?.failedPaths ?? 0) > 0 ? 'partial' : 'satisfied',
-          !includeCode ? 'not_executed' : codeProviderError?.code,
+          structuralStatus,
+          !includeCode
+            ? 'not_executed'
+            : codeProviderError?.code
+              ?? repoMapError?.code
+              ?? (activeConfig.repoMap === undefined || repoMapResult === undefined
+                ? 'repo_map_unavailable'
+                : renderedRepoMap.length === 0 ? undefined : 'repo_map_not_exact_reread'),
         );
       }
-      const lspRequirement = requirements.lsp ?? { requirement: 'not_requested' as const, allowed: true };
       if (lspRequirement.requirement !== 'not_requested' && lspRequirement.allowed) {
         sourceCoverage = setSourceCoverage(
           sourceCoverage,

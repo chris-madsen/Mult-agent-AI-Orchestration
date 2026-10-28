@@ -70,7 +70,7 @@ test('RepoMap PageRank conserves probability with dangling symbols', () => {
   assert.equal(ranked[0]?.symbol.id, a.id);
 });
 
-test('unresolved and duplicate references cannot dilute or inflate a live edge', () => {
+test('unresolved references are ignored while repeated references increase edge weight', () => {
   const target = symbol('target', 1);
   const plain = symbol('caller', 2, [{ targetId: target.id, kind: 'reference' }]);
   const duplicateAndMissing = symbol('caller', 2, [
@@ -83,10 +83,9 @@ test('unresolved and duplicate references cannot dilute or inflate a live edge',
   const noisy = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [target, duplicateAndMissing], removed: [] });
   const first = rankRepoMap(baseline, input);
   const second = rankRepoMap(noisy, input);
-  assert.deepEqual(first.map((item) => item.symbol.id), second.map((item) => item.symbol.id));
-  for (let i = 0; i < first.length; i += 1) {
-    assert.ok(Math.abs(first[i]!.score - second[i]!.score) < 1e-10);
-  }
+  assert.equal(second[0]?.symbol.id, target.id);
+  assert.ok((second.find((item) => item.symbol.id === target.id)?.score ?? 0)
+    >= (first.find((item) => item.symbol.id === target.id)?.score ?? 0));
 });
 
 test('RepoMap prioritizes personalized files even when every vertex is dangling', () => {
@@ -124,10 +123,28 @@ test('RepoMap budget packing skips oversized ranked entries and includes shorter
     query: 'long',
     openFiles: [big.repoPath],
     mentionedFiles: [big.repoPath],
-    tokenBudget: 6,
+    tokenBudget: 12,
   });
   assert.match(result.rendered, /s\.ts:1 function ok/u);
   assert.doesNotMatch(result.rendered, /an-extremely-long/u);
   assert.equal(result.truncated, true);
-  assert.ok(result.estimatedTokens <= 6);
+  assert.ok(result.estimatedTokens <= 12);
+});
+
+
+test('RepoMap normalizes malformed edge weights instead of poisoning PageRank', () => {
+  const target = symbol('target', 1);
+  const caller = symbol('caller', 2, [
+    { targetId: target.id, kind: 'reference', weight: Number.NaN },
+    { targetId: target.id, kind: 'reference', weight: -3 },
+  ]);
+  const graph = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [target, caller], removed: [] });
+  const ranked = rankRepoMap(graph, {
+    query: 'target',
+    openFiles: [],
+    mentionedFiles: [],
+    tokenBudget: 128,
+  });
+  assert.ok(ranked.every((item) => Number.isFinite(item.score)));
+  assert.ok(Math.abs(ranked.reduce((sum, item) => sum + item.score, 0) - 1) < 1e-8);
 });

@@ -343,6 +343,42 @@ const staleDocs: DocumentationPort = {
   }])),
 };
 
+test('legacy includeCode remains complete when optional LSP enrichment is unavailable', async () => {
+  let semanticCalls = 0;
+  const unavailableSemantics: SemanticAnalysisPort = {
+    definition: () => {
+      semanticCalls += 1;
+      return Effect.succeed(err(domainError('EXTERNAL_UNAVAILABLE', 'lsp', 'offline')));
+    },
+    references: () => Effect.succeed(err(domainError('EXTERNAL_UNAVAILABLE', 'lsp', 'offline'))),
+    typeInfo: () => Effect.succeed(err(domainError('EXTERNAL_UNAVAILABLE', 'lsp', 'offline'))),
+    diagnostics: () => Effect.succeed(err(domainError('EXTERNAL_UNAVAILABLE', 'lsp', 'offline'))),
+  };
+  const provider = makeQdrantContextProvider({
+    workspaceId,
+    rootPath: '/repo',
+    files,
+    qdrant,
+    embeddings,
+    artifacts,
+    semantics: unavailableSemantics,
+    newRequestId: () => 'legacy-optional-lsp',
+  });
+  const result = mustOk(await Effect.runPromise(provider.search({
+    workspaceId,
+    query: 'save',
+    includeCode: true,
+    includeDocs: false,
+    includeMemory: false,
+  })));
+  assert.equal(semanticCalls, 1, 'legacy code may attempt optional semantic enrichment');
+  assert.equal(result.complete, true);
+  assert.deepEqual(result.partialSources, []);
+  assert.equal(result.sourceCoverage?.find((item) => item.source === 'code')?.status, 'satisfied');
+  assert.equal(result.sourceCoverage?.find((item) => item.source === 'lsp')?.status, 'partial');
+  assert.equal(result.evidence.find((item) => item.source === 'code')?.proofClass, 'direct');
+});
+
 test('optional stale documentation enriches a required code answer without making it incomplete', async () => {
   const provider = makeQdrantContextProvider({
     workspaceId,

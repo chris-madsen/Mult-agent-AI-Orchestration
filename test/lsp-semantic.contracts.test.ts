@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
@@ -46,13 +46,30 @@ test('generic LSP adapter uses the real TypeScript language server for definitio
     assert.equal(diagnostics._tag, 'Ok');
     if (diagnostics._tag === 'Ok') assert.ok(diagnostics.value.some((item) => item.code === 2304));
 
+    const refreshedIdentity = 'b'.repeat(64);
+    const refreshed = await Effect.runPromise(provider.refresh({
+      'main.ts': source.replaceAll('save', 'load'),
+    }, refreshedIdentity));
+    assert.equal(refreshed._tag, 'Ok');
+    const current = await Effect.runPromise(provider.definition({
+      repoPath: 'main.ts', line: 2, column: 15, snapshotIdentity: refreshedIdentity,
+    }));
+    assert.equal(current._tag, 'Ok');
+
     const stale = await Effect.runPromise(provider.definition({
-      repoPath: 'main.ts', line: 2, column: 15, snapshotIdentity: 'b'.repeat(64),
+      repoPath: 'main.ts', line: 2, column: 15, snapshotIdentity: snapshotIdentity,
     }));
     assert.equal(stale._tag, 'Err');
     if (stale._tag === 'Err') assert.equal(stale.error.code, 'NOT_READY');
+
+    await provider.close();
+    const afterClose = await Effect.runPromise(provider.definition({
+      repoPath: 'main.ts', line: 2, column: 15, snapshotIdentity: refreshedIdentity,
+    }));
+    assert.equal(afterClose._tag, 'Err');
+    if (afterClose._tag === 'Err') assert.equal(afterClose.error.code, 'NOT_READY');
   } finally {
-    provider.close();
+    await provider.close();
   }
 });
 
@@ -93,7 +110,7 @@ test('LSP identity and unsupported language status are explicit', async () => {
   }));
   assert.equal(result._tag, 'Err');
   if (result._tag === 'Err') assert.equal(result.error.code, 'UNSUPPORTED_PROVIDER');
-  provider.close();
+  await provider.close();
 });
 
 test('actual ast-grep declarations resolve through real LSP without injected name anchors', async () => {
@@ -138,6 +155,68 @@ test('actual ast-grep declarations resolve through real LSP without injected nam
         && item.location.endColumn === endColumn), 'LSP disagrees with structural declaration: ' + name);
     }
   } finally {
-    lsp.close();
+    await lsp.close();
   }
+});
+
+
+test('failed LSP initialization is timeout-bounded and terminates the spawned provider', async () => {
+  const rootPath = await mkdtemp(join(tmpdir(), 'ace-lsp-init-failure-'));
+  const marker = join(rootPath, 'terminated.txt');
+  const script = [
+    'const fs = require(\'node:fs\');',
+    'const marker = process.argv[1];',
+    'process.on(\'SIGTERM\', () => { fs.writeFileSync(marker, \'terminated\'); process.exit(0); });',
+    'setInterval(() => {}, 1000);',
+  ].join(' ');
+  const provider = makeLspSemanticAnalysisPort({
+    command: process.execPath,
+    args: ['-e', script, marker],
+    rootPath,
+    files: { 'main.ts': 'const value = 1;\n' },
+    snapshotIdentity: '9'.repeat(64),
+    timeoutMs: 100,
+  });
+  try {
+    const result = await Effect.runPromise(provider.definition({
+      repoPath: 'main.ts',
+      line: 1,
+      column: 7,
+      snapshotIdentity: '9'.repeat(64),
+    }));
+    assert.equal(result._tag, 'Err');
+    if (result._tag === 'Err') assert.equal(result.error.code, 'UNSUPPORTED_PROVIDER');
+    assert.equal(await readFile(marker, 'utf8'), 'terminated');
+  } finally {
+    await provider.close();
+  }
+});
+
+
+test('LSP identity version probe is timeout-bounded and terminates a hung provider', {
+  skip: process.platform === 'win32',
+}, async () => {
+  const rootPath = await mkdtemp(join(tmpdir(), 'ace-lsp-version-hang-'));
+  const marker = join(rootPath, 'terminated.txt');
+  const commandPath = join(rootPath, 'hung-lsp');
+  await writeFile(commandPath, [
+    '#!/usr/bin/env node',
+    'const fs = require(\'node:fs\');',
+    `const marker = ${JSON.stringify(marker)};`,
+    'process.on(\'SIGTERM\', () => { fs.writeFileSync(marker, \'terminated\'); process.exit(0); });',
+    'setInterval(() => {}, 1000);',
+    '',
+  ].join('\n'), 'utf8');
+  await chmod(commandPath, 0o755);
+
+  const startedAt = Date.now();
+  const result = await Effect.runPromise(resolveLspProviderIdentity({
+    command: commandPath,
+    snapshotIdentity: '8'.repeat(64),
+    timeoutMs: 100,
+  }));
+  assert.equal(result._tag, 'Err');
+  if (result._tag === 'Err') assert.equal(result.error.code, 'UNSUPPORTED_PROVIDER');
+  assert.ok(Date.now() - startedAt < 2_000, 'identity probe must not inherit an unbounded child lifetime');
+  assert.equal(await readFile(marker, 'utf8'), 'terminated');
 });

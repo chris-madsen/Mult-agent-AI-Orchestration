@@ -46,7 +46,6 @@ import {
   makeLspSemanticAnalysisPort,
   resolveLspProviderIdentity,
 } from '../adapters/lsp-semantic.js';
-import { buildRepoMapDelta } from '../adapters/repo-map-structural.js';
 import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
 import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
 import type { MemorySearchPort, WorkspaceFilePort } from '../application/ports.js';
@@ -73,7 +72,6 @@ import { verifyCompiledRuntimeProvenance } from '../application/runtime-provenan
 import { makeMcpGateway, type CapabilityReadiness } from '../gateway/mcp-gateway.js';
 import { makeContextTransformService } from '../application/context-transform-service.js';
 import { makeContextAssembler } from '../application/context-assembler.js';
-import { makeRepoMapService } from '../application/repo-map-service.js';
 import { makeLspServerRegistry } from '../application/lsp/server-registry.js';
 import { makeGatewayProjectionService } from '../application/gateway-projection-service.js';
 import { runContextBridgeStdio } from '../transport/context-bridge-stdio.js';
@@ -281,8 +279,9 @@ const main = async (): Promise<void> => {
     process.env.ACE_AST_GREP_COMMAND,
     resolve(runtimeRoot, 'node_modules/.bin/ast-grep'),
   );
-  // Keep the already-batched CLI as the default until NAPI symbol extraction
-  // has real-repository parity evidence. NAPI/auto are explicit migration modes.
+  // Keep the already-batched CLI canonical until NAPI symbol extraction has
+  // real-repository parity evidence. "auto" is a compatibility alias for CLI;
+  // only explicit "napi" selects the experimental NAPI extractor.
   const astGrepProviderRaw = process.env.ACE_AST_GREP_PROVIDER?.trim() || 'cli';
   if (!['cli', 'napi', 'auto'].includes(astGrepProviderRaw)) {
     throw new Error('ACE_AST_GREP_PROVIDER must be cli, napi, or auto');
@@ -367,9 +366,9 @@ const main = async (): Promise<void> => {
   const scopeFingerprint = process.env.ACE_INDEX_SCOPE_FINGERPRINT?.trim()
     || createHash('sha256').update('ace-scope/default-v1', 'utf8').digest('hex');
   let context: ReturnType<typeof makeQdrantContextProvider> | undefined;
-  let effectiveStructuralProviderIdentity = astGrepProvider === 'cli'
-    ? process.env.ACE_AST_GREP_VERSION?.trim() || 'ast-grep/0.51.0'
-    : process.env.ACE_AST_GREP_NAPI_VERSION?.trim() || 'ast-grep/napi@0.51.0';
+  let effectiveStructuralProviderIdentity = astGrepProvider === 'napi'
+    ? process.env.ACE_AST_GREP_NAPI_VERSION?.trim() || 'ast-grep/napi@0.51.0'
+    : process.env.ACE_AST_GREP_VERSION?.trim() || 'ast-grep/0.51.0';
   if (process.env.ACE_ENABLE_EXPERIMENTAL_QDRANT === 'true') {
     const http = makeFetchHttpPort();
     const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
@@ -518,7 +517,7 @@ const main = async (): Promise<void> => {
       handleQdrantUnavailable(qdrantReachable.error.code);
     } else if (!commandBoundaryExists(embeddingWorker)
       || (retrievalStrategy !== 'dense' && !commandBoundaryExists(sparseEmbeddingWorker))
-      || (astGrepProvider === 'cli' && (!existsSync(astGrepCommand) || !commandBoundaryExists(astGrepCommand)))) {
+      || (astGrepProvider !== 'napi' && !commandBoundaryExists(astGrepCommand))) {
       readiness.code_retrieval = { state: 'not_ready', reason: 'provider_runtime_missing' };
       readiness.unified_context = { state: 'not_ready', reason: 'provider_runtime_missing' };
       process.stderr.write('ace-mcp context NOT_READY: configured embedding/ast-grep runtime files are missing\n');
@@ -611,9 +610,9 @@ const main = async (): Promise<void> => {
           const structuralOptions = {
             command: astGrepCommand,
             provider: astGrepProvider,
-            providerVersion: astGrepProvider === 'cli'
-              ? process.env.ACE_AST_GREP_VERSION?.trim() || 'ast-grep/0.51.0'
-              : process.env.ACE_AST_GREP_NAPI_VERSION?.trim() || 'ast-grep/napi@0.51.0',
+            providerVersion: astGrepProvider === 'napi'
+              ? process.env.ACE_AST_GREP_NAPI_VERSION?.trim() || 'ast-grep/napi@0.51.0'
+              : process.env.ACE_AST_GREP_VERSION?.trim() || 'ast-grep/0.51.0',
             trace: providerTrace,
           };
           const structuralIdentity = await Effect.runPromise(resolveAstGrepProviderIdentity(structuralOptions));
@@ -696,7 +695,7 @@ const main = async (): Promise<void> => {
               semanticSnapshot,
             ));
             if (sourceFiles._tag === 'Err') return sourceFiles;
-            const lspProviderIdentity = existsSync(lspCommand) && commandBoundaryExists(lspCommand)
+            const lspProviderIdentity = commandBoundaryExists(lspCommand)
               ? await Effect.runPromise(resolveLspProviderIdentity({
                 command: lspCommand,
                 args: lspArgs,
@@ -737,7 +736,14 @@ const main = async (): Promise<void> => {
               languageIds: lspLanguageIds ?? null,
               snapshotIdentity: semanticIdentity,
             });
-            const acquired = await Effect.runPromise(lspRegistry.acquire(key, () => makeLspSemanticAnalysisPort({
+            const descriptor = {
+              key,
+              command: lspCommand,
+              args: lspArgs,
+              serverName: lspServerName,
+              ...(lspLanguageIds === undefined ? {} : { languageIds: lspLanguageIds }),
+            };
+            const acquired = await Effect.runPromise(lspRegistry.acquire(descriptor, () => makeLspSemanticAnalysisPort({
               command: lspCommand,
               args: lspArgs,
               serverName: lspServerName,
@@ -752,40 +758,18 @@ const main = async (): Promise<void> => {
             const semanticLease = acquired.value;
             const semantics = semanticLease.session;
             const firstLspPath = build.indexedPaths.find((repoPath) => lspLanguageIdForPath(repoPath, lspLanguageIds) !== undefined);
-            let lspReady = lspProviderIdentity?._tag === 'Ok' && firstLspPath !== undefined;
-            if (firstLspPath !== undefined && lspProviderIdentity?._tag === 'Ok') {
-              const languageServiceReady = await Effect.runPromise(semantics.diagnostics({ repoPath: firstLspPath }));
-              lspReady = languageServiceReady._tag === 'Ok';
-              if (!lspReady) process.stderr.write(`ace-mcp semantic LSP NOT_READY: preflight failed (${languageServiceReady._tag === 'Err' ? languageServiceReady.error.code : 'unknown'})\n`);
-            } else if (!lspReady) {
+            const lspConfigured = lspProviderIdentity?._tag === 'Ok' && firstLspPath !== undefined;
+            if (!lspConfigured) {
               process.stderr.write(firstLspPath === undefined
                 ? 'ace-mcp semantic LSP NOT_READY: no LSP-capable source language is present in this workspace\n'
                 : `ace-mcp semantic LSP NOT_READY: ${lspServerName} identity is unavailable\n`);
             }
-            let repoMapService: ReturnType<typeof makeRepoMapService> | undefined;
-            if (lspReady) {
-              const repoMap = makeRepoMapService();
-              const repoMapDelta = await Effect.runPromise(buildRepoMapDelta({
-                candidates: build.index.candidates,
-                semantics,
-                sourceBytesByPath: new Map(Object.entries(sourceFiles.value).map(([repoPath, source]) => [
-                  repoPath as RepoPath,
-                  new TextEncoder().encode(source),
-                ])) as ReadonlyMap<RepoPath, Uint8Array>,
-                snapshotIdentity: semanticIdentity,
-                requestId: randomUUID(),
-              }));
-              if (repoMapDelta._tag === 'Err') {
-                process.stderr.write(`ace-mcp RepoMap NOT_READY: semantic reference graph failed (${repoMapDelta.error.code})\n`);
-              } else {
-                const updated = await Effect.runPromise(repoMap.update(repoMapDelta.value));
-                if (updated._tag === 'Err') {
-                  process.stderr.write(`ace-mcp RepoMap NOT_READY: graph update failed (${updated.error.code})\n`);
-                } else {
-                  repoMapService = repoMap;
-                }
-              }
-            }
+            // The current structural outline provider does not expose the
+            // definition/reference tags required by the approved RepoMap plan.
+            // Do not substitute O(N) LSP reference scans here: LSP belongs after
+            // RepoMap + Qdrant candidate selection. Until the structural graph
+            // owner is adapted, runtime RepoMap remains explicitly unavailable.
+            process.stderr.write('ace-mcp RepoMap NOT_READY: structural def/ref graph provider is not implemented; refusing per-candidate LSP graph construction\n');
             let finalManifest;
             if (verification === 'incremental') {
               const verificationProbe = await Effect.runPromise(observeWorkspaceManifest(
@@ -860,8 +844,8 @@ const main = async (): Promise<void> => {
             const oldCloseSemantics = closeSemantics;
             closeSemantics = semanticLease.release;
             if (oldCloseSemantics !== undefined) oldCloseSemantics();
-            readiness.semantic_lsp = lspReady
-              ? { state: 'ready', reason: 'real_lsp_provider_preflight_passed' }
+            readiness.semantic_lsp = lspConfigured
+              ? { state: 'degraded', reason: 'provider_configured_lazy_not_health_probed' }
               : { state: 'not_ready', reason: 'lsp_provider_unavailable' };
             const documentation = makeDocumentationProvider(registered.value.workspaceId, http, providerTrace);
             if (process.env.ACE_ENABLE_VERTEX === 'true') {
@@ -917,7 +901,6 @@ const main = async (): Promise<void> => {
                 semantic: `${lspServerName}|${semanticProviderVersion}`,
                 reranker: rerankerModel === undefined ? 'disabled' : `fastembed/cross-encoder|model=${rerankerModel}`,
               },
-              ...(repoMapService === undefined ? {} : { repoMap: repoMapService }),
               history,
               ...(documentation === undefined ? {} : { documentation }),
               ...(memory === undefined ? {} : { memory }),
