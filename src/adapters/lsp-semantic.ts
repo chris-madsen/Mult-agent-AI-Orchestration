@@ -276,6 +276,8 @@ export const resolveLspProviderIdentity = (options: Pick<LspSemanticOptions, 'co
   }));
 
 const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRuntime, DomainError>> => {
+  let cleanupChild: ChildProcessWithoutNullStreams | undefined;
+  let cleanupConnection: MessageConnection | undefined;
   try {
     const command = resolveProviderCommand(options.command);
     const child = spawn(command, serverArgs(options), {
@@ -284,6 +286,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
       shell: providerUsesWindowsShell(command),
       detached: process.platform !== 'win32',
     });
+    cleanupChild = child;
     child.unref();
     const refProcess = (): void => {
       setStreamRef(child.stdin, true);
@@ -301,6 +304,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
       new StreamMessageReader(child.stdout),
       new StreamMessageWriter(child.stdin),
     );
+    cleanupConnection = connection;
     const stderr: Buffer[] = [];
     child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
     const diagnostics = new Map<string, readonly LspDiagnostic[]>();
@@ -333,7 +337,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
     connection.onRequest('client/registerCapability', () => null);
     connection.onRequest('window/workDoneProgress/create', () => null);
     connection.listen();
-    await connection.sendRequest('initialize', {
+    await withTimeout(connection.sendRequest('initialize', {
       processId: process.pid,
       rootUri: pathToFileURL(path.resolve(options.rootPath)).toString(),
       workspaceFolders: [{ uri: pathToFileURL(path.resolve(options.rootPath)).toString(), name: path.basename(options.rootPath) }],
@@ -342,7 +346,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
         workspace: { workspaceFolders: true, configuration: true },
       },
       initializationOptions: {},
-    });
+    }), options.timeoutMs ?? 15_000);
     await connection.sendNotification('initialized', {});
     for (const [repoPath, source] of files) {
       const languageId = languageIdForPath(repoPath, options.languageIds);
@@ -440,8 +444,22 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
     };
     if (options.keepProcessAlive !== false) refProcess();
     else unrefProcess();
+    cleanupChild = undefined;
+    cleanupConnection = undefined;
     return ok({ child, connection, files, diagnostics, waitForDiagnostics, updateFiles, refProcess, unrefProcess, close });
   } catch (cause) {
+    try {
+      cleanupConnection?.dispose();
+    } catch {
+      // Initialization failure cleanup is best-effort before process termination.
+    }
+    if (cleanupChild !== undefined && cleanupChild.exitCode === null && cleanupChild.signalCode === null) {
+      terminateProviderProcess(cleanupChild, 'SIGTERM');
+      if (!await waitForProviderExit(cleanupChild, 250)) {
+        terminateProviderProcess(cleanupChild, 'SIGKILL');
+        await waitForProviderExit(cleanupChild, 250);
+      }
+    }
     return failure('lsp.start', cause instanceof Error ? cause.message : 'LSP server failed to initialize', 'UNSUPPORTED_PROVIDER');
   }
 };
