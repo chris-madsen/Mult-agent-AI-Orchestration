@@ -1045,6 +1045,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
       let codeProviderError: DomainError | undefined;
       let rankedResults: readonly RankedCandidate[] = [];
       let repoMapResult: RepoMapResult | undefined;
+      let repoMapError: DomainError | undefined;
       let lspConfirmedCount = 0;
       if (includeCode) {
         const retrievalStrategy = activeConfig.retrievalStrategy
@@ -1204,6 +1205,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
                 tokenBudget: Math.max(128, retrievalLimit * 16),
               });
               if (repoMap._tag === 'Err') {
+                repoMapError = repoMap.error;
                 warnings.push('RepoMap unavailable: ' + repoMap.error.code);
               } else {
                 repoMapResult = repoMap.value;
@@ -1604,7 +1606,11 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
           citation: `repo-map:${activeConfig.semanticSnapshotIdentity ?? activeConfig.indexKey ?? 'unbound'}`,
           content: repoMapResult.rendered,
           proofClass: 'derived',
-          freshness: 'current',
+          // The rendered map may include sources outside the selected Qdrant
+          // candidates, so the request-boundary exact reread below does not
+          // prove the aggregate map current. Fail closed until RepoMap exposes
+          // source-bound provenance that can be revalidated per rendered path.
+          freshness: 'unknown',
           ...(activeConfig.semanticSnapshotIdentity === undefined
             ? {}
             : { sourceRevision: activeConfig.semanticSnapshotIdentity }),
@@ -1667,15 +1673,25 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
         );
       }
       if (requirements.structural.requirement !== 'not_requested' && requirements.structural.allowed) {
+        const renderedRepoMap = repoMapResult?.rendered.trim() ?? '';
+        const structuralStatus = !includeCode || codeProviderError !== undefined
+          ? 'unavailable'
+          : activeConfig.repoMap === undefined || repoMapError !== undefined || repoMapResult === undefined
+            ? 'unavailable'
+            : renderedRepoMap.length === 0
+              ? 'empty'
+              : 'partial';
         sourceCoverage = setSourceCoverage(
           sourceCoverage,
           'structural',
-          !includeCode || codeProviderError !== undefined
-            ? 'unavailable'
-            : rankedResults.length === 0
-              ? 'empty'
-              : (activeConfig.coverage?.failedPaths ?? 0) > 0 ? 'partial' : 'satisfied',
-          !includeCode ? 'not_executed' : codeProviderError?.code,
+          structuralStatus,
+          !includeCode
+            ? 'not_executed'
+            : codeProviderError?.code
+              ?? repoMapError?.code
+              ?? (activeConfig.repoMap === undefined || repoMapResult === undefined
+                ? 'repo_map_unavailable'
+                : renderedRepoMap.length === 0 ? undefined : 'repo_map_not_exact_reread'),
         );
       }
       const lspRequirement = requirements.lsp ?? { requirement: 'not_requested' as const, allowed: true };
