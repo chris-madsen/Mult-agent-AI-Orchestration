@@ -5,13 +5,7 @@ import { tmpdir } from 'node:os';
 import { extname, join, resolve as resolvePath } from 'node:path';
 import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
-import {
-  makeStructuralAnalysis,
-  type StructuralAnalysis,
-  type StructuralIdentifier,
-  type StructuralKind,
-  type StructuralSymbol,
-} from '../domain/semantic.js';
+import { makeStructuralAnalysis, type StructuralAnalysis, type StructuralKind, type StructuralSymbol } from '../domain/semantic.js';
 import { makeContentDigest } from '../domain/workspace.js';
 import { err, ok, type Result } from '../domain/result.js';
 import type { ProviderTraceSink, StructuralAnalysisPort } from '../application/ports.js';
@@ -56,12 +50,6 @@ interface OutlineItem {
 interface OutlineResponse {
   readonly language?: unknown;
   readonly items?: unknown;
-}
-
-interface IdentifierResponse {
-  readonly text?: unknown;
-  readonly range?: unknown;
-  readonly file?: unknown;
 }
 
 const positiveInteger = (value: unknown): value is number =>
@@ -131,84 +119,6 @@ const nameAnchorFromOutline = (
 
 const invalidResponse = (path: string, message: string): Result<never, DomainError> =>
   err(domainError('INVALID_EXTERNAL_RESPONSE', path, message));
-
-const parseIdentifier = (
-  decoded: unknown,
-  path: string,
-  expectedFile: string | undefined,
-  source: Uint8Array,
-): Result<StructuralIdentifier, DomainError> => {
-  if (typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
-    return invalidResponse(path, 'identifier result must be an object');
-  }
-  const result = decoded as IdentifierResponse;
-  if (!nonEmptyString(result.text) || typeof result.file !== 'string'
-    || typeof result.range !== 'object' || result.range === null || Array.isArray(result.range)) {
-    return invalidResponse(path, 'identifier result has an invalid identity');
-  }
-  if (expectedFile !== undefined) {
-    const matchesExpectedFile = expectedFile === 'STDIN'
-      ? result.file === 'STDIN'
-      : result.file !== 'STDIN' && resolvePath(result.file) === expectedFile;
-    if (!matchesExpectedFile) return invalidResponse(path, 'identifier result belongs to an unexpected file');
-  }
-  const range = result.range as OutlineRange;
-  const byteOffset = range.byteOffset;
-  const start = range.start;
-  const end = range.end;
-  if (typeof byteOffset !== 'object' || byteOffset === null
-    || !positiveInteger(byteOffset.start) || !positiveInteger(byteOffset.end)
-    || byteOffset.end <= byteOffset.start
-    || typeof start !== 'object' || start === null
-    || typeof end !== 'object' || end === null
-    || !positiveInteger(start.line) || !positiveInteger(start.column)
-    || !positiveInteger(end.line) || !positiveInteger(end.column)
-    || byteOffset.end > source.byteLength) {
-    return invalidResponse(`${path}.range`, 'identifier result has an invalid range');
-  }
-  const exactText = Buffer.from(source).subarray(byteOffset.start, byteOffset.end).toString('utf8');
-  if (exactText !== result.text) {
-    return invalidResponse(`${path}.range`, 'identifier text does not match the authoritative source bytes');
-  }
-  return ok({
-    name: result.text,
-    startLine: start.line + 1,
-    startColumn: start.column + 1,
-    endLine: end.line + 1,
-    endColumn: end.column + 1,
-    startByteOffset: byteOffset.start,
-    endByteOffset: byteOffset.end,
-  });
-};
-
-const attachIdentifiers = (
-  analysis: StructuralAnalysis,
-  identifiers: readonly StructuralIdentifier[],
-): Result<StructuralAnalysis, DomainError> => makeStructuralAnalysis({
-  repoPath: analysis.repoPath,
-  sourceDigest: analysis.sourceDigest,
-  symbols: analysis.symbols,
-  identifiers,
-  hasSyntaxErrors: analysis.hasSyntaxErrors,
-});
-
-const parseIdentifierStream = (
-  stdout: string,
-  expectedFile: string | undefined,
-  source: Uint8Array,
-): Result<readonly StructuralIdentifier[], DomainError> => {
-  const identifiers: StructuralIdentifier[] = [];
-  for (const [index, line] of stdout.split('\n').filter((entry) => entry.trim().length > 0).entries()) {
-    let decoded: unknown;
-    try { decoded = JSON.parse(line) as unknown; } catch {
-      return invalidResponse(`ast_grep.identifiers[${index}]`, 'identifier output is not valid JSON');
-    }
-    const parsed = parseIdentifier(decoded, `ast_grep.identifiers[${index}]`, expectedFile, source);
-    if (parsed._tag === 'Err') return parsed;
-    identifiers.push(parsed.value);
-  }
-  return ok(identifiers);
-};
 
 const parseOutline = (
   decoded: unknown,
@@ -452,87 +362,6 @@ const extractBatch = async (
           result[index] = parseOutline(decoded, input.repoPath, input.source);
         }
         if (seen.size !== paths.length) throw new Error('ast-grep omitted an explicitly requested file');
-
-        try {
-          const identifiersByIndex = new Map<number, StructuralIdentifier[]>();
-          const identifierCoverage = new Set<number>();
-          const pathsByLanguage = new Map<string, string[]>();
-          for (const path of paths) {
-            const index = staged.get(resolvePath(path));
-            const language = index === undefined ? undefined : structuralLanguageForPath(inputs[index]!.repoPath)?.language;
-            if (language === undefined) continue;
-            pathsByLanguage.set(language, [...(pathsByLanguage.get(language) ?? []), path]);
-          }
-          for (const languagePaths of pathsByLanguage.values()) {
-            let identifierOutput: { readonly stdout: string };
-            try {
-              identifierOutput = await run(resolveProviderCommand(options.command), [
-                'run', '--kind', 'identifier', '--json=stream', ...languagePaths,
-              ], undefined, Math.max(10_000, options.timeoutMs ?? 10_000));
-            } catch {
-              continue;
-            }
-            const allowedPaths = new Set(languagePaths.map((path) => resolvePath(path)));
-            const parsedForLanguage = new Map<number, StructuralIdentifier[]>();
-            let validOutput = true;
-            for (const [lineIndex, line] of identifierOutput.stdout.split('\n')
-              .filter((entry) => entry.trim().length > 0).entries()) {
-              let decoded: unknown;
-              try { decoded = JSON.parse(line) as unknown; } catch {
-                validOutput = false;
-                break;
-              }
-              if (typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
-                validOutput = false;
-                break;
-              }
-              const file = (decoded as IdentifierResponse).file;
-              if (typeof file !== 'string' || file === 'STDIN') {
-                validOutput = false;
-                break;
-              }
-              const resolvedFile = resolvePath(file);
-              if (!allowedPaths.has(resolvedFile)) {
-                validOutput = false;
-                break;
-              }
-              const index = staged.get(resolvedFile);
-              if (index === undefined) {
-                validOutput = false;
-                break;
-              }
-              const parsed = parseIdentifier(
-                decoded,
-                `ast_grep.identifiers[${lineIndex}]`,
-                resolvedFile,
-                inputs[index]!.source,
-              );
-              if (parsed._tag === 'Err') {
-                validOutput = false;
-                break;
-              }
-              parsedForLanguage.set(index, [...(parsedForLanguage.get(index) ?? []), parsed.value]);
-            }
-            if (!validOutput) continue;
-            for (const path of languagePaths) {
-              const index = staged.get(resolvePath(path));
-              if (index === undefined) continue;
-              identifierCoverage.add(index);
-              identifiersByIndex.set(index, parsedForLanguage.get(index) ?? []);
-            }
-          }
-          for (const path of paths) {
-            const index = staged.get(resolvePath(path));
-            if (index === undefined || !identifierCoverage.has(index)) continue;
-            const current = result[index];
-            if (current?._tag !== 'Ok') continue;
-            result[index] = attachIdentifiers(current.value, identifiersByIndex.get(index) ?? []);
-          }
-        } catch {
-          // Outline symbols remain valid when this optional identifier selector
-          // is unsupported or malformed. Keep identifiers undefined so callers
-          // can distinguish unavailable coverage from a successful empty result.
-        }
       } catch {
         // Fail closed for this batch, preserving independently parsed batches.
         for (const path of paths) {
@@ -574,19 +403,7 @@ const makeCliAstGrepStructuralPort = (options: AstGrepStructuralOptions): Struct
         try { decoded = JSON.parse(lines[0] as string) as unknown; } catch {
           return invalidResponse('ast_grep', 'outline returned invalid JSON');
         }
-        const parsed = parseOutline(decoded, input.repoPath, input.source);
-        if (parsed._tag === 'Err') return parsed;
-        let identifiers: { readonly stdout: string };
-        try {
-          identifiers = await run(resolveProviderCommand(options.command), [
-            'run', '--kind', 'identifier', '--lang', language.language, '--stdin', '--json=stream',
-          ], input.source, options.timeoutMs ?? 10_000);
-        } catch {
-          return parsed;
-        }
-        const parsedIdentifiers = parseIdentifierStream(identifiers.stdout, 'STDIN', input.source);
-        if (parsedIdentifiers._tag === 'Err') return parsed;
-        return attachIdentifiers(parsed.value, parsedIdentifiers.value);
+        return parseOutline(decoded, input.repoPath, input.source);
       },
       catch: () => domainError('UNSUPPORTED_PROVIDER', 'ast_grep', 'ast-grep provider boundary failed'),
     }));
