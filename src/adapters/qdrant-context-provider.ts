@@ -1038,6 +1038,8 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
         includeDocs: input.includeDocs,
         includeMemory: input.includeMemory,
       });
+      const lspRequirement = requirements.lsp ?? { requirement: 'not_requested' as const, allowed: true };
+      const useLsp = sourceIsRequested(lspRequirement);
       let sourceCoverage = initialSourceCoverage(requirements);
       const evidence: RetrievalEvidence[] = [];
       const warnings: string[] = [];
@@ -1398,41 +1400,41 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
         const semanticEndColumn = candidate.semanticAnchor === undefined
           ? undefined
           : utf16ColumnAtUtf8Byte(full.bytes, candidate.semanticAnchor.endLine, candidate.semanticAnchor.endByteColumn);
-        let lspConfirmed = false;
-        if (candidate.semanticAnchor === undefined || semanticColumn === undefined || semanticEndColumn === undefined) {
-          warnings.push(candidate.repoPath + ': exact structural identifier anchor is unavailable');
-          failed.push('lsp');
-        } else {
-          const definitions = yield* activeConfig.semantics.definition({
-            repoPath: candidate.repoPath,
-            line: candidate.semanticAnchor.line,
-            column: semanticColumn,
-            requestId: requestId.value,
-            ...(activeConfig.semanticSnapshotIdentity === undefined ? {} : { snapshotIdentity: activeConfig.semanticSnapshotIdentity }),
-          });
-          if (definitions._tag === 'Err') {
-            warnings.push(candidate.repoPath + ': language service unavailable (' + definitions.error.code + ')');
+        if (useLsp) {
+          if (candidate.semanticAnchor === undefined || semanticColumn === undefined || semanticEndColumn === undefined) {
+            warnings.push(candidate.repoPath + ': exact structural identifier anchor is unavailable for requested LSP enrichment');
             failed.push('lsp');
           } else {
-            lspConfirmed = definitions.value.some((entry) =>
-              entry.location.repoPath === candidate.repoPath
-            && entry.location.startLine === candidate.semanticAnchor?.line
-            && entry.location.startColumn === semanticColumn
-            && entry.location.endLine === candidate.semanticAnchor?.endLine
-            && entry.location.endColumn === semanticEndColumn
-            && (candidate.symbolName === undefined || entry.name === undefined || entry.name === candidate.symbolName));
-            if (!lspConfirmed) {
-              warnings.push(candidate.repoPath + ': LSP definition does not agree with the selected structural node');
+            const definitions = yield* activeConfig.semantics.definition({
+              repoPath: candidate.repoPath,
+              line: candidate.semanticAnchor.line,
+              column: semanticColumn,
+              requestId: requestId.value,
+              ...(activeConfig.semanticSnapshotIdentity === undefined ? {} : { snapshotIdentity: activeConfig.semanticSnapshotIdentity }),
+            });
+            if (definitions._tag === 'Err') {
+              warnings.push(candidate.repoPath + ': language service unavailable (' + definitions.error.code + ')');
               failed.push('lsp');
             } else {
-              lspConfirmedCount += 1;
+              const lspConfirmed = definitions.value.some((entry) =>
+                entry.location.repoPath === candidate.repoPath
+              && entry.location.startLine === candidate.semanticAnchor?.line
+              && entry.location.startColumn === semanticColumn
+              && entry.location.endLine === candidate.semanticAnchor?.endLine
+              && entry.location.endColumn === semanticEndColumn
+              && (candidate.symbolName === undefined || entry.name === undefined || entry.name === candidate.symbolName));
+              if (!lspConfirmed) {
+                warnings.push(candidate.repoPath + ': LSP definition does not agree with the selected structural node');
+                failed.push('lsp');
+              } else {
+                lspConfirmedCount += 1;
+              }
             }
           }
         }
         const baseEvidence = evidenceFromCandidate({ ...ranked, freshness }, evidenceId.value);
         evidence.push({
           ...baseEvidence,
-          proofClass: lspConfirmed ? baseEvidence.proofClass : 'uncertain',
           content: verifiedText,
           expansionHandle: full.handle,
           expansionTotalBytes: full.sizeBytes,
@@ -1697,7 +1699,6 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
                 : renderedRepoMap.length === 0 ? undefined : 'repo_map_not_exact_reread'),
         );
       }
-      const lspRequirement = requirements.lsp ?? { requirement: 'not_requested' as const, allowed: true };
       if (lspRequirement.requirement !== 'not_requested' && lspRequirement.allowed) {
         sourceCoverage = setSourceCoverage(
           sourceCoverage,
