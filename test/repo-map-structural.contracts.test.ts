@@ -124,7 +124,7 @@ test('RepoMap ignores definition locations and references outside verified sourc
   if (result._tag === 'Ok') assert.deepEqual(result.value.upserted[0]?.references, []);
 });
 
-test('RepoMap structural adapter builds a structural-only graph when LSP is unavailable', async () => {
+test('RepoMap structural adapter does not invent reference edges when only outline symbols are available', async () => {
   const result = await Effect.runPromise(buildRepoMapDelta({
     candidates: [candidate('one', 1), candidate('two', 2)],
     sourceBytesByPath: new Map([['src/example.ts' as never, new TextEncoder().encode('one\\ntwo\\n')]]),
