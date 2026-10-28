@@ -159,6 +159,24 @@ const parseGitNameStatus = (raw: string): Result<readonly GitNameStatus[], Retur
   return ok(entries);
 };
 
+const isWorkspaceGitBacked = async (
+  rootPath: string,
+  canonicalRoot: string,
+  canonicalTopLevel: string,
+): Promise<boolean> => {
+  if (canonicalRoot === canonicalTopLevel) return true;
+  // A directory merely located inside another checkout is not automatically
+  // that checkout's workspace. Admit parent Git semantics only when this
+  // subtree is (or historically was) owned by the repository.
+  const tracked = await gitList(rootPath, ['ls-files', '-z', '--', '.']);
+  if (tracked.size > 0) return true;
+  const history = await execFileAsync('git', ['log', '-1', '--format=%H', '--', '.'], {
+    cwd: rootPath,
+    encoding: 'utf8',
+  });
+  return /^[a-f0-9]{40,64}$/iu.test(history.stdout.trim());
+};
+
 const observeNonGitChanges = async (
   rootPath: string,
   previous: string | WorkspaceChangeBaseline | undefined,
@@ -202,7 +220,9 @@ const observeGitChanges = async (
       realpath(rootPath),
       realpath(topLevel.stdout.trim()),
     ]);
-    if (canonicalRoot !== canonicalTopLevel) return await observeNonGitChanges(rootPath, previous, excluded);
+    if (!await isWorkspaceGitBacked(rootPath, canonicalRoot, canonicalTopLevel)) {
+      return await observeNonGitChanges(rootPath, previous, excluded);
+    }
     const head = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: rootPath, encoding: 'utf8' });
     headRevision = head.stdout.trim();
   } catch (cause) {
@@ -226,15 +246,15 @@ const observeGitChanges = async (
       && /^[a-f0-9]{40,64}$/iu.test(previousHeadRevision)
       && previousHeadRevision !== headRevision
       ? [
-        ['diff', '--name-status', '-z', '-M', `${previousHeadRevision}..${headRevision}`],
-        ['diff', '--name-status', '-z', '-M', 'HEAD'],
+        ['diff', '--name-status', '-z', '-M', '--relative', `${previousHeadRevision}..${headRevision}`, '--', '.'],
+        ['diff', '--name-status', '-z', '-M', '--relative', 'HEAD', '--', '.'],
       ] as const
-      : [['diff', '--name-status', '-z', '-M', 'HEAD']] as const;
+      : [['diff', '--name-status', '-z', '-M', '--relative', 'HEAD', '--', '.']] as const;
     const outputs = await Promise.all(ranges.map((args) => execFileAsync('git', [...args], { cwd: rootPath, encoding: 'utf8' })));
     const [untracked, staged, unstaged, branchResult] = await Promise.all([
-      gitList(rootPath, ['ls-files', '--others', '--exclude-standard', '-z']),
-      gitList(rootPath, ['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMRT']),
-      gitList(rootPath, ['diff', '--name-only', '-z', '--diff-filter=ACMRT']),
+      gitList(rootPath, ['ls-files', '--others', '--exclude-standard', '-z', '--', '.']),
+      gitList(rootPath, ['diff', '--cached', '--name-only', '-z', '--relative', '--diff-filter=ACMRT', '--', '.']),
+      gitList(rootPath, ['diff', '--name-only', '-z', '--relative', '--diff-filter=ACMRT', '--', '.']),
       execFileAsync('git', ['branch', '--show-current'], { cwd: rootPath, encoding: 'utf8' }),
     ]);
     const parsed: GitNameStatus[] = [];
@@ -368,7 +388,7 @@ export const makeNodeWorkspacePort = (options: NodeWorkspacePortOptions): Worksp
               realpath(rootPath),
               realpath(topLevel.stdout.trim()),
             ]);
-            if (canonicalRoot !== canonicalTopLevel) {
+            if (!await isWorkspaceGitBacked(rootPath, canonicalRoot, canonicalTopLevel)) {
               const files = await walkFiles(rootPath, rootPath, observedAtMs, excluded, undefined);
               return ok({ headRevision: 'unavailable', files, removedPaths: [], gitStatus: 'not_repository' });
             }
@@ -394,12 +414,12 @@ export const makeNodeWorkspacePort = (options: NodeWorkspacePortOptions): Worksp
               untrackedValues,
               branchResult,
             ] = await Promise.all([
-              gitList(rootPath, ['ls-files', '-z']),
-              gitList(rootPath, ['diff', '--name-only', '-z', '--diff-filter=D']),
-              gitList(rootPath, ['diff', '--cached', '--name-only', '-z', '--diff-filter=D']),
-              gitList(rootPath, ['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMRT']),
-              gitList(rootPath, ['diff', '--name-only', '-z', '--diff-filter=ACMRT']),
-              gitList(rootPath, ['ls-files', '--others', '--exclude-standard', '-z']),
+              gitList(rootPath, ['ls-files', '-z', '--', '.']),
+              gitList(rootPath, ['diff', '--name-only', '-z', '--relative', '--diff-filter=D', '--', '.']),
+              gitList(rootPath, ['diff', '--cached', '--name-only', '-z', '--relative', '--diff-filter=D', '--', '.']),
+              gitList(rootPath, ['diff', '--cached', '--name-only', '-z', '--relative', '--diff-filter=ACMRT', '--', '.']),
+              gitList(rootPath, ['diff', '--name-only', '-z', '--relative', '--diff-filter=ACMRT', '--', '.']),
+              gitList(rootPath, ['ls-files', '--others', '--exclude-standard', '-z', '--', '.']),
               execFileAsync('git', ['branch', '--show-current'], { cwd: rootPath, encoding: 'utf8' }),
             ]);
             const files = await walkFiles(rootPath, rootPath, observedAtMs, excluded, trackedPaths);
