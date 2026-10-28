@@ -155,7 +155,7 @@ test('actual ast-grep declarations resolve through real LSP without injected nam
         && item.location.endColumn === endColumn), 'LSP disagrees with structural declaration: ' + name);
     }
   } finally {
-    lsp.close();
+    await lsp.close();
   }
 });
 
