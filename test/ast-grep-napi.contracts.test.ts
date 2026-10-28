@@ -70,6 +70,18 @@ test('NAPI semantic name ranges use UTF-8 byte columns', async () => {
     (symbol?.nameEndColumn ?? 0) - (symbol?.nameStartColumn ?? 0),
     Buffer.byteLength('café', 'utf8'),
   );
+  const identifiers = result.value.identifiers ?? [];
+  for (const name of ['café', 'π']) {
+    const occurrences = identifiers.filter((item) => item.name === name);
+    assert.ok(occurrences.length > 0, name);
+    for (const identifier of occurrences) {
+      assert.equal(
+        unicode.subarray(identifier.startByteOffset, identifier.endByteOffset).toString('utf8'),
+        name,
+      );
+      assert.equal(identifier.endByteOffset - identifier.startByteOffset, Buffer.byteLength(name, 'utf8'));
+    }
+  }
 });
 
 test('NAPI import records use the CLI module identity and preserve import state', async () => {
