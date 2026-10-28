@@ -164,10 +164,10 @@ test('failed LSP initialization is timeout-bounded and terminates the spawned pr
   const rootPath = await mkdtemp(join(tmpdir(), 'ace-lsp-init-failure-'));
   const marker = join(rootPath, 'terminated.txt');
   const script = [
-    "const fs = require('node:fs');",
-    "const marker = process.argv[1];",
-    "process.on('SIGTERM', () => { fs.writeFileSync(marker, 'terminated'); process.exit(0); });",
-    "setInterval(() => {}, 1000);",
+    'const fs = require(\'node:fs\');',
+    'const marker = process.argv[1];',
+    'process.on(\'SIGTERM\', () => { fs.writeFileSync(marker, \'terminated\'); process.exit(0); });',
+    'setInterval(() => {}, 1000);',
   ].join(' ');
   const provider = makeLspSemanticAnalysisPort({
     command: process.execPath,
@@ -201,10 +201,10 @@ test('LSP identity version probe is timeout-bounded and terminates a hung provid
   const commandPath = join(rootPath, 'hung-lsp');
   await writeFile(commandPath, [
     '#!/usr/bin/env node',
-    "const fs = require('node:fs');",
+    'const fs = require(\'node:fs\');',
     `const marker = ${JSON.stringify(marker)};`,
-    "process.on('SIGTERM', () => { fs.writeFileSync(marker, 'terminated'); process.exit(0); });",
-    "setInterval(() => {}, 1000);",
+    'process.on(\'SIGTERM\', () => { fs.writeFileSync(marker, \'terminated\'); process.exit(0); });',
+    'setInterval(() => {}, 1000);',
     '',
   ].join('\n'), 'utf8');
   await chmod(commandPath, 0o755);
