@@ -115,3 +115,22 @@ test('ContextAssembler enforces explicit section token caps independently of the
     assert.ok(result.value.sectionUsage.other <= 4);
   }
 });
+
+
+test('ContextAssembler rejects malformed section budgets instead of silently changing policy', async () => {
+  const assembler = makeContextAssembler();
+  for (const sectionBudgets of [
+    { code: -1 },
+    { repo_map: 1.5 },
+    { lsp: Number.NaN },
+    { other: Number.POSITIVE_INFINITY },
+  ]) {
+    const result = await Effect.runPromise(assembler.assemble({
+      budgetTokens: 30,
+      sectionBudgets,
+      evidence: [],
+    }));
+    assert.equal(result._tag, 'Err');
+    if (result._tag === 'Err') assert.equal(result.error.code, 'INVALID_INPUT');
+  }
+});
