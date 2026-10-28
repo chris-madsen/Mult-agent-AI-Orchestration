@@ -685,18 +685,23 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
     },
     refresh: (nextFiles: Readonly<Record<string, string>>, snapshotIdentity: string): Effect.Effect<Result<void, DomainError>> => recoverResult(Effect.tryPromise({
       try: async () => {
-        if (closed) return failure('lsp', 'semantic session is closed', 'NOT_READY');
-        const active = await runtime();
-        if (active._tag === 'Err') return active;
-        const updated = await active.value.updateFiles(nextFiles);
-        if (updated._tag === 'Err') {
-          await active.value.close();
-          runtimePromise = undefined;
-          return updated;
+        const releaseOperation = beginOperation();
+        if (releaseOperation === undefined) return failure('lsp', 'semantic session is closed', 'NOT_READY');
+        try {
+          const active = await runtime();
+          if (active._tag === 'Err') return active;
+          const updated = await active.value.updateFiles(nextFiles);
+          if (updated._tag === 'Err') {
+            await active.value.close();
+            runtimePromise = undefined;
+            return updated;
+          }
+          activeFiles = { ...nextFiles };
+          activeSnapshotIdentity = snapshotIdentity;
+          return ok(undefined);
+        } finally {
+          releaseOperation();
         }
-        activeFiles = { ...nextFiles };
-        activeSnapshotIdentity = snapshotIdentity;
-        return ok(undefined);
       },
       catch: (cause) => domainError('EXTERNAL_UNAVAILABLE', 'lsp.refresh', cause instanceof Error ? cause.message : 'LSP refresh failed'),
     })),
