@@ -55,19 +55,18 @@ No production-readiness, quality-parity or token-savings claim follows from this
 - Real repository parity — `BLOCKED`: `npm exec -- tsx scripts/ast-grep-provider-parity.ts src` reports the discrepancy counts above; no broad normalization is used to hide them.
 - `npm run test:real-same-name` — `PASS` on runtime SHA `26cd8ef`; CLI remains the production provider. RepoMap remains gated by the approved plan's structural evidence requirement, not by silently promoting NAPI.
 
-## Post-PR #187 local follow-up — deterministic fixes pending clean-SHA evidence
+## PR #188 R2 shared structural-record slice — pending final-head evidence
 
-These changes are present in the local worktree after merged PR #187 and are not attributed to the historical `26cd8ef950230c7d7ef10f42fc4f2654d8481760` evidence or to a clean reviewed SHA. They do not close any real-provider or production gate:
+This PR is deliberately scoped to the R2 record boundary. It does not activate a production RepoMap implementation and does not close Aider parity, LSP lifecycle, real-provider, production-readiness, quality-parity or token-savings gates.
 
-- Active structural runtime uses the official CLI outline path for `provider=auto`; explicit NAPI remains experimental parity research.
-- The current follow-up retains canonical CLI structural analyses (outline symbols plus optional identifier occurrences), preserves them across unchanged `LocalCodeIndexBuild` paths, and feeds them to RepoMap without an LSP prerequisite. Same-file structural edges are now available without an `O(N × LSP)` scan; grammar-specific identifier support is optional and cross-file/Aider parity remains open.
-- RepoMap ranking carries observed reference frequency, open-file/query personalization and grouped source rendering with an Aider-derived attribution comment. The pinned Aider behavioral fixture and real-repository/agent quality gates remain open.
-- LSP server descriptors are typed, but publication remains generation-bound: a new semantic snapshot is staged under its own lease and only replaces the prior lease after the retrieval publication commits. A crashed lazy runtime restarts from the last successfully confirmed file set. This preserves freshness/rollback correctness while fuller Claw lifecycle parity remains open.
-- LSP registry now carries a typed server descriptor, rejects same-key configuration collisions, and exposes **leased/ref-count** registry state. It does not label a lazy, uninitialized process as `ready`; runtime health is proven only by bounded semantic operations when the resolved source plan actually requests LSP.
-- LSP termination keeps the shutdown fallback bounded but allows a graceful SIGTERM cleanup window under repository-wide process load before escalating to SIGKILL; this fixes deterministic test flakiness without changing the unproven Claw/non-TS/runtime evidence status.
-- ContextAssembler enforces bounded `code`, `repo_map`, `lsp` and `other` sections while retaining exact-source receipts and lossless expansion. The current counter remains estimated; model-aware counting and composed context evidence remain open.
-- The Qdrant context adapter now receives the runtime-owned RepoMap service after structural graph assembly. Any rendered RepoMap evidence remains fail-closed as `unknown` until every rendered source is exact-reread at the request boundary; structural coverage cannot be `satisfied` merely because Qdrant returned code hits.
-- Qdrant coverage degradation now uses the resolved `includeCode` default when marking incomplete index coverage, so omitted `include_code` cannot turn failed indexed paths into a false complete bundle.
+- Active structural runtime still uses the official ast-grep CLI outline path for `provider=auto`; explicit NAPI remains experimental parity research.
+- The canonical per-file `StructuralAnalysis` can now carry optional identifier occurrences with exact byte ranges from the same provider boundary. Identifier output is accepted only when its file identity and byte slice match the authoritative source bytes.
+- Identifier coverage is tri-state: `undefined` means the optional selector was unavailable or malformed, `[]` means it executed successfully and found no matching identifier nodes, and a non-empty array contains byte-bound occurrences. Failed optional extraction is not converted into false empty coverage.
+- `LocalCodeIndexBuild` retains those digest-bound structural records in path-keyed state and reuses the record only when the authoritative source digest still matches. This is preparatory R2 state for changed-path consumers; it is not evidence that all remaining index work is O(changed bytes).
+- The CLI `--kind identifier` selector is intentionally described as identifier occurrence coverage, not as full language-independent definition/reference parity. Grammar-specific node kinds such as property/type/field identifiers and cross-file binding remain part of the R2 parity gap.
+- Production RepoMap remains `NOT_READY` in this slice. The current custom graph/rank/render implementation is still the R3 deviation documented above and is not injected into the runtime until the pinned Aider graph/ranking/rendering behavior has a frozen comparison and the R2 tag contract is sufficient.
+- This PR does not change the LSP lifecycle or termination policy. LSP remains optional bounded enrichment after candidate selection as established by the previous retrieval follow-up.
+- Existing Qdrant, ContextAssembler and freshness behavior is unchanged by this R2 slice.
 
 ## Historical PR-A evidence — runtime SHA `4e44252db0fa63305398d87a96bde5e410e183f2`
 
