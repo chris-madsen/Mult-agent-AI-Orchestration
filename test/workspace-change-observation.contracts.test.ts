@@ -174,7 +174,7 @@ test('NodeWorkspacePort preserves scoped Git semantics for a tracked monorepo su
     assert.deepEqual(observed.value.changedPaths, ['one.ts']);
     assert.deepEqual(observed.value.addedPaths, []);
     assert.deepEqual(observed.value.untrackedPaths, []);
-    assert.equal(observed.value.changedPaths.some((path) => path.includes('sibling')), false);
+    assert.equal(observed.value.changedPaths.some((changedPath) => changedPath.includes('sibling')), false);
   } finally {
     await rm(parent, { recursive: true, force: true });
   }
