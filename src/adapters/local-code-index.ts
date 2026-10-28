@@ -302,11 +302,12 @@ export const buildLocalCodeIndex = (
         if (previous?.indexedPaths.includes(observation.repoPath)) indexedPaths.push(observation.repoPath);
         const previousStructural = previousStructuralAnalyses.get(observation.repoPath);
         if (previousStructural !== undefined) {
-          if (previousStructural.sourceDigest !== observation.digest) {
+          if (previousStructural.repoPath !== observation.repoPath
+            || previousStructural.sourceDigest !== observation.digest) {
             return err(domainError(
               'INVALID_RETRIEVAL',
               observation.repoPath,
-              'reused structural analysis digest does not match the authoritative snapshot',
+              'reused structural analysis identity does not match the authoritative snapshot',
             ));
           }
           structuralAnalysesByPath.set(observation.repoPath, previousStructural);
@@ -379,6 +380,15 @@ export const buildLocalCodeIndex = (
         continue;
       }
       const analyzedValue = analyzed.value;
+      if (analyzedValue.repoPath !== pending.repoPath) {
+        warnings.push(pending.repoPath + ': structural provider returned a mismatched repository path');
+        coverageFailures.push({
+          repoPath: pending.repoPath,
+          kind: 'structural_failed',
+          code: 'INVALID_EXTERNAL_RESPONSE',
+        });
+        continue;
+      }
       if (analyzedValue.sourceDigest !== pending.digest) {
         warnings.push(pending.repoPath + ': structural source digest mismatch');
         coverageFailures.push({ repoPath: pending.repoPath, kind: 'digest_mismatch' });
