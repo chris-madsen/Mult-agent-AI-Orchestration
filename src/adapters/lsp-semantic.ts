@@ -122,16 +122,20 @@ const waitForProviderExit = async (
   if (child.exitCode !== null || child.signalCode !== null) return true;
   return await new Promise<boolean>((resolveExit) => {
     let settled = false;
+    let timer: NodeJS.Timeout | undefined;
     const finish = (exited: boolean): void => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
       child.off('exit', onExit);
       resolveExit(exited);
     };
     const onExit = (): void => finish(true);
-    const timer = setTimeout(() => finish(false), timeoutMs);
     child.once('exit', onExit);
+    timer = setTimeout(() => finish(false), timeoutMs);
+    // The process may have exited between the initial exitCode check and
+    // listener registration without another observable event.
+    if (child.exitCode !== null || child.signalCode !== null) finish(true);
   });
 };
 
