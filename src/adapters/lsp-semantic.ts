@@ -233,30 +233,45 @@ const diagnosticCategory = (severity: unknown): SemanticDiagnostic['category'] =
 
 const serverArgs = (options: Pick<LspSemanticOptions, 'args'>): readonly string[] => options.args ?? ['--stdio'];
 
-const runVersion = (command: string): Promise<string> => new Promise((resolve, reject) => {
+const runVersion = async (command: string, timeoutMs: number): Promise<string> => {
   const resolvedCommand = resolveProviderCommand(command);
   const child = spawn(resolvedCommand, ['--version'], {
     stdio: ['ignore', 'pipe', 'pipe'],
     shell: providerUsesWindowsShell(resolvedCommand),
+    detached: process.platform !== 'win32',
   });
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
-  child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
-  child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
-  child.on('error', reject);
-  child.on('close', (code) => {
-    const version = Buffer.concat(stdout).toString('utf8').trim();
-    if (code === 0 && version.length > 0) resolve(version);
-    else reject(new Error(Buffer.concat(stderr).toString('utf8').trim() || `LSP server version probe exited with ${code ?? 'unknown'}`));
+  const completed = new Promise<string>((resolve, reject) => {
+    child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
+    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+    child.once('error', reject);
+    child.once('close', (code) => {
+      const version = Buffer.concat(stdout).toString('utf8').trim();
+      if (code === 0 && version.length > 0) resolve(version);
+      else reject(new Error(Buffer.concat(stderr).toString('utf8').trim() || `LSP server version probe exited with ${code ?? 'unknown'}`));
+    });
   });
-});
+  try {
+    return await withTimeout(completed, timeoutMs);
+  } catch (cause) {
+    if (child.exitCode === null && child.signalCode === null) {
+      terminateProviderProcess(child, 'SIGTERM');
+      if (!await waitForProviderExit(child, 250)) {
+        terminateProviderProcess(child, 'SIGKILL');
+        await waitForProviderExit(child, 250);
+      }
+    }
+    throw cause;
+  }
+};
 
-export const resolveLspProviderIdentity = (options: Pick<LspSemanticOptions, 'command' | 'args' | 'snapshotIdentity' | 'serverName'>): Effect.Effect<Result<LspProviderIdentity, DomainError>> =>
+export const resolveLspProviderIdentity = (options: Pick<LspSemanticOptions, 'command' | 'args' | 'snapshotIdentity' | 'serverName' | 'timeoutMs'>): Effect.Effect<Result<LspProviderIdentity, DomainError>> =>
   recoverResult(Effect.tryPromise({
     try: async () => {
       try {
         const command = resolveProviderCommand(options.command);
-        const version = await runVersion(command);
+        const version = await runVersion(command, options.timeoutMs ?? 15_000);
         const stable = {
           provider: 'lsp' as const,
           server: options.serverName ?? 'typescript-language-server',
