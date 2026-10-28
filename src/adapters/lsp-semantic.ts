@@ -123,7 +123,7 @@ const waitForProviderExit = async (
   timeoutMs: number,
 ): Promise<boolean> => {
   if (child.exitCode !== null || child.signalCode !== null) return true;
-  return await new Promise<boolean>((resolveExit) => {
+  return new Promise<boolean>((resolveExit) => {
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
     const finish = (exited: boolean): void => {
@@ -510,59 +510,60 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
     queryInput: SemanticQuery,
     operationName: string,
     operation: (active: LspRuntime, fileUri: string, position: LspPosition) => Promise<Result<Value, DomainError>>,
-  ): Effect.Effect<Result<Value, DomainError>> => recoverResult(Effect.tryPromise({
-    try: async () => {
-      const startedAtMs = Date.now();
-      const releaseOperation = beginOperation();
-      if (releaseOperation === undefined) {
-        return failure('lsp', 'semantic session is closed', 'NOT_READY');
-      }
-      try {
-        const active = await runtime();
-        let result: Result<Value, DomainError>;
-        if (active._tag === 'Err') result = active;
-        else if (activeSnapshotIdentity !== undefined && queryInput.snapshotIdentity !== activeSnapshotIdentity) {
-          result = failure('snapshot_identity', 'semantic query is bound to a different source/configuration generation', 'NOT_READY');
-        } else {
-          const source = active.value.files.get(queryInput.repoPath);
-          const languageId = languageIdForPath(queryInput.repoPath, options.languageIds);
-          if (source === undefined || languageId === undefined) {
-            result = failure('repo_path', 'source file has no configured LSP document', 'UNSUPPORTED_PROVIDER');
-          } else if (!Number.isSafeInteger(queryInput.line) || queryInput.line < 1
-            || !Number.isSafeInteger(queryInput.column) || queryInput.column < 1) {
-            result = failure('position', 'line and column must be positive integers', 'INVALID_INPUT');
+  ): Effect.Effect<Result<Value, DomainError>> =>
+    recoverResult(Effect.tryPromise({
+      try: async () => {
+        const startedAtMs = Date.now();
+        const releaseOperation = beginOperation();
+        if (releaseOperation === undefined) {
+          return failure('lsp', 'semantic session is closed', 'NOT_READY');
+        }
+        try {
+          const active = await runtime();
+          let result: Result<Value, DomainError>;
+          if (active._tag === 'Err') result = active;
+          else if (activeSnapshotIdentity !== undefined && queryInput.snapshotIdentity !== activeSnapshotIdentity) {
+            result = failure('snapshot_identity', 'semantic query is bound to a different source/configuration generation', 'NOT_READY');
           } else {
-            active.value.refProcess();
-            try {
-              result = await operation(active.value, uriFor(options.rootPath, queryInput.repoPath), {
-                line: queryInput.line - 1,
-                character: queryInput.column - 1,
-              });
-            } finally {
-              if (options.keepProcessAlive === false) active.value.unrefProcess();
+            const source = active.value.files.get(queryInput.repoPath);
+            const languageId = languageIdForPath(queryInput.repoPath, options.languageIds);
+            if (source === undefined || languageId === undefined) {
+              result = failure('repo_path', 'source file has no configured LSP document', 'UNSUPPORTED_PROVIDER');
+            } else if (!Number.isSafeInteger(queryInput.line) || queryInput.line < 1
+              || !Number.isSafeInteger(queryInput.column) || queryInput.column < 1) {
+              result = failure('position', 'line and column must be positive integers', 'INVALID_INPUT');
+            } else {
+              active.value.refProcess();
+              try {
+                result = await operation(active.value, uriFor(options.rootPath, queryInput.repoPath), {
+                  line: queryInput.line - 1,
+                  character: queryInput.column - 1,
+                });
+              } finally {
+                if (options.keepProcessAlive === false) active.value.unrefProcess();
+              }
             }
           }
+          providerTraceEvent(options.trace ?? noopProviderTrace, {
+            provider: 'lsp',
+            providerVersion: options.providerVersion ?? `${options.serverName ?? 'typescript-language-server'}/unknown`,
+            operation: operationName,
+            status: result._tag === 'Ok' ? 'success' : 'failure',
+            durationMs: Math.max(0, Date.now() - startedAtMs),
+            ...(queryInput.requestId === undefined ? {} : { requestId: queryInput.requestId }),
+            ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
+          });
+          return result;
+        } finally {
+          releaseOperation();
         }
-        providerTraceEvent(options.trace ?? noopProviderTrace, {
-          provider: 'lsp',
-          providerVersion: options.providerVersion ?? `${options.serverName ?? 'typescript-language-server'}/unknown`,
-          operation: operationName,
-          status: result._tag === 'Ok' ? 'success' : 'failure',
-          durationMs: Math.max(0, Date.now() - startedAtMs),
-          ...(queryInput.requestId === undefined ? {} : { requestId: queryInput.requestId }),
-          ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
-        });
-        return result;
-      } finally {
-        releaseOperation();
-      }
-    },
-    catch: (cause) => domainError(
-      'EXTERNAL_UNAVAILABLE',
-      'lsp',
-      cause instanceof Error ? cause.message : 'LSP provider request failed',
-    ),
-  }));
+      },
+      catch: (cause) => domainError(
+        'EXTERNAL_UNAVAILABLE',
+        'lsp',
+        cause instanceof Error ? cause.message : 'LSP provider request failed',
+      ),
+    }));
 
   return {
     definition: (input) => query(input, 'definition', async (active, uri, position) => {
