@@ -772,7 +772,6 @@ const main = async (): Promise<void> => {
             // Do not substitute O(N) LSP reference scans here: LSP belongs after
             // RepoMap + Qdrant candidate selection. Until the structural graph
             // owner is adapted, runtime RepoMap remains explicitly unavailable.
-            const repoMapService = undefined;
             process.stderr.write('ace-mcp RepoMap NOT_READY: structural def/ref graph provider is not implemented; refusing per-candidate LSP graph construction\n');
             let finalManifest;
             if (verification === 'incremental') {
@@ -905,7 +904,6 @@ const main = async (): Promise<void> => {
                 semantic: `${lspServerName}|${semanticProviderVersion}`,
                 reranker: rerankerModel === undefined ? 'disabled' : `fastembed/cross-encoder|model=${rerankerModel}`,
               },
-              ...(repoMapService === undefined ? {} : { repoMap: repoMapService }),
               history,
               ...(documentation === undefined ? {} : { documentation }),
               ...(memory === undefined ? {} : { memory }),
