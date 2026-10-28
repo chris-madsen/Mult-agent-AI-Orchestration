@@ -135,6 +135,51 @@ test('NodeWorkspacePort does not inherit status from a parent Git checkout', asy
   }
 });
 
+test('NodeWorkspacePort preserves scoped Git semantics for a tracked monorepo subdirectory', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'ace-workspace-parent-scope-'));
+  try {
+    await git(parent, ['init', '-q']);
+    await git(parent, ['config', 'user.email', 'ace-tests@example.invalid']);
+    await git(parent, ['config', 'user.name', 'ACE Tests']);
+    await mkdir(join(parent, 'package'), { recursive: true });
+    await mkdir(join(parent, 'sibling'), { recursive: true });
+    await writeFile(join(parent, 'package', 'one.ts'), 'export const one = 1;\n');
+    await writeFile(join(parent, 'sibling', 'outside.ts'), 'export const outside = 1;\n');
+    await git(parent, ['add', '.']);
+    await git(parent, ['commit', '-qm', 'fixture']);
+
+    const root = join(parent, 'package');
+    const port = makeNodeWorkspacePort({ allowedRoots: [root] });
+    const initial = await Effect.runPromise(port.snapshot(root, 1));
+    assert.equal(initial._tag, 'Ok');
+    if (initial._tag === 'Err') return;
+    assert.equal(initial.value.gitStatus, 'available');
+    assert.match(initial.value.headRevision, /^[a-f0-9]{40,64}$/u);
+    assert.deepEqual(initial.value.files.map((file) => [file.repoPath, file.state]), [['one.ts', 'tracked']]);
+
+    await writeFile(join(parent, 'package', 'one.ts'), 'export const one = 2;\n');
+    await writeFile(join(parent, 'sibling', 'outside.ts'), 'export const outside = 2;\n');
+    await writeFile(join(parent, 'sibling', 'untracked.ts'), 'export const untracked = true;\n');
+
+    const observed = await Effect.runPromise(port.observeChanges(root, {
+      headRevision: initial.value.headRevision,
+      files: initial.value.files.map((file) => ({
+        repoPath: file.repoPath,
+        sizeBytes: file.sizeBytes,
+        ...(file.mtimeMs === undefined ? {} : { mtimeMs: file.mtimeMs }),
+      })),
+    }));
+    assert.equal(observed._tag, 'Ok');
+    if (observed._tag === 'Err') return;
+    assert.deepEqual(observed.value.changedPaths, ['one.ts']);
+    assert.deepEqual(observed.value.addedPaths, []);
+    assert.deepEqual(observed.value.untrackedPaths, []);
+    assert.equal(observed.value.changedPaths.some((path) => path.includes('sibling')), false);
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
+});
+
 test('host-worktree helper forwards and validates observe_changes', async () => {
   const workspace = makeWorkspaceId('host-observation-contract');
   assert.equal(workspace._tag, 'Ok');
