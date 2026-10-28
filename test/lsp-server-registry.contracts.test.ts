@@ -88,3 +88,26 @@ test('LSP registry rejects descriptor collisions instead of reusing a different 
   if (first._tag === 'Ok') first.value.release();
   await Effect.runPromise(registry.close());
 });
+
+
+test('LSP registry close waits for an async shutdown already started by lease release', async () => {
+  let shutdownFinished = false;
+  const registry = makeLspServerRegistry();
+  const asyncSession: LspRegistrySession = {
+    definition: () => Effect.succeed({ _tag: 'Ok', value: [] } as never),
+    references: () => Effect.succeed({ _tag: 'Ok', value: [] } as never),
+    typeInfo: () => Effect.succeed({ _tag: 'Ok', value: undefined } as never),
+    diagnostics: () => Effect.succeed({ _tag: 'Ok', value: [] } as never),
+    refresh: () => Effect.succeed({ _tag: 'Ok', value: undefined } as never),
+    close: async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      shutdownFinished = true;
+    },
+  };
+  const acquired = await Effect.runPromise(registry.acquire(descriptor, () => asyncSession));
+  assert.equal(acquired._tag, 'Ok');
+  if (acquired._tag === 'Ok') acquired.value.release();
+  assert.equal(shutdownFinished, false);
+  await Effect.runPromise(registry.close());
+  assert.equal(shutdownFinished, true);
+});
