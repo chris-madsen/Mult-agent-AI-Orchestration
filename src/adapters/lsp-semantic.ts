@@ -499,15 +499,15 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
     operationName: string,
     operation: (active: LspRuntime, fileUri: string, position: LspPosition) => Promise<Result<Value, DomainError>>,
   ): Effect.Effect<Result<Value, DomainError>> => recoverResult(Effect.tryPromise({
-      try: async () => {
-        const startedAtMs = Date.now();
-        const releaseOperation = beginOperation();
-        if (releaseOperation === undefined) {
-          return failure('lsp', 'semantic session is closed', 'NOT_READY');
-        }
-        try {
-          const active = await runtime();
-          let result: Result<Value, DomainError>;
+    try: async () => {
+      const startedAtMs = Date.now();
+      const releaseOperation = beginOperation();
+      if (releaseOperation === undefined) {
+        return failure('lsp', 'semantic session is closed', 'NOT_READY');
+      }
+      try {
+        const active = await runtime();
+        let result: Result<Value, DomainError>;
         if (active._tag === 'Err') result = active;
         else if (activeSnapshotIdentity !== undefined && queryInput.snapshotIdentity !== activeSnapshotIdentity) {
           result = failure('snapshot_identity', 'semantic query is bound to a different source/configuration generation', 'NOT_READY');
@@ -516,7 +516,8 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
           const languageId = languageIdForPath(queryInput.repoPath, options.languageIds);
           if (source === undefined || languageId === undefined) {
             result = failure('repo_path', 'source file has no configured LSP document', 'UNSUPPORTED_PROVIDER');
-          } else if (!Number.isSafeInteger(queryInput.line) || queryInput.line < 1 || !Number.isSafeInteger(queryInput.column) || queryInput.column < 1) {
+          } else if (!Number.isSafeInteger(queryInput.line) || queryInput.line < 1
+            || !Number.isSafeInteger(queryInput.column) || queryInput.column < 1) {
             result = failure('position', 'line and column must be positive integers', 'INVALID_INPUT');
           } else {
             active.value.refProcess();
@@ -530,22 +531,26 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
             }
           }
         }
-          providerTraceEvent(options.trace ?? noopProviderTrace, {
-            provider: 'lsp',
-            providerVersion: options.providerVersion ?? `${options.serverName ?? 'typescript-language-server'}/unknown`,
-            operation: operationName,
-            status: result._tag === 'Ok' ? 'success' : 'failure',
-            durationMs: Math.max(0, Date.now() - startedAtMs),
-            ...(queryInput.requestId === undefined ? {} : { requestId: queryInput.requestId }),
-            ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
-          });
-          return result;
-        } finally {
-          releaseOperation();
-        }
-      },
-      catch: (cause) => domainError('EXTERNAL_UNAVAILABLE', 'lsp', cause instanceof Error ? cause.message : 'LSP provider request failed'),
-    }));
+        providerTraceEvent(options.trace ?? noopProviderTrace, {
+          provider: 'lsp',
+          providerVersion: options.providerVersion ?? `${options.serverName ?? 'typescript-language-server'}/unknown`,
+          operation: operationName,
+          status: result._tag === 'Ok' ? 'success' : 'failure',
+          durationMs: Math.max(0, Date.now() - startedAtMs),
+          ...(queryInput.requestId === undefined ? {} : { requestId: queryInput.requestId }),
+          ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
+        });
+        return result;
+      } finally {
+        releaseOperation();
+      }
+    },
+    catch: (cause) => domainError(
+      'EXTERNAL_UNAVAILABLE',
+      'lsp',
+      cause instanceof Error ? cause.message : 'LSP provider request failed',
+    ),
+  }));
 
   return {
     definition: (input) => query(input, 'definition', async (active, uri, position) => {
@@ -611,33 +616,37 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
         try {
           const active = await runtime();
           let result: Result<readonly SemanticDiagnostic[], DomainError>;
-        if (active._tag === 'Err') result = active;
-        else if (languageIdForPath(input.repoPath, options.languageIds) === undefined || !active.value.files.has(input.repoPath)) {
-          result = failure('repo_path', 'source file has no configured LSP document', 'UNSUPPORTED_PROVIDER');
-        } else {
-          try {
-            if (options.keepProcessAlive === false) active.value.refProcess();
-            const uri = uriFor(options.rootPath, input.repoPath);
-            const items = active.value.diagnostics.get(uri)
-              ?? await active.value.waitForDiagnostics(uri, options.timeoutMs ?? 15_000);
-            result = ok(items.flatMap((diagnostic): SemanticDiagnostic[] => {
-              const location = locationFromLsp(options.rootPath, {
-                uri,
-                range: diagnostic.range,
-              }, active.value.files);
-              return [{
-                ...(location === undefined ? {} : { location }),
-                message: diagnostic.message,
-                category: diagnosticCategory(diagnostic.severity),
-                code: typeof diagnostic.code === 'number' ? diagnostic.code : 0,
-              }];
-            }));
-          } catch (cause) {
-            result = failure('lsp.diagnostics', cause instanceof Error ? cause.message : 'LSP diagnostics request failed');
-          } finally {
-            if (options.keepProcessAlive === false) active.value.unrefProcess();
+          if (active._tag === 'Err') result = active;
+          else if (languageIdForPath(input.repoPath, options.languageIds) === undefined
+            || !active.value.files.has(input.repoPath)) {
+            result = failure('repo_path', 'source file has no configured LSP document', 'UNSUPPORTED_PROVIDER');
+          } else {
+            try {
+              if (options.keepProcessAlive === false) active.value.refProcess();
+              const uri = uriFor(options.rootPath, input.repoPath);
+              const items = active.value.diagnostics.get(uri)
+                ?? await active.value.waitForDiagnostics(uri, options.timeoutMs ?? 15_000);
+              result = ok(items.flatMap((diagnostic): SemanticDiagnostic[] => {
+                const location = locationFromLsp(options.rootPath, {
+                  uri,
+                  range: diagnostic.range,
+                }, active.value.files);
+                return [{
+                  ...(location === undefined ? {} : { location }),
+                  message: diagnostic.message,
+                  category: diagnosticCategory(diagnostic.severity),
+                  code: typeof diagnostic.code === 'number' ? diagnostic.code : 0,
+                }];
+              }));
+            } catch (cause) {
+              result = failure(
+                'lsp.diagnostics',
+                cause instanceof Error ? cause.message : 'LSP diagnostics request failed',
+              );
+            } finally {
+              if (options.keepProcessAlive === false) active.value.unrefProcess();
+            }
           }
-        }
           providerTraceEvent(options.trace ?? noopProviderTrace, {
             provider: 'lsp',
             providerVersion: options.providerVersion ?? `${options.serverName ?? 'typescript-language-server'}/unknown`,
@@ -651,7 +660,11 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
           releaseOperation();
         }
       },
-      catch: (cause) => domainError('EXTERNAL_UNAVAILABLE', 'lsp.diagnostics', cause instanceof Error ? cause.message : 'LSP diagnostics failed'),
+      catch: (cause) => domainError(
+        'EXTERNAL_UNAVAILABLE',
+        'lsp.diagnostics',
+        cause instanceof Error ? cause.message : 'LSP diagnostics failed',
+      ),
     })),
     close: async (): Promise<void> => {
       if (closed) {
