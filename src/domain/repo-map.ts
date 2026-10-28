@@ -67,7 +67,10 @@ export const makeRepoMapSymbol = (input: Omit<RepoMapSymbol, 'id'>): RepoMapSymb
   references: [...input.references.reduce((grouped, reference) => {
     const key = `${reference.kind}:${reference.targetId}`;
     const previous = grouped.get(key);
-    grouped.set(key, { ...reference, weight: (previous?.weight ?? 0) + (reference.weight ?? 1) });
+    const observed = reference.weight === undefined
+      ? 1
+      : Number.isFinite(reference.weight) && reference.weight > 0 ? reference.weight : 1;
+    grouped.set(key, { ...reference, weight: (previous?.weight ?? 0) + observed });
     return grouped;
   }, new Map<string, RepoMapReference>()).values()]
     .sort((left, right) => left.targetId.localeCompare(right.targetId) || left.kind.localeCompare(right.kind)),
