@@ -31,7 +31,7 @@ test('LSP registry lazily starts one session, reference-counts leases, and close
   assert.equal(second._tag, 'Ok');
   if (first._tag === 'Ok' && second._tag === 'Ok') {
     assert.equal(first.value.session, second.value.session);
-    assert.deepEqual(registry.inspect(), [{ descriptor, refs: 2, state: 'ready' }]);
+    assert.deepEqual(registry.inspect(), [{ descriptor, refs: 2, state: 'leased' }]);
     first.value.release();
     assert.equal(counters.closes, 0);
     second.value.release();
@@ -68,4 +68,23 @@ test('LSP registry rejects an empty descriptor key before creating a session', a
   assert.equal(result._tag, 'Err');
   if (result._tag === 'Err') assert.equal(result.error.code, 'INVALID_INPUT');
   assert.equal(counters.starts, 0);
+});
+
+
+test('LSP registry rejects descriptor collisions instead of reusing a different server under the same key', async () => {
+  const counters = { starts: 0, closes: 0 };
+  const registry = makeLspServerRegistry();
+  const first = await Effect.runPromise(registry.acquire(descriptor, () => session(counters)));
+  assert.equal(first._tag, 'Ok');
+  const collided = await Effect.runPromise(registry.acquire({
+    ...descriptor,
+    command: 'rust-analyzer',
+    serverName: 'rust-analyzer',
+    args: [],
+  }, () => session(counters)));
+  assert.equal(collided._tag, 'Err');
+  if (collided._tag === 'Err') assert.equal(collided.error.code, 'INVALID_INPUT');
+  assert.equal(counters.starts, 1, 'colliding descriptor must not create or reuse a mismatched session');
+  if (first._tag === 'Ok') first.value.release();
+  await Effect.runPromise(registry.close());
 });
