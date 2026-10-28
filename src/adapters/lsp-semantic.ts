@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -103,7 +103,7 @@ const setStreamRef = (stream: NodeJS.ReadableStream | NodeJS.WritableStream, ref
 };
 
 const terminateProviderProcess = (
-  child: ChildProcessWithoutNullStreams,
+  child: ChildProcess,
   signal: NodeJS.Signals = 'SIGTERM',
 ): void => {
   const pid = child.pid;
@@ -119,7 +119,7 @@ const terminateProviderProcess = (
 };
 
 const waitForProviderExit = async (
-  child: ChildProcessWithoutNullStreams,
+  child: ChildProcess,
   timeoutMs: number,
 ): Promise<boolean> => {
   if (child.exitCode !== null || child.signalCode !== null) return true;
