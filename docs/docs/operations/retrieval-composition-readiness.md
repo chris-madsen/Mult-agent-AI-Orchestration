@@ -55,17 +55,17 @@ No production-readiness, quality-parity or token-savings claim follows from this
 - Real repository parity — `BLOCKED`: `npm exec -- tsx scripts/ast-grep-provider-parity.ts src` reports the discrepancy counts above; no broad normalization is used to hide them.
 - `npm run test:real-same-name` — `PASS` on runtime SHA `26cd8ef`; CLI remains the production provider. RepoMap remains gated by the approved plan's structural evidence requirement, not by silently promoting NAPI.
 
-## Uncommitted local follow-up — no current-SHA evidence
+## PR #187 retrieval follow-up — deterministic fixes pending final-head evidence
 
-The following changes are present only in the working tree after runtime SHA `26cd8ef950230c7d7ef10f42fc4f2654d8481760`. They are not attributed to that SHA and do not close any real-provider or production gate:
+These changes are committed in PR #187 but are not attributed to the historical `26cd8ef950230c7d7ef10f42fc4f2654d8481760` evidence and do not close any real-provider or production gate:
 
 - Active structural runtime uses the official CLI outline path for `provider=auto`; explicit NAPI remains experimental parity research.
-- RepoMap construction no longer requires a ready LSP session; structural-only map construction and optional LSP enrichment are covered by deterministic contracts, not by Aider parity evidence.
+- The current structural extractor exposes declaration outlines but not Aider-style reference tags. An edge-less outline is therefore **not** published as a ready RepoMap. Until structural def/ref extraction is adapted, runtime RepoMap publication remains gated on a verified reference provider; Aider parity remains open.
 - RepoMap ranking carries observed reference frequency, open-file/query personalization and grouped source rendering with an Aider-derived attribution comment. The pinned Aider behavioral fixture and real-repository/agent quality gates remain open.
-- LSP process identity is separated from source-generation identity; acquired sessions refresh before generation-bound queries, failed/dead runtimes become restart-eligible, and close uses standard `shutdown` → `exit` with a bounded termination fallback. Claw descriptor/status and real crash/restart evidence remain open.
-- LSP registry now carries a typed server descriptor and inspectable ready/ref-count status while preserving the existing session owner; this is deterministic ownership evidence only, not Claw parity or real crash/restart evidence.
+- LSP server descriptors are typed, but publication remains generation-bound: a new semantic snapshot is staged under its own lease and only replaces the prior lease after the retrieval publication commits. A crashed lazy runtime restarts from the last successfully confirmed file set. This preserves freshness/rollback correctness while fuller Claw lifecycle parity remains open.
+- LSP registry now carries a typed server descriptor, rejects same-key configuration collisions, and exposes **leased/ref-count** registry state. It does not label a lazy, uninitialized process as `ready`; real provider readiness still comes from the LSP preflight.
 - ContextAssembler enforces bounded `code`, `repo_map`, `lsp` and `other` sections while retaining exact-source receipts and lossless expansion. The current counter remains estimated; model-aware counting and composed context evidence remain open.
-- Qdrant context composition now emits the rendered RepoMap as a provenance-bound `structural` evidence item after applying it as a ranking prior; the provider-bound section path is covered deterministically, while clean-SHA real/agent evidence remains open.
+- Qdrant context composition may emit rendered RepoMap as `structural` evidence, but aggregate RepoMap freshness is fail-closed as `unknown` until every rendered source is exact-reread at the request boundary. Structural source coverage cannot be `satisfied` merely because Qdrant returned code hits.
 - Qdrant coverage degradation now uses the resolved `includeCode` default when marking incomplete index coverage, so omitted `include_code` cannot turn failed indexed paths into a false complete bundle.
 
 ## Current PR-A evidence
