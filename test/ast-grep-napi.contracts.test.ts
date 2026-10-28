@@ -15,6 +15,22 @@ test('NAPI extracts named declarations without mistaking an arrow parameter for 
   assert.equal(result.value.symbols.some((item) => item.name === 'attempt' && item.kind === 'function'), false);
 });
 
+test('NAPI collects byte-bound identifier occurrences in the same parse as declarations', async () => {
+  const result = await Effect.runPromise(makeAstGrepNapiStructuralPort().extract({ repoPath: 'main.ts', source }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Err') return;
+  const identifiers = result.value.identifiers;
+  assert.ok(identifiers);
+  assert.ok(identifiers.some((item) => item.name === 'save'));
+  assert.ok(identifiers.filter((item) => item.name === 'value').length >= 2);
+  for (const identifier of identifiers) {
+    assert.equal(
+      source.subarray(identifier.startByteOffset, identifier.endByteOffset).toString('utf8'),
+      identifier.name,
+    );
+  }
+});
+
 test('explicit NAPI identity remains experimental while auto mode uses the CLI outline provider', async () => {
   const identity = await Effect.runPromise(resolveAstGrepProviderIdentity({
     command: '/definitely/missing/ast-grep',
