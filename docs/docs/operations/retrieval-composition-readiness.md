@@ -63,14 +63,14 @@ These changes are committed in PR #187 but are not attributed to the historical 
 - The current structural extractor exposes declaration outlines but not Aider-style reference tags. An edge-less outline is therefore **not** published as a ready RepoMap, and production composition does **not** substitute a full-workspace LSP reference scan: that would invert the approved order and create `O(N × LSP)` work. Runtime RepoMap remains `NOT_READY` until structural def/ref extraction is adapted; LSP enrichment stays bounded to Qdrant-selected candidates. Aider parity remains open.
 - RepoMap ranking carries observed reference frequency, open-file/query personalization and grouped source rendering with an Aider-derived attribution comment. The pinned Aider behavioral fixture and real-repository/agent quality gates remain open.
 - LSP server descriptors are typed, but publication remains generation-bound: a new semantic snapshot is staged under its own lease and only replaces the prior lease after the retrieval publication commits. A crashed lazy runtime restarts from the last successfully confirmed file set. This preserves freshness/rollback correctness while fuller Claw lifecycle parity remains open.
-- LSP registry now carries a typed server descriptor, rejects same-key configuration collisions, and exposes **leased/ref-count** registry state. It does not label a lazy, uninitialized process as `ready`; real provider readiness still comes from the LSP preflight.
+- LSP registry now carries a typed server descriptor, rejects same-key configuration collisions, and exposes **leased/ref-count** registry state. It does not label a lazy, uninitialized process as `ready`; runtime health is proven only by bounded semantic operations when the resolved source plan actually requests LSP.
 - ContextAssembler enforces bounded `code`, `repo_map`, `lsp` and `other` sections while retaining exact-source receipts and lossless expansion. The current counter remains estimated; model-aware counting and composed context evidence remain open.
 - The Qdrant context adapter can consume a RepoMap provider, but production composition does not inject one until a structural def/ref graph owner exists. Any injected/test RepoMap evidence is fail-closed as `unknown` until every rendered source is exact-reread at the request boundary; structural coverage cannot be `satisfied` merely because Qdrant returned code hits.
 - Qdrant coverage degradation now uses the resolved `includeCode` default when marking incomplete index coverage, so omitted `include_code` cannot turn failed indexed paths into a false complete bundle.
 
-## Current PR-A evidence
+## Historical PR-A evidence — runtime SHA `4e44252db0fa63305398d87a96bde5e410e183f2`
 
-Evidence below was collected against reviewed runtime SHA `4e44252db0fa63305398d87a96bde5e410e183f2` with `sourceCleanAtBuild=true` and local Qdrant `qdrant/1.19.2`:
+Evidence below predates the later PR #187 lifecycle, lazy-LSP and source-plan fixes. It remains historical evidence for that runtime and must not be treated as acceptance evidence for the final PR #187 head. The run used `sourceCleanAtBuild=true` and local Qdrant `qdrant/1.19.2`:
 
 - `npm run test:real-provider` — `PASS`; current citation `service.ts:1-25`, `complete=true`, exact expansion verified.
 - `npm run test:real-provider-race` — `PASS`; outcome `reconciled-current`: when the source changes during the request, delivered evidence is the changed digest rather than the old digest mislabeled as current.
@@ -89,9 +89,9 @@ These provider results do not close NAPI real-repository parity, RepoMap quality
 - The SDK boundary still validates the declared destination against the local-only policy before every operation; transport consolidation did not move authorization out to callers.
 - `src/bin/ace-mcp.ts` and `scripts/qdrant-hybrid-rank-probe.ts` pass the authenticated SDK client plus the policy-bound local endpoint; direct contracts use SDK-shaped doubles.
 - The later direct-stable-collection change removed alias publication from the replacement runtime. Full current-snapshot publication may prune older workspace versions only after exact current-key membership, completed SDK mutation status and the generation fence `generation < currentGeneration` are proven. Here `generation` is the persisted workspace observation epoch advanced through the workspace-store CAS path, not an alias or `index_key`; mixed-key warm reuse does not perform workspace-wide cleanup.
-- Current reviewed runtime SHA `8867d94e3ebadf917e26bd9a24dd0dff8e354309` passed full `npm run verify:pr` (`633/633` TypeScript tests, Hermes context plugin `20/20`, ESLint, build and clean runtime provenance) and OpenSpec validation (`9/9 PASS`).
+- Runtime SHA `8867d94e3ebadf917e26bd9a24dd0dff8e354309` passed full `npm run verify:pr` (`633/633` TypeScript tests, Hermes context plugin `20/20`, ESLint, build and clean runtime provenance) and OpenSpec validation (`9/9 PASS`). That remains Qdrant-boundary component evidence, not acceptance evidence for the later PR #187 runtime.
 - The `2a58463` runs below are historical because later production fixes changed stable cleanup fencing and SDK mutation postconditions. They are not used as final R4 acceptance evidence.
-- Current real-provider evidence is retained below for the final direct-stable implementation; production readiness, NAPI parity, RepoMap/LSP/ContextAssembler conformance, Harbor A/B and token-savings claims remain open.
+- Real-provider evidence retained below validates the direct-stable Qdrant implementation at its recorded SHAs. It does not validate the later PR #187 LSP/source-plan/context-composition changes; production readiness, NAPI parity, RepoMap/LSP/ContextAssembler conformance, Harbor A/B and token-savings claims remain open.
 
 ## Historical R4 direct stable publication evidence — SHA `2a58463dab7c1f0483e704e526939d64c5abe1ec`
 
@@ -103,7 +103,7 @@ These provider results do not close NAPI real-repository parity, RepoMap quality
 - `npm run test:real-qdrant-concurrency` — `PASS`; same-snapshot concurrent writers converged on one direct stable collection/index key/provider fingerprint with no duplicate collection.
 - These historical results do not validate the later generation-fenced cleanup or strict mutation-result checks and do not close NAPI real-repository parity, RepoMap/LSP/ContextAssembler conformance, Harbor A/B, production readiness or token-savings claims.
 
-## Current R4 direct stable publication evidence — runtime SHA `8867d94e3ebadf917e26bd9a24dd0dff8e354309`
+## R4 direct stable publication component evidence — runtime SHA `8867d94e3ebadf917e26bd9a24dd0dff8e354309`
 
 - `npm run test:real-provider` — `PASS`; current citation `service.ts:1-25`, exact expansion and `complete=true` verified.
 - `npm run test:real-provider-race` — `PASS`; outcome `reconciled-current`.
