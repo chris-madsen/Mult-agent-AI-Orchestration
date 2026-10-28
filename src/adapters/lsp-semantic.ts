@@ -486,7 +486,9 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
     await new Promise<void>((resolveDrain) => drainWaiters.add(resolveDrain));
   };
   const runtime = (): Promise<Result<LspRuntime, DomainError>> => {
-    if (closed) return Promise.resolve(failure('lsp', 'semantic session is closed', 'NOT_READY'));
+    // Admission is controlled by beginOperation(). Once an operation has been
+    // admitted, retirement must drain it even if close() flips the terminal
+    // flag before lazy runtime initialization reaches this point.
     if (runtimePromise !== undefined) return runtimePromise;
     const started = startRuntime({ ...options, files: activeFiles });
     runtimePromise = started;
