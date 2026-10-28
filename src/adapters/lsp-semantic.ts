@@ -142,12 +142,6 @@ const waitForProviderExit = async (
   });
 };
 
-// A provider may need more than one event-loop turn to run a SIGTERM cleanup
-// handler under repository-wide process load. Keep fallback bounded without
-// racing a valid graceful termination into SIGKILL.
-const gracefulTerminationWaitMs = 750;
-const forcedTerminationWaitMs = 250;
-
 export const lspLanguageIdForPath = (repoPath: string, languageIds?: Readonly<Record<string, string>>): string | undefined => {
   const extension = path.extname(repoPath).toLocaleLowerCase();
   const configured = languageIds?.[extension];
@@ -263,9 +257,9 @@ const runVersion = async (command: string, timeoutMs: number): Promise<string> =
   } catch (cause) {
     if (child.exitCode === null && child.signalCode === null) {
       terminateProviderProcess(child, 'SIGTERM');
-      if (!await waitForProviderExit(child, gracefulTerminationWaitMs)) {
+      if (!await waitForProviderExit(child, 250)) {
         terminateProviderProcess(child, 'SIGKILL');
-        await waitForProviderExit(child, forcedTerminationWaitMs);
+        await waitForProviderExit(child, 250);
       }
     }
     throw cause;
@@ -395,11 +389,11 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
           // The transport may already be closed; termination below remains authoritative.
         }
         connection.dispose();
-        if (!await waitForProviderExit(child, gracefulTerminationWaitMs)) {
+        if (!await waitForProviderExit(child, 250)) {
           terminateProviderProcess(child, 'SIGTERM');
-          if (!await waitForProviderExit(child, gracefulTerminationWaitMs)) {
+          if (!await waitForProviderExit(child, 250)) {
             terminateProviderProcess(child, 'SIGKILL');
-            await waitForProviderExit(child, forcedTerminationWaitMs);
+            await waitForProviderExit(child, 250);
           }
         }
       })();
