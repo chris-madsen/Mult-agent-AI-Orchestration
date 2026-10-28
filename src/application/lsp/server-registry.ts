@@ -27,7 +27,7 @@ export interface LspServerDescriptor {
 export interface LspRegistryStatus {
   readonly descriptor: LspServerDescriptor;
   readonly refs: number;
-  readonly state: 'ready';
+  readonly state: 'leased';
 }
 
 export interface LspServerRegistry {
@@ -45,6 +45,17 @@ interface Entry {
   refs: number;
 }
 
+const normalizedLanguageIds = (value: Readonly<Record<string, string>> | undefined): string =>
+  JSON.stringify(Object.entries(value ?? {}).sort(([left], [right]) => left.localeCompare(right)));
+
+const sameDescriptor = (left: LspServerDescriptor, right: LspServerDescriptor): boolean =>
+  left.key === right.key
+  && left.command === right.command
+  && left.serverName === right.serverName
+  && left.args.length === right.args.length
+  && left.args.every((value, index) => value === right.args[index])
+  && normalizedLanguageIds(left.languageIds) === normalizedLanguageIds(right.languageIds);
+
 export const makeLspServerRegistry = (): LspServerRegistry => {
   const entries = new Map<string, Entry>();
   let closed = false;
@@ -54,6 +65,13 @@ export const makeLspServerRegistry = (): LspServerRegistry => {
       if (descriptor.key.trim().length === 0) return err(domainError('INVALID_INPUT', 'lsp_registry.key', 'LSP server descriptor key is required'));
       const key = descriptor.key;
       let entry = entries.get(key);
+      if (entry !== undefined && !sameDescriptor(entry.descriptor, descriptor)) {
+        return err(domainError(
+          'INVALID_INPUT',
+          'lsp_registry.key',
+          'LSP server descriptor key is already bound to a different server configuration',
+        ));
+      }
       if (entry === undefined) {
         try {
           entry = { descriptor, session: create(), refs: 0 };
@@ -87,7 +105,7 @@ export const makeLspServerRegistry = (): LspServerRegistry => {
     inspect: () => [...entries.values()].map((entry) => ({
       descriptor: entry.descriptor,
       refs: entry.refs,
-      state: 'ready' as const,
+      state: 'leased' as const,
     })),
     close: () => Effect.sync(() => {
       if (closed) return;
