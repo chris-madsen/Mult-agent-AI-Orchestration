@@ -4,7 +4,7 @@ import { err, ok, type Result } from '../../domain/result.js';
 import type { SemanticAnalysisPort } from '../ports.js';
 
 export interface LspRegistrySession extends SemanticAnalysisPort {
-  readonly close: () => void;
+  readonly close: () => void | Promise<void>;
   readonly refresh: (
     files: Readonly<Record<string, string>>,
     snapshotIdentity: string,
@@ -58,7 +58,21 @@ const sameDescriptor = (left: LspServerDescriptor, right: LspServerDescriptor): 
 
 export const makeLspServerRegistry = (): LspServerRegistry => {
   const entries = new Map<string, Entry>();
+  const pendingClosures = new Set<Promise<void>>();
   let closed = false;
+  const closeSession = (session: LspRegistrySession): void => {
+    try {
+      const closure = session.close();
+      if (closure === undefined) return;
+      const tracked = Promise.resolve(closure).then(
+        () => undefined,
+        () => undefined,
+      ).finally(() => pendingClosures.delete(tracked));
+      pendingClosures.add(tracked);
+    } catch {
+      // Registry shutdown remains best-effort; provider close owns termination fallback.
+    }
+  };
   return {
     acquire: <Session extends LspRegistrySession>(descriptor: LspServerDescriptor, create: () => Session) => Effect.sync(() => {
       if (closed) return err(domainError('NOT_READY', 'lsp_registry', 'LSP server registry is closed'));
@@ -96,7 +110,7 @@ export const makeLspServerRegistry = (): LspServerRegistry => {
           if (entries.get(key) !== entry) return;
           entry!.refs -= 1;
           if (entry!.refs <= 0) {
-            entry!.session.close();
+            closeSession(entry!.session);
             entries.delete(key);
           }
         },
@@ -107,11 +121,13 @@ export const makeLspServerRegistry = (): LspServerRegistry => {
       refs: entry.refs,
       state: 'leased' as const,
     })),
-    close: () => Effect.sync(() => {
-      if (closed) return;
-      closed = true;
-      for (const entry of entries.values()) entry.session.close();
-      entries.clear();
+    close: () => Effect.promise(async () => {
+      if (!closed) {
+        closed = true;
+        for (const entry of entries.values()) closeSession(entry.session);
+        entries.clear();
+      }
+      if (pendingClosures.size > 0) await Promise.all([...pendingClosures]);
     }),
   };
 };
