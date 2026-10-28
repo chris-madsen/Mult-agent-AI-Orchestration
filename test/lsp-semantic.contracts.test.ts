@@ -61,8 +61,15 @@ test('generic LSP adapter uses the real TypeScript language server for definitio
     }));
     assert.equal(stale._tag, 'Err');
     if (stale._tag === 'Err') assert.equal(stale.error.code, 'NOT_READY');
+
+    await provider.close();
+    const afterClose = await Effect.runPromise(provider.definition({
+      repoPath: 'main.ts', line: 2, column: 15, snapshotIdentity: refreshedIdentity,
+    }));
+    assert.equal(afterClose._tag, 'Err');
+    if (afterClose._tag === 'Err') assert.equal(afterClose.error.code, 'NOT_READY');
   } finally {
-    provider.close();
+    await provider.close();
   }
 });
 
@@ -103,7 +110,7 @@ test('LSP identity and unsupported language status are explicit', async () => {
   }));
   assert.equal(result._tag, 'Err');
   if (result._tag === 'Err') assert.equal(result.error.code, 'UNSUPPORTED_PROVIDER');
-  provider.close();
+  await provider.close();
 });
 
 test('actual ast-grep declarations resolve through real LSP without injected name anchors', async () => {
