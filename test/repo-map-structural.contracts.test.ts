@@ -137,3 +137,48 @@ test('RepoMap structural adapter builds a structural-only graph when LSP is unav
     assert.deepEqual(result.value.upserted.map((symbol) => symbol.references), [[], []]);
   }
 });
+
+
+test('RepoMap preserves repeated reference frequency for Aider-style sqrt weighting', async () => {
+  const target = candidate('target', 1);
+  const caller = {
+    ...candidate('caller', 2),
+    range: { startLine: 2, startColumn: 1, endLine: 5, endColumn: 2 },
+  };
+  const repeated: SemanticAnalysisPort = {
+    ...semantics,
+    references: ({ line }) => Effect.succeed({
+      _tag: 'Ok',
+      value: line === 1 ? [3, 4, 5].map((referenceLine) => ({
+        location: {
+          repoPath: 'src/example.ts',
+          startLine: referenceLine,
+          startColumn: 3,
+          endLine: referenceLine,
+          endColumn: 9,
+        },
+        isDefinition: false,
+      })) : [],
+    } as never),
+  };
+  const result = await Effect.runPromise(buildRepoMapDelta({
+    candidates: [target, caller],
+    semantics: repeated,
+    sourceBytesByPath: new Map([[
+      'src/example.ts' as never,
+      new TextEncoder().encode('target()\ncaller() {\n  target()\n  target()\n  target()\n}\n'),
+    ]]),
+    snapshotIdentity: 'snapshot',
+    requestId: 'request',
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Ok') {
+    const targetSymbol = result.value.upserted.find((symbol) => symbol.name === 'target');
+    const callerSymbol = result.value.upserted.find((symbol) => symbol.name === 'caller');
+    assert.deepEqual(callerSymbol?.references, [{
+      targetId: targetSymbol?.id,
+      kind: 'reference',
+      weight: 3,
+    }]);
+  }
+});
