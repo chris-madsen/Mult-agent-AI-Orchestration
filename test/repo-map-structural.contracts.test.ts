@@ -143,7 +143,7 @@ test('RepoMap preserves repeated reference frequency for Aider-style sqrt weight
   const target = candidate('target', 1);
   const caller = {
     ...candidate('caller', 2),
-    range: { startLine: 2, startColumn: 1, endLine: 5, endColumn: 2 },
+    range: { startLine: 2, startColumn: 1, endLine: 6, endColumn: 2 },
   };
   const repeated: SemanticAnalysisPort = {
     ...semantics,
