@@ -151,6 +151,10 @@ export const makeStructuralAnalysis = (input: {
     )) {
       return err({ code: 'INVALID_RETRIEVAL', path: `identifiers[${index}]`, message: 'invalid structural identifier range' });
     }
+    if (identifier.endLine < identifier.startLine
+      || (identifier.endLine === identifier.startLine && identifier.endColumn <= identifier.startColumn)) {
+      return err({ code: 'INVALID_RETRIEVAL', path: `identifiers[${index}]`, message: 'structural identifier source range must increase' });
+    }
     if (![identifier.startByteOffset, identifier.endByteOffset].every(
       (value) => Number.isSafeInteger(value) && value >= 0,
     ) || identifier.endByteOffset <= identifier.startByteOffset) {
