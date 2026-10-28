@@ -130,3 +130,16 @@ test('RepoMap budget packing skips oversized ranked entries and includes shorter
   assert.equal(result.truncated, true);
   assert.ok(result.estimatedTokens <= 12);
 });
+
+
+test('RepoMap normalizes malformed edge weights instead of poisoning PageRank', () => {
+  const target = symbol('target', 1);
+  const caller = symbol('caller', 2, [
+    { targetId: target.id, kind: 'reference', weight: Number.NaN },
+    { targetId: target.id, kind: 'reference', weight: -3 },
+  ]);
+  const graph = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [target, caller], removed: [] });
+  const ranked = rankRepoMap(graph, input);
+  assert.ok(ranked.every((item) => Number.isFinite(item.score)));
+  assert.ok(Math.abs(ranked.reduce((sum, item) => sum + item.score, 0) - 1) < 1e-8);
+});
