@@ -135,14 +135,21 @@ export const buildRepoMapDelta = (
         const key = `${reference.kind}:${reference.targetId}`;
         const previous = grouped.get(key);
         const count = (previous?.weight ?? 0) + 1;
+        // Keep the running count in the accumulator even for the first
+        // occurrence. Omitting weight:1 here would reset the next increment
+        // back to one and silently erase reference multiplicity.
         grouped.set(key, {
           targetId: reference.targetId,
           kind: reference.kind,
-          ...(count === 1 ? {} : { weight: count }),
+          weight: count,
         });
         return grouped;
-      }, new Map<string, RepoMapReference>()).values()].sort((left, right) =>
-        left.targetId.localeCompare(right.targetId) || left.kind.localeCompare(right.kind)),
+      }, new Map<string, RepoMapReference>()).values()]
+        .map((reference) => reference.weight === 1
+          ? { targetId: reference.targetId, kind: reference.kind }
+          : reference)
+        .sort((left, right) =>
+          left.targetId.localeCompare(right.targetId) || left.kind.localeCompare(right.kind)),
     })),
     removed: [],
   });
