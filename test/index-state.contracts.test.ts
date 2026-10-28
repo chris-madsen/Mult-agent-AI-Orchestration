@@ -79,8 +79,24 @@ test('warm structural reuse is invalidated when parser identity changes', async 
 
   const priorAnalysis = first.value.structuralAnalysesByPath?.get('src/index.ts' as never);
   assert.ok(priorAnalysis);
-  const corruptReuse = await Effect.runPromise(buildLocalCodeIndex(files(source), workspaceId, '/repo', {
+  const corruptPathReuse = await Effect.runPromise(buildLocalCodeIndex(files(source), workspaceId, '/repo', {
     generation: 3,
+    previous: {
+      ...first.value,
+      structuralAnalysesByPath: new Map([[
+        'src/index.ts' as never,
+        { ...priorAnalysis!, repoPath: 'src/other.ts' },
+      ]]),
+    },
+    parserVersion: 'parser-v1',
+    scopeFingerprint: 'scope-v1',
+    structural,
+  }));
+  assert.equal(corruptPathReuse._tag, 'Err');
+  if (corruptPathReuse._tag === 'Err') assert.equal(corruptPathReuse.error.code, 'INVALID_RETRIEVAL');
+
+  const corruptDigestReuse = await Effect.runPromise(buildLocalCodeIndex(files(source), workspaceId, '/repo', {
+    generation: 4,
     previous: {
       ...first.value,
       structuralAnalysesByPath: new Map([[
@@ -92,11 +108,11 @@ test('warm structural reuse is invalidated when parser identity changes', async 
     scopeFingerprint: 'scope-v1',
     structural,
   }));
-  assert.equal(corruptReuse._tag, 'Err');
-  if (corruptReuse._tag === 'Err') assert.equal(corruptReuse.error.code, 'INVALID_RETRIEVAL');
+  assert.equal(corruptDigestReuse._tag, 'Err');
+  if (corruptDigestReuse._tag === 'Err') assert.equal(corruptDigestReuse.error.code, 'INVALID_RETRIEVAL');
 
   const rebuilt = await Effect.runPromise(buildLocalCodeIndex(files(source), workspaceId, '/repo', {
-    generation: 4,
+    generation: 5,
     previous: first.value,
     parserVersion: 'parser-v2',
     scopeFingerprint: 'scope-v1',
