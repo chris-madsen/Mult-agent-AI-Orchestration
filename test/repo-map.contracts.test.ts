@@ -139,7 +139,12 @@ test('RepoMap normalizes malformed edge weights instead of poisoning PageRank', 
     { targetId: target.id, kind: 'reference', weight: -3 },
   ]);
   const graph = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [target, caller], removed: [] });
-  const ranked = rankRepoMap(graph, input);
+  const ranked = rankRepoMap(graph, {
+    query: 'target',
+    openFiles: [],
+    mentionedFiles: [],
+    tokenBudget: 128,
+  });
   assert.ok(ranked.every((item) => Number.isFinite(item.score)));
   assert.ok(Math.abs(ranked.reduce((sum, item) => sum + item.score, 0) - 1) < 1e-8);
 });
