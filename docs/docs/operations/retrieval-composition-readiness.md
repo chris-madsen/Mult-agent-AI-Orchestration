@@ -5,7 +5,7 @@
 ## Implemented here
 
 - `@ast-grep/napi@0.51.0` parses JS/TS/TSX in-process where the new symbol extractor has verified outline parity.
-- `ACE_AST_GREP_PROVIDER=napi|auto` is an explicit migration mode. The already-existing **batched CLI remains the default** until NAPI symbol coverage has real-repository parity evidence. In `auto`, NAPI is used only for the currently covered JS/TS/TSX subset and CLI remains the fallback for CSS/HTML and other registered languages. A bundled NAPI grammar alone is not treated as extraction support.
+- `ACE_AST_GREP_PROVIDER=napi|auto` remains an explicit migration/research setting, but the active `auto` route now uses the official **batched CLI outline** until a ready NAPI outline-level implementation exists. NAPI is not used as a silent fallback or as a second production extractor. A bundled NAPI grammar alone is not treated as extraction support.
 - Warm index reuse is bound to source digest, parser identity and scope identity; the linear candidate accumulator and batched extraction already on `main` are preserved.
 - `@qdrant/js-client-rest@1.20.0` owns probe, collection/alias lifecycle, query, upsert, snapshot count/membership verification and vector-reuse scrolls on the runtime path. Direct SDK response shapes are not confused with the legacy REST envelope; authenticated runtimes no longer fall back to unauthenticated raw HTTP during snapshot verification.
 - Existing `ACE_RETRIEVAL_STRATEGY=dense` remains the first planned strategy: no sparse worker is started and dense-only collections do not create or require sparse vectors.
@@ -53,7 +53,17 @@ No production-readiness, quality-parity or token-savings claim follows from this
 - NAPI contracts — `21/21 PASS`; CLI structural contracts and parity comparator contracts pass.
 - B1 fixes now align NAPI import records with CLI `module` identity and suppress type-alias object fields that the CLI does not expose.
 - Real repository parity — `BLOCKED`: `npm exec -- tsx scripts/ast-grep-provider-parity.ts src` reports the discrepancy counts above; no broad normalization is used to hide them.
-- `npm run test:real-same-name` — `PASS` on runtime SHA `26cd8ef`; CLI remains the production default and RepoMap work remains gated on B1 closure.
+- `npm run test:real-same-name` — `PASS` on runtime SHA `26cd8ef`; CLI remains the production provider. RepoMap remains gated by the approved plan's structural evidence requirement, not by silently promoting NAPI.
+
+## Uncommitted local follow-up — no current-SHA evidence
+
+The following changes are present only in the working tree after runtime SHA `26cd8ef950230c7d7ef10f42fc4f2654d8481760`. They are not attributed to that SHA and do not close any real-provider or production gate:
+
+- Active structural runtime uses the official CLI outline path for `provider=auto`; explicit NAPI remains experimental parity research.
+- RepoMap construction no longer requires a ready LSP session; structural-only map construction and optional LSP enrichment are covered by deterministic contracts, not by Aider parity evidence.
+- RepoMap ranking carries observed reference frequency, open-file/query personalization and grouped source rendering with an Aider-derived attribution comment. The pinned Aider behavioral fixture and real-repository/agent quality gates remain open.
+- LSP process identity is separated from source-generation identity; acquired sessions refresh before generation-bound queries, failed/dead runtimes become restart-eligible, and close uses standard `shutdown` → `exit` with a bounded termination fallback. Claw descriptor/status and real crash/restart evidence remain open.
+- ContextAssembler enforces bounded `code`, `repo_map`, `lsp` and `other` sections while retaining exact-source receipts and lossless expansion. The current counter remains estimated; model-aware counting and composed context evidence remain open.
 
 ## Current PR-A evidence
 

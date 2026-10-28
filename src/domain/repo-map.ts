@@ -6,6 +6,8 @@ export type RepoMapSymbolId = string & { readonly __brand: 'RepoMapSymbolId' };
 export interface RepoMapReference {
   readonly targetId: RepoMapSymbolId;
   readonly kind: 'definition' | 'reference';
+  /** Number of observed references represented by this edge. */
+  readonly weight?: number;
 }
 
 export interface RepoMapSymbol {
@@ -62,7 +64,13 @@ const stableSymbolId = (symbol: Omit<RepoMapSymbol, 'id'>): RepoMapSymbolId => [
 export const makeRepoMapSymbol = (input: Omit<RepoMapSymbol, 'id'>): RepoMapSymbol => ({
   ...input,
   id: stableSymbolId(input),
-  references: [...input.references].sort((left, right) => left.targetId.localeCompare(right.targetId)),
+  references: [...input.references.reduce((grouped, reference) => {
+    const key = `${reference.kind}:${reference.targetId}`;
+    const previous = grouped.get(key);
+    grouped.set(key, { ...reference, weight: (previous?.weight ?? 0) + (reference.weight ?? 1) });
+    return grouped;
+  }, new Map<string, RepoMapReference>()).values()]
+    .sort((left, right) => left.targetId.localeCompare(right.targetId) || left.kind.localeCompare(right.kind)),
 });
 
 export const emptyRepoMapGraph = (): RepoMapGraph => ({ symbols: new Map() });
@@ -90,6 +98,24 @@ const personalization = (symbol: RepoMapSymbol, input: RepoMapRenderInput): numb
   return score;
 };
 
+const identifierWeight = (name: string, input: RepoMapRenderInput): number => {
+  const token = name.toLocaleLowerCase();
+  if (queryTokens(input.query).includes(token)) return 4;
+  if (input.mentionedFiles.some((path) => path.toLocaleLowerCase().includes(token))) return 2;
+  return 1;
+};
+
+const edgeWeight = (
+  reference: RepoMapReference,
+  target: RepoMapSymbol,
+  source: RepoMapSymbol,
+  input: RepoMapRenderInput,
+): number => {
+  const frequency = Math.max(1, reference.weight ?? 1);
+  const chatFileBoost = input.openFiles.includes(source.repoPath) ? 2 : 1;
+  return Math.sqrt(frequency) * chatFileBoost * identifierWeight(target.name, input);
+};
+
 export const rankRepoMap = (graph: RepoMapGraph, input: RepoMapRenderInput): readonly RepoMapRankedSymbol[] => {
   const symbols = [...graph.symbols.values()].sort((left, right) => left.id.localeCompare(right.id));
   if (symbols.length === 0) return [];
@@ -98,12 +124,19 @@ export const rankRepoMap = (graph: RepoMapGraph, input: RepoMapRenderInput): rea
   // outgoing *valid* references must redistribute its rank instead of losing
   // it. This also prevents unresolved references from diluting live edges.
   const personalWeights = symbols.map((symbol) => 1 + 8 * Math.min(1, personalization(symbol, input)));
-  const totalWeight = personalWeights.reduce((sum, weight) => sum + weight, 0);
-  const teleport = personalWeights.map((weight) => weight / totalWeight);
-  const outgoing = new Map<RepoMapSymbolId, readonly RepoMapSymbolId[]>(
-    symbols.map((symbol) => [symbol.id, [...new Set(symbol.references
-      .map((reference) => reference.targetId)
-      .filter((targetId) => graph.symbols.has(targetId)))] ]),
+  const totalPersonalWeight = personalWeights.reduce((sum, weight) => sum + weight, 0);
+  const teleport = personalWeights.map((weight) => weight / totalPersonalWeight);
+  // Adapted from the pinned Aider RepoMap idea: repeated identifier references
+  // carry frequency, chat/open files personalize the graph, and rank flows
+  // through weighted edges rather than a deduplicated unweighted adjacency set.
+  const outgoing = new Map<RepoMapSymbolId, readonly { readonly targetId: RepoMapSymbolId; readonly weight: number }[]>(
+    symbols.map((symbol) => [symbol.id, symbol.references.flatMap((reference) => {
+      const target = graph.symbols.get(reference.targetId);
+      return target === undefined ? [] : [{
+        targetId: target.id,
+        weight: edgeWeight(reference, target, symbol, input),
+      }];
+    })]),
   );
   const scores = new Map<RepoMapSymbolId, number>(
     symbols.map((symbol, index) => [symbol.id, teleport[index] ?? 0]),
@@ -122,8 +155,11 @@ export const rankRepoMap = (graph: RepoMapGraph, input: RepoMapRenderInput): rea
     for (const symbol of symbols) {
       const targets = outgoing.get(symbol.id) ?? [];
       if (targets.length === 0) continue;
-      const share = damping * (scores.get(symbol.id) ?? 0) / targets.length;
-      for (const targetId of targets) next.set(targetId, (next.get(targetId) ?? 0) + share);
+      const totalWeight = targets.reduce((sum, target) => sum + target.weight, 0);
+      for (const target of targets) {
+        const share = damping * (scores.get(symbol.id) ?? 0) * target.weight / totalWeight;
+        next.set(target.targetId, (next.get(target.targetId) ?? 0) + share);
+      }
     }
     for (const symbol of symbols) scores.set(symbol.id, next.get(symbol.id) ?? 0);
   }
@@ -141,10 +177,14 @@ export const renderRepoMap = (
 ): RepoMapResult => {
   const safeBudget = Number.isSafeInteger(tokenBudget) && tokenBudget > 0 ? tokenBudget : 1;
   const lines: string[] = [];
+  const renderedPaths = new Set<RepoPath>();
   let estimatedTokens = 0;
   let truncated = false;
   for (const item of ranked) {
-    const line = `${item.symbol.repoPath}:${item.symbol.range.startLine} ${item.symbol.kind} ${item.symbol.name}`;
+    const header = renderedPaths.has(item.symbol.repoPath) ? '' : `${item.symbol.repoPath}:`;
+    const firstLine = item.symbol.text.split(String.fromCharCode(10), 1)[0]?.trim();
+    const body = `  ${item.symbol.repoPath}:${item.symbol.range.startLine} ${firstLine || `${item.symbol.kind} ${item.symbol.name}`}`;
+    const line = header === '' ? body : [header, body].join(String.fromCharCode(10));
     const lineTokens = Math.max(1, Math.ceil(line.length / 4));
     if (estimatedTokens + lineTokens > safeBudget) {
       // A long high-ranked path must not prevent shorter lower-ranked entries
@@ -153,6 +193,7 @@ export const renderRepoMap = (
       continue;
     }
     lines.push(line);
+    renderedPaths.add(item.symbol.repoPath);
     estimatedTokens += lineTokens;
   }
   return { ranked, rendered: lines.join('\n'), estimatedTokens, truncated };

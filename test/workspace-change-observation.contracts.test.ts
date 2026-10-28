@@ -117,6 +117,24 @@ test('NodeWorkspacePort keeps a clean non-Git workspace as an explicit no-change
   }
 });
 
+test('NodeWorkspacePort does not inherit status from a parent Git checkout', async () => {
+  const root = await mkdtemp(join(process.cwd(), '.tmp-ace-workspace-parent-git-'));
+  try {
+    const port = makeNodeWorkspacePort({ allowedRoots: [root] });
+    const observed = await Effect.runPromise(port.observeChanges(root));
+    assert.equal(observed._tag, 'Ok');
+    if (observed._tag === 'Ok') {
+      assert.equal(observed.value.headRevision, 'unavailable');
+      assert.deepEqual(observed.value.changedPaths, []);
+      assert.deepEqual(observed.value.addedPaths, []);
+      assert.deepEqual(observed.value.deletedPaths, []);
+      assert.deepEqual(observed.value.renamed, []);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('host-worktree helper forwards and validates observe_changes', async () => {
   const workspace = makeWorkspaceId('host-observation-contract');
   assert.equal(workspace._tag, 'Ok');

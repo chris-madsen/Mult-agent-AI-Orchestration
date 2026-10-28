@@ -15,7 +15,7 @@ test('NAPI extracts named declarations without mistaking an arrow parameter for 
   assert.equal(result.value.symbols.some((item) => item.name === 'attempt' && item.kind === 'function'), false);
 });
 
-test('NAPI identity and auto mode do not require the CLI for supported files', async () => {
+test('explicit NAPI identity remains experimental while auto mode uses the CLI outline provider', async () => {
   const identity = await Effect.runPromise(resolveAstGrepProviderIdentity({
     command: '/definitely/missing/ast-grep',
     provider: 'napi',
@@ -25,7 +25,7 @@ test('NAPI identity and auto mode do not require the CLI for supported files', a
   if (identity._tag === 'Ok') assert.equal(identity.value.command, '@ast-grep/napi');
 
   const auto = makeAstGrepStructuralPort({
-    command: '/definitely/missing/ast-grep',
+    command: 'node_modules/.bin/ast-grep',
     provider: 'auto',
     providerVersion: 'ast-grep/napi@0.51.0',
   });

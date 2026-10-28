@@ -325,12 +325,29 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
         textDocument: { uri: uriFor(options.rootPath, repoPath), languageId, version: 1, text: source },
       });
     }
+    let closed = false;
     const close = (): void => {
+      if (closed) return;
+      closed = true;
       for (const timer of diagnosticSettleTimers.values()) clearTimeout(timer);
       diagnosticSettleTimers.clear();
       diagnosticWaiters.clear();
-      connection.dispose();
-      terminateProviderProcess(child);
+      const shutdown = async (): Promise<void> => {
+        try {
+          await withTimeout(connection.sendRequest('shutdown'), options.timeoutMs ?? 15_000);
+        } catch {
+          // A dead or hung provider still gets the bounded termination fallback.
+        }
+        try {
+          await connection.sendNotification('exit', undefined);
+        } catch {
+          // The transport may already be closed; termination below remains authoritative.
+        }
+        connection.dispose();
+        const fallback = setTimeout(() => terminateProviderProcess(child), 250);
+        fallback.unref();
+      };
+      void shutdown();
     };
     const waitForDiagnostics = (uri: string, timeoutMs: number): Promise<readonly LspDiagnostic[]> => {
       const current = diagnostics.get(uri);
@@ -416,8 +433,22 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
   let runtimePromise: Promise<Result<LspRuntime, DomainError>> | undefined;
   let activeSnapshotIdentity = options.snapshotIdentity;
   const runtime = (): Promise<Result<LspRuntime, DomainError>> => {
-    runtimePromise ??= startRuntime(options);
-    return runtimePromise;
+    if (runtimePromise !== undefined) return runtimePromise;
+    const started = startRuntime(options);
+    runtimePromise = started;
+    void started.then((active) => {
+      if (runtimePromise !== started) return;
+      if (active._tag === 'Err') {
+        runtimePromise = undefined;
+        return;
+      }
+      const invalidate = (): void => {
+        if (runtimePromise === started) runtimePromise = undefined;
+      };
+      active.value.child.once('error', invalidate);
+      active.value.child.once('exit', invalidate);
+    });
+    return started;
   };
   const query = <Value>(
     queryInput: SemanticQuery,
@@ -570,7 +601,10 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
         const active = await runtime();
         if (active._tag === 'Err') return active;
         const updated = await active.value.updateFiles(nextFiles);
-        if (updated._tag === 'Err') return updated;
+        if (updated._tag === 'Err') {
+          runtimePromise = undefined;
+          return updated;
+        }
         activeSnapshotIdentity = snapshotIdentity;
         return ok(undefined);
       },

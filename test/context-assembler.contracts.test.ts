@@ -27,7 +27,7 @@ test('ContextAssembler prioritizes code, deduplicates receipts, and respects the
   assert.equal(result._tag, 'Ok');
   if (result._tag === 'Ok') {
     assert.equal(result.value.selected[0]?.source, 'code');
-    assert.equal(result.value.selected.length, 2);
+    assert.equal(result.value.selected.length, 1);
     assert.equal(result.value.truncated, true);
     assert.ok(result.value.limitations.length > 0);
   }
@@ -92,5 +92,26 @@ test('ContextAssembler distinguishes a budget omission from duplicate suppressio
     assert.equal(result.value.selected.length, 1);
     assert.equal(result.value.truncated, true);
     assert.match(result.value.limitations[0] ?? '', /context budget/u);
+  }
+});
+
+test('ContextAssembler enforces explicit section token caps independently of the global budget', async () => {
+  const result = await Effect.runPromise(makeContextAssembler().assemble({
+    budgetTokens: 30,
+    sectionBudgets: { code: 4, repo_map: 4, lsp: 4, other: 4 },
+    evidence: [
+      evidence('code', 'code', 'code'),
+      evidence('map', 'structural', 'map'),
+      evidence('lsp', 'lsp', 'lsp'),
+      evidence('docs', 'documentation', 'docs'),
+    ],
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Ok') {
+    assert.deepEqual(result.value.sectionBudgets, { code: 4, repo_map: 4, lsp: 4, other: 4 });
+    assert.ok(result.value.sectionUsage.code <= 4);
+    assert.ok(result.value.sectionUsage.repo_map <= 4);
+    assert.ok(result.value.sectionUsage.lsp <= 4);
+    assert.ok(result.value.sectionUsage.other <= 4);
   }
 });

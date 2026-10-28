@@ -1,10 +1,15 @@
 import type { RetrievalEvidence } from './retrieval.js';
 
 export type ContextAssemblySource = RetrievalEvidence['source'];
+export type ContextAssemblySection = 'code' | 'repo_map' | 'lsp' | 'other';
+export type ContextAssemblySectionBudgets = Readonly<Partial<Record<ContextAssemblySection, number>>>;
+export type ContextAssemblySectionUsage = Readonly<Record<ContextAssemblySection, number>>;
 
 export interface ContextAssemblyInput {
   readonly evidence: readonly RetrievalEvidence[];
   readonly budgetTokens: number;
+  /** Optional absolute token caps; omitted sections use bounded defaults. */
+  readonly sectionBudgets?: ContextAssemblySectionBudgets;
 }
 
 export interface ContextAssemblyResult {
@@ -14,6 +19,8 @@ export interface ContextAssemblyResult {
   readonly estimatedTokens: number;
   readonly truncated: boolean;
   readonly limitations: readonly string[];
+  readonly sectionBudgets: Readonly<Record<ContextAssemblySection, number>>;
+  readonly sectionUsage: ContextAssemblySectionUsage;
 }
 
 const sourcePriority: readonly ContextAssemblySource[] = [
@@ -24,6 +31,33 @@ const sourcePriority: readonly ContextAssemblySource[] = [
   'memory',
   'history',
 ];
+
+const sectionFor = (source: ContextAssemblySource): ContextAssemblySection => {
+  if (source === 'code') return 'code';
+  if (source === 'structural') return 'repo_map';
+  if (source === 'lsp') return 'lsp';
+  return 'other';
+};
+
+const defaultSectionBudgets = (budgetTokens: number): Readonly<Record<ContextAssemblySection, number>> => ({
+  code: Math.max(8, Math.floor(budgetTokens * 0.6)),
+  repo_map: Math.max(4, Math.floor(budgetTokens * 0.15)),
+  lsp: Math.max(4, Math.floor(budgetTokens * 0.15)),
+  other: Math.max(4, Math.floor(budgetTokens * 0.1)),
+});
+
+const sectionBudgetsFor = (
+  budgetTokens: number,
+  requested: ContextAssemblySectionBudgets | undefined,
+): Readonly<Record<ContextAssemblySection, number>> => {
+  const defaults = defaultSectionBudgets(budgetTokens);
+  return {
+    code: requested?.code ?? defaults.code,
+    repo_map: requested?.repo_map ?? defaults.repo_map,
+    lsp: requested?.lsp ?? defaults.lsp,
+    other: requested?.other ?? defaults.other,
+  };
+};
 
 const tokensFor = (text: string): number => Math.ceil(text.length / 4);
 
@@ -49,6 +83,8 @@ export const assembleContext = (input: ContextAssemblyInput): ContextAssemblyRes
   const seen = new Set<string>();
   let estimatedTokens = 0;
   let budgetOmitted = 0;
+  const sectionBudgets = sectionBudgetsFor(input.budgetTokens, input.sectionBudgets);
+  const sectionUsage: Record<ContextAssemblySection, number> = { code: 0, repo_map: 0, lsp: 0, other: 0 };
 
   for (const item of ordered) {
     if (seen.has(dedupeKey(item))) {
@@ -58,7 +94,9 @@ export const assembleContext = (input: ContextAssemblyInput): ContextAssemblyRes
     seen.add(dedupeKey(item));
     const block = evidenceText(item);
     const nextTokens = tokensFor(`${blocks.length === 0 ? '' : '\n\n'}${block}`);
-    if (estimatedTokens + nextTokens > input.budgetTokens) {
+    const section = sectionFor(item.source);
+    if (sectionUsage[section] + nextTokens > sectionBudgets[section]
+      || estimatedTokens + nextTokens > input.budgetTokens) {
       budgetOmitted += 1;
       omitted.push(item);
       continue;
@@ -66,6 +104,7 @@ export const assembleContext = (input: ContextAssemblyInput): ContextAssemblyRes
     selected.push(item);
     blocks.push(block);
     estimatedTokens += nextTokens;
+    sectionUsage[section] += nextTokens;
   }
 
   return {
@@ -75,5 +114,7 @@ export const assembleContext = (input: ContextAssemblyInput): ContextAssemblyRes
     estimatedTokens,
     truncated: budgetOmitted > 0,
     limitations: budgetOmitted === 0 ? [] : [`${budgetOmitted} evidence items omitted by context budget`],
+    sectionBudgets,
+    sectionUsage,
   };
 };

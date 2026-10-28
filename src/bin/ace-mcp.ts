@@ -735,7 +735,6 @@ const main = async (): Promise<void> => {
               args: lspArgs,
               serverName: lspServerName,
               languageIds: lspLanguageIds ?? null,
-              snapshotIdentity: semanticIdentity,
             });
             const acquired = await Effect.runPromise(lspRegistry.acquire(key, () => makeLspSemanticAnalysisPort({
               command: lspCommand,
@@ -751,6 +750,11 @@ const main = async (): Promise<void> => {
             if (acquired._tag === 'Err') return acquired;
             const semanticLease = acquired.value;
             const semantics = semanticLease.session;
+            const refreshedSemantic = await Effect.runPromise(semantics.refresh(sourceFiles.value, semanticIdentity));
+            if (refreshedSemantic._tag === 'Err') {
+              semanticLease.release();
+              return refreshedSemantic;
+            }
             const firstLspPath = build.indexedPaths.find((repoPath) => lspLanguageIdForPath(repoPath, lspLanguageIds) !== undefined);
             let lspReady = lspProviderIdentity?._tag === 'Ok' && firstLspPath !== undefined;
             if (firstLspPath !== undefined && lspProviderIdentity?._tag === 'Ok') {
@@ -763,20 +767,19 @@ const main = async (): Promise<void> => {
                 : `ace-mcp semantic LSP NOT_READY: ${lspServerName} identity is unavailable\n`);
             }
             let repoMapService: ReturnType<typeof makeRepoMapService> | undefined;
-            if (lspReady) {
+            {
               const repoMap = makeRepoMapService();
               const repoMapDelta = await Effect.runPromise(buildRepoMapDelta({
                 candidates: build.index.candidates,
-                semantics,
+                ...(lspReady ? { semantics, snapshotIdentity: semanticIdentity, requestId: randomUUID() } : {}),
                 sourceBytesByPath: new Map(Object.entries(sourceFiles.value).map(([repoPath, source]) => [
                   repoPath as RepoPath,
                   new TextEncoder().encode(source),
                 ])) as ReadonlyMap<RepoPath, Uint8Array>,
-                snapshotIdentity: semanticIdentity,
-                requestId: randomUUID(),
+
               }));
               if (repoMapDelta._tag === 'Err') {
-                process.stderr.write(`ace-mcp RepoMap NOT_READY: semantic reference graph failed (${repoMapDelta.error.code})\n`);
+                process.stderr.write(`ace-mcp RepoMap NOT_READY: structural graph failed (${repoMapDelta.error.code})\n`);
               } else {
                 const updated = await Effect.runPromise(repoMap.update(repoMapDelta.value));
                 if (updated._tag === 'Err') {

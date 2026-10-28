@@ -13,7 +13,7 @@ import { recoverResult } from '../application/effect-result.js';
 import { structuralLanguageForPath } from '../domain/structural-language.js';
 import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
 import { providerUsesWindowsShell, resolveProviderCommand } from './provider-command.js';
-import { makeAstGrepNapiStructuralPort, supportsAstGrepNapiPath } from './ast-grep-napi.js';
+import { makeAstGrepNapiStructuralPort } from './ast-grep-napi.js';
 
 export interface AstGrepStructuralOptions {
   readonly command: string;
@@ -293,7 +293,7 @@ export const resolveAstGrepProviderIdentity = (
 
   const command = resolveProviderCommand(options.command);
   const cliVersion = yield* commandVersion(command);
-  if (provider === 'cli') {
+  if (provider === 'cli' || provider === 'auto') {
     if (cliVersion._tag === 'Err') return cliVersion;
     const stable = {
       provider: 'ast-grep' as const,
@@ -307,16 +307,11 @@ export const resolveAstGrepProviderIdentity = (
     });
   }
 
-  const stable = {
-    provider: 'ast-grep' as const,
-    protocolSchema: 1 as const,
-    command: `@ast-grep/napi+${command}`,
-    version: `${napiVersion}|cli=${cliVersion._tag === 'Ok' ? cliVersion.value : 'unavailable'}`,
-  };
-  return ok({
-    ...stable,
-    fingerprint: createHash('sha256').update(JSON.stringify(stable), 'utf8').digest('hex'),
-  });
+  return err(domainError(
+    'UNSUPPORTED_PROVIDER',
+    'ast_grep.provider',
+    'NAPI structural extraction is experimental parity research; use the official CLI outline provider',
+  ));
 });
 
 // ast-grep supports multiple explicit files in a single outline invocation.
@@ -430,43 +425,7 @@ export const makeAstGrepStructuralPort = (options: AstGrepStructuralOptions): St
   const provider = options.provider ?? 'cli';
   const cli = makeCliAstGrepStructuralPort(options);
   const napi = makeAstGrepNapiStructuralPort();
-  if (provider === 'cli') return cli;
+  if (provider === 'cli' || provider === 'auto') return cli;
   if (provider === 'napi') return napi;
-
-  return {
-    extract: (input) => supportsAstGrepNapiPath(input.repoPath)
-      ? napi.extract(input)
-      : cli.extract(input),
-    extractMany: (inputs) => Effect.gen(function* () {
-      const results: Result<StructuralAnalysis, DomainError>[] = inputs.map(() =>
-        err(domainError('INVALID_EXTERNAL_RESPONSE', 'ast_grep', 'missing structural result')));
-      const fallback: Array<{ readonly input: (typeof inputs)[number]; readonly index: number }> = [];
-
-      for (const [index, input] of inputs.entries()) {
-        if (supportsAstGrepNapiPath(input.repoPath)) {
-          results[index] = yield* napi.extract(input);
-        } else {
-          fallback.push({ input, index });
-        }
-      }
-
-      if (fallback.length > 0) {
-        const parsed = cli.extractMany === undefined
-          ? undefined
-          : yield* cli.extractMany(fallback.map((item) => item.input));
-        if (parsed === undefined || parsed.length !== fallback.length) {
-          for (const item of fallback) {
-            results[item.index] = err(domainError(
-              'UNSUPPORTED_PROVIDER',
-              'ast_grep',
-              'CLI fallback batch unavailable',
-            ));
-          }
-        } else {
-          for (const [position, item] of fallback.entries()) results[item.index] = parsed[position]!;
-        }
-      }
-      return results;
-    }),
-  };
+  return napi;
 };

@@ -46,8 +46,18 @@ test('generic LSP adapter uses the real TypeScript language server for definitio
     assert.equal(diagnostics._tag, 'Ok');
     if (diagnostics._tag === 'Ok') assert.ok(diagnostics.value.some((item) => item.code === 2304));
 
+    const refreshedIdentity = 'b'.repeat(64);
+    const refreshed = await Effect.runPromise(provider.refresh({
+      'main.ts': source.replaceAll('save', 'load'),
+    }, refreshedIdentity));
+    assert.equal(refreshed._tag, 'Ok');
+    const current = await Effect.runPromise(provider.definition({
+      repoPath: 'main.ts', line: 2, column: 15, snapshotIdentity: refreshedIdentity,
+    }));
+    assert.equal(current._tag, 'Ok');
+
     const stale = await Effect.runPromise(provider.definition({
-      repoPath: 'main.ts', line: 2, column: 15, snapshotIdentity: 'b'.repeat(64),
+      repoPath: 'main.ts', line: 2, column: 15, snapshotIdentity: snapshotIdentity,
     }));
     assert.equal(stale._tag, 'Err');
     if (stale._tag === 'Err') assert.equal(stale.error.code, 'NOT_READY');
