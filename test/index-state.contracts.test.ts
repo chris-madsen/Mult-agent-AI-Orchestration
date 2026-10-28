@@ -69,9 +69,50 @@ test('warm structural reuse is invalidated when parser identity changes', async 
   }));
   assert.equal(reused._tag, 'Ok');
   assert.equal(calls, 1);
+  if (reused._tag === 'Ok') {
+    assert.equal(reused.value.structuralAnalysesByPath?.size, 1);
+    assert.deepEqual(
+      [...(reused.value.structuralAnalysesByPath ?? new Map()).entries()],
+      [...(first.value.structuralAnalysesByPath ?? new Map()).entries()],
+    );
+  }
+
+  const priorAnalysis = first.value.structuralAnalysesByPath?.get('src/index.ts' as never);
+  assert.ok(priorAnalysis);
+  const corruptPathReuse = await Effect.runPromise(buildLocalCodeIndex(files(source), workspaceId, '/repo', {
+    generation: 3,
+    previous: {
+      ...first.value,
+      structuralAnalysesByPath: new Map([[
+        'src/index.ts' as never,
+        { ...priorAnalysis!, repoPath: 'src/other.ts' },
+      ]]),
+    },
+    parserVersion: 'parser-v1',
+    scopeFingerprint: 'scope-v1',
+    structural,
+  }));
+  assert.equal(corruptPathReuse._tag, 'Err');
+  if (corruptPathReuse._tag === 'Err') assert.equal(corruptPathReuse.error.code, 'INVALID_RETRIEVAL');
+
+  const corruptDigestReuse = await Effect.runPromise(buildLocalCodeIndex(files(source), workspaceId, '/repo', {
+    generation: 4,
+    previous: {
+      ...first.value,
+      structuralAnalysesByPath: new Map([[
+        'src/index.ts' as never,
+        { ...priorAnalysis!, sourceDigest: 'c'.repeat(64) as never },
+      ]]),
+    },
+    parserVersion: 'parser-v1',
+    scopeFingerprint: 'scope-v1',
+    structural,
+  }));
+  assert.equal(corruptDigestReuse._tag, 'Err');
+  if (corruptDigestReuse._tag === 'Err') assert.equal(corruptDigestReuse.error.code, 'INVALID_RETRIEVAL');
 
   const rebuilt = await Effect.runPromise(buildLocalCodeIndex(files(source), workspaceId, '/repo', {
-    generation: 3,
+    generation: 5,
     previous: first.value,
     parserVersion: 'parser-v2',
     scopeFingerprint: 'scope-v1',
@@ -81,6 +122,33 @@ test('warm structural reuse is invalidated when parser identity changes', async 
   assert.equal(calls, 2);
 });
 
+
+test('fresh structural records with a mismatched repo path are rejected from shared state', async () => {
+  const source = Buffer.from('export function index() { return true; }\n');
+  const structural: StructuralAnalysisPort = {
+    extract: () => Effect.succeed(ok({
+      repoPath: 'src/other.ts',
+      sourceDigest: 'b'.repeat(64) as never,
+      symbols: [],
+      hasSyntaxErrors: false,
+    })),
+  };
+  const result = await Effect.runPromise(buildLocalCodeIndex(files(source), workspaceId, '/repo', {
+    generation: 1,
+    parserVersion: 'parser-v1',
+    scopeFingerprint: 'scope-v1',
+    structural,
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Err') return;
+  assert.equal(result.value.coverage.failedPaths, 1);
+  assert.deepEqual(result.value.coverage.failures, [{
+    repoPath: 'src/index.ts',
+    kind: 'structural_failed',
+    code: 'INVALID_EXTERNAL_RESPONSE',
+  }]);
+  assert.equal(result.value.structuralAnalysesByPath?.size, 0);
+});
 
 test('pre-materialized snapshot avoids a second repository snapshot during incremental rebuild', async () => {
   const source = Buffer.from('export function index() { return true; }\n');

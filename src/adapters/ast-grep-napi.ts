@@ -3,7 +3,7 @@ import { Effect } from 'effect';
 import { Lang, parse } from '@ast-grep/napi';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, type Result } from '../domain/result.js';
-import { makeStructuralAnalysis, type StructuralAnalysis, type StructuralKind, type StructuralSymbol } from '../domain/semantic.js';
+import { makeStructuralAnalysis, type StructuralAnalysis, type StructuralIdentifier, type StructuralKind, type StructuralSymbol } from '../domain/semantic.js';
 import { makeContentDigest } from '../domain/workspace.js';
 import type { StructuralAnalysisPort } from '../application/ports.js';
 import { structuralLanguageForPath } from '../domain/structural-language.js';
@@ -177,11 +177,30 @@ const extractOne = (
       return { line: position.line + 1, column: offset - lineStart + 1, offset };
     };
     const symbols: StructuralSymbol[] = [];
+    const identifiers: StructuralIdentifier[] = [];
     let hasSyntaxErrors = false;
     const visit = (node: NapiNode): void => {
       if (node.kind() === 'ERROR' || node.kind() === 'MISSING') hasSyntaxErrors = true;
       const symbol = nodeSymbol(node, language.language, toBytePosition);
       if (symbol !== undefined) symbols.push(symbol);
+      if (isIdentifier(node)) {
+        const range = node.range();
+        const start = toBytePosition(range.start);
+        const end = toBytePosition(range.end);
+        const exactText = sourceBytes.subarray(start.offset, end.offset).toString('utf8');
+        if (exactText !== node.text()) {
+          throw new Error('ast-grep NAPI identifier range does not match authoritative source bytes');
+        }
+        identifiers.push({
+          name: node.text(),
+          startLine: start.line,
+          startColumn: start.column,
+          endLine: end.line,
+          endColumn: end.column,
+          startByteOffset: start.offset,
+          endByteOffset: end.offset,
+        });
+      }
       for (const child of node.namedChildren()) visit(child);
     };
     visit(root);
@@ -194,6 +213,10 @@ const extractOne = (
       symbols: symbols.sort((left, right) =>
         (left.startByteOffset ?? 0) - (right.startByteOffset ?? 0)
         || (left.endByteOffset ?? 0) - (right.endByteOffset ?? 0)),
+      identifiers: identifiers.sort((left, right) =>
+        left.startByteOffset - right.startByteOffset
+        || left.endByteOffset - right.endByteOffset
+        || left.name.localeCompare(right.name)),
       hasSyntaxErrors,
     });
   } catch (cause) {
