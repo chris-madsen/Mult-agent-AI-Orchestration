@@ -197,6 +197,68 @@ test('Qdrant context emits rendered RepoMap as structural evidence', async () =>
       const structural = result.value.evidence.find((item) => item.source === 'structural');
       assert.equal(structural?.content, 'src/run.ts:\n  src/run.ts:1 function run()');
       assert.equal(structural?.proofClass, 'derived');
+      assert.equal(structural?.freshness, 'unknown', 'aggregate RepoMap is not exact-reread as one source');
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('required structural coverage is unavailable when no RepoMap was actually produced', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ace-structural-coverage-'));
+  try {
+    const workspaceId = value(makeWorkspaceId('structural-coverage'));
+    const source = 'export function run() { return 1; }\n';
+    await mkdir(join(root, 'src'), { recursive: true });
+    await writeFile(join(root, 'src', 'run.ts'), source, 'utf8');
+    const files = makeNodeWorkspacePort({ allowedRoots: [root] });
+    const candidate = {
+      candidateId: 'run-candidate',
+      workspaceId,
+      repoPath: 'src/run.ts',
+      range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: Buffer.byteLength(source.trimEnd(), 'utf8') + 1 },
+      symbolName: 'run',
+      structuralKind: 'function',
+      structuralLanguage: 'typescript',
+      structuralExported: true,
+      semanticAnchor: { line: 1, byteColumn: 17, endLine: 1, endByteColumn: 20 },
+      text: source.trimEnd(),
+      sourceDigest: createHash('sha256').update(source).digest('hex'),
+      generation: 1,
+      indexedAtMs: 1,
+      invalidated: false,
+    } as never;
+    const provider = makeQdrantContextProvider({
+      workspaceId,
+      rootPath: root,
+      files,
+      qdrant: {
+        search: () => Effect.succeed(ok([{ candidate, score: 1, freshness: 'unknown' }] as never)),
+        upsert: () => Effect.succeed(ok(undefined)),
+      },
+      embeddings: { embedMany: (input) => Effect.succeed(ok(input.map(() => [1]))) },
+      artifacts: makeFileArtifactStore(join(root, 'artifacts')),
+      newRequestId: () => 'structural-coverage-request',
+    });
+    const result = await Effect.runPromise(provider.search({
+      workspaceId,
+      query: 'run',
+      includeDocs: false,
+      includeMemory: false,
+      sourceRequirements: {
+        code: { requirement: 'optional', allowed: true },
+        structural: { requirement: 'required', allowed: true },
+        lsp: { requirement: 'not_requested', allowed: true },
+        documentation: { requirement: 'not_requested', allowed: true },
+        memory: { requirement: 'not_requested', allowed: true },
+      },
+    }));
+    assert.equal(result._tag, 'Ok');
+    if (result._tag === 'Ok') {
+      const structural = result.value.sourceCoverage?.find((item) => item.source === 'structural');
+      assert.equal(structural?.status, 'unavailable');
+      assert.equal(result.value.complete, false);
+      assert.ok(result.value.partialSources.includes('structural'));
     }
   } finally {
     await rm(root, { recursive: true, force: true });
