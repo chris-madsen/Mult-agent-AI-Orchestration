@@ -19,8 +19,6 @@ export interface RepoMapSymbol {
   readonly range: SourceRange;
   readonly text: string;
   readonly isExported?: boolean;
-  readonly nameStartLine?: number;
-  readonly nameStartColumn?: number;
   readonly references: readonly RepoMapReference[];
 }
 
