@@ -757,12 +757,8 @@ const main = async (): Promise<void> => {
             const semanticLease = acquired.value;
             const semantics = semanticLease.session;
             const firstLspPath = build.indexedPaths.find((repoPath) => lspLanguageIdForPath(repoPath, lspLanguageIds) !== undefined);
-            let lspReady = lspProviderIdentity?._tag === 'Ok' && firstLspPath !== undefined;
-            if (firstLspPath !== undefined && lspProviderIdentity?._tag === 'Ok') {
-              const languageServiceReady = await Effect.runPromise(semantics.diagnostics({ repoPath: firstLspPath }));
-              lspReady = languageServiceReady._tag === 'Ok';
-              if (!lspReady) process.stderr.write(`ace-mcp semantic LSP NOT_READY: preflight failed (${languageServiceReady._tag === 'Err' ? languageServiceReady.error.code : 'unknown'})\n`);
-            } else if (!lspReady) {
+            const lspConfigured = lspProviderIdentity?._tag === 'Ok' && firstLspPath !== undefined;
+            if (!lspConfigured) {
               process.stderr.write(firstLspPath === undefined
                 ? 'ace-mcp semantic LSP NOT_READY: no LSP-capable source language is present in this workspace\n'
                 : `ace-mcp semantic LSP NOT_READY: ${lspServerName} identity is unavailable\n`);
@@ -847,8 +843,8 @@ const main = async (): Promise<void> => {
             const oldCloseSemantics = closeSemantics;
             closeSemantics = semanticLease.release;
             if (oldCloseSemantics !== undefined) oldCloseSemantics();
-            readiness.semantic_lsp = lspReady
-              ? { state: 'ready', reason: 'real_lsp_provider_preflight_passed' }
+            readiness.semantic_lsp = lspConfigured
+              ? { state: 'degraded', reason: 'provider_configured_lazy_not_health_probed' }
               : { state: 'not_ready', reason: 'lsp_provider_unavailable' };
             const documentation = makeDocumentationProvider(registered.value.workspaceId, http, providerTrace);
             if (process.env.ACE_ENABLE_VERTEX === 'true') {
