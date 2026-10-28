@@ -55,7 +55,7 @@ export interface LspProviderIdentity {
 }
 
 export interface LspSemanticSession extends SemanticAnalysisPort {
-  readonly close: () => void;
+  readonly close: () => Promise<void>;
   readonly refresh: (
     files: Readonly<Record<string, string>>,
     snapshotIdentity: string,
@@ -87,7 +87,7 @@ interface LspRuntime {
   readonly updateFiles: (nextFiles: Readonly<Record<string, string>>) => Promise<Result<void, DomainError>>;
   readonly refProcess: () => void;
   readonly unrefProcess: () => void;
-  readonly close: () => void;
+  readonly close: () => Promise<void>;
 }
 
 const failure = (pathName: string, message: string, code: DomainError['code'] = 'EXTERNAL_UNAVAILABLE'): Result<never, DomainError> =>
@@ -113,6 +113,26 @@ const terminateProviderProcess = (child: ChildProcessWithoutNullStreams): void =
     }
   }
   child.kill('SIGTERM');
+};
+
+const waitForProviderExit = async (
+  child: ChildProcessWithoutNullStreams,
+  timeoutMs: number,
+): Promise<boolean> => {
+  if (child.exitCode !== null || child.signalCode !== null) return true;
+  return await new Promise<boolean>((resolveExit) => {
+    let settled = false;
+    const finish = (exited: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.off('exit', onExit);
+      resolveExit(exited);
+    };
+    const onExit = (): void => finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    child.once('exit', onExit);
+  });
 };
 
 export const lspLanguageIdForPath = (repoPath: string, languageIds?: Readonly<Record<string, string>>): string | undefined => {
@@ -325,14 +345,13 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
         textDocument: { uri: uriFor(options.rootPath, repoPath), languageId, version: 1, text: source },
       });
     }
-    let closed = false;
-    const close = (): void => {
-      if (closed) return;
-      closed = true;
+    let closePromise: Promise<void> | undefined;
+    const close = (): Promise<void> => {
+      if (closePromise !== undefined) return closePromise;
       for (const timer of diagnosticSettleTimers.values()) clearTimeout(timer);
       diagnosticSettleTimers.clear();
       diagnosticWaiters.clear();
-      const shutdown = async (): Promise<void> => {
+      closePromise = (async () => {
         try {
           await withTimeout(connection.sendRequest('shutdown'), options.timeoutMs ?? 15_000);
         } catch {
@@ -344,10 +363,12 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
           // The transport may already be closed; termination below remains authoritative.
         }
         connection.dispose();
-        const fallback = setTimeout(() => terminateProviderProcess(child), 250);
-        fallback.unref();
-      };
-      void shutdown();
+        if (!await waitForProviderExit(child, 250)) {
+          terminateProviderProcess(child);
+          await waitForProviderExit(child, 250);
+        }
+      })();
+      return closePromise;
     };
     const waitForDiagnostics = (uri: string, timeoutMs: number): Promise<readonly LspDiagnostic[]> => {
       const current = diagnostics.get(uri);
@@ -433,7 +454,9 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
   let runtimePromise: Promise<Result<LspRuntime, DomainError>> | undefined;
   let activeSnapshotIdentity = options.snapshotIdentity;
   let activeFiles: Readonly<Record<string, string>> = { ...options.files };
+  let closed = false;
   const runtime = (): Promise<Result<LspRuntime, DomainError>> => {
+    if (closed) return Promise.resolve(failure('lsp', 'semantic session is closed', 'NOT_READY'));
     if (runtimePromise !== undefined) return runtimePromise;
     const started = startRuntime({ ...options, files: activeFiles });
     runtimePromise = started;
@@ -594,16 +617,23 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
       },
       catch: (cause) => domainError('EXTERNAL_UNAVAILABLE', 'lsp.diagnostics', cause instanceof Error ? cause.message : 'LSP diagnostics failed'),
     })),
-    close: (): void => {
-      if (runtimePromise !== undefined) void runtimePromise.then((active) => { if (active._tag === 'Ok') active.value.close(); });
+    close: async (): Promise<void> => {
+      if (closed) return;
+      closed = true;
+      const pending = runtimePromise;
+      runtimePromise = undefined;
+      if (pending === undefined) return;
+      const active = await pending;
+      if (active._tag === 'Ok') await active.value.close();
     },
     refresh: (nextFiles: Readonly<Record<string, string>>, snapshotIdentity: string): Effect.Effect<Result<void, DomainError>> => recoverResult(Effect.tryPromise({
       try: async () => {
+        if (closed) return failure('lsp', 'semantic session is closed', 'NOT_READY');
         const active = await runtime();
         if (active._tag === 'Err') return active;
         const updated = await active.value.updateFiles(nextFiles);
         if (updated._tag === 'Err') {
-          active.value.close();
+          await active.value.close();
           runtimePromise = undefined;
           return updated;
         }
