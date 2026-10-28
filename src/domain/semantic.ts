@@ -161,7 +161,9 @@ export const makeStructuralAnalysis = (input: {
     repoPath: input.repoPath.trim(),
     sourceDigest: input.sourceDigest as ContentDigest,
     symbols: input.symbols.map((symbol) => ({ ...symbol })),
-    identifiers: (input.identifiers ?? []).map((identifier) => ({ ...identifier })),
+    ...(input.identifiers === undefined
+      ? {}
+      : { identifiers: input.identifiers.map((identifier) => ({ ...identifier })) }),
     hasSyntaxErrors: input.hasSyntaxErrors,
   });
 };
