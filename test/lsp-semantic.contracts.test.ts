@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
@@ -156,5 +156,38 @@ test('actual ast-grep declarations resolve through real LSP without injected nam
     }
   } finally {
     lsp.close();
+  }
+});
+
+
+test('failed LSP initialization is timeout-bounded and terminates the spawned provider', async () => {
+  const rootPath = await mkdtemp(join(tmpdir(), 'ace-lsp-init-failure-'));
+  const marker = join(rootPath, 'terminated.txt');
+  const script = [
+    "const fs = require('node:fs');",
+    "const marker = process.argv[1];",
+    "process.on('SIGTERM', () => { fs.writeFileSync(marker, 'terminated'); process.exit(0); });",
+    "setInterval(() => {}, 1000);",
+  ].join(' ');
+  const provider = makeLspSemanticAnalysisPort({
+    command: process.execPath,
+    args: ['-e', script, marker],
+    rootPath,
+    files: { 'main.ts': 'const value = 1;\n' },
+    snapshotIdentity: '9'.repeat(64),
+    timeoutMs: 100,
+  });
+  try {
+    const result = await Effect.runPromise(provider.definition({
+      repoPath: 'main.ts',
+      line: 1,
+      column: 7,
+      snapshotIdentity: '9'.repeat(64),
+    }));
+    assert.equal(result._tag, 'Err');
+    if (result._tag === 'Err') assert.equal(result.error.code, 'UNSUPPORTED_PROVIDER');
+    assert.equal(await readFile(marker, 'utf8'), 'terminated');
+  } finally {
+    await provider.close();
   }
 });
