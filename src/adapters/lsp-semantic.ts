@@ -483,6 +483,7 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
   let activeSnapshotIdentity = options.snapshotIdentity;
   let activeFiles: Readonly<Record<string, string>> = { ...options.files };
   let closed = false;
+  let sessionClosePromise: Promise<void> | undefined;
   let activeOperations = 0;
   const drainWaiters = new Set<() => void>();
   const beginOperation = (): (() => void) | undefined => {
@@ -696,18 +697,18 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
         cause instanceof Error ? cause.message : 'LSP diagnostics failed',
       ),
     })),
-    close: async (): Promise<void> => {
-      if (closed) {
-        await waitForOperations();
-        return;
-      }
+    close: (): Promise<void> => {
+      if (sessionClosePromise !== undefined) return sessionClosePromise;
       closed = true;
-      await waitForOperations();
-      const pending = runtimePromise;
-      runtimePromise = undefined;
-      if (pending === undefined) return;
-      const active = await pending;
-      if (active._tag === 'Ok') await active.value.close();
+      sessionClosePromise = (async () => {
+        await waitForOperations();
+        const pending = runtimePromise;
+        runtimePromise = undefined;
+        if (pending === undefined) return;
+        const active = await pending;
+        if (active._tag === 'Ok') await active.value.close();
+      })();
+      return sessionClosePromise;
     },
     refresh: (nextFiles: Readonly<Record<string, string>>, snapshotIdentity: string): Effect.Effect<Result<void, DomainError>> => recoverResult(Effect.tryPromise({
       try: async () => {
