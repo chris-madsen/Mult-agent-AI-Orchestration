@@ -63,7 +63,10 @@ The following changes are present only in the working tree after runtime SHA `26
 - RepoMap construction no longer requires a ready LSP session; structural-only map construction and optional LSP enrichment are covered by deterministic contracts, not by Aider parity evidence.
 - RepoMap ranking carries observed reference frequency, open-file/query personalization and grouped source rendering with an Aider-derived attribution comment. The pinned Aider behavioral fixture and real-repository/agent quality gates remain open.
 - LSP process identity is separated from source-generation identity; acquired sessions refresh before generation-bound queries, failed/dead runtimes become restart-eligible, and close uses standard `shutdown` → `exit` with a bounded termination fallback. Claw descriptor/status and real crash/restart evidence remain open.
+- LSP registry now carries a typed server descriptor and inspectable ready/ref-count status while preserving the existing session owner; this is deterministic ownership evidence only, not Claw parity or real crash/restart evidence.
 - ContextAssembler enforces bounded `code`, `repo_map`, `lsp` and `other` sections while retaining exact-source receipts and lossless expansion. The current counter remains estimated; model-aware counting and composed context evidence remain open.
+- Qdrant context composition now emits the rendered RepoMap as a provenance-bound `structural` evidence item after applying it as a ranking prior; the provider-bound section path is covered deterministically, while clean-SHA real/agent evidence remains open.
+- Qdrant coverage degradation now uses the resolved `includeCode` default when marking incomplete index coverage, so omitted `include_code` cannot turn failed indexed paths into a false complete bundle.
 
 ## Current PR-A evidence
 

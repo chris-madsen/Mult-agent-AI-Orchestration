@@ -1044,6 +1044,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
       const failed: string[] = [];
       let codeProviderError: DomainError | undefined;
       let rankedResults: readonly RankedCandidate[] = [];
+      let repoMapResult: RepoMapResult | undefined;
       let lspConfirmedCount = 0;
       if (includeCode) {
         const retrievalStrategy = activeConfig.retrievalStrategy
@@ -1205,6 +1206,7 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
               if (repoMap._tag === 'Err') {
                 warnings.push('RepoMap unavailable: ' + repoMap.error.code);
               } else {
+                repoMapResult = repoMap.value;
                 prioritized = applyRepoMapPrior(prioritized, repoMap.value, retrievalLimit);
               }
             }
@@ -1585,6 +1587,28 @@ export const makeQdrantContextProvider = (config: QdrantContextConfig) => {
             }
           }
         }
+      }
+      if (repoMapResult !== undefined && repoMapResult.rendered.trim().length > 0) {
+        const evidenceId = makeEvidenceId('repo-map-' + createHash('sha256')
+          .update([
+            input.workspaceId,
+            input.query,
+            activeConfig.semanticSnapshotIdentity ?? activeConfig.indexKey ?? 'unbound',
+            repoMapResult.rendered,
+          ].join('\0'), 'utf8')
+          .digest('hex'));
+        if (evidenceId._tag === 'Err') return evidenceId;
+        evidence.push({
+          evidenceId: evidenceId.value,
+          source: 'structural',
+          citation: `repo-map:${activeConfig.semanticSnapshotIdentity ?? activeConfig.indexKey ?? 'unbound'}`,
+          content: repoMapResult.rendered,
+          proofClass: 'derived',
+          freshness: 'current',
+          ...(activeConfig.semanticSnapshotIdentity === undefined
+            ? {}
+            : { sourceRevision: activeConfig.semanticSnapshotIdentity }),
+        });
       }
       if (includeCode && (activeConfig.coverage?.failedPaths ?? 0) > 0) {
         warnings.push(`index coverage degraded: ${activeConfig.coverage?.failedPaths ?? 0} in-scope path(s) were not fully indexed`);

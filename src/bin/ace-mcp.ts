@@ -736,7 +736,14 @@ const main = async (): Promise<void> => {
               serverName: lspServerName,
               languageIds: lspLanguageIds ?? null,
             });
-            const acquired = await Effect.runPromise(lspRegistry.acquire(key, () => makeLspSemanticAnalysisPort({
+            const descriptor = {
+              key,
+              command: lspCommand,
+              args: lspArgs,
+              serverName: lspServerName,
+              ...(lspLanguageIds === undefined ? {} : { languageIds: lspLanguageIds }),
+            };
+            const acquired = await Effect.runPromise(lspRegistry.acquire(descriptor, () => makeLspSemanticAnalysisPort({
               command: lspCommand,
               args: lspArgs,
               serverName: lspServerName,

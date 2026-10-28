@@ -16,15 +16,31 @@ export interface LspRegistryLease<Session extends LspRegistrySession = LspRegist
   readonly release: () => void;
 }
 
+export interface LspServerDescriptor {
+  readonly key: string;
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly serverName: string;
+  readonly languageIds?: Readonly<Record<string, string>>;
+}
+
+export interface LspRegistryStatus {
+  readonly descriptor: LspServerDescriptor;
+  readonly refs: number;
+  readonly state: 'ready';
+}
+
 export interface LspServerRegistry {
   readonly acquire: <Session extends LspRegistrySession>(
-    key: string,
+    descriptor: LspServerDescriptor,
     create: () => Session,
   ) => Effect.Effect<Result<LspRegistryLease<Session>, DomainError>>;
+  readonly inspect: () => readonly LspRegistryStatus[];
   readonly close: () => Effect.Effect<void>;
 }
 
 interface Entry {
+  readonly descriptor: LspServerDescriptor;
   readonly session: LspRegistrySession;
   refs: number;
 }
@@ -33,12 +49,14 @@ export const makeLspServerRegistry = (): LspServerRegistry => {
   const entries = new Map<string, Entry>();
   let closed = false;
   return {
-    acquire: <Session extends LspRegistrySession>(key: string, create: () => Session) => Effect.sync(() => {
+    acquire: <Session extends LspRegistrySession>(descriptor: LspServerDescriptor, create: () => Session) => Effect.sync(() => {
       if (closed) return err(domainError('NOT_READY', 'lsp_registry', 'LSP server registry is closed'));
+      if (descriptor.key.trim().length === 0) return err(domainError('INVALID_INPUT', 'lsp_registry.key', 'LSP server descriptor key is required'));
+      const key = descriptor.key;
       let entry = entries.get(key);
       if (entry === undefined) {
         try {
-          entry = { session: create(), refs: 0 };
+          entry = { descriptor, session: create(), refs: 0 };
           entries.set(key, entry);
         } catch (cause) {
           return err(domainError(
@@ -66,6 +84,11 @@ export const makeLspServerRegistry = (): LspServerRegistry => {
         },
       });
     }),
+    inspect: () => [...entries.values()].map((entry) => ({
+      descriptor: entry.descriptor,
+      refs: entry.refs,
+      state: 'ready' as const,
+    })),
     close: () => Effect.sync(() => {
       if (closed) return;
       closed = true;
