@@ -510,8 +510,7 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
     queryInput: SemanticQuery,
     operationName: string,
     operation: (active: LspRuntime, fileUri: string, position: LspPosition) => Promise<Result<Value, DomainError>>,
-  ): Effect.Effect<Result<Value, DomainError>> =>
-    recoverResult(Effect.tryPromise({
+  ): Effect.Effect<Result<Value, DomainError>> => recoverResult(Effect.tryPromise({
       try: async () => {
         const startedAtMs = Date.now();
         const releaseOperation = beginOperation();
