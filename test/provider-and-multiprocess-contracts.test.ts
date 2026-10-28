@@ -238,6 +238,12 @@ test('required structural coverage is unavailable when no RepoMap was actually p
       },
       embeddings: { embedMany: (input) => Effect.succeed(ok(input.map(() => [1]))) },
       artifacts: makeFileArtifactStore(join(root, 'artifacts')),
+      semantics: {
+        definition: () => Effect.succeed(ok([])),
+        references: () => Effect.succeed(ok([])),
+        typeInfo: () => Effect.succeed(ok(undefined)),
+        diagnostics: () => Effect.succeed(ok([])),
+      },
       newRequestId: () => 'structural-coverage-request',
     });
     const result = await Effect.runPromise(provider.search({
