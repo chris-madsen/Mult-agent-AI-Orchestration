@@ -131,9 +131,17 @@ export const buildRepoMapDelta = (
   return ok({
     upserted: symbols.map((symbol) => ({
       ...symbol,
-      references: [...new Map((references.get(symbol.id) ?? []).map((reference) => [
-        `${reference.kind}:${reference.targetId}`, reference,
-      ])).values()].sort((left, right) =>
+      references: [...(references.get(symbol.id) ?? []).reduce((grouped, reference) => {
+        const key = `${reference.kind}:${reference.targetId}`;
+        const previous = grouped.get(key);
+        const count = (previous?.weight ?? 0) + 1;
+        grouped.set(key, {
+          targetId: reference.targetId,
+          kind: reference.kind,
+          ...(count === 1 ? {} : { weight: count }),
+        });
+        return grouped;
+      }, new Map<string, RepoMapReference>()).values()].sort((left, right) =>
         left.targetId.localeCompare(right.targetId) || left.kind.localeCompare(right.kind)),
     })),
     removed: [],
