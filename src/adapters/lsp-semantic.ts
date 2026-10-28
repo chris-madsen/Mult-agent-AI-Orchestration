@@ -102,17 +102,20 @@ const setStreamRef = (stream: NodeJS.ReadableStream | NodeJS.WritableStream, ref
   method?.call(stream);
 };
 
-const terminateProviderProcess = (child: ChildProcessWithoutNullStreams): void => {
+const terminateProviderProcess = (
+  child: ChildProcessWithoutNullStreams,
+  signal: NodeJS.Signals = 'SIGTERM',
+): void => {
   const pid = child.pid;
   if (pid !== undefined && process.platform !== 'win32') {
     try {
-      process.kill(-pid, 'SIGTERM');
+      process.kill(-pid, signal);
       return;
     } catch {
       // The process group may already have exited; fall back to the direct child.
     }
   }
-  child.kill('SIGTERM');
+  child.kill(signal);
 };
 
 const waitForProviderExit = async (
@@ -368,8 +371,11 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
         }
         connection.dispose();
         if (!await waitForProviderExit(child, 250)) {
-          terminateProviderProcess(child);
-          await waitForProviderExit(child, 250);
+          terminateProviderProcess(child, 'SIGTERM');
+          if (!await waitForProviderExit(child, 250)) {
+            terminateProviderProcess(child, 'SIGKILL');
+            await waitForProviderExit(child, 250);
+          }
         }
       })();
       return closePromise;
