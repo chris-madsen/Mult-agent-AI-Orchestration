@@ -55,6 +55,19 @@ No production-readiness, quality-parity or token-savings claim follows from this
 - Real repository parity — `BLOCKED`: `npm exec -- tsx scripts/ast-grep-provider-parity.ts src` reports the discrepancy counts above; no broad normalization is used to hide them.
 - `npm run test:real-same-name` — `PASS` on runtime SHA `26cd8ef`; CLI remains the production provider. RepoMap remains gated by the approved plan's structural evidence requirement, not by silently promoting NAPI.
 
+## PR #187 retrieval follow-up — deterministic fixes pending final-head evidence
+
+These changes are committed in PR #187 but are not attributed to the historical `26cd8ef950230c7d7ef10f42fc4f2654d8481760` evidence and do not close any real-provider or production gate:
+
+- Active structural runtime uses the official CLI outline path for `provider=auto`; explicit NAPI remains experimental parity research.
+- The current structural extractor exposes declaration outlines but not Aider-style reference tags. An edge-less outline is therefore **not** published as a ready RepoMap, and production composition does **not** substitute a full-workspace LSP reference scan: that would invert the approved order and create `O(N × LSP)` work. Runtime RepoMap remains `NOT_READY` until structural def/ref extraction is adapted; LSP enrichment stays bounded to Qdrant-selected candidates. Aider parity remains open.
+- RepoMap ranking carries observed reference frequency, open-file/query personalization and grouped source rendering with an Aider-derived attribution comment. The pinned Aider behavioral fixture and real-repository/agent quality gates remain open.
+- LSP server descriptors are typed, but publication remains generation-bound: a new semantic snapshot is staged under its own lease and only replaces the prior lease after the retrieval publication commits. A crashed lazy runtime restarts from the last successfully confirmed file set. This preserves freshness/rollback correctness while fuller Claw lifecycle parity remains open.
+- LSP registry now carries a typed server descriptor, rejects same-key configuration collisions, and exposes **leased/ref-count** registry state. It does not label a lazy, uninitialized process as `ready`; runtime health is proven only by bounded semantic operations when the resolved source plan actually requests LSP.
+- ContextAssembler enforces bounded `code`, `repo_map`, `lsp` and `other` sections while retaining exact-source receipts and lossless expansion. The current counter remains estimated; model-aware counting and composed context evidence remain open.
+- The Qdrant context adapter can consume a RepoMap provider, but production composition does not inject one until a structural def/ref graph owner exists. Any injected/test RepoMap evidence is fail-closed as `unknown` until every rendered source is exact-reread at the request boundary; structural coverage cannot be `satisfied` merely because Qdrant returned code hits.
+- Qdrant coverage degradation now uses the resolved `includeCode` default when marking incomplete index coverage, so omitted `include_code` cannot turn failed indexed paths into a false complete bundle.
+
 ## PR #188 R2 shared structural-record slice — pending final-head evidence
 
 This PR is deliberately scoped to the R2 record boundary. It does not activate a production RepoMap implementation and does not close Aider parity, LSP lifecycle, real-provider, production-readiness, quality-parity or token-savings gates.
