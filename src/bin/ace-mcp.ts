@@ -516,7 +516,7 @@ const main = async (): Promise<void> => {
       handleQdrantUnavailable(qdrantReachable.error.code);
     } else if (!commandBoundaryExists(embeddingWorker)
       || (retrievalStrategy !== 'dense' && !commandBoundaryExists(sparseEmbeddingWorker))
-      || (astGrepProvider === 'cli' && (!existsSync(astGrepCommand) || !commandBoundaryExists(astGrepCommand)))) {
+      || (astGrepProvider !== 'napi' && (!existsSync(astGrepCommand) || !commandBoundaryExists(astGrepCommand)))) {
       readiness.code_retrieval = { state: 'not_ready', reason: 'provider_runtime_missing' };
       readiness.unified_context = { state: 'not_ready', reason: 'provider_runtime_missing' };
       process.stderr.write('ace-mcp context NOT_READY: configured embedding/ast-grep runtime files are missing\n');
