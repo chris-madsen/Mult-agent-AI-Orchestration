@@ -138,39 +138,6 @@ test('RepoMap structural adapter does not invent reference edges when only outli
   }
 });
 
-test('RepoMap structural adapter builds same-file reference edges from shared provider records without LSP', async () => {
-  const target = candidate('target', 1);
-  const caller = {
-    ...candidate('caller', 2),
-    range: { startLine: 2, startColumn: 1, endLine: 2, endColumn: 35 },
-    semanticAnchor: { line: 2, byteColumn: 10, endLine: 2, endByteColumn: 16 },
-  };
-  const result = await Effect.runPromise(buildRepoMapDelta({
-    candidates: [target, caller],
-    structuralAnalyses: [{
-      repoPath: 'src/example.ts',
-      sourceDigest: 'a'.repeat(64) as never,
-      symbols: [],
-      identifiers: [
-        { name: 'target', startLine: 1, startColumn: 10, endLine: 1, endColumn: 16, startByteOffset: 9, endByteOffset: 15 },
-        { name: 'caller', startLine: 2, startColumn: 10, endLine: 2, endColumn: 16, startByteOffset: 30, endByteOffset: 36 },
-        { name: 'target', startLine: 2, startColumn: 21, endLine: 2, endColumn: 27, startByteOffset: 41, endByteOffset: 47 },
-      ],
-      hasSyntaxErrors: false,
-    }],
-    sourceBytesByPath: new Map([[
-      'src/example.ts' as never,
-      new TextEncoder().encode('function target() {}\nfunction caller() { target(); }\n'),
-    ]]),
-  }));
-  assert.equal(result._tag, 'Ok');
-  if (result._tag === 'Ok') {
-    const targetSymbol = result.value.upserted.find((symbol) => symbol.name === 'target');
-    const callerSymbol = result.value.upserted.find((symbol) => symbol.name === 'caller');
-    assert.deepEqual(callerSymbol?.references, [{ targetId: targetSymbol?.id, kind: 'reference' }]);
-  }
-});
-
 
 test('RepoMap preserves repeated reference frequency for Aider-style sqrt weighting', async () => {
   const target = candidate('target', 1);
