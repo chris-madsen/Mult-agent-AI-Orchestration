@@ -432,9 +432,10 @@ const withTimeout = async <Value>(promise: Promise<Value>, timeoutMs: number): P
 export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSemanticSession => {
   let runtimePromise: Promise<Result<LspRuntime, DomainError>> | undefined;
   let activeSnapshotIdentity = options.snapshotIdentity;
+  let activeFiles: Readonly<Record<string, string>> = { ...options.files };
   const runtime = (): Promise<Result<LspRuntime, DomainError>> => {
     if (runtimePromise !== undefined) return runtimePromise;
-    const started = startRuntime(options);
+    const started = startRuntime({ ...options, files: activeFiles });
     runtimePromise = started;
     void started.then((active) => {
       if (runtimePromise !== started) return;
@@ -602,9 +603,11 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
         if (active._tag === 'Err') return active;
         const updated = await active.value.updateFiles(nextFiles);
         if (updated._tag === 'Err') {
+          active.value.close();
           runtimePromise = undefined;
           return updated;
         }
+        activeFiles = { ...nextFiles };
         activeSnapshotIdentity = snapshotIdentity;
         return ok(undefined);
       },
