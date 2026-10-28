@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
@@ -190,4 +190,33 @@ test('failed LSP initialization is timeout-bounded and terminates the spawned pr
   } finally {
     await provider.close();
   }
+});
+
+
+test('LSP identity version probe is timeout-bounded and terminates a hung provider', {
+  skip: process.platform === 'win32',
+}, async () => {
+  const rootPath = await mkdtemp(join(tmpdir(), 'ace-lsp-version-hang-'));
+  const marker = join(rootPath, 'terminated.txt');
+  const commandPath = join(rootPath, 'hung-lsp');
+  await writeFile(commandPath, [
+    '#!/usr/bin/env node',
+    "const fs = require('node:fs');",
+    `const marker = ${JSON.stringify(marker)};`,
+    "process.on('SIGTERM', () => { fs.writeFileSync(marker, 'terminated'); process.exit(0); });",
+    "setInterval(() => {}, 1000);",
+    '',
+  ].join('\n'), 'utf8');
+  await chmod(commandPath, 0o755);
+
+  const startedAt = Date.now();
+  const result = await Effect.runPromise(resolveLspProviderIdentity({
+    command: commandPath,
+    snapshotIdentity: '8'.repeat(64),
+    timeoutMs: 100,
+  }));
+  assert.equal(result._tag, 'Err');
+  if (result._tag === 'Err') assert.equal(result.error.code, 'UNSUPPORTED_PROVIDER');
+  assert.ok(Date.now() - startedAt < 2_000, 'identity probe must not inherit an unbounded child lifetime');
+  assert.equal(await readFile(marker, 'utf8'), 'terminated');
 });
