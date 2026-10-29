@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-28T22:53:35.627Z",
-  "sourceCommit": "65aec6f12027b06955629ddcc40f59dfb70855d1",
+  "generatedAt": "2026-10-20T12:06:47.172Z",
+  "sourceCommit": "4e3616eae4ac1c9680a658029155d33dd7305147",
   "command": "npm run test:real-same-name",
   "status": "provider-pass",
   "contract": "DBC-04",
-  "provider": "ast-grep 0.51.0 + typescript-language-server 6.0.2",
+  "provider": "Tree-sitter 0.26.0 + tree-sitter-typescript 0.23.2 + TypeScript Language Service 5.9.3",
   "source": "repositories.ts",
   "sourceDigest": "264aa0d5fe4e56e05a2b8e50d1e0e97689dc4483eb6185afaf605ae836a8dadf",
   "structuralSaveSpans": [
