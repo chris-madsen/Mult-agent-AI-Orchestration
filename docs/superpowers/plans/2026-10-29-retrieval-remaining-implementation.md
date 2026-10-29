@@ -4,6 +4,8 @@
 
 **Goal:** Close the implementable R4, R2, R3, R5 and R6 retrieval gaps on current `main` by reusing the repository's existing provider-native implementations, while leaving external acceptance evidence explicitly blocked until it is freshly retained.
 
+**Current branch scope:** This branch delivers the current-head R4 runner/Qdrant safety and R5 LSP lifecycle slice. R2/R3/R6 implementation and parity work already present on `main` was verified rather than duplicated; their real-provider, production-readiness and acceptance gates remain open, as do R7 cleanup and R8 matched evidence.
+
 **Architecture:** Reuse the official Qdrant SDK and stable-collection publication already present in the remote safety branch; reuse ast-grep's existing CLI/NAPI parse records; reuse the pinned Aider-derived RepoMap, Claw-shaped LSP registry over `vscode-jsonrpc`, and the existing ContextAssembler composition. Do not introduce a second transport, parser, graph algorithm, tokenizer, worker pool, or benchmark framework.
 
 **Tech Stack:** TypeScript, Effect, `@qdrant/js-client-rest`, `@ast-grep/napi`, ast-grep CLI, `vscode-jsonrpc`, Zod, Node test runner, existing real-provider runners.

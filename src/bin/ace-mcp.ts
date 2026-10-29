@@ -782,8 +782,8 @@ const main = async (): Promise<void> => {
             });
             // Keep process identity independent from source generation. A
             // reused session is refreshed through its serialized lifecycle;
-            // the lease remains held until this publication commits so a
-            // prior generation cannot close the shared process underneath it.
+            // retain the lease until this publication commits so a prior
+            // generation cannot close the shared process underneath it.
             const descriptor = makeLspServerDescriptor({
               workspaceId: registered.value.workspaceId,
               rootPath: registered.value.rootPath,
@@ -805,13 +805,6 @@ const main = async (): Promise<void> => {
             })));
             if (acquired._tag === 'Err') return acquired;
             const semanticLease = acquired.value;
-            if (!semanticLease.created) {
-              const refreshed = await Effect.runPromise(semanticLease.session.refresh(sourceFiles.value, semanticIdentity));
-              if (refreshed._tag === 'Err') {
-                semanticLease.release();
-                return refreshed;
-              }
-            }
             const semantics = semanticLease.session;
             const firstLspPath = build.indexedPaths.find((repoPath) => lspLanguageIdForPath(repoPath, lspLanguageIds) !== undefined);
             const lspConfigured = lspProviderIdentity?._tag === 'Ok' && firstLspPath !== undefined;
@@ -882,6 +875,18 @@ const main = async (): Promise<void> => {
               process.stderr.write('ace test failpoint reached name=after_qdrant_verify_before_publish\n');
               process.kill(process.pid, 'SIGKILL');
               throw new Error('test failpoint failed to terminate the process');
+            }
+            // Refresh a reused semantic session only after all fallible
+            // manifest and Qdrant preparation has succeeded. From this point
+            // to the returned publication there are no awaited provider
+            // operations, so a failed preparation cannot leave the previous
+            // Qdrant publication paired with a newer LSP snapshot.
+            if (!semanticLease.created) {
+              const refreshed = await Effect.runPromise(semanticLease.session.refresh(sourceFiles.value, semanticIdentity));
+              if (refreshed._tag === 'Err') {
+                semanticLease.release();
+                return refreshed;
+              }
             }
             const qdrant = makeQdrantCodeCandidatePort({
               baseUrl: qdrantUrl,

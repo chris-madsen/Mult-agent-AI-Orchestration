@@ -118,25 +118,27 @@ const signalChild = (signal) => {
   }
 };
 
-const waitForExit = (timeoutMs) => {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
-  return new Promise((resolveExit) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      child.off('exit', onExit);
-      resolveExit(false);
-    }, timeoutMs);
-    const onExit = () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolveExit(true);
-    };
-    child.once('exit', onExit);
-    if (child.exitCode !== null || child.signalCode !== null) onExit();
-  });
+const directChildAlive = () => child.exitCode === null && child.signalCode === null;
+
+const processGroupAlive = () => {
+  if (process.platform === 'win32' || child.pid === undefined) return directChildAlive();
+  try {
+    process.kill(-child.pid, 0);
+    return true;
+  } catch (cause) {
+    return cause?.code === 'EPERM';
+  }
+};
+
+const processTreeAlive = () => directChildAlive() || processGroupAlive();
+
+const waitForProcessTreeExit = async (timeoutMs) => {
+  const deadline = Date.now() + timeoutMs;
+  while (processTreeAlive()) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+  }
+  return true;
 };
 
 const stopChild = async () => {
@@ -144,11 +146,11 @@ const stopChild = async () => {
   stopped = true;
   for (const waiter of waiters.values()) waiter.reject(new Error('MCP child stopped'));
   waiters.clear();
-  if (child.exitCode !== null || child.signalCode !== null) return;
+  if (!processTreeAlive()) return;
   signalChild('SIGTERM');
-  if (await waitForExit(750)) return;
+  if (await waitForProcessTreeExit(750)) return;
   signalChild('SIGKILL');
-  await waitForExit(250);
+  await waitForProcessTreeExit(250);
 };
 
 child.once('exit', (code, signal) => {
