@@ -151,6 +151,10 @@ export const makeStructuralAnalysis = (input: {
     )) {
       return err({ code: 'INVALID_RETRIEVAL', path: `identifiers[${index}]`, message: 'invalid structural identifier range' });
     }
+    if (identifier.endLine < identifier.startLine
+      || (identifier.endLine === identifier.startLine && identifier.endColumn <= identifier.startColumn)) {
+      return err({ code: 'INVALID_RETRIEVAL', path: `identifiers[${index}]`, message: 'structural identifier source range must increase' });
+    }
     if (![identifier.startByteOffset, identifier.endByteOffset].every(
       (value) => Number.isSafeInteger(value) && value >= 0,
     ) || identifier.endByteOffset <= identifier.startByteOffset) {
@@ -161,7 +165,9 @@ export const makeStructuralAnalysis = (input: {
     repoPath: input.repoPath.trim(),
     sourceDigest: input.sourceDigest as ContentDigest,
     symbols: input.symbols.map((symbol) => ({ ...symbol })),
-    identifiers: (input.identifiers ?? []).map((identifier) => ({ ...identifier })),
+    ...(input.identifiers === undefined
+      ? {}
+      : { identifiers: input.identifiers.map((identifier) => ({ ...identifier })) }),
     hasSyntaxErrors: input.hasSyntaxErrors,
   });
 };
