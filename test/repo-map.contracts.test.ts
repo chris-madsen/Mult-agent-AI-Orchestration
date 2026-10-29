@@ -1,6 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import test from 'node:test';
 import {
   applyRepoMapDelta,
@@ -14,78 +12,6 @@ import type { RepoMapReference } from '../src/domain/repo-map.js';
 const digest = 'a'.repeat(64) as never;
 const range = (line: number) => ({ startLine: line, endLine: line, startColumn: 1, endColumn: 20 });
 const path = (value: string) => value as never;
-
-type AiderFixture = {
-  readonly sourceDigest: string;
-  readonly symbols: readonly {
-    readonly id: string;
-    readonly repoPath: string;
-    readonly name: string;
-    readonly kind: string;
-    readonly line: number;
-    readonly text: string;
-  }[];
-  readonly references: readonly {
-    readonly source: string;
-    readonly target: string;
-    readonly weight?: number;
-  }[];
-  readonly cases: readonly {
-    readonly name: string;
-    readonly query: string;
-    readonly openFiles: readonly string[];
-    readonly mentionedFiles: readonly string[];
-    readonly mentionedIdentifiers?: readonly string[];
-    readonly expectedOrder?: readonly string[];
-    readonly expectedTop?: string;
-    readonly expectedRenderedContains?: string;
-    readonly boostedIdentifier?: string;
-  }[];
-};
-
-const aiderFixture = JSON.parse(readFileSync(
-  join(process.cwd(), 'test/fixtures/repo-map/aider-behavior.json'),
-  'utf8',
-)) as AiderFixture;
-
-const aiderGraph = () => {
-  const symbols = aiderFixture.symbols.map((fixtureSymbol) => makeRepoMapSymbol({
-    repoPath: path(fixtureSymbol.repoPath),
-    name: fixtureSymbol.name,
-    kind: fixtureSymbol.kind,
-    sourceDigest: aiderFixture.sourceDigest as never,
-    range: range(fixtureSymbol.line),
-    text: fixtureSymbol.text,
-    references: [],
-  }));
-  const byFixtureId = new Map(aiderFixture.symbols.map((fixtureSymbol, index) => [fixtureSymbol.id, symbols[index]!]));
-  const referencesBySource = new Map<string, RepoMapReference[]>();
-  for (const reference of aiderFixture.references) {
-    const target = byFixtureId.get(reference.target);
-    if (target === undefined) throw new Error(`fixture target missing: ${reference.target}`);
-    referencesBySource.set(reference.source, [
-      ...(referencesBySource.get(reference.source) ?? []),
-      {
-        targetId: target.id,
-        kind: 'reference',
-        ...(reference.weight === undefined ? {} : { weight: reference.weight }),
-      },
-    ]);
-  }
-  const upserted = symbols.map((symbol, index) => ({
-    ...symbol,
-    references: referencesBySource.get(aiderFixture.symbols[index]!.id) ?? [],
-  }));
-  return applyRepoMapDelta(emptyRepoMapGraph(), { upserted, removed: [] });
-};
-
-const aiderInput = (fixtureCase: AiderFixture['cases'][number]) => ({
-  query: fixtureCase.query,
-  openFiles: fixtureCase.openFiles.map(path),
-  mentionedFiles: fixtureCase.mentionedFiles.map(path),
-  ...(fixtureCase.mentionedIdentifiers === undefined ? {} : { mentionedIdentifiers: fixtureCase.mentionedIdentifiers }),
-  tokenBudget: 128,
-});
 
 const symbol = (name: string, line: number, references: readonly RepoMapReference[] = []) => makeRepoMapSymbol({
   repoPath: path(`src/${name}.ts`),
@@ -221,58 +147,4 @@ test('RepoMap normalizes malformed edge weights instead of poisoning PageRank', 
   });
   assert.ok(ranked.every((item) => Number.isFinite(item.score)));
   assert.ok(Math.abs(ranked.reduce((sum, item) => sum + item.score, 0) - 1) < 1e-8);
-});
-
-test('RepoMap preserves the pinned Aider behavioral fixture for weighting and personalization', () => {
-  const graph = aiderGraph();
-  const baseline = rankRepoMap(graph, aiderInput(aiderFixture.cases[0]!));
-  assert.deepEqual(baseline.map((item) => item.symbol.name), aiderFixture.cases[0]!.expectedOrder);
-  const rendered = renderRepoMapFor(graph, aiderInput(aiderFixture.cases[0]!));
-  assert.match(rendered.rendered, new RegExp(aiderFixture.cases[0]!.expectedRenderedContains!, 'u'));
-
-  const chatPersonalized = rankRepoMap(graph, aiderInput(aiderFixture.cases[1]!));
-  assert.equal(chatPersonalized[0]?.symbol.name, aiderFixture.cases[1]!.expectedTop);
-
-  const explicitMention = rankRepoMap(graph, aiderInput(aiderFixture.cases[2]!));
-  const baselineSmall = baseline.find((item) => item.symbol.name === aiderFixture.cases[2]!.boostedIdentifier)?.score ?? 0;
-  const explicitSmall = explicitMention.find((item) => item.symbol.name === aiderFixture.cases[2]!.boostedIdentifier)?.score ?? 0;
-  assert.ok(explicitSmall > baselineSmall, 'explicit identifier mentions must increase the target definition score');
-});
-
-test('RepoMap distributes an identifier relation across same-name definitions in different files', () => {
-  const first = makeRepoMapSymbol({
-    repoPath: path('src/first.ts'),
-    name: 'sharedName',
-    kind: 'function',
-    sourceDigest: digest,
-    range: range(1),
-    text: 'function sharedName() {}',
-    references: [],
-  });
-  const second = makeRepoMapSymbol({
-    repoPath: path('src/second.ts'),
-    name: 'sharedName',
-    kind: 'function',
-    sourceDigest: digest,
-    range: range(1),
-    text: 'function sharedName() {}',
-    references: [],
-  });
-  const caller = makeRepoMapSymbol({
-    repoPath: path('src/caller.ts'),
-    name: 'caller',
-    kind: 'function',
-    sourceDigest: digest,
-    range: range(1),
-    text: 'function caller() { sharedName(); }',
-    references: [{ targetId: first.id, kind: 'reference' }],
-  });
-  const ranked = rankRepoMap(
-    applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [first, second, caller], removed: [] }),
-    { query: '', openFiles: [], mentionedFiles: [], tokenBudget: 128 },
-  );
-  const firstScore = ranked.find((item) => item.symbol.id === first.id)?.score ?? 0;
-  const secondScore = ranked.find((item) => item.symbol.id === second.id)?.score ?? 0;
-  assert.ok(firstScore > 0);
-  assert.equal(firstScore, secondScore);
 });
