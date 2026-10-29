@@ -1,8 +1,23 @@
 {
   "schemaVersion": 1,
-  "evidence": "retrieval-clean-gates-2026-10-29",
+  "evidence": "retrieval-clean-observations-2026-10-29",
+  "evidenceStage": "operator-observed-summary",
+  "acceptanceStatus": "blocked",
+  "generatedAt": null,
   "sourceCommit": "9512d379da892736dfb4375b4fe4ba191390c180",
   "sourceCleanAtBuild": true,
+  "sourceCommitRelation": "historical intermediate branch commit; not an ancestor of the current main branch",
+  "commandsRun": null,
+  "retainedRawOutputs": [],
+  "reproductionCommands": {
+    "provider": "npm run test:real-provider",
+    "race": "npm run test:real-provider-race",
+    "outage": "npm run test:real-provider-outage",
+    "restart": "npm run test:real-provider-restart",
+    "indexScale100": "npm run test:real-index-scale -- --files 100",
+    "qdrantCrash": "npm run test:real-qdrant-crash",
+    "qdrantConcurrency": "npm run test:real-qdrant-concurrency"
+  },
   "runtimeBundle": {
     "bundleSha256": "13ffea031a86b6e3ab2b4b6cbda72b545f25c4ebd31f26359e8797f08805d785",
     "taskImage": "ace-local-hermes:ace-local-smoke-paired-fast@sha256:c0529227d3303b66115cd246d39c552cb591eed58c906d412e7883824d294dbc",
@@ -14,7 +29,8 @@
   },
   "providerGates": {
     "provider": {
-      "status": "provider-pass",
+      "status": "observed-provider-pass",
+      "acceptanceStatus": "blocked-unretained-raw-evidence",
       "strategy": "dense",
       "citation": "service.ts:1-25",
       "complete": true,
@@ -27,11 +43,13 @@
       "productionClaim": false
     },
     "outage": {
-      "status": "provider-failure-is-honest",
+      "status": "observed-provider-failure-is-honest",
+      "acceptanceStatus": "blocked-unretained-raw-evidence",
       "code": "NOT_READY"
     },
     "restart": {
-      "status": "provider-pass",
+      "status": "observed-provider-pass",
+      "acceptanceStatus": "blocked-unretained-raw-evidence",
       "warmIndexReused": true,
       "changedSourceRebuilt": true,
       "stableCollectionReused": true,
@@ -39,7 +57,8 @@
       "publicationMode": "stable_collection_direct"
     },
     "indexScale100": {
-      "status": "provider-pass",
+      "status": "observed-provider-pass",
+      "acceptanceStatus": "blocked-unretained-raw-evidence",
       "coldMeasured": true,
       "warmReuseVerified": true,
       "warmReusedVectors": 100,
@@ -52,7 +71,8 @@
       "currentCitations": true
     },
     "qdrantCrash": {
-      "status": "provider-pass",
+      "status": "observed-provider-pass",
+      "acceptanceStatus": "blocked-unretained-raw-evidence",
       "publicationMode": "stable_collection_direct",
       "readerDirtyTreeOutcome": "PASS_RECONCILED",
       "readerChangedPathAfterCrash": "PASS_CURRENT",
@@ -61,7 +81,8 @@
       "qdrant": "qdrant/1.19.2"
     },
     "qdrantConcurrency": {
-      "status": "provider-pass",
+      "status": "observed-provider-pass",
+      "acceptanceStatus": "blocked-unretained-raw-evidence",
       "bothRequestsComplete": true,
       "bothCitationsCurrent": true,
       "writersConvergedOnIndexKey": true,
@@ -80,6 +101,10 @@
     }
   },
   "limitations": [
+    "This document retains operator-reported observations, not acceptance-eligible gate evidence.",
+    "The run timestamp, exact commands actually executed, request/correlation IDs and raw stdout/stderr digests were not retained.",
+    "The source commit is a historical intermediate branch commit and is not an ancestor of current main; the observations cannot be relabeled as current-main evidence.",
+    "The bundle digest is recorded without the bundle manifest or raw build output, so it cannot be independently reconstructed from this document.",
     "Race evidence is not a PASS and must be rerun after the runner cleanup issue is fixed.",
     "This artifact proves provider behavior only; it does not prove agent-E2E quality, model-aware token counts or savings.",
     "No production-readiness or owner-approval claim follows."
