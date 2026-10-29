@@ -8,9 +8,15 @@ const FASTEMBED = '0.7.4';
 const ONNXRUNTIME = '1.23.2';
 const NUMPY = '2.2.6';
 const HUGGINGFACE_HUB = '1.33.0';
-const embeddingModelRevision = process.env.ACE_EMBEDDING_MODEL_REVISION || 'e8f8c211226b894fcb81acc59f3b34ba3efd5f42';
-const embeddingArtifactRevision = process.env.ACE_EMBEDDING_ARTIFACT_REVISION || 'faf4aa4225822f3bc6376869cb1164e8e3feedd0';
-const embeddingArtifactDigest = process.env.ACE_EMBEDDING_ARTIFACT_DIGEST || '4bb74885d054d77b15c33520114d7edc19c31699bdab813d893e4f58c3afb4a1';
+const pinnedHex = (name, value, length) => {
+  if (!new RegExp(`^[a-f0-9]{${length}}$`, 'u').test(value)) {
+    throw new Error(`BLOCKED: ${name} must be exactly ${length} lowercase hexadecimal characters`);
+  }
+  return value;
+};
+const embeddingModelRevision = pinnedHex('ACE_EMBEDDING_MODEL_REVISION', process.env.ACE_EMBEDDING_MODEL_REVISION || 'e8f8c211226b894fcb81acc59f3b34ba3efd5f42', 40);
+const embeddingArtifactRevision = pinnedHex('ACE_EMBEDDING_ARTIFACT_REVISION', process.env.ACE_EMBEDDING_ARTIFACT_REVISION || 'faf4aa4225822f3bc6376869cb1164e8e3feedd0', 40);
+const embeddingArtifactDigest = pinnedHex('ACE_EMBEDDING_ARTIFACT_DIGEST', process.env.ACE_EMBEDDING_ARTIFACT_DIGEST || '4bb74885d054d77b15c33520114d7edc19c31699bdab813d893e4f58c3afb4a1', 64);
 
 const usage = () => {
   process.stdout.write('Usage: node scripts/build-harbor-ace-runtime.mjs --source-root <clean-checkout> --output <bundle-dir> --task-image <reference>@sha256:<64hex> [--task-image ...]\n');
@@ -140,7 +146,7 @@ for (const image of imageRefs) {
     `python3 -m pip install --disable-pip-version-check --no-input --target ${shellQuote(target)} fastembed==${FASTEMBED} onnxruntime==${ONNXRUNTIME} numpy==${NUMPY} huggingface-hub==${HUGGINGFACE_HUB}`], { stdio: 'inherit' });
   run('docker', ['run', '--rm', '--entrypoint', 'sh', '-v', `${output}:/ace:ro`, pinnedImage, '-lc', [
     `export PYTHONPATH=${target}:/ace/scripts`,
-    `python3 -c ${shellQuote('import fastembed, onnxruntime; print(f"fastembed={fastembed.__version__} onnxruntime={onnxruntime.__version__}")')}`,
+    `python3 -c ${shellQuote('from PIL import Image; import fastembed, onnxruntime; print(f"pillow={Image.__module__} fastembed={fastembed.__version__} onnxruntime={onnxruntime.__version__}")')}`,
   ].join(' && ')], { stdio: 'inherit' });
 }
 

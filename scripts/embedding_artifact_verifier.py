@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from pathlib import Path
 
 
@@ -61,6 +62,8 @@ def verify_loaded_artifact(model: object, *, loaded_path: str | Path | None = No
         )
     digest = tree_sha256(resolved)
     expected = os.environ.get("ACE_EMBEDDING_ARTIFACT_DIGEST", "").strip()
+    if expected and re.fullmatch(r"[a-f0-9]{64}", expected) is None:
+        raise RuntimeError("embedding artifact digest pin invalid: expected exactly 64 lowercase hexadecimal characters")
     if expected and digest != expected:
         raise RuntimeError(f"embedding artifact digest mismatch: expected {expected}, got {digest}")
     return digest

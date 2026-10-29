@@ -153,3 +153,10 @@ test('Harbor runtime builder bootstraps missing source dependencies before TypeS
   assert.match(builder, /npm', \['ci', '--ignore-scripts'\]/u);
   assert.match(builder, /chmod -R a\+rwX \/ace/u);
 });
+
+test('Harbor runtime builder validates exact embedding pins and native Python imports', async () => {
+  const builder = await readFile('scripts/build-harbor-ace-runtime.mjs', 'utf8');
+  assert.match(builder, /must be exactly \$\{length\} lowercase hexadecimal characters/u);
+  assert.match(builder, /pinnedHex\('ACE_EMBEDDING_ARTIFACT_DIGEST'/u);
+  assert.match(builder, /from PIL import Image; import fastembed, onnxruntime/u);
+});

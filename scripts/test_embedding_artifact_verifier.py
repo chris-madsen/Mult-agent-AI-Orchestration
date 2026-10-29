@@ -43,6 +43,9 @@ class ArtifactVerificationTests(unittest.TestCase):
             verify_loaded_artifact(object())
 
     def test_wrong_digest_and_revision_are_rejected(self):
+        os.environ['ACE_EMBEDDING_ARTIFACT_DIGEST'] = '0' * 65
+        with self.assertRaisesRegex(RuntimeError, 'digest pin invalid'):
+            verify_loaded_artifact(object(), loaded_path=self.root)
         os.environ['ACE_EMBEDDING_ARTIFACT_DIGEST'] = '0' * 64
         with self.assertRaisesRegex(RuntimeError, 'digest mismatch'):
             verify_loaded_artifact(object(), loaded_path=self.root)
