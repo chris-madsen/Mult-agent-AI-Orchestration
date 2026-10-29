@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Effect } from 'effect';
-import { makeLspServerRegistry, type LspRegistrySession, type LspServerDescriptor } from '../src/application/lsp/server-registry.js';
+import {
+  makeLspServerDescriptor,
+  makeLspServerRegistry,
+  type LspRegistrySession,
+  type LspServerDescriptor,
+} from '../src/application/lsp/server-registry.js';
 
 const session = (counters: { starts: number; closes: number }): LspRegistrySession => {
   counters.starts += 1;
@@ -30,6 +35,8 @@ test('LSP registry lazily starts one session, reference-counts leases, and close
   assert.equal(first._tag, 'Ok');
   assert.equal(second._tag, 'Ok');
   if (first._tag === 'Ok' && second._tag === 'Ok') {
+    assert.equal(first.value.created, true);
+    assert.equal(second.value.created, false);
     assert.equal(first.value.session, second.value.session);
     assert.deepEqual(registry.inspect(), [{ descriptor, refs: 2, state: 'leased' }]);
     first.value.release();
@@ -40,6 +47,21 @@ test('LSP registry lazily starts one session, reference-counts leases, and close
   assert.equal(counters.starts, 1);
   await Effect.runPromise(registry.close());
   assert.equal(counters.closes, 1);
+});
+
+test('LSP process descriptor identity is stable across source generations', () => {
+  const input = {
+    workspaceId: 'workspace-1',
+    rootPath: '/repo',
+    command: 'typescript-language-server',
+    args: ['--stdio'],
+    serverName: 'typescript-language-server',
+    languageIds: { '.ts': 'typescript' },
+  };
+  const first = makeLspServerDescriptor(input);
+  const second = makeLspServerDescriptor({ ...input, languageIds: { '.ts': 'typescript' } });
+  assert.deepEqual(first, second);
+  assert.doesNotMatch(first.key, /snapshot|generation/iu);
 });
 
 test('LSP registry shutdown closes a leased session once even if leases release later', async () => {

@@ -144,6 +144,58 @@ test('pull-diagnostics servers are queried immediately with the advertised diagn
   }
 });
 
+test('LSP semantic queries are serialized through one vscode-jsonrpc session', async () => {
+  const rootPath = await mkdtemp(join(tmpdir(), 'ace-lsp-serialized-'));
+  const serverPath = join(rootPath, 'serialized-server.cjs');
+  const statePath = join(rootPath, 'state.json');
+  const jsonRpcEntry = createRequire(import.meta.url).resolve('vscode-jsonrpc/node');
+  await writeFile(serverPath, [
+    'const fs = require(\'node:fs\');',
+    'const path = require(\'node:path\');',
+    'const { pathToFileURL } = require(\'node:url\');',
+    `const { createMessageConnection, StreamMessageReader, StreamMessageWriter } = require(${JSON.stringify(jsonRpcEntry)});`,
+    'const statePath = process.argv[2];',
+    'const rootPath = process.argv[3];',
+    'let active = 0;',
+    'let maxActive = 0;',
+    'const save = () => fs.writeFileSync(statePath, JSON.stringify({ active, maxActive }));',
+    'const connection = createMessageConnection(new StreamMessageReader(process.stdin), new StreamMessageWriter(process.stdout));',
+    'connection.onRequest(\'initialize\', () => ({ capabilities: {} }));',
+    'connection.onRequest(\'textDocument/definition\', async () => {',
+    '  active += 1; maxActive = Math.max(maxActive, active); save();',
+    '  await new Promise((resolve) => setTimeout(resolve, 40));',
+    '  active -= 1; save();',
+    '  return [{ uri: pathToFileURL(path.join(rootPath, \'main.ts\')).toString(), range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } } }];',
+    '});',
+    'connection.onRequest(\'shutdown\', () => null);',
+    'connection.onNotification(\'exit\', () => process.exit(0));',
+    'connection.listen();',
+    '',
+  ].join('\n'), 'utf8');
+  const snapshotIdentity = '8'.repeat(64);
+  const provider = makeLspSemanticAnalysisPort({
+    command: process.execPath,
+    args: [serverPath, statePath, rootPath],
+    serverName: 'serialized-test-server',
+    rootPath,
+    files: { 'main.ts': 'const value = 1;\n' },
+    snapshotIdentity,
+    timeoutMs: 2_000,
+  });
+  try {
+    const results = await Promise.all([
+      Effect.runPromise(provider.definition({ repoPath: 'main.ts', line: 1, column: 7, snapshotIdentity })),
+      Effect.runPromise(provider.definition({ repoPath: 'main.ts', line: 1, column: 7, snapshotIdentity })),
+    ]);
+    assert.equal(results[0]?._tag, 'Ok');
+    assert.equal(results[1]?._tag, 'Ok');
+    const state = JSON.parse(await readFile(statePath, 'utf8')) as { readonly maxActive?: unknown };
+    assert.equal(state.maxActive, 1);
+  } finally {
+    await provider.close();
+  }
+});
+
 test('LSP identity and unsupported language status are explicit', async () => {
   const identity = await Effect.runPromise(resolveLspProviderIdentity({
     command,

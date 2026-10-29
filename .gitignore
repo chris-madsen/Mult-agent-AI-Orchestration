@@ -8,3 +8,4 @@ coverage/
 artifacts/
 docs/docs/conversations/
 .cache/
+.superpowers/
