@@ -92,15 +92,15 @@ test('pull-diagnostics servers are queried immediately with the advertised diagn
   const jsonRpcEntry = createRequire(import.meta.url).resolve('vscode-jsonrpc/node');
   await writeFile(serverPath, [
     `const { createMessageConnection, StreamMessageReader, StreamMessageWriter } = require(${JSON.stringify(jsonRpcEntry)});`,
-    "const connection = createMessageConnection(new StreamMessageReader(process.stdin), new StreamMessageWriter(process.stdout));",
-    "connection.onRequest('initialize', () => ({ capabilities: { diagnosticProvider: { identifier: 'fake-pull', interFileDependencies: false, workspaceDiagnostics: false } } }));",
-    "connection.onRequest('textDocument/diagnostic', (params) => {",
-    "  if (params.identifier !== 'fake-pull') throw new Error('wrong diagnostic identifier');",
-    "  return { kind: 'full', items: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } }, message: 'pull diagnostic', severity: 1, code: 77 }] };",
-    "});",
-    "connection.onRequest('shutdown', () => null);",
-    "connection.onNotification('exit', () => process.exit(0));",
-    "connection.listen();",
+    'const connection = createMessageConnection(new StreamMessageReader(process.stdin), new StreamMessageWriter(process.stdout));',
+    'connection.onRequest(\'initialize\', () => ({ capabilities: { diagnosticProvider: { identifier: \'fake-pull\', interFileDependencies: false, workspaceDiagnostics: false } } }));',
+    'connection.onRequest(\'textDocument/diagnostic\', (params) => {',
+    '  if (params.identifier !== \'fake-pull\') throw new Error(\'wrong diagnostic identifier\');',
+    '  return { kind: \'full\', items: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } }, message: \'pull diagnostic\', severity: 1, code: 77 }] };',
+    '});',
+    'connection.onRequest(\'shutdown\', () => null);',
+    'connection.onNotification(\'exit\', () => process.exit(0));',
+    'connection.listen();',
     '',
   ].join('\n'), 'utf8');
   const snapshotIdentity = '7'.repeat(64);
