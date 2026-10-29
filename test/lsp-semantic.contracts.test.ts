@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { Effect } from 'effect';
@@ -87,9 +88,10 @@ test('generic LSP adapter uses the real TypeScript language server for definitio
 
 test('pull-diagnostics servers are queried immediately with the advertised diagnostic identifier', async () => {
   const rootPath = await mkdtemp(join(tmpdir(), 'ace-lsp-pull-diagnostics-'));
-  const serverPath = join(rootPath, 'pull-server.mjs');
+  const serverPath = join(rootPath, 'pull-server.cjs');
+  const jsonRpcEntry = createRequire(import.meta.url).resolve('vscode-jsonrpc/node');
   await writeFile(serverPath, [
-    "import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/node.js';",
+    `const { createMessageConnection, StreamMessageReader, StreamMessageWriter } = require(${JSON.stringify(jsonRpcEntry)});`,
     "const connection = createMessageConnection(new StreamMessageReader(process.stdin), new StreamMessageWriter(process.stdout));",
     "connection.onRequest('initialize', () => ({ capabilities: { diagnosticProvider: { identifier: 'fake-pull', interFileDependencies: false, workspaceDiagnostics: false } } }));",
     "connection.onRequest('textDocument/diagnostic', (params) => {",
