@@ -7,19 +7,19 @@
       "query": "persist a user record",
       "citation": "users.ts:2-2",
       "top1": "users.ts:2-2",
-      "evidence_count": 6
+      "evidence_count": 7
     },
     {
       "query": "read current workspace file bytes",
       "citation": "workspace-files.ts:1-1",
       "top1": "workspace-files.ts:2-2",
-      "evidence_count": 6
+      "evidence_count": 7
     },
     {
       "query": "удалить старый эпизод графа",
       "citation": "episodes.ts:1-1",
       "top1": "episodes.ts:1-1",
-      "evidence_count": 6
+      "evidence_count": 7
     }
   ],
   "retrievalLimit": 6,

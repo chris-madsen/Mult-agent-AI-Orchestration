@@ -16,7 +16,7 @@ This document describes the operational test loop. Normative capability acceptan
 | `npm run test:affected` | Select deterministic TypeScript tests affected by the current diff | Inner development loop |
 | `npm run test:affected -- --dry-run` | Show selection without executing it | Inspect/debug impact selection |
 | `npm run test:affected -- --base origin/main` | Select tests affected by the entire branch | Optional branch-wide check before full verification |
-| `npm run test:fast` | Run the full deterministic TypeScript suite | Final local check / CI |
+| `npm run test:fast` | Alias for the affected deterministic TypeScript tests | Inner development loop |
 | `npm run check` | TypeScript strict typecheck only | Explicit type gate |
 | `npm run build` | Emit `dist/`; incremental state is reused locally | Runtime/E2E preparation |
 | `npm run verify:pr` | Typecheck + full deterministic tests + lint + build | Once before handoff and in CI |
@@ -36,13 +36,13 @@ Do not run `npm ci` repeatedly inside an already-installed development workspace
 
 1. compares staged, unstaged and untracked work against `HEAD` by default, keeping the edit loop narrow; use `--base origin/main` when you explicitly want branch-wide impact;
 2. includes staged, unstaged and untracked files;
-3. builds a reverse graph of relative imports across `src/` and `test/`;
+3. uses the installed TypeScript parser to build a reverse graph of relative runtime imports across `src/` and `test/`, excluding imports/exports that are entirely type-only;
 4. walks that graph from changed source files to dependent tests;
 5. selects directly changed test files;
 6. for `scripts/` changes, selects tests that directly reference the changed script/name;
 7. falls back to the entire deterministic suite for broad build/test configuration changes such as `package.json`, lockfiles and TypeScript/ESLint configuration.
 
-Documentation-only changes normally select no TypeScript tests. This is intentional; CI still performs the full deterministic PR gate.
+Type-only dependency edges are owned by the TypeScript gate rather than runtime tests. Documentation-only changes normally select no TypeScript tests, and CI checks their diff without installing Node dependencies.
 
 The selector has a small built-in self-check:
 

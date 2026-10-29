@@ -92,6 +92,11 @@ test('real ast-grep outline supplies byte-exact declaration name anchors, not a 
   const parsed = await Effect.runPromise(provider.extract({ repoPath: 'fixture.ts', source: bytes }));
   assert.equal(parsed._tag, 'Ok');
   if (parsed._tag === 'Err') return;
+  assert.equal(
+    parsed.value.identifiers,
+    undefined,
+    'canonical CLI outline must not add a second parse pass to manufacture identifier coverage',
+  );
   for (const name of ['привет', 'Service', 'save']) {
     const kind = name === 'привет' ? 'function' : name === 'Service' ? 'class' : 'method';
     const symbol = parsed.value.symbols.find((item) => item.name === name && item.kind === kind);

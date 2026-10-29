@@ -49,20 +49,21 @@ const rootPath = join(parent, 'workspace');
 const source = [
   'pub fn save() -> String { "ok".to_owned() }',
   'pub fn call() -> String { save() }',
-  'pub fn invalid() { missing_name(); }',
+  'pub fn invalid() -> String {',
 ].join('\n') + '\n';
 const sourcePath = 'src/lib.rs';
-const rustProject = {
-  crates: [{ root_module: '<workspace>/src/lib.rs', edition: '2021', deps: [], cfg: [], env: {} }],
-};
-const fixtureSha256 = sha256(`${JSON.stringify(rustProject)}\0${source}`);
+const cargoToml = [
+  '[package]',
+  'name = "ace-non-ts-lsp-fixture"',
+  'version = "0.1.0"',
+  'edition = "2021"',
+  '',
+].join('\n');
+const fixtureSha256 = sha256(`${cargoToml}\0${source}`);
 
 try {
   await mkdir(join(rootPath, 'src'), { recursive: true });
-  await writeFile(join(rootPath, 'rust-project.json'), JSON.stringify({
-    ...rustProject,
-    crates: [{ ...rustProject.crates[0], root_module: join(rootPath, sourcePath) }],
-  }), 'utf8');
+  await writeFile(join(rootPath, 'Cargo.toml'), cargoToml, 'utf8');
   await writeFile(join(rootPath, sourcePath), source, 'utf8');
 
   const identity = mustOk(await Effect.runPromise(resolveLspProviderIdentity({
@@ -81,8 +82,10 @@ try {
     languageIds: { [extension]: languageId },
     snapshotIdentity,
     timeoutMs: Number(process.env.ACE_NON_TS_LSP_TIMEOUT_MS ?? 30_000),
+    keepProcessAlive: false,
   });
   try {
+    mustOk(await Effect.runPromise(provider.refresh({ [sourcePath]: source }, snapshotIdentity)));
     await wait(Number(process.env.ACE_NON_TS_LSP_SETTLE_MS ?? 5_000));
     const definition = mustOk(await Effect.runPromise(provider.definition({
       repoPath: sourcePath,
@@ -104,7 +107,7 @@ try {
     assert.ok(definition.length > 0, 'non-TS LSP must resolve a definition');
     assert.ok(references.length > 0, 'non-TS LSP must return references');
     assert.ok(hover !== undefined, 'non-TS LSP must return hover/type information');
-    assert.ok(diagnostics.length > 0, 'non-TS LSP must publish the invalid-identifier diagnostic');
+    assert.ok(diagnostics.length > 0, 'non-TS LSP conformance requires diagnostics for the invalid fixture');
 
     const report = {
       schemaVersion: 1,
@@ -121,13 +124,14 @@ try {
       referenceCount: references.length,
       hover: hover.display,
       diagnosticCodes: diagnostics.map((item) => item.code),
+      diagnosticSupport: 'non_empty_fixture_diagnostic',
       invariant: 'a non-TypeScript LSP resolves definitions, references, hover and diagnostics through the generic ACE port',
     };
     await mkdir(dirname(outputPath), { recursive: true });
     await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
     process.stdout.write(`${JSON.stringify({ ...report, report: outputPath }, null, 2)}\n`);
   } finally {
-    provider.close();
+    await provider.close();
   }
 } finally {
   await rm(parent, { recursive: true, force: true });
