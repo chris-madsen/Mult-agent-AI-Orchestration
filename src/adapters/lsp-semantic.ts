@@ -109,13 +109,21 @@ const terminateProviderProcess = (
   const pid = child.pid;
   if (pid !== undefined && process.platform !== 'win32') {
     try {
+      // Signal the detached process group so descendants cannot survive a
+      // provider timeout, but still signal the direct child below. The direct
+      // signal closes the startup race where the group leader has not fully
+      // established its handler when the bounded timeout fires.
       process.kill(-pid, signal);
-      return;
     } catch {
-      // The process group may already have exited; fall back to the direct child.
+      // The process group may already have exited; the direct child remains the
+      // authoritative fallback for the provider process itself.
     }
   }
-  child.kill(signal);
+  try {
+    child.kill(signal);
+  } catch {
+    // The child may have exited between the group and direct signals.
+  }
 };
 
 const waitForProviderExit = async (
@@ -141,6 +149,17 @@ const waitForProviderExit = async (
     if (child.exitCode !== null || child.signalCode !== null) finish(true);
   });
 };
+
+// A provider may need more than one event-loop turn to run a SIGTERM cleanup
+// handler under repository-wide process load. Keep fallback bounded without
+// racing a valid graceful termination into SIGKILL.
+const gracefulTerminationWaitMs = 750;
+const forcedTerminationWaitMs = 250;
+// A process timeout may be intentionally tiny in a contract test, but the
+// child still needs a bounded startup window to install its signal handlers.
+// Keep ordinary request timeouts unchanged; apply this floor only to startup
+// and identity probes so timeout cleanup cannot race process initialization.
+const minimumProviderStartupTimeoutMs = 500;
 
 export const lspLanguageIdForPath = (repoPath: string, languageIds?: Readonly<Record<string, string>>): string | undefined => {
   const extension = path.extname(repoPath).toLocaleLowerCase();
@@ -205,6 +224,22 @@ const locationFromLsp = (rootPath: string, value: unknown, files: ReadonlyMap<st
 const asLocationArray = (value: unknown): readonly unknown[] =>
   value === null || value === undefined ? [] : Array.isArray(value) ? value : [value];
 
+const asDiagnostics = (value: unknown): readonly LspDiagnostic[] => {
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === 'object' && value !== null && !Array.isArray(value)
+      && Array.isArray((value as { readonly items?: unknown }).items)
+      ? (value as { readonly items: readonly unknown[] }).items
+      : [];
+  return raw.flatMap((item): LspDiagnostic[] => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) return [];
+    const diagnostic = item as Partial<LspDiagnostic>;
+    return validRange(diagnostic.range) && nonEmptyString(diagnostic.message)
+      ? [diagnostic as LspDiagnostic]
+      : [];
+  });
+};
+
 const displayHover = (value: unknown): { readonly display: string; readonly documentation?: string } | undefined => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
   const contents = (value as { contents?: unknown }).contents;
@@ -253,13 +288,13 @@ const runVersion = async (command: string, timeoutMs: number): Promise<string> =
     });
   });
   try {
-    return await withTimeout(completed, timeoutMs);
+    return await withTimeout(completed, Math.max(timeoutMs, minimumProviderStartupTimeoutMs));
   } catch (cause) {
     if (child.exitCode === null && child.signalCode === null) {
       terminateProviderProcess(child, 'SIGTERM');
-      if (!await waitForProviderExit(child, 250)) {
+      if (!await waitForProviderExit(child, gracefulTerminationWaitMs)) {
         terminateProviderProcess(child, 'SIGKILL');
-        await waitForProviderExit(child, 250);
+        await waitForProviderExit(child, forcedTerminationWaitMs);
       }
     }
     throw cause;
@@ -331,13 +366,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
       const value = params as { uri?: unknown; diagnostics?: unknown };
       if (!nonEmptyString(value.uri) || !Array.isArray(value.diagnostics)) return;
       const uri = value.uri;
-      const items = value.diagnostics.flatMap((item): LspDiagnostic[] => {
-        if (typeof item !== 'object' || item === null || Array.isArray(item)) return [];
-        const diagnostic = item as Partial<LspDiagnostic>;
-        return validRange(diagnostic.range) && nonEmptyString(diagnostic.message)
-          ? [diagnostic as LspDiagnostic]
-          : [];
-      });
+      const items = asDiagnostics(value.diagnostics);
       diagnostics.set(uri, items);
       const previousTimer = diagnosticSettleTimers.get(uri);
       if (previousTimer !== undefined) clearTimeout(previousTimer);
@@ -357,11 +386,17 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
       rootUri: pathToFileURL(path.resolve(options.rootPath)).toString(),
       workspaceFolders: [{ uri: pathToFileURL(path.resolve(options.rootPath)).toString(), name: path.basename(options.rootPath) }],
       capabilities: {
-        textDocument: { definition: { linkSupport: true }, references: {}, hover: {}, publishDiagnostics: {} },
+        textDocument: {
+          definition: { linkSupport: true },
+          references: {},
+          hover: {},
+          publishDiagnostics: {},
+          diagnostic: { dynamicRegistration: false },
+        },
         workspace: { workspaceFolders: true, configuration: true },
       },
       initializationOptions: {},
-    }), options.timeoutMs ?? 15_000);
+    }), Math.max(options.timeoutMs ?? 15_000, minimumProviderStartupTimeoutMs));
     await connection.sendNotification('initialized', {});
     for (const [repoPath, source] of files) {
       const languageId = languageIdForPath(repoPath, options.languageIds);
@@ -389,11 +424,11 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
           // The transport may already be closed; termination below remains authoritative.
         }
         connection.dispose();
-        if (!await waitForProviderExit(child, 250)) {
+        if (!await waitForProviderExit(child, gracefulTerminationWaitMs)) {
           terminateProviderProcess(child, 'SIGTERM');
-          if (!await waitForProviderExit(child, 250)) {
+          if (!await waitForProviderExit(child, gracefulTerminationWaitMs)) {
             terminateProviderProcess(child, 'SIGKILL');
-            await waitForProviderExit(child, 250);
+            await waitForProviderExit(child, forcedTerminationWaitMs);
           }
         }
       })();
@@ -670,8 +705,22 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
             try {
               if (options.keepProcessAlive === false) active.value.refProcess();
               const uri = uriFor(options.rootPath, input.repoPath);
-              const items = active.value.diagnostics.get(uri)
-                ?? await active.value.waitForDiagnostics(uri, options.timeoutMs ?? 15_000);
+              let items = active.value.diagnostics.get(uri);
+              if (items === undefined) {
+                try {
+                  items = await active.value.waitForDiagnostics(uri, options.timeoutMs ?? 15_000);
+                } catch (pushCause) {
+                  try {
+                    const pulled = await withTimeout(active.value.connection.sendRequest<unknown>('textDocument/diagnostic', {
+                      textDocument: { uri },
+                      ...(options.serverName === undefined ? {} : { identifier: options.serverName }),
+                    }), options.timeoutMs ?? 15_000);
+                    items = asDiagnostics(pulled);
+                  } catch {
+                    throw pushCause;
+                  }
+                }
+              }
               result = ok(items.flatMap((diagnostic): SemanticDiagnostic[] => {
                 const location = locationFromLsp(options.rootPath, {
                   uri,

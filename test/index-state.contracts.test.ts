@@ -69,6 +69,10 @@ test('warm structural reuse is invalidated when parser identity changes', async 
   }));
   assert.equal(reused._tag, 'Ok');
   assert.equal(calls, 1);
+  if (reused._tag === 'Ok') {
+    assert.equal(reused.value.structuralAnalyses?.length, 1);
+    assert.deepEqual(reused.value.structuralAnalyses, first.value.structuralAnalyses);
+  }
 
   const rebuilt = await Effect.runPromise(buildLocalCodeIndex(files(source), workspaceId, '/repo', {
     generation: 3,
