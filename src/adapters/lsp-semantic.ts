@@ -83,6 +83,8 @@ interface LspRuntime {
   readonly connection: MessageConnection;
   readonly files: Map<string, string>;
   readonly diagnostics: ReadonlyMap<string, readonly LspDiagnostic[]>;
+  readonly supportsPullDiagnostics: boolean;
+  readonly pullDiagnosticIdentifier?: string;
   readonly waitForDiagnostics: (uri: string, timeoutMs: number) => Promise<readonly LspDiagnostic[]>;
   readonly updateFiles: (nextFiles: Readonly<Record<string, string>>) => Promise<Result<void, DomainError>>;
   readonly refProcess: () => void;
@@ -109,13 +111,21 @@ const terminateProviderProcess = (
   const pid = child.pid;
   if (pid !== undefined && process.platform !== 'win32') {
     try {
+      // Signal the detached process group so descendants cannot survive a
+      // provider timeout, but still signal the direct child below. The direct
+      // signal closes the startup race where the group leader has not fully
+      // established its handler when the bounded timeout fires.
       process.kill(-pid, signal);
-      return;
     } catch {
-      // The process group may already have exited; fall back to the direct child.
+      // The process group may already have exited; the direct child remains the
+      // authoritative fallback for the provider process itself.
     }
   }
-  child.kill(signal);
+  try {
+    child.kill(signal);
+  } catch {
+    // The child may have exited between the group and direct signals.
+  }
 };
 
 const waitForProviderExit = async (
@@ -141,6 +151,12 @@ const waitForProviderExit = async (
     if (child.exitCode !== null || child.signalCode !== null) finish(true);
   });
 };
+
+// A provider may need more than one event-loop turn to run a SIGTERM cleanup
+// handler under repository-wide process load. Keep cleanup grace separate from
+// the caller's operation timeout: timeoutMs remains an actual request deadline.
+const gracefulTerminationWaitMs = 750;
+const forcedTerminationWaitMs = 250;
 
 export const lspLanguageIdForPath = (repoPath: string, languageIds?: Readonly<Record<string, string>>): string | undefined => {
   const extension = path.extname(repoPath).toLocaleLowerCase();
@@ -205,6 +221,44 @@ const locationFromLsp = (rootPath: string, value: unknown, files: ReadonlyMap<st
 const asLocationArray = (value: unknown): readonly unknown[] =>
   value === null || value === undefined ? [] : Array.isArray(value) ? value : [value];
 
+const asDiagnostics = (value: unknown): readonly LspDiagnostic[] => {
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === 'object' && value !== null && !Array.isArray(value)
+      && Array.isArray((value as { readonly items?: unknown }).items)
+      ? (value as { readonly items: readonly unknown[] }).items
+      : [];
+  return raw.flatMap((item): LspDiagnostic[] => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) return [];
+    const diagnostic = item as Partial<LspDiagnostic>;
+    return validRange(diagnostic.range) && nonEmptyString(diagnostic.message)
+      ? [diagnostic as LspDiagnostic]
+      : [];
+  });
+};
+
+const pullDiagnosticCapability = (
+  initializeResult: unknown,
+): { readonly supported: boolean; readonly identifier?: string } => {
+  if (typeof initializeResult !== 'object' || initializeResult === null || Array.isArray(initializeResult)) {
+    return { supported: false };
+  }
+  const capabilities = (initializeResult as { readonly capabilities?: unknown }).capabilities;
+  if (typeof capabilities !== 'object' || capabilities === null || Array.isArray(capabilities)) {
+    return { supported: false };
+  }
+  const provider = (capabilities as { readonly diagnosticProvider?: unknown }).diagnosticProvider;
+  if (provider === true) return { supported: true };
+  if (typeof provider !== 'object' || provider === null || Array.isArray(provider)) {
+    return { supported: false };
+  }
+  const identifier = (provider as { readonly identifier?: unknown }).identifier;
+  return {
+    supported: true,
+    ...(nonEmptyString(identifier) ? { identifier } : {}),
+  };
+};
+
 const displayHover = (value: unknown): { readonly display: string; readonly documentation?: string } | undefined => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
   const contents = (value as { contents?: unknown }).contents;
@@ -257,9 +311,9 @@ const runVersion = async (command: string, timeoutMs: number): Promise<string> =
   } catch (cause) {
     if (child.exitCode === null && child.signalCode === null) {
       terminateProviderProcess(child, 'SIGTERM');
-      if (!await waitForProviderExit(child, 250)) {
+      if (!await waitForProviderExit(child, gracefulTerminationWaitMs)) {
         terminateProviderProcess(child, 'SIGKILL');
-        await waitForProviderExit(child, 250);
+        await waitForProviderExit(child, forcedTerminationWaitMs);
       }
     }
     throw cause;
@@ -328,16 +382,15 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
     const diagnosticSettleMs = options.diagnosticSettleMs ?? 250;
     connection.onNotification('textDocument/publishDiagnostics', (params: unknown) => {
       if (typeof params !== 'object' || params === null || Array.isArray(params)) return;
-      const value = params as { uri?: unknown; diagnostics?: unknown };
+      const value = params as { uri?: unknown; diagnostics?: unknown; version?: unknown };
       if (!nonEmptyString(value.uri) || !Array.isArray(value.diagnostics)) return;
       const uri = value.uri;
-      const items = value.diagnostics.flatMap((item): LspDiagnostic[] => {
-        if (typeof item !== 'object' || item === null || Array.isArray(item)) return [];
-        const diagnostic = item as Partial<LspDiagnostic>;
-        return validRange(diagnostic.range) && nonEmptyString(diagnostic.message)
-          ? [diagnostic as LspDiagnostic]
-          : [];
-      });
+      const repoPath = repoPathForUri(options.rootPath, uri);
+      if (repoPath !== undefined && typeof value.version === 'number' && Number.isSafeInteger(value.version)) {
+        const currentVersion = versions.get(repoPath);
+        if (currentVersion !== undefined && value.version !== currentVersion) return;
+      }
+      const items = asDiagnostics(value.diagnostics);
       diagnostics.set(uri, items);
       const previousTimer = diagnosticSettleTimers.get(uri);
       if (previousTimer !== undefined) clearTimeout(previousTimer);
@@ -352,16 +405,23 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
     connection.onRequest('client/registerCapability', () => null);
     connection.onRequest('window/workDoneProgress/create', () => null);
     connection.listen();
-    await withTimeout(connection.sendRequest('initialize', {
+    const initializeResult = await withTimeout(connection.sendRequest<unknown>('initialize', {
       processId: process.pid,
       rootUri: pathToFileURL(path.resolve(options.rootPath)).toString(),
       workspaceFolders: [{ uri: pathToFileURL(path.resolve(options.rootPath)).toString(), name: path.basename(options.rootPath) }],
       capabilities: {
-        textDocument: { definition: { linkSupport: true }, references: {}, hover: {}, publishDiagnostics: {} },
+        textDocument: {
+          definition: { linkSupport: true },
+          references: {},
+          hover: {},
+          publishDiagnostics: {},
+          diagnostic: { dynamicRegistration: false },
+        },
         workspace: { workspaceFolders: true, configuration: true },
       },
       initializationOptions: {},
     }), options.timeoutMs ?? 15_000);
+    const pullDiagnostics = pullDiagnosticCapability(initializeResult);
     await connection.sendNotification('initialized', {});
     for (const [repoPath, source] of files) {
       const languageId = languageIdForPath(repoPath, options.languageIds);
@@ -389,11 +449,11 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
           // The transport may already be closed; termination below remains authoritative.
         }
         connection.dispose();
-        if (!await waitForProviderExit(child, 250)) {
+        if (!await waitForProviderExit(child, gracefulTerminationWaitMs)) {
           terminateProviderProcess(child, 'SIGTERM');
-          if (!await waitForProviderExit(child, 250)) {
+          if (!await waitForProviderExit(child, gracefulTerminationWaitMs)) {
             terminateProviderProcess(child, 'SIGKILL');
-            await waitForProviderExit(child, 250);
+            await waitForProviderExit(child, forcedTerminationWaitMs);
           }
         }
       })();
@@ -419,6 +479,13 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
         diagnosticWaiters.set(uri, [...(diagnosticWaiters.get(uri) ?? []), waiter]);
       });
     };
+    const invalidateDiagnostics = (repoPath: string): void => {
+      const uri = uriFor(options.rootPath, repoPath);
+      diagnostics.delete(uri);
+      const timer = diagnosticSettleTimers.get(uri);
+      if (timer !== undefined) clearTimeout(timer);
+      diagnosticSettleTimers.delete(uri);
+    };
     const updateFiles = async (nextFiles: Readonly<Record<string, string>>): Promise<Result<void, DomainError>> => {
       try {
         const next = new Map(Object.entries(nextFiles));
@@ -426,6 +493,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
           if (next.has(repoPath)) continue;
           const languageId = languageIdForPath(repoPath, options.languageIds);
           if (languageId !== undefined) {
+            invalidateDiagnostics(repoPath);
             await connection.sendNotification('textDocument/didClose', {
               textDocument: { uri: uriFor(options.rootPath, repoPath) },
             });
@@ -439,12 +507,14 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
           const previous = files.get(repoPath);
           if (previous === undefined) {
             versions.set(repoPath, 1);
+            invalidateDiagnostics(repoPath);
             await connection.sendNotification('textDocument/didOpen', {
               textDocument: { uri: uriFor(options.rootPath, repoPath), languageId, version: 1, text: source },
             });
           } else if (previous !== source) {
             const version = (versions.get(repoPath) ?? 1) + 1;
             versions.set(repoPath, version);
+            invalidateDiagnostics(repoPath);
             await connection.sendNotification('textDocument/didChange', {
               textDocument: { uri: uriFor(options.rootPath, repoPath), version },
               contentChanges: [{ text: source }],
@@ -461,7 +531,19 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
     else unrefProcess();
     cleanupChild = undefined;
     cleanupConnection = undefined;
-    return ok({ child, connection, files, diagnostics, waitForDiagnostics, updateFiles, refProcess, unrefProcess, close });
+    return ok({
+      child,
+      connection,
+      files,
+      diagnostics,
+      supportsPullDiagnostics: pullDiagnostics.supported,
+      ...(pullDiagnostics.identifier === undefined ? {} : { pullDiagnosticIdentifier: pullDiagnostics.identifier }),
+      waitForDiagnostics,
+      updateFiles,
+      refProcess,
+      unrefProcess,
+      close,
+    });
   } catch (cause) {
     try {
       cleanupConnection?.dispose();
@@ -470,9 +552,9 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
     }
     if (cleanupChild !== undefined && cleanupChild.exitCode === null && cleanupChild.signalCode === null) {
       terminateProviderProcess(cleanupChild, 'SIGTERM');
-      if (!await waitForProviderExit(cleanupChild, 250)) {
+      if (!await waitForProviderExit(cleanupChild, gracefulTerminationWaitMs)) {
         terminateProviderProcess(cleanupChild, 'SIGKILL');
-        await waitForProviderExit(cleanupChild, 250);
+        await waitForProviderExit(cleanupChild, forcedTerminationWaitMs);
       }
     }
     return failure('lsp.start', cause instanceof Error ? cause.message : 'LSP server failed to initialize', 'UNSUPPORTED_PROVIDER');
@@ -670,8 +752,32 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
             try {
               if (options.keepProcessAlive === false) active.value.refProcess();
               const uri = uriFor(options.rootPath, input.repoPath);
-              const items = active.value.diagnostics.get(uri)
-                ?? await active.value.waitForDiagnostics(uri, options.timeoutMs ?? 15_000);
+              let items: readonly LspDiagnostic[] | undefined;
+              if (active.value.supportsPullDiagnostics) {
+                try {
+                  const pulled = await withTimeout(active.value.connection.sendRequest<unknown>('textDocument/diagnostic', {
+                    textDocument: { uri },
+                    ...(active.value.pullDiagnosticIdentifier === undefined
+                      ? {}
+                      : { identifier: active.value.pullDiagnosticIdentifier }),
+                  }), options.timeoutMs ?? 15_000);
+                  items = asDiagnostics(pulled);
+                } catch (pullCause) {
+                  items = active.value.diagnostics.get(uri);
+                  try {
+                    if (items === undefined) {
+                      items = await active.value.waitForDiagnostics(uri, options.timeoutMs ?? 15_000);
+                    }
+                  } catch {
+                    throw pullCause;
+                  }
+                }
+              } else {
+                items = active.value.diagnostics.get(uri);
+              }
+              if (items === undefined) {
+                items = await active.value.waitForDiagnostics(uri, options.timeoutMs ?? 15_000);
+              }
               result = ok(items.flatMap((diagnostic): SemanticDiagnostic[] => {
                 const location = locationFromLsp(options.rootPath, {
                   uri,

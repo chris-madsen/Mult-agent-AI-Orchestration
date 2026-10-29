@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { Effect } from 'effect';
@@ -47,10 +48,22 @@ test('generic LSP adapter uses the real TypeScript language server for definitio
     if (diagnostics._tag === 'Ok') assert.ok(diagnostics.value.some((item) => item.code === 2304));
 
     const refreshedIdentity = 'b'.repeat(64);
+    const refreshedSource = source
+      .replaceAll('save', 'load')
+      .replace('const invalid = missingValue();\n', '');
     const refreshed = await Effect.runPromise(provider.refresh({
-      'main.ts': source.replaceAll('save', 'load'),
+      'main.ts': refreshedSource,
     }, refreshedIdentity));
     assert.equal(refreshed._tag, 'Ok');
+    const refreshedDiagnostics = await Effect.runPromise(provider.diagnostics({ repoPath: 'main.ts' }));
+    assert.equal(refreshedDiagnostics._tag, 'Ok');
+    if (refreshedDiagnostics._tag === 'Ok') {
+      assert.equal(
+        refreshedDiagnostics.value.some((item) => item.code === 2304),
+        false,
+        'didChange must invalidate stale push diagnostics from the prior document version',
+      );
+    }
     const current = await Effect.runPromise(provider.definition({
       repoPath: 'main.ts', line: 2, column: 15, snapshotIdentity: refreshedIdentity,
     }));
@@ -68,6 +81,64 @@ test('generic LSP adapter uses the real TypeScript language server for definitio
     }));
     assert.equal(afterClose._tag, 'Err');
     if (afterClose._tag === 'Err') assert.equal(afterClose.error.code, 'NOT_READY');
+  } finally {
+    await provider.close();
+  }
+});
+
+test('pull-diagnostics servers are queried immediately with the advertised diagnostic identifier', async () => {
+  const rootPath = await mkdtemp(join(tmpdir(), 'ace-lsp-pull-diagnostics-'));
+  const serverPath = join(rootPath, 'pull-server.cjs');
+  const jsonRpcEntry = createRequire(import.meta.url).resolve('vscode-jsonrpc/node');
+  await writeFile(serverPath, [
+    `const { createMessageConnection, StreamMessageReader, StreamMessageWriter } = require(${JSON.stringify(jsonRpcEntry)});`,
+    'const connection = createMessageConnection(new StreamMessageReader(process.stdin), new StreamMessageWriter(process.stdout));',
+    'connection.onRequest(\'initialize\', () => ({ capabilities: { diagnosticProvider: { identifier: \'fake-pull\', interFileDependencies: false, workspaceDiagnostics: false } } }));',
+    'connection.onNotification(\'textDocument/didOpen\', async (params) => {',
+    '  await connection.sendNotification(\'textDocument/publishDiagnostics\', {',
+    '    uri: params.textDocument.uri,',
+    '    diagnostics: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } }, message: \'stale push diagnostic\', severity: 2, code: 66 }],',
+    '  });',
+    '});',
+    'connection.onRequest(\'textDocument/definition\', () => null);',
+    'connection.onRequest(\'textDocument/diagnostic\', (params) => {',
+    '  if (params.identifier !== \'fake-pull\') throw new Error(\'wrong diagnostic identifier\');',
+    '  return { kind: \'full\', items: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } }, message: \'pull diagnostic\', severity: 1, code: 77 }] };',
+    '});',
+    'connection.onRequest(\'shutdown\', () => null);',
+    'connection.onNotification(\'exit\', () => process.exit(0));',
+    'connection.listen();',
+    '',
+  ].join('\n'), 'utf8');
+  const snapshotIdentity = '7'.repeat(64);
+  const provider = makeLspSemanticAnalysisPort({
+    command: process.execPath,
+    args: [serverPath],
+    serverName: 'fake-server-name-must-not-be-used-as-diagnostic-id',
+    rootPath,
+    files: { 'main.ts': 'const value = 1;\n' },
+    snapshotIdentity,
+    timeoutMs: 1_500,
+  });
+  try {
+    const warmed = await Effect.runPromise(provider.definition({
+      repoPath: 'main.ts', line: 1, column: 1, snapshotIdentity,
+    }));
+    assert.equal(warmed._tag, 'Ok');
+    const startedAt = Date.now();
+    const diagnostics = await Effect.runPromise(provider.diagnostics({ repoPath: 'main.ts' }));
+    assert.equal(diagnostics._tag, 'Ok');
+    if (diagnostics._tag === 'Ok') {
+      assert.deepEqual(
+        diagnostics.value.map((item) => item.code),
+        [77],
+        'an advertised pull provider remains authoritative even if it also published a cached push result',
+      );
+    }
+    assert.ok(
+      Date.now() - startedAt < 1_000,
+      'pull-capable servers must not wait for the push-diagnostics timeout first',
+    );
   } finally {
     await provider.close();
   }

@@ -81,6 +81,19 @@ This PR is deliberately scoped to the R2 record boundary. It does not activate a
 - This PR does not change the LSP lifecycle or termination policy. LSP remains optional bounded enrichment after candidate selection as established by the previous retrieval follow-up.
 - Existing Qdrant, ContextAssembler and freshness behavior is unchanged by this R2 slice.
 
+## PR #189 R5 generic diagnostics slice — reviewed deterministic evidence
+
+This PR is deliberately scoped to generic LSP diagnostics and bounded provider lifecycle behavior. It does not activate RepoMap, close R2/R3/R6, or relabel historical provider artifacts as current evidence.
+
+- Production RepoMap remains `NOT_READY` exactly as established by PR #188. No custom Aider-like graph/ranking/rendering path is injected by this slice.
+- Pull diagnostics are selected from the server's `initialize` capability `diagnosticProvider`; a pull request uses the provider-advertised diagnostic identifier when present. Pull-capable servers are not forced to wait through a push-notification timeout first.
+- Push `textDocument/publishDiagnostics` remains supported. Versioned notifications that do not match the current document version are ignored, and cached diagnostics are invalidated on didOpen/didChange/didClose so a refreshed source cannot inherit stale diagnostics.
+- Caller `timeoutMs` remains the actual startup/identity deadline. Graceful TERM/KILL cleanup has its own bounded grace window rather than silently raising the requested operation timeout.
+- The non-TypeScript conformance script requires definition, references, hover **and non-empty diagnostics** for its invalid Rust fixture; a missing diagnostics result is a failed gate, not `provider-partial` success.
+- The previously generated non-TypeScript report from pre-fix SHA `65aec6f...` is intentionally not retained as final-head evidence. `npm run test:real-non-ts-lsp` must be rerun on the reviewed final SHA where rust-analyzer is available.
+- Deterministic runtime evidence at code head `f15b8c0f74ba0f4d8e7901b15db393a30b01c54d`: GitHub Actions run `40826931580` passed the affected selector (`4` changed files → `4` test files), `17/17` TypeScript tests, `tsc --noEmit`, ESLint, build, clean compiled-runtime provenance, isolated Bifröst tests and `go vet`. Full `verify:pr`, documentation/evidence verification and the real non-TypeScript provider command were not run on that head.
+- Full Claw lifecycle parity remains open: one process per workspace/server-language group, source-generation separation from process identity, serialized refresh/query or equivalent generation fencing, crash/restart evidence and agent-facing semantic evidence are not claimed here.
+
 ## Historical PR-A evidence — runtime SHA `4e44252db0fa63305398d87a96bde5e410e183f2`
 
 Evidence below predates the later PR #187 lifecycle, lazy-LSP and source-plan fixes. It remains historical evidence for that runtime and must not be treated as acceptance evidence for the final PR #187 head. The run used `sourceCleanAtBuild=true` and local Qdrant `qdrant/1.19.2`:
