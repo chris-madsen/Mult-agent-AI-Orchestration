@@ -102,6 +102,9 @@ const setStreamRef = (stream: NodeJS.ReadableStream | NodeJS.WritableStream, ref
   method?.call(stream);
 };
 
+const gracefulTerminationWaitMs = 750;
+const forcedTerminationWaitMs = 250;
+
 const terminateProviderProcess = (
   child: ChildProcess,
   signal: NodeJS.Signals = 'SIGTERM',
@@ -470,9 +473,9 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
     }
     if (cleanupChild !== undefined && cleanupChild.exitCode === null && cleanupChild.signalCode === null) {
       terminateProviderProcess(cleanupChild, 'SIGTERM');
-      if (!await waitForProviderExit(cleanupChild, 250)) {
+      if (!await waitForProviderExit(cleanupChild, gracefulTerminationWaitMs)) {
         terminateProviderProcess(cleanupChild, 'SIGKILL');
-        await waitForProviderExit(cleanupChild, 250);
+        await waitForProviderExit(cleanupChild, forcedTerminationWaitMs);
       }
     }
     return failure('lsp.start', cause instanceof Error ? cause.message : 'LSP server failed to initialize', 'UNSUPPORTED_PROVIDER');
