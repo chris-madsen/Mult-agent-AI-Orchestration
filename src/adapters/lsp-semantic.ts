@@ -752,8 +752,8 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
             try {
               if (options.keepProcessAlive === false) active.value.refProcess();
               const uri = uriFor(options.rootPath, input.repoPath);
-              let items = active.value.diagnostics.get(uri);
-              if (items === undefined && active.value.supportsPullDiagnostics) {
+              let items: readonly LspDiagnostic[] | undefined;
+              if (active.value.supportsPullDiagnostics) {
                 try {
                   const pulled = await withTimeout(active.value.connection.sendRequest<unknown>('textDocument/diagnostic', {
                     textDocument: { uri },
@@ -763,12 +763,17 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
                   }), options.timeoutMs ?? 15_000);
                   items = asDiagnostics(pulled);
                 } catch (pullCause) {
+                  items = active.value.diagnostics.get(uri);
                   try {
-                    items = await active.value.waitForDiagnostics(uri, options.timeoutMs ?? 15_000);
+                    if (items === undefined) {
+                      items = await active.value.waitForDiagnostics(uri, options.timeoutMs ?? 15_000);
+                    }
                   } catch {
                     throw pullCause;
                   }
                 }
+              } else {
+                items = active.value.diagnostics.get(uri);
               }
               if (items === undefined) {
                 items = await active.value.waitForDiagnostics(uri, options.timeoutMs ?? 15_000);

@@ -94,6 +94,13 @@ test('pull-diagnostics servers are queried immediately with the advertised diagn
     `const { createMessageConnection, StreamMessageReader, StreamMessageWriter } = require(${JSON.stringify(jsonRpcEntry)});`,
     'const connection = createMessageConnection(new StreamMessageReader(process.stdin), new StreamMessageWriter(process.stdout));',
     'connection.onRequest(\'initialize\', () => ({ capabilities: { diagnosticProvider: { identifier: \'fake-pull\', interFileDependencies: false, workspaceDiagnostics: false } } }));',
+    'connection.onNotification(\'textDocument/didOpen\', async (params) => {',
+    '  await connection.sendNotification(\'textDocument/publishDiagnostics\', {',
+    '    uri: params.textDocument.uri,',
+    '    diagnostics: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } }, message: \'stale push diagnostic\', severity: 2, code: 66 }],',
+    '  });',
+    '});',
+    'connection.onRequest(\'textDocument/definition\', () => null);',
     'connection.onRequest(\'textDocument/diagnostic\', (params) => {',
     '  if (params.identifier !== \'fake-pull\') throw new Error(\'wrong diagnostic identifier\');',
     '  return { kind: \'full\', items: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } }, message: \'pull diagnostic\', severity: 1, code: 77 }] };',
@@ -114,11 +121,19 @@ test('pull-diagnostics servers are queried immediately with the advertised diagn
     timeoutMs: 1_500,
   });
   try {
+    const warmed = await Effect.runPromise(provider.definition({
+      repoPath: 'main.ts', line: 1, column: 1, snapshotIdentity,
+    }));
+    assert.equal(warmed._tag, 'Ok');
     const startedAt = Date.now();
     const diagnostics = await Effect.runPromise(provider.diagnostics({ repoPath: 'main.ts' }));
     assert.equal(diagnostics._tag, 'Ok');
     if (diagnostics._tag === 'Ok') {
-      assert.deepEqual(diagnostics.value.map((item) => item.code), [77]);
+      assert.deepEqual(
+        diagnostics.value.map((item) => item.code),
+        [77],
+        'an advertised pull provider remains authoritative even if it also published a cached push result',
+      );
     }
     assert.ok(
       Date.now() - startedAt < 1_000,
