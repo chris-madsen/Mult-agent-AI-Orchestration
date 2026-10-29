@@ -83,6 +83,7 @@ const responses = new Map();
 const waiters = new Map();
 const stderr = [];
 let stopped = false;
+let stopPromise;
 child.stderr.on('data', (chunk) => stderr.push(chunk.toString('utf8')));
 child.stdout.on('data', (chunk) => {
   output += chunk.toString('utf8');
@@ -147,16 +148,19 @@ const waitForProcessTreeExit = async (timeoutMs) => {
   return true;
 };
 
-const stopChild = async () => {
-  if (stopped) return;
-  stopped = true;
-  for (const waiter of waiters.values()) waiter.reject(new Error('MCP child stopped'));
-  waiters.clear();
-  if (!processTreeAlive()) return;
-  signalChild('SIGTERM');
-  if (await waitForProcessTreeExit(750)) return;
-  signalChild('SIGKILL');
-  await waitForProcessTreeExit(250);
+const stopChild = () => {
+  if (stopPromise !== undefined) return stopPromise;
+  stopPromise = (async () => {
+    stopped = true;
+    for (const waiter of waiters.values()) waiter.reject(new Error('MCP child stopped'));
+    waiters.clear();
+    if (!processTreeAlive()) return;
+    signalChild('SIGTERM');
+    if (await waitForProcessTreeExit(750)) return;
+    signalChild('SIGKILL');
+    await waitForProcessTreeExit(250);
+  })();
+  return stopPromise;
 };
 
 const failChild = (cause) => {

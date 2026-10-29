@@ -13,7 +13,7 @@ test('real provider runner has a bounded, process-tree-safe cleanup path', async
     'ACE_REAL_PROVIDER_TIMEOUT_MS',
     'detached: process.platform !== \'win32\'',
     'child.once(\'exit\'',
-    'const stopChild = async',
+    'const stopChild = () =>',
     "signalChild('SIGTERM')",
     "signalChild('SIGKILL')",
     'await stopChild()',
@@ -21,7 +21,10 @@ test('real provider runner has a bounded, process-tree-safe cleanup path', async
     'const failChild =',
     'child.stdin.on(\'error\', failChild)',
     'clearTimeout(timer)',
+    'let stopPromise;',
+    'if (stopPromise !== undefined) return stopPromise;',
   ]) assert.ok(script.includes(token), token);
+  assert.match(script, /stopPromise = \(async \(\) => \{[\s\S]*?\}\)\(\);[\s\S]*?return stopPromise;/u);
 });
 
 test('real provider runner rejects a dead MCP child instead of waiting for the request deadline', async () => {

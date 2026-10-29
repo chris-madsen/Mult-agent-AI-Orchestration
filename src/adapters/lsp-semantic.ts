@@ -610,6 +610,10 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
     });
     return started;
   };
+  const retireRuntime = async (active: LspRuntime): Promise<void> => {
+    await active.close();
+    runtimePromise = undefined;
+  };
   const query = <Value>(
     queryInput: SemanticQuery,
     operationName: string,
@@ -672,6 +676,7 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
           return location === undefined ? [] : [{ location }];
         }));
       } catch (cause) {
+        await retireRuntime(active);
         return failure('lsp.definition', cause instanceof Error ? cause.message : 'LSP definition request failed');
       }
     }),
@@ -700,6 +705,7 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
           }];
         }));
       } catch (cause) {
+        await retireRuntime(active);
         return failure('lsp.references', cause instanceof Error ? cause.message : 'LSP references request failed');
       }
     }),
@@ -711,6 +717,7 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
         }), options.timeoutMs ?? 15_000);
         return ok(displayHover(response));
       } catch (cause) {
+        await retireRuntime(active);
         return failure('lsp.hover', cause instanceof Error ? cause.message : 'LSP hover request failed');
       }
     }),
@@ -766,6 +773,7 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
               }];
             }));
           } catch (cause) {
+            await retireRuntime(active.value);
             result = failure(
               'lsp.diagnostics',
               cause instanceof Error ? cause.message : 'LSP diagnostics request failed',

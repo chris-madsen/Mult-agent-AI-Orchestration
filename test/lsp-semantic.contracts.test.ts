@@ -196,6 +196,62 @@ test('LSP semantic queries are serialized through one vscode-jsonrpc session', a
   }
 });
 
+test('a timed-out LSP request retires its process before the next serialized query', async () => {
+  const rootPath = await mkdtemp(join(tmpdir(), 'ace-lsp-timeout-restart-'));
+  const serverPath = join(rootPath, 'timeout-server.cjs');
+  const statePath = join(rootPath, 'state.json');
+  const jsonRpcEntry = createRequire(import.meta.url).resolve('vscode-jsonrpc/node');
+  await writeFile(serverPath, [
+    'const fs = require(\'node:fs\');',
+    'const path = require(\'node:path\');',
+    'const { pathToFileURL } = require(\'node:url\');',
+    `const { createMessageConnection, StreamMessageReader, StreamMessageWriter } = require(${JSON.stringify(jsonRpcEntry)});`,
+    'const statePath = process.argv[2];',
+    'const rootPath = process.argv[3];',
+    'const state = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, \'utf8\')) : { starts: 0, requests: 0 };',
+    'state.starts += 1; fs.writeFileSync(statePath, JSON.stringify(state));',
+    'const connection = createMessageConnection(new StreamMessageReader(process.stdin), new StreamMessageWriter(process.stdout));',
+    'connection.onRequest(\'initialize\', () => ({ capabilities: {} }));',
+    'connection.onRequest(\'textDocument/definition\', () => {',
+    '  state.requests += 1; fs.writeFileSync(statePath, JSON.stringify(state));',
+    '  if (state.requests === 1) return new Promise(() => {});',
+    '  return [{ uri: pathToFileURL(path.join(rootPath, \'main.ts\')).toString(), range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } } }];',
+    '});',
+    'connection.onRequest(\'shutdown\', () => null);',
+    'connection.onNotification(\'exit\', () => process.exit(0));',
+    'connection.listen();',
+    '',
+  ].join('\n'), 'utf8');
+  const snapshotIdentity = '6'.repeat(64);
+  const provider = makeLspSemanticAnalysisPort({
+    command: process.execPath,
+    args: [serverPath, statePath, rootPath],
+    serverName: 'timeout-restart-test-server',
+    rootPath,
+    files: { 'main.ts': 'const value = 1;\n' },
+    snapshotIdentity,
+    timeoutMs: 500,
+  });
+  try {
+    const timedOut = await Effect.runPromise(provider.definition({
+      repoPath: 'main.ts', line: 1, column: 7, snapshotIdentity,
+    }));
+    assert.equal(timedOut._tag, 'Err');
+
+    const recovered = await Effect.runPromise(provider.definition({
+      repoPath: 'main.ts', line: 1, column: 7, snapshotIdentity,
+    }));
+    assert.equal(recovered._tag, 'Ok');
+    const state = JSON.parse(await readFile(statePath, 'utf8')) as {
+      readonly starts?: unknown;
+      readonly requests?: unknown;
+    };
+    assert.deepEqual(state, { starts: 2, requests: 2 });
+  } finally {
+    await provider.close();
+  }
+});
+
 test('LSP identity and unsupported language status are explicit', async () => {
   const identity = await Effect.runPromise(resolveLspProviderIdentity({
     command,
