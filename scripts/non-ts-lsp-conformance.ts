@@ -52,20 +52,18 @@ const source = [
   'pub fn invalid() -> String {',
 ].join('\n') + '\n';
 const sourcePath = 'src/lib.rs';
-const rustProject = {
-  crates: [{ root_module: '<workspace>/src/lib.rs', edition: '2021', deps: [], cfg: [], env: {} }],
-};
-const fixtureSha256 = sha256(`${JSON.stringify(rustProject)}\0${source}`);
+const cargoToml = [
+  '[package]',
+  'name = "ace-non-ts-lsp-fixture"',
+  'version = "0.1.0"',
+  'edition = "2021"',
+  '',
+].join('\n');
+const fixtureSha256 = sha256(`${cargoToml}\0${source}`);
 
 try {
   await mkdir(join(rootPath, 'src'), { recursive: true });
-  await writeFile(join(rootPath, 'Cargo.toml'), [
-    '[package]',
-    'name = "ace-non-ts-lsp-fixture"',
-    'version = "0.1.0"',
-    'edition = "2021"',
-    '',
-  ].join('\n'), 'utf8');
+  await writeFile(join(rootPath, 'Cargo.toml'), cargoToml, 'utf8');
   await writeFile(join(rootPath, sourcePath), source, 'utf8');
 
   const identity = mustOk(await Effect.runPromise(resolveLspProviderIdentity({
@@ -109,13 +107,14 @@ try {
     assert.ok(definition.length > 0, 'non-TS LSP must resolve a definition');
     assert.ok(references.length > 0, 'non-TS LSP must return references');
     assert.ok(hover !== undefined, 'non-TS LSP must return hover/type information');
+    assert.ok(diagnostics.length > 0, 'non-TS LSP conformance requires diagnostics for the invalid fixture');
 
     const report = {
       schemaVersion: 1,
       generatedAt: new Date().toISOString(),
       sourceCommit,
       command: 'npm run test:real-non-ts-lsp',
-      status: diagnostics.length > 0 ? 'provider-pass' : 'provider-partial',
+      status: 'provider-pass',
       contract: 'generic-lsp-conformance',
       providerIdentity: identity,
       fixtureSha256,
@@ -125,14 +124,14 @@ try {
       referenceCount: references.length,
       hover: hover.display,
       diagnosticCodes: diagnostics.map((item) => item.code),
-      diagnosticSupport: diagnostics.length > 0 ? 'non_empty_fixture_diagnostic' : 'provider_returned_empty_diagnostics_for_fixture',
+      diagnosticSupport: 'non_empty_fixture_diagnostic',
       invariant: 'a non-TypeScript LSP resolves definitions, references, hover and diagnostics through the generic ACE port',
     };
     await mkdir(dirname(outputPath), { recursive: true });
     await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
     process.stdout.write(`${JSON.stringify({ ...report, report: outputPath }, null, 2)}\n`);
   } finally {
-    provider.close();
+    await provider.close();
   }
 } finally {
   await rm(parent, { recursive: true, force: true });
