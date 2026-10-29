@@ -1,7 +1,6 @@
 import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import type { SemanticAnalysisPort } from '../application/ports.js';
-import type { StructuralAnalysis } from '../domain/semantic.js';
 import type { CodeCandidate, SourceRange } from '../domain/retrieval.js';
 import {
   makeRepoMapSymbol,
@@ -16,12 +15,8 @@ import { err, ok, type Result } from '../domain/result.js';
 
 export interface RepoMapStructuralInput {
   readonly candidates: readonly CodeCandidate[];
-  /** Shared structural records from the canonical provider. */
-  readonly structuralAnalyses?: readonly StructuralAnalysis[];
   readonly semantics?: SemanticAnalysisPort;
   readonly sourceBytesByPath: ReadonlyMap<RepoPath, Uint8Array>;
-  readonly upsertPaths?: ReadonlySet<RepoPath>;
-  readonly removedSymbolIds?: readonly RepoMapSymbolId[];
   readonly snapshotIdentity?: string;
   readonly requestId?: string;
 }
@@ -36,10 +31,6 @@ const candidateToSymbol = (candidate: CodeCandidate): RepoMapSymbol | undefined 
     range: candidate.range,
     text: candidate.text,
     ...(candidate.structuralExported === undefined ? {} : { isExported: candidate.structuralExported }),
-    ...(candidate.semanticAnchor === undefined ? {} : {
-      nameStartLine: candidate.semanticAnchor.line,
-      nameStartColumn: candidate.semanticAnchor.byteColumn,
-    }),
     references: [],
   });
 };
@@ -102,26 +93,6 @@ export const buildRepoMapDelta = (
   );
   const references = new Map<RepoMapSymbolId, RepoMapReference[]>();
 
-  const structuralByPath = new Map<RepoPath, StructuralAnalysis>(
-    (input.structuralAnalyses ?? []).map((analysis) => [analysis.repoPath as RepoPath, analysis]),
-  );
-  for (const [path, analysis] of structuralByPath) {
-    const pathSymbols = byPath.get(path) ?? [];
-    for (const identifier of analysis.identifiers ?? []) {
-      const targets = pathSymbols.filter((symbol) => symbol.name === identifier.name);
-      if (targets.length !== 1) continue;
-      const target = targets[0]!;
-      if (target.nameStartLine === identifier.startLine
-        && target.nameStartColumn === identifier.startColumn) continue;
-      const caller = enclosingSymbol(path, identifier.startLine, identifier.startColumn, byPath);
-      if (caller === undefined || caller.id === target.id) continue;
-      references.set(caller.id, [
-        ...(references.get(caller.id) ?? []),
-        { targetId: target.id, kind: 'reference' },
-      ]);
-    }
-  }
-
   if (input.semantics !== undefined) {
     for (const candidate of input.candidates) {
       const target = candidateToSymbol(candidate);
@@ -158,7 +129,7 @@ export const buildRepoMapDelta = (
   }
 
   return ok({
-    upserted: symbols.filter((symbol) => input.upsertPaths === undefined || input.upsertPaths.has(symbol.repoPath)).map((symbol) => ({
+    upserted: symbols.map((symbol) => ({
       ...symbol,
       references: [...(references.get(symbol.id) ?? []).reduce((grouped, reference) => {
         const key = `${reference.kind}:${reference.targetId}`;
@@ -180,6 +151,6 @@ export const buildRepoMapDelta = (
         .sort((left, right) =>
           left.targetId.localeCompare(right.targetId) || left.kind.localeCompare(right.kind)),
     })),
-    removed: [...(input.removedSymbolIds ?? [])],
+    removed: [],
   });
 });
