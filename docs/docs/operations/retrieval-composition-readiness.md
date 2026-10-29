@@ -137,3 +137,20 @@ These provider results do not close NAPI real-repository parity, RepoMap quality
 - `npm run test:real-index-scale -- --files 100` — `PASS` on runtime SHA `1efc987`; cold/warm/change-only phases passed with current citations and add/change/delete/rename deltas.
 - `npm run test:real-qdrant-crash` — `PASS`; interrupted writer, direct stable collection identity, current-or-NOT_READY semantics and restart recovery verified.
 - `npm run test:real-qdrant-concurrency` — `PASS`; concurrent writers converged on one direct stable collection, index key and provider fingerprint without duplicate collections.
+
+## Historical branch-only observations — SHA `9512d379da892736dfb4375b4fe4ba191390c180`
+
+The retained machine-readable file is `benchmarks/reports/real-retrieval-gates-9512.json`. It records operator-reported observations from a clean checkout and a reported runtime bundle built with task image `ace-local-hermes:ace-local-smoke-paired-fast@sha256:c0529227d3303b66115cd246d39c552cb591eed58c906d412e7883824d294dbc`, bundle SHA `13ffea031a86b6e3ab2b4b6cbda72b545f25c4ebd31f26359e8797f08805d785`, Python `3.11`, Pillow `11.3.0`, FastEmbed `0.7.4` and ONNX Runtime `1.23.2`.
+
+This is not acceptance-eligible evidence: the run timestamp, exact commands actually executed, request/correlation IDs, raw stdout/stderr digests and bundle manifest were not retained. The source SHA is an intermediate historical branch commit and is not an ancestor of current `main`. The statuses below therefore describe observations only and must not be promoted to current-main gate results.
+
+- Real dense provider smoke — observed pass: current citation `service.ts:1-25`, `complete=true`, exact expansion `63482` bytes.
+- Provider outage — observed honest `NOT_READY`; no outage was reported as an empty successful result.
+- Provider restart — observed pass: generations `1/2/3`, warm reuse, changed-source rebuild and direct stable collection reuse.
+- Index scale 100 — observed pass: cold/warm/change-only phases, `100` warm reused vectors, `97` unchanged reuse and add/change/delete/rename deltas.
+- Qdrant crash — observed pass: interrupted writer recovery, current-after-crash semantics, restart publication and stable collection reuse on Qdrant `1.19.2`.
+- Qdrant concurrency — observed pass: both requests complete, current citations, converged index/provider fingerprints and no duplicate collection.
+- Provider race — `BLOCKED`: the bounded race runner did not complete and was killed; this is not a provider PASS.
+- Harbor paired and matched Hermes gates — `BLOCKED`: generated native/ACE job paths, paired artifact and exact-current experiment binding are still absent.
+
+All provider acceptance gates remain `BLOCKED` until the commands are rerun on a reviewed current head with the required raw bindings retained. These observations do not close Aider parity, full Claw parity, model-aware token counting, agent-E2E, Harbor/Hermes benchmark acceptance, production readiness or token-savings claims.
