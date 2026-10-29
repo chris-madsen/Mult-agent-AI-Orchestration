@@ -140,5 +140,7 @@ When finishing a change, report separately:
 - **what was not run and why**;
 - **what remains blocked or uncertain**;
 - **whether any production, benchmark or owner-approval claim actually changed**.
+- **delivery URL/state**: for repository work, include the verified PR number and URL, base/head branch and whether required checks are pending, passing, failing or not reported;
+- **plan coverage**: when work followed an approved plan markdown, list the plan items completed in this slice and the plan items still open, blocked or deferred.
 
 Never describe a capability as production-ready merely because its implementation exists. A missing external environment may justify `NOT_RUN` / `BLOCKED`; it never justifies a fabricated PASS.
