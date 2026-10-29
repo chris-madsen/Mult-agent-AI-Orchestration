@@ -17,6 +17,10 @@ test('real provider runner has a bounded, process-tree-safe cleanup path', async
     "signalChild('SIGTERM')",
     "signalChild('SIGKILL')",
     'await stopChild()',
+    'process.kill(-child.pid, 0)',
+    'const failChild =',
+    'child.stdin.on(\'error\', failChild)',
+    'clearTimeout(timer)',
   ]) assert.ok(script.includes(token), token);
 });
 
@@ -25,4 +29,6 @@ test('real provider runner rejects a dead MCP child instead of waiting for the r
   assert.match(script, /for \(const waiter of waiters\.values\(\)\) waiter\.reject\(error\)/u);
   assert.match(script, /MCP child exited before response/u);
   assert.match(script, /MCP request \$\{id\} timed out after \$\{requestTimeoutMs\}ms/u);
+  assert.match(script, /MCP child emitted malformed JSON/u);
+  assert.match(script, /if \(stopped \|\| !directChildAlive\(\)\)/u);
 });

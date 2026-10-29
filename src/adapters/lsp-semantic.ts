@@ -109,6 +109,7 @@ const setStreamRef = (stream: NodeJS.ReadableStream | NodeJS.WritableStream, ref
 // the caller's operation timeout: timeoutMs remains an actual request deadline.
 const gracefulTerminationWaitMs = 750;
 const forcedTerminationWaitMs = 250;
+const delayMs = (milliseconds: number): Promise<void> => new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 
 const terminateProviderProcess = (
   child: ChildProcess,
@@ -134,35 +135,39 @@ const terminateProviderProcess = (
   }
 };
 
-const waitForProviderExit = async (
+const providerProcessAlive = (child: ChildProcess): boolean =>
+  child.exitCode === null && child.signalCode === null;
+
+const providerProcessGroupAlive = (child: ChildProcess): boolean => {
+  if (process.platform === 'win32' || child.pid === undefined) return providerProcessAlive(child);
+  try {
+    process.kill(-child.pid, 0);
+    return true;
+  } catch (cause) {
+    return cause instanceof Error && 'code' in cause && cause.code === 'EPERM';
+  }
+};
+
+const providerProcessTreeAlive = (child: ChildProcess): boolean =>
+  providerProcessAlive(child) || providerProcessGroupAlive(child);
+
+const waitForProviderTreeExit = async (
   child: ChildProcess,
   timeoutMs: number,
 ): Promise<boolean> => {
-  if (child.exitCode !== null || child.signalCode !== null) return true;
-  return new Promise<boolean>((resolveExit) => {
-    let settled = false;
-    let timer: NodeJS.Timeout | undefined;
-    const finish = (exited: boolean): void => {
-      if (settled) return;
-      settled = true;
-      if (timer !== undefined) clearTimeout(timer);
-      child.off('exit', onExit);
-      resolveExit(exited);
-    };
-    const onExit = (): void => finish(true);
-    child.once('exit', onExit);
-    timer = setTimeout(() => finish(false), timeoutMs);
-    // The process may have exited between the initial exitCode check and
-    // listener registration without another observable event.
-    if (child.exitCode !== null || child.signalCode !== null) finish(true);
-  });
+  const deadline = Date.now() + timeoutMs;
+  while (providerProcessTreeAlive(child)) {
+    if (Date.now() >= deadline) return false;
+    await delayMs(25);
+  }
+  return true;
 };
 
 const terminateProviderProcessAndWait = async (child: ChildProcess): Promise<void> => {
   terminateProviderProcess(child, 'SIGTERM');
-  if (await waitForProviderExit(child, gracefulTerminationWaitMs)) return;
+  if (await waitForProviderTreeExit(child, gracefulTerminationWaitMs)) return;
   terminateProviderProcess(child, 'SIGKILL');
-  await waitForProviderExit(child, forcedTerminationWaitMs);
+  await waitForProviderTreeExit(child, forcedTerminationWaitMs);
 };
 
 export const lspLanguageIdForPath = (repoPath: string, languageIds?: Readonly<Record<string, string>>): string | undefined => {
@@ -316,7 +321,7 @@ const runVersion = async (command: string, timeoutMs: number): Promise<string> =
   try {
     return await withTimeout(completed, timeoutMs);
   } catch (cause) {
-    if (child.exitCode === null && child.signalCode === null) {
+    if (providerProcessTreeAlive(child)) {
       await terminateProviderProcessAndWait(child);
     }
     throw cause;
@@ -452,7 +457,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
           // The transport may already be closed; termination below remains authoritative.
         }
         connection.dispose();
-        if (!await waitForProviderExit(child, gracefulTerminationWaitMs)) {
+        if (!await waitForProviderTreeExit(child, gracefulTerminationWaitMs)) {
           await terminateProviderProcessAndWait(child);
         }
       })();
@@ -549,7 +554,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
     } catch {
       // Initialization failure cleanup is best-effort before process termination.
     }
-    if (cleanupChild !== undefined && cleanupChild.exitCode === null && cleanupChild.signalCode === null) {
+    if (cleanupChild !== undefined && providerProcessTreeAlive(cleanupChild)) {
       await terminateProviderProcessAndWait(cleanupChild);
     }
     return failure('lsp.start', cause instanceof Error ? cause.message : 'LSP server failed to initialize', 'UNSUPPORTED_PROVIDER');

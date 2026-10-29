@@ -92,7 +92,13 @@ child.stdout.on('data', (chunk) => {
     const line = output.slice(0, newline);
     output = output.slice(newline + 1);
     if (line.trim().length === 0) continue;
-    const message = JSON.parse(line);
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch (cause) {
+      failChild(new Error(`MCP child emitted malformed JSON: ${cause instanceof Error ? cause.message : String(cause)}`));
+      return;
+    }
     const waiter = waiters.get(message.id);
     if (waiter !== undefined) {
       waiters.delete(message.id);
@@ -153,44 +159,51 @@ const stopChild = async () => {
   await waitForProcessTreeExit(250);
 };
 
+const failChild = (cause) => {
+  const error = cause instanceof Error ? cause : new Error(String(cause));
+  if (!stopped) {
+    for (const waiter of waiters.values()) waiter.reject(error);
+    waiters.clear();
+    void stopChild();
+  }
+};
+
 child.once('exit', (code, signal) => {
   if (stopped) return;
-  const error = new Error(`MCP child exited before response code=${code} signal=${signal}; stderr=${stderr.join('').slice(-2000)}`);
-  for (const waiter of waiters.values()) waiter.reject(error);
-  waiters.clear();
+  failChild(new Error(`MCP child exited before response code=${code} signal=${signal}; stderr=${stderr.join('').slice(-2000)}`));
 });
+child.once('error', failChild);
+child.stdin.on('error', failChild);
 
 const request = (id, message) => new Promise((resolveResponse, reject) => {
-  const timer = setTimeout(() => {
+  let settled = false;
+  let timer;
+  const settle = (settlement) => {
+    if (settled) return;
+    settled = true;
+    if (timer !== undefined) clearTimeout(timer);
     waiters.delete(id);
-    reject(new Error(`MCP request ${id} timed out after ${requestTimeoutMs}ms; stderr=${stderr.join('').slice(-2000)}`));
-  }, requestTimeoutMs);
+    settlement();
+  };
+  timer = setTimeout(() => settle(() => reject(new Error(`MCP request ${id} timed out after ${requestTimeoutMs}ms; stderr=${stderr.join('').slice(-2000)}`))), requestTimeoutMs);
   const existing = responses.get(id);
   if (existing !== undefined) {
     responses.delete(id);
-    clearTimeout(timer);
-    resolveResponse(existing);
+    settle(() => resolveResponse(existing));
     return;
   }
   waiters.set(id, {
-    resolve: (response) => {
-      clearTimeout(timer);
-      resolveResponse(response);
-    },
-    reject,
+    resolve: (response) => settle(() => resolveResponse(response)),
+    reject: (cause) => settle(() => reject(cause)),
   });
-  if (stopped) {
-    waiters.delete(id);
-    clearTimeout(timer);
-    reject(new Error('MCP child is already stopped'));
+  if (stopped || !directChildAlive()) {
+    settle(() => reject(new Error(stopped ? 'MCP child is already stopped' : 'MCP child exited before request')));
     return;
   }
   try {
     child.stdin.write(`${JSON.stringify(message)}\n`);
   } catch (cause) {
-    waiters.delete(id);
-    clearTimeout(timer);
-    reject(cause);
+    settle(() => reject(cause));
   }
 });
 
