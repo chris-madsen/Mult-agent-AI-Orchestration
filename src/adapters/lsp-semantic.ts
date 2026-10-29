@@ -104,6 +104,12 @@ const setStreamRef = (stream: NodeJS.ReadableStream | NodeJS.WritableStream, ref
   method?.call(stream);
 };
 
+// A provider may need more than one event-loop turn to run a SIGTERM cleanup
+// handler under repository-wide process load. Keep cleanup grace separate from
+// the caller's operation timeout: timeoutMs remains an actual request deadline.
+const gracefulTerminationWaitMs = 750;
+const forcedTerminationWaitMs = 250;
+
 const terminateProviderProcess = (
   child: ChildProcess,
   signal: NodeJS.Signals = 'SIGTERM',
@@ -152,11 +158,12 @@ const waitForProviderExit = async (
   });
 };
 
-// A provider may need more than one event-loop turn to run a SIGTERM cleanup
-// handler under repository-wide process load. Keep cleanup grace separate from
-// the caller's operation timeout: timeoutMs remains an actual request deadline.
-const gracefulTerminationWaitMs = 750;
-const forcedTerminationWaitMs = 250;
+const terminateProviderProcessAndWait = async (child: ChildProcess): Promise<void> => {
+  terminateProviderProcess(child, 'SIGTERM');
+  if (await waitForProviderExit(child, gracefulTerminationWaitMs)) return;
+  terminateProviderProcess(child, 'SIGKILL');
+  await waitForProviderExit(child, forcedTerminationWaitMs);
+};
 
 export const lspLanguageIdForPath = (repoPath: string, languageIds?: Readonly<Record<string, string>>): string | undefined => {
   const extension = path.extname(repoPath).toLocaleLowerCase();
@@ -310,11 +317,7 @@ const runVersion = async (command: string, timeoutMs: number): Promise<string> =
     return await withTimeout(completed, timeoutMs);
   } catch (cause) {
     if (child.exitCode === null && child.signalCode === null) {
-      terminateProviderProcess(child, 'SIGTERM');
-      if (!await waitForProviderExit(child, gracefulTerminationWaitMs)) {
-        terminateProviderProcess(child, 'SIGKILL');
-        await waitForProviderExit(child, forcedTerminationWaitMs);
-      }
+      await terminateProviderProcessAndWait(child);
     }
     throw cause;
   }
@@ -450,11 +453,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
         }
         connection.dispose();
         if (!await waitForProviderExit(child, gracefulTerminationWaitMs)) {
-          terminateProviderProcess(child, 'SIGTERM');
-          if (!await waitForProviderExit(child, gracefulTerminationWaitMs)) {
-            terminateProviderProcess(child, 'SIGKILL');
-            await waitForProviderExit(child, forcedTerminationWaitMs);
-          }
+          await terminateProviderProcessAndWait(child);
         }
       })();
       return closePromise;
@@ -551,11 +550,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
       // Initialization failure cleanup is best-effort before process termination.
     }
     if (cleanupChild !== undefined && cleanupChild.exitCode === null && cleanupChild.signalCode === null) {
-      terminateProviderProcess(cleanupChild, 'SIGTERM');
-      if (!await waitForProviderExit(cleanupChild, gracefulTerminationWaitMs)) {
-        terminateProviderProcess(cleanupChild, 'SIGKILL');
-        await waitForProviderExit(cleanupChild, forcedTerminationWaitMs);
-      }
+      await terminateProviderProcessAndWait(cleanupChild);
     }
     return failure('lsp.start', cause instanceof Error ? cause.message : 'LSP server failed to initialize', 'UNSUPPORTED_PROVIDER');
   }
