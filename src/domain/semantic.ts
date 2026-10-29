@@ -42,10 +42,22 @@ export interface StructuralSymbol {
   readonly isExported?: boolean;
 }
 
+export interface StructuralIdentifier {
+  readonly name: string;
+  readonly startLine: number;
+  readonly startColumn: number;
+  readonly endLine: number;
+  readonly endColumn: number;
+  readonly startByteOffset: number;
+  readonly endByteOffset: number;
+}
+
 export interface StructuralAnalysis {
   readonly repoPath: string;
   readonly sourceDigest: ContentDigest;
   readonly symbols: readonly StructuralSymbol[];
+  /** Identifier occurrences emitted by the same official structural provider. */
+  readonly identifiers?: readonly StructuralIdentifier[];
   readonly hasSyntaxErrors: boolean;
 }
 
@@ -89,6 +101,7 @@ export const makeStructuralAnalysis = (input: {
   readonly repoPath: unknown;
   readonly sourceDigest: unknown;
   readonly symbols: readonly StructuralSymbol[];
+  readonly identifiers?: readonly StructuralIdentifier[];
   readonly hasSyntaxErrors: unknown;
 }): Result<StructuralAnalysis, DomainError> => {
   if (typeof input.repoPath !== 'string' || input.repoPath.trim().length === 0) {
@@ -129,10 +142,26 @@ export const makeStructuralAnalysis = (input: {
       return err({ code: 'INVALID_RETRIEVAL', path: `symbols[${index}].name_range`, message: 'structural name range must be complete and positive' });
     }
   }
+  for (const [index, identifier] of (input.identifiers ?? []).entries()) {
+    if (identifier.name.trim().length === 0) {
+      return err({ code: 'INVALID_RETRIEVAL', path: `identifiers[${index}]`, message: 'structural identifier name is required' });
+    }
+    if (![identifier.startLine, identifier.startColumn, identifier.endLine, identifier.endColumn].every(
+      (value) => Number.isSafeInteger(value) && value >= 1,
+    )) {
+      return err({ code: 'INVALID_RETRIEVAL', path: `identifiers[${index}]`, message: 'invalid structural identifier range' });
+    }
+    if (![identifier.startByteOffset, identifier.endByteOffset].every(
+      (value) => Number.isSafeInteger(value) && value >= 0,
+    ) || identifier.endByteOffset <= identifier.startByteOffset) {
+      return err({ code: 'INVALID_RETRIEVAL', path: `identifiers[${index}].byte_range`, message: 'structural identifier byte range must increase' });
+    }
+  }
   return ok({
     repoPath: input.repoPath.trim(),
     sourceDigest: input.sourceDigest as ContentDigest,
     symbols: input.symbols.map((symbol) => ({ ...symbol })),
+    identifiers: (input.identifiers ?? []).map((identifier) => ({ ...identifier })),
     hasSyntaxErrors: input.hasSyntaxErrors,
   });
 };
