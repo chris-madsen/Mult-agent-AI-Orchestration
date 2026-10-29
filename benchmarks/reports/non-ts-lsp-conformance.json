@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-28T22:53:44.381Z",
-  "sourceCommit": "65aec6f12027b06955629ddcc40f59dfb70855d1",
+  "generatedAt": "2026-10-29T06:21:22.560Z",
+  "sourceCommit": "9512d379da892736dfb4375b4fe4ba191390c180",
   "command": "npm run test:real-non-ts-lsp",
   "status": "provider-pass",
   "contract": "generic-lsp-conformance",
@@ -13,8 +13,8 @@
     "command": "rust-analyzer",
     "args": [],
     "version": "rust-analyzer 1.95.0 (5980761 2026-04-14)",
-    "snapshotIdentity": "0318ff10949b047b704e3f7aaddc1487f138ca1730f1cad185ac38c031400d97",
-    "fingerprint": "533f2670f9d5d58dfa93fb4586a7e7ed00aea50cd66c077f3894f5f888297b43"
+    "snapshotIdentity": "b6aef6f3c2b48d3d522a432cae04b83ca707f68aa1f064318d891de852139d29",
+    "fingerprint": "571e39701242ef690c86bd65b77a55adfe2fac703cc277672c2109504dd3f0f6"
   },
   "fixtureSha256": "049e67a07445effdbbbf3d7051e48d1574949d585249cd7f53ac6bf952f85a3a",
   "sourcePath": "src/lib.rs",
@@ -22,10 +22,7 @@
   "definitionCount": 1,
   "referenceCount": 2,
   "hover": "ace_non_ts_lsp_fixture\n\npub fn save() -> String",
-  "diagnosticCodes": [
-    0,
-    0
-  ],
+  "diagnosticCodes": [0, 0],
   "diagnosticSupport": "non_empty_fixture_diagnostic",
   "invariant": "a non-TypeScript LSP resolves definitions, references, hover and diagnostics through the generic ACE port"
 }

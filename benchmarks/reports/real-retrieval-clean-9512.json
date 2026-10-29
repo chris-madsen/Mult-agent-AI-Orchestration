@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "9512d379da892736dfb4375b4fe4ba191390c180",
+  "sourceCleanAtBuild": true,
+  "providerIdentity": {
+    "embedding": "fastembed/onnx|model=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2|fastembed=0.7.4|onnxruntime=1.23.2",
+    "qdrant": "qdrant/1.19.2",
+    "astGrep": "ast-grep 0.51.0",
+    "typescriptLanguageServer": "6.0.2"
+  },
+  "gates": {
+    "realProvider": {
+      "status": "provider-pass",
+      "citation": "service.ts:1-25",
+      "complete": true,
+      "publicationMode": "stable_collection_direct"
+    },
+    "realProviderRace": {
+      "status": "provider-pass",
+      "outcome": "reconciled-current",
+      "complete": true
+    },
+    "realProviderOutage": {
+      "status": "provider-failure-is-honest",
+      "code": "NOT_READY"
+    },
+    "realProviderRestart": {
+      "status": "provider-pass",
+      "warmIndexReused": true,
+      "changedSourceRebuilt": true,
+      "stableCollectionReused": true
+    },
+    "realSemantic": {
+      "status": "provider-pass",
+      "recallAtLimit": 1,
+      "top1Accuracy": 0.6666666666666666,
+      "dataset": "inline_stage1_holdout_v1"
+    },
+    "realIndexScale100": {
+      "status": "provider-pass",
+      "coldFiles": 100,
+      "warmReusedVectors": 100,
+      "changeOnly": {"added": 1, "changed": 10, "deleted": 1, "renamed": 1}
+    },
+    "realQdrantCrash": {
+      "status": "provider-pass",
+      "writerKilledAfterVerify": true,
+      "stableCollectionReused": true,
+      "readerCurrentAfterCrash": true
+    },
+    "realQdrantConcurrency": {
+      "status": "provider-pass",
+      "writersConverged": true,
+      "duplicateCollection": false,
+      "citationsCurrent": true
+    }
+  },
+  "limitations": [
+    "Harbor paired retrieval artifact is not available.",
+    "Hermes native-vs-ACE A/B was not run.",
+    "R7 legacy-hybrid ownership cleanup remains open.",
+    "No production-readiness, quality-parity or token-savings claim follows."
+  ]
+}
