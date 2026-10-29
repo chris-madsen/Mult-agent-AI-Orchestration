@@ -51,8 +51,13 @@ const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
 const race = process.env.ACE_REAL_PROVIDER_RACE === 'true';
 const outage = process.env.ACE_REAL_PROVIDER_OUTAGE === 'true';
 const hardOutage = process.env.ACE_REAL_PROVIDER_HARD_OUTAGE === 'true';
+const requestTimeoutMs = Number(process.env.ACE_REAL_PROVIDER_TIMEOUT_MS ?? 180_000);
+if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 10_000 || requestTimeoutMs > 600_000) {
+  throw new Error('ACE_REAL_PROVIDER_TIMEOUT_MS must be an integer between 10000 and 600000');
+}
 const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
   cwd: resolve(import.meta.dirname, '..'),
+  detached: process.platform !== 'win32',
   env: {
     ...process.env,
     ACE_WORKSPACE_ROOT: workspace,
@@ -77,6 +82,8 @@ let output = '';
 const responses = new Map();
 const waiters = new Map();
 const stderr = [];
+let stopped = false;
+let stopPromise;
 child.stderr.on('data', (chunk) => stderr.push(chunk.toString('utf8')));
 child.stdout.on('data', (chunk) => {
   output += chunk.toString('utf8');
@@ -86,34 +93,122 @@ child.stdout.on('data', (chunk) => {
     const line = output.slice(0, newline);
     output = output.slice(newline + 1);
     if (line.trim().length === 0) continue;
-    const message = JSON.parse(line);
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch (cause) {
+      failChild(new Error(`MCP child emitted malformed JSON: ${cause instanceof Error ? cause.message : String(cause)}`));
+      return;
+    }
     const waiter = waiters.get(message.id);
     if (waiter !== undefined) {
       waiters.delete(message.id);
-      waiter(message);
+      waiter.resolve(message);
     } else {
       responses.set(message.id, message);
     }
   }
 });
 
+const signalChild = (signal) => {
+  if (child.pid !== undefined && process.platform !== 'win32') {
+    try {
+      process.kill(-child.pid, signal);
+    } catch {
+      // The process group may already have exited; signal the direct child below.
+    }
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    // The child may have exited between the group and direct signals.
+  }
+};
+
+const directChildAlive = () => child.exitCode === null && child.signalCode === null;
+
+const processGroupAlive = () => {
+  if (process.platform === 'win32' || child.pid === undefined) return directChildAlive();
+  try {
+    process.kill(-child.pid, 0);
+    return true;
+  } catch (cause) {
+    return cause?.code === 'EPERM';
+  }
+};
+
+const processTreeAlive = () => directChildAlive() || processGroupAlive();
+
+const waitForProcessTreeExit = async (timeoutMs) => {
+  const deadline = Date.now() + timeoutMs;
+  while (processTreeAlive()) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+  }
+  return true;
+};
+
+const stopChild = () => {
+  if (stopPromise !== undefined) return stopPromise;
+  stopPromise = (async () => {
+    stopped = true;
+    for (const waiter of waiters.values()) waiter.reject(new Error('MCP child stopped'));
+    waiters.clear();
+    if (!processTreeAlive()) return;
+    signalChild('SIGTERM');
+    if (await waitForProcessTreeExit(750)) return;
+    signalChild('SIGKILL');
+    await waitForProcessTreeExit(250);
+  })();
+  return stopPromise;
+};
+
+const failChild = (cause) => {
+  const error = cause instanceof Error ? cause : new Error(String(cause));
+  if (!stopped) {
+    for (const waiter of waiters.values()) waiter.reject(error);
+    waiters.clear();
+    void stopChild();
+  }
+};
+
+child.once('exit', (code, signal) => {
+  if (stopped) return;
+  failChild(new Error(`MCP child exited before response code=${code} signal=${signal}; stderr=${stderr.join('').slice(-2000)}`));
+});
+child.once('error', failChild);
+child.stdin.on('error', failChild);
+
 const request = (id, message) => new Promise((resolveResponse, reject) => {
-  const timer = setTimeout(() => {
+  let settled = false;
+  let timer;
+  const settle = (settlement) => {
+    if (settled) return;
+    settled = true;
+    if (timer !== undefined) clearTimeout(timer);
     waiters.delete(id);
-    reject(new Error(`MCP request ${id} timed out; stderr=${stderr.join('').slice(-2000)}`));
-  }, 180_000);
+    settlement();
+  };
+  timer = setTimeout(() => settle(() => reject(new Error(`MCP request ${id} timed out after ${requestTimeoutMs}ms; stderr=${stderr.join('').slice(-2000)}`))), requestTimeoutMs);
   const existing = responses.get(id);
   if (existing !== undefined) {
     responses.delete(id);
-    clearTimeout(timer);
-    resolveResponse(existing);
+    settle(() => resolveResponse(existing));
     return;
   }
-  waiters.set(id, (response) => {
-    clearTimeout(timer);
-    resolveResponse(response);
+  waiters.set(id, {
+    resolve: (response) => settle(() => resolveResponse(response)),
+    reject: (cause) => settle(() => reject(cause)),
   });
-  child.stdin.write(`${JSON.stringify(message)}\n`);
+  if (stopped || !directChildAlive()) {
+    settle(() => reject(new Error(stopped ? 'MCP child is already stopped' : 'MCP child exited before request')));
+    return;
+  }
+  try {
+    child.stdin.write(`${JSON.stringify(message)}\n`);
+  } catch (cause) {
+    settle(() => reject(cause));
+  }
 });
 
 try {
@@ -193,6 +288,6 @@ try {
   }
 } finally {
   child.stdin.end();
-  child.kill('SIGTERM');
+  await stopChild();
   await rm(root, { recursive: true, force: true });
 }

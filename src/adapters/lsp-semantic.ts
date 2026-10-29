@@ -109,6 +109,7 @@ const setStreamRef = (stream: NodeJS.ReadableStream | NodeJS.WritableStream, ref
 // the caller's operation timeout: timeoutMs remains an actual request deadline.
 const gracefulTerminationWaitMs = 750;
 const forcedTerminationWaitMs = 250;
+const delayMs = (milliseconds: number): Promise<void> => new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 
 const terminateProviderProcess = (
   child: ChildProcess,
@@ -134,35 +135,39 @@ const terminateProviderProcess = (
   }
 };
 
-const waitForProviderExit = async (
+const providerProcessAlive = (child: ChildProcess): boolean =>
+  child.exitCode === null && child.signalCode === null;
+
+const providerProcessGroupAlive = (child: ChildProcess): boolean => {
+  if (process.platform === 'win32' || child.pid === undefined) return providerProcessAlive(child);
+  try {
+    process.kill(-child.pid, 0);
+    return true;
+  } catch (cause) {
+    return cause instanceof Error && 'code' in cause && cause.code === 'EPERM';
+  }
+};
+
+const providerProcessTreeAlive = (child: ChildProcess): boolean =>
+  providerProcessAlive(child) || providerProcessGroupAlive(child);
+
+const waitForProviderTreeExit = async (
   child: ChildProcess,
   timeoutMs: number,
 ): Promise<boolean> => {
-  if (child.exitCode !== null || child.signalCode !== null) return true;
-  return new Promise<boolean>((resolveExit) => {
-    let settled = false;
-    let timer: NodeJS.Timeout | undefined;
-    const finish = (exited: boolean): void => {
-      if (settled) return;
-      settled = true;
-      if (timer !== undefined) clearTimeout(timer);
-      child.off('exit', onExit);
-      resolveExit(exited);
-    };
-    const onExit = (): void => finish(true);
-    child.once('exit', onExit);
-    timer = setTimeout(() => finish(false), timeoutMs);
-    // The process may have exited between the initial exitCode check and
-    // listener registration without another observable event.
-    if (child.exitCode !== null || child.signalCode !== null) finish(true);
-  });
+  const deadline = Date.now() + timeoutMs;
+  while (providerProcessTreeAlive(child)) {
+    if (Date.now() >= deadline) return false;
+    await delayMs(25);
+  }
+  return true;
 };
 
 const terminateProviderProcessAndWait = async (child: ChildProcess): Promise<void> => {
   terminateProviderProcess(child, 'SIGTERM');
-  if (await waitForProviderExit(child, gracefulTerminationWaitMs)) return;
+  if (await waitForProviderTreeExit(child, gracefulTerminationWaitMs)) return;
   terminateProviderProcess(child, 'SIGKILL');
-  await waitForProviderExit(child, forcedTerminationWaitMs);
+  await waitForProviderTreeExit(child, forcedTerminationWaitMs);
 };
 
 export const lspLanguageIdForPath = (repoPath: string, languageIds?: Readonly<Record<string, string>>): string | undefined => {
@@ -316,7 +321,7 @@ const runVersion = async (command: string, timeoutMs: number): Promise<string> =
   try {
     return await withTimeout(completed, timeoutMs);
   } catch (cause) {
-    if (child.exitCode === null && child.signalCode === null) {
+    if (providerProcessTreeAlive(child)) {
       await terminateProviderProcessAndWait(child);
     }
     throw cause;
@@ -452,7 +457,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
           // The transport may already be closed; termination below remains authoritative.
         }
         connection.dispose();
-        if (!await waitForProviderExit(child, gracefulTerminationWaitMs)) {
+        if (!await waitForProviderTreeExit(child, gracefulTerminationWaitMs)) {
           await terminateProviderProcessAndWait(child);
         }
       })();
@@ -549,7 +554,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
     } catch {
       // Initialization failure cleanup is best-effort before process termination.
     }
-    if (cleanupChild !== undefined && cleanupChild.exitCode === null && cleanupChild.signalCode === null) {
+    if (cleanupChild !== undefined && providerProcessTreeAlive(cleanupChild)) {
       await terminateProviderProcessAndWait(cleanupChild);
     }
     return failure('lsp.start', cause instanceof Error ? cause.message : 'LSP server failed to initialize', 'UNSUPPORTED_PROVIDER');
@@ -576,28 +581,16 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
   let activeFiles: Readonly<Record<string, string>> = { ...options.files };
   let closed = false;
   let sessionClosePromise: Promise<void> | undefined;
-  let activeOperations = 0;
-  const drainWaiters = new Set<() => void>();
-  const beginOperation = (): (() => void) | undefined => {
-    if (closed) return undefined;
-    activeOperations += 1;
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      activeOperations -= 1;
-      if (activeOperations === 0) {
-        for (const resolve of drainWaiters) resolve();
-        drainWaiters.clear();
-      }
-    };
-  };
-  const waitForOperations = async (): Promise<void> => {
-    if (activeOperations === 0) return;
-    await new Promise<void>((resolveDrain) => drainWaiters.add(resolveDrain));
+  let operationTail = Promise.resolve();
+  const enqueue = <Value>(operation: () => Promise<Value>): Promise<Value | Result<never, DomainError>> => {
+    if (closed) return Promise.resolve(failure('lsp', 'semantic session is closed', 'NOT_READY'));
+    const previous = operationTail;
+    let release: () => void = () => undefined;
+    operationTail = new Promise<void>((resolve) => { release = resolve; });
+    return previous.then(operation, operation).finally(release);
   };
   const runtime = (): Promise<Result<LspRuntime, DomainError>> => {
-    // Admission is controlled by beginOperation(). Once an operation has been
+    // Admission is controlled by enqueue(). Once an operation has been
     // admitted, retirement must drain it even if close() flips the terminal
     // flag before lazy runtime initialization reaches this point.
     if (runtimePromise !== undefined) return runtimePromise;
@@ -617,57 +610,53 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
     });
     return started;
   };
+  const retireRuntime = async (active: LspRuntime): Promise<void> => {
+    await active.close();
+    runtimePromise = undefined;
+  };
   const query = <Value>(
     queryInput: SemanticQuery,
     operationName: string,
     operation: (active: LspRuntime, fileUri: string, position: LspPosition) => Promise<Result<Value, DomainError>>,
   ): Effect.Effect<Result<Value, DomainError>> => recoverResult(Effect.tryPromise({
-      try: async () => {
+      try: () => enqueue(async () => {
         const startedAtMs = Date.now();
-        const releaseOperation = beginOperation();
-        if (releaseOperation === undefined) {
-          return failure('lsp', 'semantic session is closed', 'NOT_READY');
-        }
-        try {
-          const active = await runtime();
-          let result: Result<Value, DomainError>;
-          if (active._tag === 'Err') result = active;
-          else if (activeSnapshotIdentity !== undefined && queryInput.snapshotIdentity !== activeSnapshotIdentity) {
-            result = failure('snapshot_identity', 'semantic query is bound to a different source/configuration generation', 'NOT_READY');
+        const active = await runtime();
+        let result: Result<Value, DomainError>;
+        if (active._tag === 'Err') result = active;
+        else if (activeSnapshotIdentity !== undefined && queryInput.snapshotIdentity !== activeSnapshotIdentity) {
+          result = failure('snapshot_identity', 'semantic query is bound to a different source/configuration generation', 'NOT_READY');
+        } else {
+          const source = active.value.files.get(queryInput.repoPath);
+          const languageId = languageIdForPath(queryInput.repoPath, options.languageIds);
+          if (source === undefined || languageId === undefined) {
+            result = failure('repo_path', 'source file has no configured LSP document', 'UNSUPPORTED_PROVIDER');
+          } else if (!Number.isSafeInteger(queryInput.line) || queryInput.line < 1
+            || !Number.isSafeInteger(queryInput.column) || queryInput.column < 1) {
+            result = failure('position', 'line and column must be positive integers', 'INVALID_INPUT');
           } else {
-            const source = active.value.files.get(queryInput.repoPath);
-            const languageId = languageIdForPath(queryInput.repoPath, options.languageIds);
-            if (source === undefined || languageId === undefined) {
-              result = failure('repo_path', 'source file has no configured LSP document', 'UNSUPPORTED_PROVIDER');
-            } else if (!Number.isSafeInteger(queryInput.line) || queryInput.line < 1
-              || !Number.isSafeInteger(queryInput.column) || queryInput.column < 1) {
-              result = failure('position', 'line and column must be positive integers', 'INVALID_INPUT');
-            } else {
-              active.value.refProcess();
-              try {
-                result = await operation(active.value, uriFor(options.rootPath, queryInput.repoPath), {
-                  line: queryInput.line - 1,
-                  character: queryInput.column - 1,
-                });
-              } finally {
-                if (options.keepProcessAlive === false) active.value.unrefProcess();
-              }
+            active.value.refProcess();
+            try {
+              result = await operation(active.value, uriFor(options.rootPath, queryInput.repoPath), {
+                line: queryInput.line - 1,
+                character: queryInput.column - 1,
+              });
+            } finally {
+              if (options.keepProcessAlive === false) active.value.unrefProcess();
             }
           }
-          providerTraceEvent(options.trace ?? noopProviderTrace, {
-            provider: 'lsp',
-            providerVersion: options.providerVersion ?? `${options.serverName ?? 'typescript-language-server'}/unknown`,
-            operation: operationName,
-            status: result._tag === 'Ok' ? 'success' : 'failure',
-            durationMs: Math.max(0, Date.now() - startedAtMs),
-            ...(queryInput.requestId === undefined ? {} : { requestId: queryInput.requestId }),
-            ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
-          });
-          return result;
-        } finally {
-          releaseOperation();
         }
-      },
+        providerTraceEvent(options.trace ?? noopProviderTrace, {
+          provider: 'lsp',
+          providerVersion: options.providerVersion ?? `${options.serverName ?? 'typescript-language-server'}/unknown`,
+          operation: operationName,
+          status: result._tag === 'Ok' ? 'success' : 'failure',
+          durationMs: Math.max(0, Date.now() - startedAtMs),
+          ...(queryInput.requestId === undefined ? {} : { requestId: queryInput.requestId }),
+          ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
+        });
+        return result;
+      }),
       catch: (cause) => domainError(
         'EXTERNAL_UNAVAILABLE',
         'lsp',
@@ -687,6 +676,7 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
           return location === undefined ? [] : [{ location }];
         }));
       } catch (cause) {
+        await retireRuntime(active);
         return failure('lsp.definition', cause instanceof Error ? cause.message : 'LSP definition request failed');
       }
     }),
@@ -715,6 +705,7 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
           }];
         }));
       } catch (cause) {
+        await retireRuntime(active);
         return failure('lsp.references', cause instanceof Error ? cause.message : 'LSP references request failed');
       }
     }),
@@ -726,87 +717,81 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
         }), options.timeoutMs ?? 15_000);
         return ok(displayHover(response));
       } catch (cause) {
+        await retireRuntime(active);
         return failure('lsp.hover', cause instanceof Error ? cause.message : 'LSP hover request failed');
       }
     }),
     diagnostics: (input): Effect.Effect<Result<readonly SemanticDiagnostic[], DomainError>> => recoverResult(Effect.tryPromise({
-      try: async () => {
+      try: () => enqueue(async () => {
         const startedAtMs = Date.now();
-        const releaseOperation = beginOperation();
-        if (releaseOperation === undefined) {
-          return failure('lsp', 'semantic session is closed', 'NOT_READY');
-        }
-        try {
-          const active = await runtime();
-          let result: Result<readonly SemanticDiagnostic[], DomainError>;
-          if (active._tag === 'Err') result = active;
-          else if (languageIdForPath(input.repoPath, options.languageIds) === undefined
-            || !active.value.files.has(input.repoPath)) {
-            result = failure('repo_path', 'source file has no configured LSP document', 'UNSUPPORTED_PROVIDER');
-          } else {
-            try {
-              if (options.keepProcessAlive === false) active.value.refProcess();
-              const uri = uriFor(options.rootPath, input.repoPath);
-              let items: readonly LspDiagnostic[] | undefined;
-              if (active.value.supportsPullDiagnostics) {
-                try {
-                  const pulled = await withTimeout(active.value.connection.sendRequest<unknown>('textDocument/diagnostic', {
-                    textDocument: { uri },
-                    ...(active.value.pullDiagnosticIdentifier === undefined
-                      ? {}
-                      : { identifier: active.value.pullDiagnosticIdentifier }),
-                  }), options.timeoutMs ?? 15_000);
-                  items = asDiagnostics(pulled);
-                } catch (pullCause) {
-                  items = active.value.diagnostics.get(uri);
-                  try {
-                    if (items === undefined) {
-                      items = await active.value.waitForDiagnostics(uri, options.timeoutMs ?? 15_000);
-                    }
-                  } catch {
-                    throw pullCause;
-                  }
-                }
-              } else {
+        const active = await runtime();
+        let result: Result<readonly SemanticDiagnostic[], DomainError>;
+        if (active._tag === 'Err') result = active;
+        else if (languageIdForPath(input.repoPath, options.languageIds) === undefined
+          || !active.value.files.has(input.repoPath)) {
+          result = failure('repo_path', 'source file has no configured LSP document', 'UNSUPPORTED_PROVIDER');
+        } else {
+          try {
+            if (options.keepProcessAlive === false) active.value.refProcess();
+            const uri = uriFor(options.rootPath, input.repoPath);
+            let items: readonly LspDiagnostic[] | undefined;
+            if (active.value.supportsPullDiagnostics) {
+              try {
+                const pulled = await withTimeout(active.value.connection.sendRequest<unknown>('textDocument/diagnostic', {
+                  textDocument: { uri },
+                  ...(active.value.pullDiagnosticIdentifier === undefined
+                    ? {}
+                    : { identifier: active.value.pullDiagnosticIdentifier }),
+                }), options.timeoutMs ?? 15_000);
+                items = asDiagnostics(pulled);
+              } catch (pullCause) {
                 items = active.value.diagnostics.get(uri);
+                try {
+                  if (items === undefined) {
+                    items = await active.value.waitForDiagnostics(uri, options.timeoutMs ?? 15_000);
+                  }
+                } catch {
+                  throw pullCause;
+                }
               }
-              if (items === undefined) {
-                items = await active.value.waitForDiagnostics(uri, options.timeoutMs ?? 15_000);
-              }
-              result = ok(items.flatMap((diagnostic): SemanticDiagnostic[] => {
-                const location = locationFromLsp(options.rootPath, {
-                  uri,
-                  range: diagnostic.range,
-                }, active.value.files);
-                return [{
-                  ...(location === undefined ? {} : { location }),
-                  message: diagnostic.message,
-                  category: diagnosticCategory(diagnostic.severity),
-                  code: typeof diagnostic.code === 'number' ? diagnostic.code : 0,
-                }];
-              }));
-            } catch (cause) {
-              result = failure(
-                'lsp.diagnostics',
-                cause instanceof Error ? cause.message : 'LSP diagnostics request failed',
-              );
-            } finally {
-              if (options.keepProcessAlive === false) active.value.unrefProcess();
+            } else {
+              items = active.value.diagnostics.get(uri);
             }
+            if (items === undefined) {
+              items = await active.value.waitForDiagnostics(uri, options.timeoutMs ?? 15_000);
+            }
+            result = ok(items.flatMap((diagnostic): SemanticDiagnostic[] => {
+              const location = locationFromLsp(options.rootPath, {
+                uri,
+                range: diagnostic.range,
+              }, active.value.files);
+              return [{
+                ...(location === undefined ? {} : { location }),
+                message: diagnostic.message,
+                category: diagnosticCategory(diagnostic.severity),
+                code: typeof diagnostic.code === 'number' ? diagnostic.code : 0,
+              }];
+            }));
+          } catch (cause) {
+            await retireRuntime(active.value);
+            result = failure(
+              'lsp.diagnostics',
+              cause instanceof Error ? cause.message : 'LSP diagnostics request failed',
+            );
+          } finally {
+            if (options.keepProcessAlive === false) active.value.unrefProcess();
           }
-          providerTraceEvent(options.trace ?? noopProviderTrace, {
-            provider: 'lsp',
-            providerVersion: options.providerVersion ?? `${options.serverName ?? 'typescript-language-server'}/unknown`,
-            operation: 'diagnostics',
-            status: result._tag === 'Ok' ? 'success' : 'failure',
-            durationMs: Math.max(0, Date.now() - startedAtMs),
-            ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
-          });
-          return result;
-        } finally {
-          releaseOperation();
         }
-      },
+        providerTraceEvent(options.trace ?? noopProviderTrace, {
+          provider: 'lsp',
+          providerVersion: options.providerVersion ?? `${options.serverName ?? 'typescript-language-server'}/unknown`,
+          operation: 'diagnostics',
+          status: result._tag === 'Ok' ? 'success' : 'failure',
+          durationMs: Math.max(0, Date.now() - startedAtMs),
+          ...(result._tag === 'Err' ? { errorCode: result.error.code } : {}),
+        });
+        return result;
+      }),
       catch: (cause) => domainError(
         'EXTERNAL_UNAVAILABLE',
         'lsp.diagnostics',
@@ -817,7 +802,7 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
       if (sessionClosePromise !== undefined) return sessionClosePromise;
       closed = true;
       sessionClosePromise = (async () => {
-        await waitForOperations();
+        await operationTail;
         const pending = runtimePromise;
         runtimePromise = undefined;
         if (pending === undefined) return;
@@ -827,25 +812,19 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
       return sessionClosePromise;
     },
     refresh: (nextFiles: Readonly<Record<string, string>>, snapshotIdentity: string): Effect.Effect<Result<void, DomainError>> => recoverResult(Effect.tryPromise({
-      try: async () => {
-        const releaseOperation = beginOperation();
-        if (releaseOperation === undefined) return failure('lsp', 'semantic session is closed', 'NOT_READY');
-        try {
-          const active = await runtime();
-          if (active._tag === 'Err') return active;
-          const updated = await active.value.updateFiles(nextFiles);
-          if (updated._tag === 'Err') {
-            await active.value.close();
-            runtimePromise = undefined;
-            return updated;
-          }
-          activeFiles = { ...nextFiles };
-          activeSnapshotIdentity = snapshotIdentity;
-          return ok(undefined);
-        } finally {
-          releaseOperation();
+      try: () => enqueue(async () => {
+        const active = await runtime();
+        if (active._tag === 'Err') return active;
+        const updated = await active.value.updateFiles(nextFiles);
+        if (updated._tag === 'Err') {
+          await active.value.close();
+          runtimePromise = undefined;
+          return updated;
         }
-      },
+        activeFiles = { ...nextFiles };
+        activeSnapshotIdentity = snapshotIdentity;
+        return ok(undefined);
+      }),
       catch: (cause) => domainError('EXTERNAL_UNAVAILABLE', 'lsp.refresh', cause instanceof Error ? cause.message : 'LSP refresh failed'),
     })),
   };

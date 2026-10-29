@@ -75,7 +75,10 @@ import { makeMcpGateway, type CapabilityReadiness } from '../gateway/mcp-gateway
 import { makeContextTransformService } from '../application/context-transform-service.js';
 import { makeContextAssembler } from '../application/context-assembler.js';
 import { makeRepoMapService, type RepoMapService } from '../application/repo-map-service.js';
-import { makeLspServerRegistry } from '../application/lsp/server-registry.js';
+import {
+  makeLspServerDescriptor,
+  makeLspServerRegistry,
+} from '../application/lsp/server-registry.js';
 import { makeGatewayProjectionService } from '../application/gateway-projection-service.js';
 import { runContextBridgeStdio } from '../transport/context-bridge-stdio.js';
 import { runGatewayProjectionHttp } from '../transport/gateway-projection-http.js';
@@ -382,8 +385,13 @@ const main = async (): Promise<void> => {
     const qdrantEndpoint = validateLocalQdrantBaseUrl(qdrantUrl, qdrantAllowedHosts);
     if (qdrantEndpoint._tag === 'Err') throw new Error(qdrantEndpoint.error.message);
     const qdrantApiKey = process.env.ACE_QDRANT_API_KEY?.trim();
+    const qdrantTimeoutMs = Number(process.env.ACE_QDRANT_TIMEOUT_MS ?? '5000');
+    if (!Number.isSafeInteger(qdrantTimeoutMs) || qdrantTimeoutMs < 100 || qdrantTimeoutMs > 600_000) {
+      throw new Error('ACE_QDRANT_TIMEOUT_MS must be an integer between 100 and 600000');
+    }
     const qdrantClient = new QdrantClient({
       url: qdrantEndpoint.value,
+      timeout: qdrantTimeoutMs,
       ...(qdrantApiKey === undefined || qdrantApiKey.length === 0 ? {} : { apiKey: qdrantApiKey }),
       checkCompatibility: false,
     });
@@ -772,25 +780,18 @@ const main = async (): Promise<void> => {
               packageLockIdentity,
               providerIdentity: `${lspCommand}|${semanticProviderVersion}|${lspProviderIdentity?._tag === 'Ok' ? lspProviderIdentity.value.fingerprint : 'unverified'}`,
             });
-            // Stage an immutable LSP generation. Refreshing the *published*
-            // server before the manifest/Qdrant commit can invalidate live
-            // requests and even close the new session on failed publication.
-            const key = JSON.stringify({
-              workspace: registered.value.workspaceId,
+            // Keep process identity independent from source generation. A
+            // reused session is refreshed through its serialized lifecycle;
+            // retain the lease until this publication commits so a prior
+            // generation cannot close the shared process underneath it.
+            const descriptor = makeLspServerDescriptor({
+              workspaceId: registered.value.workspaceId,
               rootPath: registered.value.rootPath,
               command: lspCommand,
               args: lspArgs,
               serverName: lspServerName,
-              languageIds: lspLanguageIds ?? null,
-              snapshotIdentity: semanticIdentity,
-            });
-            const descriptor = {
-              key,
-              command: lspCommand,
-              args: lspArgs,
-              serverName: lspServerName,
               ...(lspLanguageIds === undefined ? {} : { languageIds: lspLanguageIds }),
-            };
+            });
             const acquired = await Effect.runPromise(lspRegistry.acquire(descriptor, () => makeLspSemanticAnalysisPort({
               command: lspCommand,
               args: lspArgs,
@@ -874,6 +875,18 @@ const main = async (): Promise<void> => {
               process.stderr.write('ace test failpoint reached name=after_qdrant_verify_before_publish\n');
               process.kill(process.pid, 'SIGKILL');
               throw new Error('test failpoint failed to terminate the process');
+            }
+            // Refresh a reused semantic session only after all fallible
+            // manifest and Qdrant preparation has succeeded. From this point
+            // to the returned publication there are no awaited provider
+            // operations, so a failed preparation cannot leave the previous
+            // Qdrant publication paired with a newer LSP snapshot.
+            if (!semanticLease.created) {
+              const refreshed = await Effect.runPromise(semanticLease.session.refresh(sourceFiles.value, semanticIdentity));
+              if (refreshed._tag === 'Err') {
+                semanticLease.release();
+                return refreshed;
+              }
             }
             const qdrant = makeQdrantCodeCandidatePort({
               baseUrl: qdrantUrl,
