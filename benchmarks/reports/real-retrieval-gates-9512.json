@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "evidence": "retrieval-clean-gates-2026-10-29",
+  "sourceCommit": "9512d379da892736dfb4375b4fe4ba191390c180",
+  "sourceCleanAtBuild": true,
+  "runtimeBundle": {
+    "bundleSha256": "13ffea031a86b6e3ab2b4b6cbda72b545f25c4ebd31f26359e8797f08805d785",
+    "taskImage": "ace-local-hermes:ace-local-smoke-paired-fast@sha256:c0529227d3303b66115cd246d39c552cb591eed58c906d412e7883824d294dbc",
+    "python": "3.11",
+    "pillow": "11.3.0",
+    "fastembed": "0.7.4",
+    "onnxruntime": "1.23.2",
+    "embeddingArtifactDigest": "4bb74885d054d77b15c33520114d7edc19c31699bdab813d893e4f58c3afb4a1"
+  },
+  "providerGates": {
+    "provider": {
+      "status": "provider-pass",
+      "strategy": "dense",
+      "citation": "service.ts:1-25",
+      "complete": true,
+      "exactExpansion": true,
+      "expansionBytes": 63482
+    },
+    "race": {
+      "status": "blocked",
+      "reason": "real-provider race runner did not complete within its bounded process window; the stuck process was killed",
+      "productionClaim": false
+    },
+    "outage": {
+      "status": "provider-failure-is-honest",
+      "code": "NOT_READY"
+    },
+    "restart": {
+      "status": "provider-pass",
+      "warmIndexReused": true,
+      "changedSourceRebuilt": true,
+      "stableCollectionReused": true,
+      "generations": [1, 2, 3],
+      "publicationMode": "stable_collection_direct"
+    },
+    "indexScale100": {
+      "status": "provider-pass",
+      "coldMeasured": true,
+      "warmReuseVerified": true,
+      "warmReusedVectors": 100,
+      "changeOnlyMeasured": true,
+      "deltaAdded": 1,
+      "deltaChanged": 1,
+      "deltaDeleted": 1,
+      "deltaRenamed": 1,
+      "unchangedReused": 97,
+      "currentCitations": true
+    },
+    "qdrantCrash": {
+      "status": "provider-pass",
+      "publicationMode": "stable_collection_direct",
+      "readerDirtyTreeOutcome": "PASS_RECONCILED",
+      "readerChangedPathAfterCrash": "PASS_CURRENT",
+      "restartPublished": true,
+      "stableCollectionReused": true,
+      "qdrant": "qdrant/1.19.2"
+    },
+    "qdrantConcurrency": {
+      "status": "provider-pass",
+      "bothRequestsComplete": true,
+      "bothCitationsCurrent": true,
+      "writersConvergedOnIndexKey": true,
+      "writersConvergedOnProviderFingerprint": true,
+      "noDuplicateCollectionForSameIndex": true
+    }
+  },
+  "downstreamGates": {
+    "harborPaired": {
+      "status": "blocked",
+      "reason": "native/ACE job paths and benchmarks/reports/ace-retrieval-paired-3x3.json are not available"
+    },
+    "hermesMatchedPair": {
+      "status": "blocked",
+      "reason": "exact-current preflight lacks generated Harbor jobs, ACE runtime binding and experiment manifest"
+    }
+  },
+  "limitations": [
+    "Race evidence is not a PASS and must be rerun after the runner cleanup issue is fixed.",
+    "This artifact proves provider behavior only; it does not prove agent-E2E quality, model-aware token counts or savings.",
+    "No production-readiness or owner-approval claim follows."
+  ]
+}
