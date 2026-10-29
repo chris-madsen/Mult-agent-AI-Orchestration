@@ -190,8 +190,21 @@ export const buildRepoMapDelta = (
     }
   }
 
+  const referenceAffectedSymbols = new Set<RepoMapSymbolId>();
+  if (input.upsertPaths !== undefined) {
+    const symbolsById = new Map(symbols.map((symbol) => [symbol.id, symbol] as const));
+    for (const [sourceId, sourceReferences] of references) {
+      if (sourceReferences.some((reference) => {
+        const target = symbolsById.get(reference.targetId);
+        return target !== undefined && input.upsertPaths?.has(target.repoPath) === true;
+      })) referenceAffectedSymbols.add(sourceId);
+    }
+  }
+
   return ok({
-    upserted: symbols.filter((symbol) => input.upsertPaths === undefined || input.upsertPaths.has(symbol.repoPath)).map((symbol) => ({
+    upserted: symbols.filter((symbol) => input.upsertPaths === undefined
+      || input.upsertPaths.has(symbol.repoPath)
+      || referenceAffectedSymbols.has(symbol.id)).map((symbol) => ({
       ...symbol,
       references: [...(references.get(symbol.id) ?? []).reduce((grouped, reference) => {
         const key = `${reference.kind}:${reference.targetId}`;

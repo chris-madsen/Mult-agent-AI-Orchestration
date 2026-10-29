@@ -229,6 +229,48 @@ test('RepoMap structural adapter does not create file anchors for unresolved top
   if (result._tag === 'Ok') assert.deepEqual(result.value.upserted, []);
 });
 
+test('RepoMap incremental delta upserts an unchanged caller when a definition first appears', async () => {
+  const callerAnalysis = {
+    repoPath: 'src/caller.ts',
+    sourceDigest: 'a'.repeat(64) as never,
+    symbols: [],
+    identifiers: [
+      { name: 'target', startLine: 1, startColumn: 1, endLine: 1, endColumn: 7, startByteOffset: 0, endByteOffset: 6 },
+    ],
+    hasSyntaxErrors: false,
+  } as const;
+  const sources = new Map([
+    ['src/caller.ts' as never, new TextEncoder().encode('target();\n')],
+    ['src/target.ts' as never, new TextEncoder().encode('function target() {}\n')],
+  ]);
+  const before = await Effect.runPromise(buildRepoMapDelta({
+    candidates: [],
+    structuralAnalyses: [callerAnalysis],
+    sourceBytesByPath: sources,
+  }));
+  assert.equal(before._tag, 'Ok');
+  if (before._tag === 'Err') return;
+  assert.deepEqual(before.value.upserted, []);
+
+  const target = { ...candidate('target', 1), repoPath: 'src/target.ts' as never };
+  const incremental = await Effect.runPromise(buildRepoMapDelta({
+    candidates: [target],
+    structuralAnalyses: [callerAnalysis],
+    sourceBytesByPath: sources,
+    upsertPaths: new Set(['src/target.ts' as never]),
+  }));
+  assert.equal(incremental._tag, 'Ok');
+  if (incremental._tag === 'Ok') {
+    assert.deepEqual(
+      incremental.value.upserted.map((symbol) => symbol.repoPath).sort(),
+      ['src/caller.ts', 'src/target.ts'],
+    );
+    const targetSymbol = incremental.value.upserted.find((symbol) => symbol.name === 'target');
+    const callerAnchor = incremental.value.upserted.find((symbol) => symbol.kind === 'repo-map-file-anchor');
+    assert.deepEqual(callerAnchor?.references, [{ targetId: targetSymbol?.id, kind: 'reference' }]);
+  }
+});
+
 test('RepoMap structural adapter preserves recursive references', async () => {
   const recursive = {
     ...candidate('recursive', 1),
