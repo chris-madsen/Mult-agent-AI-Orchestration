@@ -4,6 +4,7 @@ import { Effect } from 'effect';
 import { buildRepoMapDelta } from '../src/adapters/repo-map-structural.js';
 import type { SemanticAnalysisPort } from '../src/application/ports.js';
 import type { CodeCandidate } from '../src/domain/retrieval.js';
+import { applyRepoMapDelta, emptyRepoMapGraph, rankRepoMap } from '../src/domain/repo-map.js';
 
 const candidate = (name: string, line: number): CodeCandidate => ({
   candidateId: `${name}-candidate` as never,
@@ -198,7 +199,34 @@ test('RepoMap structural adapter builds cross-file reference edges from shared p
     const fileAnchor = result.value.upserted.find((symbol) => symbol.repoPath === 'src/caller.ts');
     assert.equal(fileAnchor?.kind, 'repo-map-file-anchor');
     assert.deepEqual(fileAnchor?.references, [{ targetId: targetSymbol?.id, kind: 'reference' }]);
+    const ranked = rankRepoMap(
+      applyRepoMapDelta(emptyRepoMapGraph(), result.value),
+      { query: '', openFiles: [], mentionedFiles: [], tokenBudget: 32 },
+    );
+    assert.equal(ranked[0]?.symbol.id, targetSymbol?.id);
+    assert.ok((ranked[0]?.score ?? 0) > 0);
   }
+});
+
+test('RepoMap structural adapter does not create file anchors for unresolved top-level identifiers', async () => {
+  const result = await Effect.runPromise(buildRepoMapDelta({
+    candidates: [],
+    structuralAnalyses: [{
+      repoPath: 'src/caller.ts',
+      sourceDigest: 'a'.repeat(64) as never,
+      symbols: [],
+      identifiers: [
+        { name: 'externalCall', startLine: 1, startColumn: 1, endLine: 1, endColumn: 13, startByteOffset: 0, endByteOffset: 12 },
+      ],
+      hasSyntaxErrors: false,
+    }],
+    sourceBytesByPath: new Map([[
+      'src/caller.ts' as never,
+      new TextEncoder().encode('externalCall();\n'),
+    ]]),
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Ok') assert.deepEqual(result.value.upserted, []);
 });
 
 test('RepoMap structural adapter preserves recursive references', async () => {

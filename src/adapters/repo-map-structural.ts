@@ -142,10 +142,11 @@ export const buildRepoMapDelta = (
         && symbol.nameStartLine === identifier.startLine
         && symbol.nameStartColumn === identifier.startColumn);
       if (isDeclaration) continue;
+      const target = symbolsByName.get(identifier.name)?.[0];
+      if (target === undefined) continue;
       const caller = enclosingSymbol(path, identifier.startLine, identifier.startColumn, byPath)
         ?? fileAnchorFor(path);
-      const target = symbolsByName.get(identifier.name)?.[0];
-      if (caller === undefined || target === undefined) continue;
+      if (caller === undefined) continue;
       references.set(caller.id, [
         ...(references.get(caller.id) ?? []),
         { targetId: target.id, kind: 'reference' },
