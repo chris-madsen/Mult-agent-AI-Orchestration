@@ -115,6 +115,34 @@ test('RepoMap personalization promotes open, mentioned, and queried files', () =
   assert.equal(ranked[0]?.symbol.name, 'beta');
 });
 
+test('RepoMap preserves Aider additive path personalization for an open file', () => {
+  const alpha = symbol('alpha', 1);
+  const beta = symbol('beta', 2);
+  const graph = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [alpha, beta], removed: [] });
+  const ranked = rankRepoMap(graph, {
+    query: 'alpha',
+    openFiles: [alpha.repoPath],
+    mentionedFiles: [beta.repoPath],
+    tokenBudget: 20,
+  });
+  const alphaScore = ranked.find((item) => item.symbol.id === alpha.id)?.score ?? 0;
+  const betaScore = ranked.find((item) => item.symbol.id === beta.id)?.score ?? 0;
+  assert.ok(alphaScore > betaScore, 'path mention adds a second personalization share to an open file');
+});
+
+test('RepoMap does not invent Aider path personalization from a file extension', () => {
+  const alpha = symbol('alpha', 1);
+  const beta = makeRepoMapSymbol({
+    ...symbol('beta', 2),
+    repoPath: path('src/beta.js'),
+  });
+  const graph = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [alpha, beta], removed: [] });
+  const ranked = rankRepoMap(graph, { query: 'ts', openFiles: [], mentionedFiles: [], tokenBudget: 20 });
+  const alphaScore = ranked.find((item) => item.symbol.id === alpha.id)?.score ?? 0;
+  const betaScore = ranked.find((item) => item.symbol.id === beta.id)?.score ?? 0;
+  assert.ok(Math.abs(alphaScore - betaScore) < 1e-10, 'Aider matches path parts and basenames, not split extensions');
+});
+
 test('RepoMap rendering stops at the explicit token budget', () => {
   const symbols = Array.from({ length: 10 }, (_, index) => symbol(`symbol${index}`, index + 1));
   const graph = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: symbols, removed: [] });
@@ -132,16 +160,64 @@ test('RepoMap delta removes deleted symbols and replaces changed symbols', () =>
   assert.equal(next.symbols.has(nextSymbol.id), true);
 });
 
+test('RepoMap delta rebinds unchanged callers when a definition digest changes', () => {
+  const oldTarget = symbol('target', 1);
+  const caller = symbol('caller', 2, [{ targetId: oldTarget.id, kind: 'reference', weight: 3 }]);
+  const initial = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [oldTarget, caller], removed: [] });
+  const newTarget = makeRepoMapSymbol({
+    ...oldTarget,
+    sourceDigest: 'b'.repeat(64) as never,
+    references: [],
+  });
+  const replaced = applyRepoMapDelta(initial, { upserted: [newTarget], removed: [oldTarget.id] });
+  assert.deepEqual(replaced.symbols.get(caller.id)?.references, [{
+    targetId: newTarget.id,
+    kind: 'reference',
+    weight: 3,
+  }]);
 
-test('RepoMap PageRank conserves probability with dangling symbols', () => {
+  const deleted = applyRepoMapDelta(initial, { upserted: [], removed: [oldTarget.id] });
+  assert.deepEqual(deleted.symbols.get(caller.id)?.references, []);
+});
+
+
+test('RepoMap redistributes dangling file rank before Aider definition projection', () => {
   const a = symbol('a', 1);
   const b = symbol('b', 2, [{ targetId: a.id, kind: 'reference' }]);
   const graph = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [a, b], removed: [] });
   const ranked = rankRepoMap(graph, { query: '', openFiles: [], mentionedFiles: [], tokenBudget: 20 });
   const mass = ranked.reduce((sum, item) => sum + item.score, 0);
-  assert.ok(Math.abs(mass - 1) < 1e-10,
-    'dangling vertices must redistribute their rank instead of leaking probability');
+  assert.ok(mass > 0 && mass < 1,
+    'Aider projects only rank carried by outgoing definition edges; dangling file rank is not fabricated as a definition edge');
   assert.equal(ranked[0]?.symbol.id, a.id);
+});
+
+test('RepoMap adds Aider fallback self-edges by unreferenced identifier, not symbol out-degree', () => {
+  const target = symbol('target', 1);
+  const caller = symbol('caller', 2, [{ targetId: target.id, kind: 'reference' }]);
+  const graph = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [target, caller], removed: [] });
+  const ranked = rankRepoMap(graph, { query: '', openFiles: [], mentionedFiles: [], tokenBudget: 20 });
+  const callerScore = ranked.find((item) => item.symbol.id === caller.id)?.score ?? 0;
+  const targetScore = ranked.find((item) => item.symbol.id === target.id)?.score ?? 0;
+  assert.ok(callerScore > 0, 'the unreferenced caller identifier keeps Aider\'s 0.1 self-edge');
+  assert.ok(targetScore < 0.5, 'a referenced target identifier must not receive a synthetic self-edge');
+});
+
+test('RepoMap uses Aider defines-as-references fallback when the whole graph has no references', () => {
+  const important = makeRepoMapSymbol({
+    ...symbol('veryLongIdentifier', 1),
+    repoPath: path('src/shared.ts'),
+  });
+  const ordinary = makeRepoMapSymbol({
+    ...symbol('small', 2),
+    repoPath: path('src/shared.ts'),
+  });
+  const ranked = rankRepoMap(
+    applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [ordinary, important], removed: [] }),
+    { query: '', openFiles: [], mentionedFiles: [], tokenBudget: 20 },
+  );
+  assert.equal(ranked[0]?.symbol.id, important.id);
+  assert.ok((ranked[0]?.score ?? 0) > (ranked[1]?.score ?? 0));
 });
 
 test('unresolved references are ignored while repeated references increase edge weight', () => {

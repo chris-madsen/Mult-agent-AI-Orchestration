@@ -65,10 +65,8 @@ const stableSymbolId = (symbol: Omit<RepoMapSymbol, 'id'>): RepoMapSymbolId => [
   symbol.range.endColumn ?? '',
 ].join('\0') as RepoMapSymbolId;
 
-export const makeRepoMapSymbol = (input: Omit<RepoMapSymbol, 'id'>): RepoMapSymbol => ({
-  ...input,
-  id: stableSymbolId(input),
-  references: [...input.references.reduce((grouped, reference) => {
+const normalizeReferences = (references: readonly RepoMapReference[]): readonly RepoMapReference[] =>
+  [...references.reduce((grouped, reference) => {
     const key = `${reference.kind}:${reference.targetId}`;
     const previous = grouped.get(key);
     const observed = reference.weight === undefined
@@ -77,15 +75,41 @@ export const makeRepoMapSymbol = (input: Omit<RepoMapSymbol, 'id'>): RepoMapSymb
     grouped.set(key, { ...reference, weight: (previous?.weight ?? 0) + observed });
     return grouped;
   }, new Map<string, RepoMapReference>()).values()]
-    .sort((left, right) => left.targetId.localeCompare(right.targetId) || left.kind.localeCompare(right.kind)),
+    .sort((left, right) => left.targetId.localeCompare(right.targetId) || left.kind.localeCompare(right.kind));
+
+export const makeRepoMapSymbol = (input: Omit<RepoMapSymbol, 'id'>): RepoMapSymbol => ({
+  ...input,
+  id: stableSymbolId(input),
+  references: normalizeReferences(input.references),
 });
 
 export const emptyRepoMapGraph = (): RepoMapGraph => ({ symbols: new Map() });
 
 export const applyRepoMapDelta = (graph: RepoMapGraph, delta: RepoMapDelta): RepoMapGraph => {
   const symbols = new Map(graph.symbols);
+  const removedTargets = new Map(delta.removed.flatMap((id) => {
+    const symbol = symbols.get(id);
+    return symbol === undefined ? [] : [[id, symbol] as const];
+  }));
   for (const id of delta.removed) symbols.delete(id);
   for (const symbol of delta.upserted) symbols.set(symbol.id, symbol);
+  if (removedTargets.size > 0) {
+    const replacementByName = new Map<string, RepoMapSymbol>();
+    for (const symbol of [...symbols.values()].sort((left, right) => left.id.localeCompare(right.id))) {
+      if (!replacementByName.has(symbol.name)) replacementByName.set(symbol.name, symbol);
+    }
+    for (const [id, symbol] of symbols) {
+      let changed = false;
+      const rebound = symbol.references.flatMap((reference): RepoMapReference[] => {
+        const removed = removedTargets.get(reference.targetId);
+        if (removed === undefined) return [reference];
+        changed = true;
+        const replacement = replacementByName.get(removed.name);
+        return replacement === undefined ? [] : [{ ...reference, targetId: replacement.id }];
+      });
+      if (changed) symbols.set(id, { ...symbol, references: normalizeReferences(rebound) });
+    }
+  }
   return { symbols };
 };
 
@@ -95,10 +119,14 @@ const normalizedMentionedIdentifiers = (input: RepoMapRenderInput): ReadonlySet<
   (input.mentionedIdentifiers ?? queryTokens(input.query)).map((value) => value.toLocaleLowerCase()),
 );
 
-const pathTokens = (path: RepoPath): readonly string[] => path
-  .toLocaleLowerCase()
-  .split(/[\\/._-]+/u)
-  .filter((token) => token.length >= 2);
+const pathTokens = (path: RepoPath): readonly string[] => {
+  const parts = path.toLocaleLowerCase().split(/[\\/]+/u).filter((part) => part.length > 0);
+  const basename = parts.at(-1);
+  const extensionAt = basename?.lastIndexOf('.') ?? -1;
+  const stem = basename !== undefined && extensionAt > 0 ? basename.slice(0, extensionAt) : basename;
+  return [...new Set([...parts, ...(basename === undefined ? [] : [basename]), ...(stem === undefined ? [] : [stem])])]
+    .filter((token) => token.length >= 2);
+};
 
 /**
  * Adapted from the pinned Aider RepoMap weighting model. Aider weights
@@ -140,7 +168,10 @@ const personalizedFileWeights = (
     const mentionedPath = input.mentionedFiles.includes(file);
     const openPath = input.openFiles.includes(file);
     const pathMentioned = pathTokens(file).some((token) => mentionedIdentifiers.has(token));
-    return (mentionedPath || openPath || pathMentioned) ? base : 0;
+    let weight = openPath ? base : 0;
+    if (mentionedPath) weight = Math.max(weight, base);
+    if (pathMentioned) weight += base;
+    return weight;
   });
 };
 
@@ -148,6 +179,8 @@ const normalizeProbabilities = (weights: readonly number[]): readonly number[] =
   const total = weights.reduce((sum, weight) => sum + weight, 0);
   return total > 0 ? weights.map((weight) => weight / total) : weights.map(() => 1 / Math.max(1, weights.length));
 };
+
+const isFileAnchor = (symbol: RepoMapSymbol): boolean => symbol.kind === 'repo-map-file-anchor';
 
 const pageRankFiles = (
   files: readonly RepoPath[],
@@ -183,12 +216,18 @@ const pageRankFiles = (
 export const rankRepoMap = (graph: RepoMapGraph, input: RepoMapRenderInput): readonly RepoMapRankedSymbol[] => {
   const symbols = [...graph.symbols.values()].sort((left, right) => left.id.localeCompare(right.id));
   if (symbols.length === 0) return [];
+  const rankableSymbols = symbols.filter((symbol) => !isFileAnchor(symbol));
+  if (rankableSymbols.length === 0) return [];
 
   const symbolsByPath = new Map<RepoPath, RepoMapSymbol[]>();
   for (const symbol of symbols) symbolsByPath.set(symbol.repoPath, [...(symbolsByPath.get(symbol.repoPath) ?? []), symbol]);
   const files = [...symbolsByPath.keys()].sort((left, right) => left.localeCompare(right));
-  const definitionCounts = new Map<string, number>();
-  for (const symbol of symbols) definitionCounts.set(symbol.name, (definitionCounts.get(symbol.name) ?? 0) + 1);
+  const definitionPaths = new Map<string, Set<RepoPath>>();
+  for (const symbol of rankableSymbols) {
+    const paths = definitionPaths.get(symbol.name) ?? new Set<RepoPath>();
+    paths.add(symbol.repoPath);
+    definitionPaths.set(symbol.name, paths);
+  }
   const referenceCounts = new Map<string, { readonly sourcePath: RepoPath; readonly identifier: string; count: number }>();
   for (const source of symbols) {
     for (const reference of source.references) {
@@ -206,10 +245,10 @@ export const rankRepoMap = (graph: RepoMapGraph, input: RepoMapRenderInput): rea
   }
   const edgeGroups = new Map<string, RepoMapFileEdge>();
   for (const reference of referenceCounts.values()) {
-    const definitions = symbols.filter((symbol) => symbol.name === reference.identifier);
+    const definitions = rankableSymbols.filter((symbol) => symbol.name === reference.identifier);
     const chatFileMultiplier = input.openFiles.includes(reference.sourcePath) ? 50 : 1;
     const weight = Math.sqrt(reference.count)
-      * aiderIdentifierMultiplier(reference.identifier, input, definitionCounts.get(reference.identifier) ?? 0)
+      * aiderIdentifierMultiplier(reference.identifier, input, definitionPaths.get(reference.identifier)?.size ?? 0)
       * chatFileMultiplier;
     for (const targetPath of [...new Set(definitions.map((symbol) => symbol.repoPath))]) {
       const key = `${reference.sourcePath}\0${targetPath}\0${reference.identifier}`;
@@ -221,15 +260,32 @@ export const rankRepoMap = (graph: RepoMapGraph, input: RepoMapRenderInput): rea
       });
     }
   }
-  for (const source of symbols) {
-    if (source.references.length > 0) continue;
-    const key = `${source.repoPath}\0${source.repoPath}\0${source.name}`;
-    const previous = edgeGroups.get(key);
-    edgeGroups.set(key, {
-      targetPath: source.repoPath,
-      identifier: source.name,
-      weight: (previous?.weight ?? 0) + 0.1,
-    });
+  if (referenceCounts.size === 0) {
+    for (const [identifier, definers] of definitionPaths) {
+      const identifierWeight = aiderIdentifierMultiplier(identifier, input, definers.size);
+      for (const sourcePath of definers) {
+        const weight = identifierWeight * (input.openFiles.includes(sourcePath) ? 50 : 1);
+        for (const targetPath of definers) {
+          edgeGroups.set(`${sourcePath}\0${targetPath}\0${identifier}`, {
+            targetPath,
+            identifier,
+            weight,
+          });
+        }
+      }
+    }
+  } else {
+    const referencedIdentifiers = new Set([...referenceCounts.values()].map((reference) => reference.identifier));
+    for (const definition of rankableSymbols) {
+      if (referencedIdentifiers.has(definition.name)) continue;
+      const key = `${definition.repoPath}\0${definition.repoPath}\0${definition.name}`;
+      if (edgeGroups.has(key)) continue;
+      edgeGroups.set(key, {
+        targetPath: definition.repoPath,
+        identifier: definition.name,
+        weight: 0.1,
+      });
+    }
   }
   const outgoing = new Map<RepoPath, readonly RepoMapFileEdge[]>(files.map((file) => [
     file,
@@ -243,27 +299,28 @@ export const rankRepoMap = (graph: RepoMapGraph, input: RepoMapRenderInput): rea
     ? personalized
     : files.map(() => 1));
   const fileScores = pageRankFiles(files, outgoing, teleport);
-  const scores = new Map<RepoMapSymbolId, number>(symbols.map((symbol) => [symbol.id, 0]));
+  const scores = new Map<RepoMapSymbolId, number>(rankableSymbols.map((symbol) => [symbol.id, 0]));
   for (const source of files) {
     const edges = outgoing.get(source) ?? [];
     const totalWeight = edges.reduce((sum, edge) => sum + edge.weight, 0);
     if (totalWeight === 0) continue;
     for (const edge of edges) {
-      const definitions = (symbolsByPath.get(edge.targetPath) ?? []).filter((symbol) => symbol.name === edge.identifier);
+      const definitions = (symbolsByPath.get(edge.targetPath) ?? [])
+        .filter((symbol) => !isFileAnchor(symbol) && symbol.name === edge.identifier);
       if (definitions.length === 0) continue;
       const contribution = (fileScores.get(source) ?? 0) * edge.weight / totalWeight;
       for (const definition of definitions) scores.set(definition.id, (scores.get(definition.id) ?? 0) + contribution);
     }
   }
   for (const file of files) {
-    const fileSymbols = symbolsByPath.get(file) ?? [];
+    const fileSymbols = (symbolsByPath.get(file) ?? []).filter((symbol) => !isFileAnchor(symbol));
     const fileEdges = outgoing.get(file) ?? [];
     const fallback = (fileScores.get(file) ?? 0) / Math.max(1, fileSymbols.length);
     for (const symbol of fileSymbols) {
       if ((scores.get(symbol.id) ?? 0) === 0 && fileEdges.length === 0) scores.set(symbol.id, fallback);
     }
   }
-  return symbols.map((symbol) => ({ symbol, score: scores.get(symbol.id) ?? 0 }))
+  return rankableSymbols.map((symbol) => ({ symbol, score: scores.get(symbol.id) ?? 0 }))
     .sort((left, right) =>
       right.score - left.score
       || left.symbol.repoPath.localeCompare(right.symbol.repoPath)

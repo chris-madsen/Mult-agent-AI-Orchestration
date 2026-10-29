@@ -171,6 +171,66 @@ test('RepoMap structural adapter builds same-file reference edges from shared pr
   }
 });
 
+test('RepoMap structural adapter builds cross-file reference edges from shared provider records without LSP', async () => {
+  const target = {
+    ...candidate('target', 1),
+    repoPath: 'src/target.ts' as never,
+  };
+  const result = await Effect.runPromise(buildRepoMapDelta({
+    candidates: [target],
+    structuralAnalyses: [{
+      repoPath: 'src/caller.ts',
+      sourceDigest: 'a'.repeat(64) as never,
+      symbols: [],
+      identifiers: [
+        { name: 'target', startLine: 1, startColumn: 1, endLine: 1, endColumn: 7, startByteOffset: 0, endByteOffset: 6 },
+      ],
+      hasSyntaxErrors: false,
+    }],
+    sourceBytesByPath: new Map([
+      ['src/target.ts' as never, new TextEncoder().encode('function target() {}\n')],
+      ['src/caller.ts' as never, new TextEncoder().encode('target();\n')],
+    ]),
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Ok') {
+    const targetSymbol = result.value.upserted.find((symbol) => symbol.name === 'target');
+    const fileAnchor = result.value.upserted.find((symbol) => symbol.repoPath === 'src/caller.ts');
+    assert.equal(fileAnchor?.kind, 'repo-map-file-anchor');
+    assert.deepEqual(fileAnchor?.references, [{ targetId: targetSymbol?.id, kind: 'reference' }]);
+  }
+});
+
+test('RepoMap structural adapter preserves recursive references', async () => {
+  const recursive = {
+    ...candidate('recursive', 1),
+    range: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 45 },
+    semanticAnchor: { line: 1, byteColumn: 10, endLine: 1, endByteColumn: 19 },
+  };
+  const result = await Effect.runPromise(buildRepoMapDelta({
+    candidates: [recursive],
+    structuralAnalyses: [{
+      repoPath: 'src/example.ts',
+      sourceDigest: 'a'.repeat(64) as never,
+      symbols: [],
+      identifiers: [
+        { name: 'recursive', startLine: 1, startColumn: 10, endLine: 1, endColumn: 19, startByteOffset: 9, endByteOffset: 18 },
+        { name: 'recursive', startLine: 1, startColumn: 24, endLine: 1, endColumn: 33, startByteOffset: 23, endByteOffset: 32 },
+      ],
+      hasSyntaxErrors: false,
+    }],
+    sourceBytesByPath: new Map([[
+      'src/example.ts' as never,
+      new TextEncoder().encode('function recursive() { recursive(); }\n'),
+    ]]),
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Ok') {
+    const symbol = result.value.upserted[0];
+    assert.deepEqual(symbol?.references, [{ targetId: symbol?.id, kind: 'reference' }]);
+  }
+});
+
 
 test('RepoMap preserves repeated reference frequency for Aider-style sqrt weighting', async () => {
   const target = candidate('target', 1);

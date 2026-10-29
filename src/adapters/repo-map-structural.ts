@@ -105,16 +105,47 @@ export const buildRepoMapDelta = (
   const structuralByPath = new Map<RepoPath, StructuralAnalysis>(
     (input.structuralAnalyses ?? []).map((analysis) => [analysis.repoPath as RepoPath, analysis]),
   );
+  const fileAnchorFor = (path: RepoPath): RepoMapSymbol | undefined => {
+    const existing = (byPath.get(path) ?? []).find((symbol) => symbol.kind === 'repo-map-file-anchor');
+    if (existing !== undefined) return existing;
+    const analysis = structuralByPath.get(path);
+    const lines = sourceLines.get(path);
+    if (analysis === undefined || lines === undefined) return undefined;
+    const endLine = Math.max(1, lines.length);
+    const endColumn = Buffer.byteLength(lines[endLine - 1] ?? '', 'utf8') + 1;
+    const anchor = makeRepoMapSymbol({
+      repoPath: path,
+      name: path,
+      kind: 'repo-map-file-anchor',
+      sourceDigest: analysis.sourceDigest,
+      range: { startLine: 1, startColumn: 1, endLine, endColumn },
+      text: '',
+      references: [],
+    });
+    symbols.push(anchor);
+    byPath.set(path, [...(byPath.get(path) ?? []), anchor]);
+    return anchor;
+  };
+  const symbolsByName = new Map<string, RepoMapSymbol[]>();
+  for (const symbol of symbols) {
+    const namedSymbols = symbolsByName.get(symbol.name);
+    if (namedSymbols === undefined) symbolsByName.set(symbol.name, [symbol]);
+    else namedSymbols.push(symbol);
+  }
+  for (const namedSymbols of symbolsByName.values()) {
+    namedSymbols.sort((left, right) => left.id.localeCompare(right.id));
+  }
   for (const [path, analysis] of structuralByPath) {
     const pathSymbols = byPath.get(path) ?? [];
     for (const identifier of analysis.identifiers ?? []) {
-      const targets = pathSymbols.filter((symbol) => symbol.name === identifier.name);
-      if (targets.length !== 1) continue;
-      const target = targets[0]!;
-      if (target.nameStartLine === identifier.startLine
-        && target.nameStartColumn === identifier.startColumn) continue;
-      const caller = enclosingSymbol(path, identifier.startLine, identifier.startColumn, byPath);
-      if (caller === undefined || caller.id === target.id) continue;
+      const isDeclaration = pathSymbols.some((symbol) => symbol.name === identifier.name
+        && symbol.nameStartLine === identifier.startLine
+        && symbol.nameStartColumn === identifier.startColumn);
+      if (isDeclaration) continue;
+      const caller = enclosingSymbol(path, identifier.startLine, identifier.startColumn, byPath)
+        ?? fileAnchorFor(path);
+      const target = symbolsByName.get(identifier.name)?.[0];
+      if (caller === undefined || target === undefined) continue;
       references.set(caller.id, [
         ...(references.get(caller.id) ?? []),
         { targetId: target.id, kind: 'reference' },
@@ -147,8 +178,9 @@ export const buildRepoMapDelta = (
         if (lines === undefined) continue; // never trust references to unverified sources
         const byteColumn = referenceByteColumn(lines, reference.location.startLine, reference.location.startColumn);
         if (byteColumn === undefined) continue;
-        const caller = enclosingSymbol(path, reference.location.startLine, byteColumn, byPath);
-        if (caller === undefined || caller.id === target.id) continue;
+        const caller = enclosingSymbol(path, reference.location.startLine, byteColumn, byPath)
+          ?? fileAnchorFor(path);
+        if (caller === undefined) continue;
         references.set(caller.id, [
           ...(references.get(caller.id) ?? []),
           { targetId: target.id, kind: 'reference' },
