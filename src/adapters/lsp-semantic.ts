@@ -145,6 +145,13 @@ const waitForProviderExit = async (
   });
 };
 
+const terminateProviderProcessAndWait = async (child: ChildProcess): Promise<void> => {
+  terminateProviderProcess(child, 'SIGTERM');
+  if (await waitForProviderExit(child, gracefulTerminationWaitMs)) return;
+  terminateProviderProcess(child, 'SIGKILL');
+  await waitForProviderExit(child, forcedTerminationWaitMs);
+};
+
 export const lspLanguageIdForPath = (repoPath: string, languageIds?: Readonly<Record<string, string>>): string | undefined => {
   const extension = path.extname(repoPath).toLocaleLowerCase();
   const configured = languageIds?.[extension];
@@ -259,11 +266,7 @@ const runVersion = async (command: string, timeoutMs: number): Promise<string> =
     return await withTimeout(completed, timeoutMs);
   } catch (cause) {
     if (child.exitCode === null && child.signalCode === null) {
-      terminateProviderProcess(child, 'SIGTERM');
-      if (!await waitForProviderExit(child, 250)) {
-        terminateProviderProcess(child, 'SIGKILL');
-        await waitForProviderExit(child, 250);
-      }
+      await terminateProviderProcessAndWait(child);
     }
     throw cause;
   }
@@ -393,11 +396,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
         }
         connection.dispose();
         if (!await waitForProviderExit(child, 250)) {
-          terminateProviderProcess(child, 'SIGTERM');
-          if (!await waitForProviderExit(child, 250)) {
-            terminateProviderProcess(child, 'SIGKILL');
-            await waitForProviderExit(child, 250);
-          }
+          await terminateProviderProcessAndWait(child);
         }
       })();
       return closePromise;
@@ -472,11 +471,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
       // Initialization failure cleanup is best-effort before process termination.
     }
     if (cleanupChild !== undefined && cleanupChild.exitCode === null && cleanupChild.signalCode === null) {
-      terminateProviderProcess(cleanupChild, 'SIGTERM');
-      if (!await waitForProviderExit(cleanupChild, gracefulTerminationWaitMs)) {
-        terminateProviderProcess(cleanupChild, 'SIGKILL');
-        await waitForProviderExit(cleanupChild, forcedTerminationWaitMs);
-      }
+      await terminateProviderProcessAndWait(cleanupChild);
     }
     return failure('lsp.start', cause instanceof Error ? cause.message : 'LSP server failed to initialize', 'UNSUPPORTED_PROVIDER');
   }
