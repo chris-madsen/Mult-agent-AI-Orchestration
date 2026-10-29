@@ -8,6 +8,7 @@ const FASTEMBED = '0.7.4';
 const ONNXRUNTIME = '1.23.2';
 const NUMPY = '2.2.6';
 const HUGGINGFACE_HUB = '1.33.0';
+const PILLOW = '11.3.0';
 const pinnedHex = (name, value, length) => {
   if (!new RegExp(`^[a-f0-9]{${length}}$`, 'u').test(value)) {
     throw new Error(`BLOCKED: ${name} must be exactly ${length} lowercase hexadecimal characters`);
@@ -143,7 +144,7 @@ for (const image of imageRefs) {
   const target = `/ace/runtime/python/${pythonVersion}/site-packages`;
   await mkdir(join(output, 'runtime/python', pythonVersion, 'site-packages'), { recursive: true });
   run('docker', ['run', '--rm', '--entrypoint', 'sh', '-v', `${output}:/ace`, pinnedImage, '-lc',
-    `python3 -m pip install --disable-pip-version-check --no-input --target ${shellQuote(target)} fastembed==${FASTEMBED} onnxruntime==${ONNXRUNTIME} numpy==${NUMPY} huggingface-hub==${HUGGINGFACE_HUB}`], { stdio: 'inherit' });
+    `python3 -m pip install --disable-pip-version-check --no-input --target ${shellQuote(target)} pillow==${PILLOW} fastembed==${FASTEMBED} onnxruntime==${ONNXRUNTIME} numpy==${NUMPY} huggingface-hub==${HUGGINGFACE_HUB}`], { stdio: 'inherit' });
   run('docker', ['run', '--rm', '--entrypoint', 'sh', '-v', `${output}:/ace:ro`, pinnedImage, '-lc', [
     `export PYTHONPATH=${target}:/ace/scripts`,
     `python3 -c ${shellQuote('from PIL import Image; import PIL, fastembed, onnxruntime; print(f"pillow={PIL.__version__} fastembed={fastembed.__version__} onnxruntime={onnxruntime.__version__}")')}`,
@@ -188,6 +189,7 @@ const runtimeManifest = {
   bundleSha256,
   taskImages: imageRefs,
   pythonVersions: [...pythonVersions].sort(),
+  pillow: PILLOW,
   fastembed: FASTEMBED,
   onnxruntime: ONNXRUNTIME,
   numpy: NUMPY,

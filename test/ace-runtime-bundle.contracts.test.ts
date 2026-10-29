@@ -17,6 +17,7 @@ const validManifest = {
   bundleSha256: 'b'.repeat(64),
   taskImages: [{ reference: 'example/task:1', digest: `sha256:${'c'.repeat(64)}` }],
   pythonVersions: ['3.10', '3.11'],
+  pillow: '11.3.0',
   fastembed: '0.7.4',
   onnxruntime: '1.23.2',
   numpy: '2.2.6',
@@ -39,10 +40,12 @@ test('rejects a bundle manifest with missing image or provider pins', () => {
   const failures = validateAceRuntimeBundleManifest({
     ...validManifest,
     taskImages: [],
+    pillow: 'latest',
     fastembed: 'latest',
     embeddingArtifactDigest: 'unverified',
   });
   assert.ok(failures.includes('task_images_missing'));
+  assert.ok(failures.includes('pillow_pin_invalid'));
   assert.ok(failures.includes('fastembed_pin_invalid'));
   assert.ok(failures.includes('embeddingArtifactDigest_invalid'));
 });
@@ -69,7 +72,7 @@ test('verifies bundle bytes rather than accepting an unverified manifest digest'
     }
   }
   for (const version of validManifest.pythonVersions) {
-    for (const packageName of ['fastembed', 'onnxruntime']) {
+    for (const packageName of ['PIL', 'fastembed', 'onnxruntime']) {
       const target = join(root, 'runtime/python', version, 'site-packages', packageName, '__init__.py');
       await mkdir(join(target, '..'), { recursive: true });
       await writeFile(target, 'original');
@@ -88,6 +91,12 @@ test('verifies bundle bytes rather than accepting an unverified manifest digest'
   assert.equal(missingPython.status, 'not_ready');
   assert.match(missingPython.reason, /missing Python packages/u);
   await writeFile(missingPythonFile, 'original');
+  const missingPillowFile = join(root, 'runtime/python/3.10/site-packages/PIL/__init__.py');
+  await rm(missingPillowFile);
+  const missingPillow = await verifyAceRuntimeBundle(root, bundleSha256);
+  assert.equal(missingPillow.status, 'not_ready');
+  assert.match(missingPillow.reason, /missing Python packages/u);
+  await writeFile(missingPillowFile, 'original');
   await writeFile(join(root, 'dist/bin/ace-mcp.js'), 'modified');
   const tampered = await verifyAceRuntimeBundle(root, bundleSha256);
   assert.equal(tampered.status, 'not_ready');
@@ -96,6 +105,7 @@ test('verifies bundle bytes rather than accepting an unverified manifest digest'
 
 test('Docker runtime uses the same valid NumPy pin as the Harbor bundle contract', async () => {
   const dockerfile = await readFile('Dockerfile.ace', 'utf8');
+  assert.ok(dockerfile.includes('pillow==11.3.0'));
   assert.ok(dockerfile.includes('numpy==2.2.6'));
   assert.ok(dockerfile.includes('onnxruntime==1.23.2'));
   assert.ok(!dockerfile.includes('numpy==2.5.4'));
@@ -158,5 +168,6 @@ test('Harbor runtime builder validates exact embedding pins and native Python im
   const builder = await readFile('scripts/build-harbor-ace-runtime.mjs', 'utf8');
   assert.match(builder, /must be exactly \$\{length\} lowercase hexadecimal characters/u);
   assert.match(builder, /pinnedHex\('ACE_EMBEDDING_ARTIFACT_DIGEST'/u);
+  assert.match(builder, /pillow==\$\{PILLOW\}/u);
   assert.match(builder, /from PIL import Image; import PIL, fastembed, onnxruntime/u);
 });
