@@ -386,7 +386,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
       if (!nonEmptyString(value.uri) || !Array.isArray(value.diagnostics)) return;
       const uri = value.uri;
       const repoPath = repoPathForUri(options.rootPath, uri);
-      if (repoPath !== undefined && Number.isSafeInteger(value.version)) {
+      if (repoPath !== undefined && typeof value.version === 'number' && Number.isSafeInteger(value.version)) {
         const currentVersion = versions.get(repoPath);
         if (currentVersion !== undefined && value.version !== currentVersion) return;
       }
