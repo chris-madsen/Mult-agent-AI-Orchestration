@@ -158,5 +158,5 @@ test('Harbor runtime builder validates exact embedding pins and native Python im
   const builder = await readFile('scripts/build-harbor-ace-runtime.mjs', 'utf8');
   assert.match(builder, /must be exactly \$\{length\} lowercase hexadecimal characters/u);
   assert.match(builder, /pinnedHex\('ACE_EMBEDDING_ARTIFACT_DIGEST'/u);
-  assert.match(builder, /from PIL import Image; import fastembed, onnxruntime/u);
+  assert.match(builder, /from PIL import Image; import PIL, fastembed, onnxruntime/u);
 });

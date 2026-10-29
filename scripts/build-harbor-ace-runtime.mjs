@@ -146,7 +146,7 @@ for (const image of imageRefs) {
     `python3 -m pip install --disable-pip-version-check --no-input --target ${shellQuote(target)} fastembed==${FASTEMBED} onnxruntime==${ONNXRUNTIME} numpy==${NUMPY} huggingface-hub==${HUGGINGFACE_HUB}`], { stdio: 'inherit' });
   run('docker', ['run', '--rm', '--entrypoint', 'sh', '-v', `${output}:/ace:ro`, pinnedImage, '-lc', [
     `export PYTHONPATH=${target}:/ace/scripts`,
-    `python3 -c ${shellQuote('from PIL import Image; import fastembed, onnxruntime; print(f"pillow={Image.__module__} fastembed={fastembed.__version__} onnxruntime={onnxruntime.__version__}")')}`,
+    `python3 -c ${shellQuote('from PIL import Image; import PIL, fastembed, onnxruntime; print(f"pillow={PIL.__version__} fastembed={fastembed.__version__} onnxruntime={onnxruntime.__version__}")')}`,
   ].join(' && ')], { stdio: 'inherit' });
 }
 
