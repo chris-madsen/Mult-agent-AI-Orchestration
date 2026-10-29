@@ -68,6 +68,19 @@ These changes are committed in PR #187 but are not attributed to the historical 
 - The Qdrant context adapter can consume a RepoMap provider, but production composition does not inject one until a structural def/ref graph owner exists. Any injected/test RepoMap evidence is fail-closed as `unknown` until every rendered source is exact-reread at the request boundary; structural coverage cannot be `satisfied` merely because Qdrant returned code hits.
 - Qdrant coverage degradation now uses the resolved `includeCode` default when marking incomplete index coverage, so omitted `include_code` cannot turn failed indexed paths into a false complete bundle.
 
+## PR #188 R2 shared structural-record slice — pending final-head evidence
+
+This PR is deliberately scoped to the R2 record boundary. It does not activate a production RepoMap implementation and does not close Aider parity, LSP lifecycle, real-provider, production-readiness, quality-parity or token-savings gates.
+
+- Active structural runtime still uses the official ast-grep CLI outline path for `provider=auto`; explicit NAPI remains experimental parity research.
+- The canonical per-file `StructuralAnalysis` can now carry optional identifier occurrences with exact byte ranges. The explicit NAPI provider collects those occurrences during the same already-existing tree traversal that produces declarations; the production CLI path is not given a second parse pass merely to manufacture reference data.
+- Identifier coverage remains optional: the production CLI record leaves it `undefined`, while a provider that actually supplies occurrence coverage can return `[]` for a known-empty result or a non-empty byte-bound array. Absence is not converted into false empty coverage.
+- `LocalCodeIndexBuild` retains those digest-bound structural records in path-keyed state and reuses the record only when the authoritative source digest still matches. This is preparatory R2 state for changed-path consumers; it is not evidence that all remaining index work is O(changed bytes).
+- NAPI identifier occurrences are not claimed as full language-independent definition/reference parity. Grammar-specific node kinds, declaration/reference classification, cross-file binding, frozen CLI/NAPI parity and the eventual shared tag contract remain R2 gaps.
+- Production RepoMap remains `NOT_READY` in this slice. The current custom graph/rank/render implementation is still the R3 deviation documented above and is not injected into the runtime until the pinned Aider graph/ranking/rendering behavior has a frozen comparison and the R2 tag contract is sufficient.
+- This PR does not change the LSP lifecycle or termination policy. LSP remains optional bounded enrichment after candidate selection as established by the previous retrieval follow-up.
+- Existing Qdrant, ContextAssembler and freshness behavior is unchanged by this R2 slice.
+
 ## Historical PR-A evidence — runtime SHA `4e44252db0fa63305398d87a96bde5e410e183f2`
 
 Evidence below predates the later PR #187 lifecycle, lazy-LSP and source-plan fixes. It remains historical evidence for that runtime and must not be treated as acceptance evidence for the final PR #187 head. The run used `sourceCleanAtBuild=true` and local Qdrant `qdrant/1.19.2`:

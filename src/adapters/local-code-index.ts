@@ -29,8 +29,8 @@ import { structuralExtensions, structuralLanguageForPath } from '../domain/struc
 
 export interface LocalCodeIndexBuild {
   readonly index: CodeIndex;
-  /** Shared provider output consumed by both Qdrant candidates and RepoMap. */
-  readonly structuralAnalyses?: readonly StructuralAnalysis[];
+  /** Digest-bound shared parser records retained by path for downstream consumers. */
+  readonly structuralAnalysesByPath?: ReadonlyMap<RepoPath, StructuralAnalysis>;
   readonly warnings: readonly string[];
   readonly indexedPaths: readonly RepoPath[];
   readonly coverage: IndexCoverageSummary;
@@ -226,9 +226,8 @@ export const buildLocalCodeIndex = (
         return entries;
       }, new Map<RepoPath, readonly CodeCandidate[]>()),
     );
-    const previousStructuralAnalyses = new Map<RepoPath, StructuralAnalysis>(
-      (previous?.structuralAnalyses ?? []).map((analysis) => [analysis.repoPath as RepoPath, analysis]),
-    );
+    const previousStructuralAnalyses = previous?.structuralAnalysesByPath
+      ?? new Map<RepoPath, StructuralAnalysis>();
     const previousFailures = new Map<RepoPath, readonly IndexCoverageFailure[]>(
       [...(previous?.coverage.failures ?? [])].reduce((entries, failure) => {
         const current = entries.get(failure.repoPath) ?? [];
@@ -266,7 +265,7 @@ export const buildLocalCodeIndex = (
     // Build once: linear duplicate detection + one array allocation, rather than
     // O(n²) scans/copies for every structural symbol.
     const candidates: CodeCandidate[] = [...reusableCandidates];
-    const structuralAnalyses: StructuralAnalysis[] = [];
+    const structuralAnalysesByPath = new Map<RepoPath, StructuralAnalysis>();
     const candidateIds = new Set(candidates.map((candidate) => candidate.candidateId));
     if (candidateIds.size !== candidates.length) {
       return err(domainError('INVALID_RETRIEVAL', 'candidate_id', 'duplicate candidate id'));
@@ -302,7 +301,17 @@ export const buildLocalCodeIndex = (
         });
         if (previous?.indexedPaths.includes(observation.repoPath)) indexedPaths.push(observation.repoPath);
         const previousStructural = previousStructuralAnalyses.get(observation.repoPath);
-        if (previousStructural !== undefined) structuralAnalyses.push(previousStructural);
+        if (previousStructural !== undefined) {
+          if (previousStructural.repoPath !== observation.repoPath
+            || previousStructural.sourceDigest !== observation.digest) {
+            return err(domainError(
+              'INVALID_RETRIEVAL',
+              observation.repoPath,
+              'reused structural analysis identity does not match the authoritative snapshot',
+            ));
+          }
+          structuralAnalysesByPath.set(observation.repoPath, previousStructural);
+        }
         continue;
       }
       const exact = yield* files.readExact(rootPath, observation.repoPath);
@@ -371,6 +380,15 @@ export const buildLocalCodeIndex = (
         continue;
       }
       const analyzedValue = analyzed.value;
+      if (analyzedValue.repoPath !== pending.repoPath) {
+        warnings.push(pending.repoPath + ': structural provider returned a mismatched repository path');
+        coverageFailures.push({
+          repoPath: pending.repoPath,
+          kind: 'structural_failed',
+          code: 'INVALID_EXTERNAL_RESPONSE',
+        });
+        continue;
+      }
       if (analyzedValue.sourceDigest !== pending.digest) {
         warnings.push(pending.repoPath + ': structural source digest mismatch');
         coverageFailures.push({ repoPath: pending.repoPath, kind: 'digest_mismatch' });
@@ -380,7 +398,7 @@ export const buildLocalCodeIndex = (
         warnings.push(pending.repoPath + ': structural provider reports syntax errors; parseable symbols are partial evidence');
         coverageFailures.push({ repoPath: pending.repoPath, kind: 'parser_partial' });
       }
-      structuralAnalyses.push(analyzedValue);
+      structuralAnalysesByPath.set(pending.repoPath, analyzedValue);
       const spans = structuralSpans(pending.bytes, analyzedValue.symbols);
       for (const span of spans) {
         const id = makeCandidateId(candidateId(workspaceId, pending.repoPath, pending.digest, span));
@@ -415,7 +433,7 @@ export const buildLocalCodeIndex = (
     if (indexResult._tag === 'Err') return indexResult;
     return ok({
       index: indexResult.value,
-      structuralAnalyses: structuralAnalyses.sort((left, right) => left.repoPath.localeCompare(right.repoPath)),
+      structuralAnalysesByPath,
       warnings,
       indexedPaths,
       coverage: {

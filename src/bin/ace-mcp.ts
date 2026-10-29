@@ -708,33 +708,39 @@ const main = async (): Promise<void> => {
             const removedSymbolIds = verification === 'incremental'
               ? changedPaths.flatMap((repoPath) => repoMapSymbolIdsByPath.get(repoPath) ?? [])
               : [];
-            const repoMapDelta = await Effect.runPromise(buildRepoMapDelta({
-              candidates: build.index.candidates,
-              ...(build.structuralAnalyses === undefined ? {} : { structuralAnalyses: build.structuralAnalyses }),
-              sourceBytesByPath,
-              ...(changedPathSet === undefined ? {} : { upsertPaths: changedPathSet }),
-              removedSymbolIds,
-            }));
-            if (repoMapDelta._tag === 'Err') {
+            const structuralAnalyses = [...(build.structuralAnalysesByPath?.values() ?? [])];
+            if (!structuralAnalyses.some((analysis) => analysis.identifiers !== undefined)) {
               activeRepoMap = undefined;
-              process.stderr.write(`ace-mcp RepoMap NOT_READY: structural graph assembly failed (${repoMapDelta.error.code})\n`);
+              process.stderr.write('ace-mcp RepoMap NOT_READY: selected structural provider has no shared identifier records; refusing a second parser pass\n');
             } else {
-              const updatedRepoMap = await Effect.runPromise(repoMapService.update(repoMapDelta.value));
-              if (updatedRepoMap._tag === 'Err') {
+              const repoMapDelta = await Effect.runPromise(buildRepoMapDelta({
+                candidates: build.index.candidates,
+                structuralAnalyses,
+                sourceBytesByPath,
+                ...(changedPathSet === undefined ? {} : { upsertPaths: changedPathSet }),
+                removedSymbolIds,
+              }));
+              if (repoMapDelta._tag === 'Err') {
                 activeRepoMap = undefined;
-                process.stderr.write(`ace-mcp RepoMap NOT_READY: structural graph update failed (${updatedRepoMap.error.code})\n`);
+                process.stderr.write(`ace-mcp RepoMap NOT_READY: structural graph assembly failed (${repoMapDelta.error.code})\n`);
               } else {
-                for (const repoPath of changedPaths) repoMapSymbolIdsByPath.delete(repoPath);
-                for (const symbol of repoMapDelta.value.upserted) {
-                  repoMapSymbolIdsByPath.set(symbol.repoPath, [
-                    ...(repoMapSymbolIdsByPath.get(symbol.repoPath) ?? []),
-                    symbol.id,
-                  ]);
+                const updatedRepoMap = await Effect.runPromise(repoMapService.update(repoMapDelta.value));
+                if (updatedRepoMap._tag === 'Err') {
+                  activeRepoMap = undefined;
+                  process.stderr.write(`ace-mcp RepoMap NOT_READY: structural graph update failed (${updatedRepoMap.error.code})\n`);
+                } else {
+                  for (const repoPath of changedPaths) repoMapSymbolIdsByPath.delete(repoPath);
+                  for (const symbol of repoMapDelta.value.upserted) {
+                    repoMapSymbolIdsByPath.set(symbol.repoPath, [
+                      ...(repoMapSymbolIdsByPath.get(symbol.repoPath) ?? []),
+                      symbol.id,
+                    ]);
+                  }
+                  for (const [repoPath, ids] of repoMapSymbolIdsByPath) {
+                    repoMapSymbolIdsByPath.set(repoPath, [...new Set(ids)]);
+                  }
+                  activeRepoMap = repoMapService;
                 }
-                for (const [repoPath, ids] of repoMapSymbolIdsByPath) {
-                  repoMapSymbolIdsByPath.set(repoPath, [...new Set(ids)]);
-                }
-                activeRepoMap = repoMapService;
               }
             }
             const lspProviderIdentity = commandBoundaryExists(lspCommand)
