@@ -717,9 +717,12 @@ const main = async (): Promise<void> => {
               ? changedPaths.flatMap((repoPath) => repoMapSymbolIdsByPath.get(repoPath) ?? [])
               : [];
             const structuralAnalyses = [...(build.structuralAnalysesByPath?.values() ?? [])];
-            if (!structuralAnalyses.some((analysis) => analysis.identifiers !== undefined)) {
+            const missingReferenceCoverage = structuralAnalyses.filter((analysis) =>
+              analysis.symbols.length > 0 && analysis.identifiers === undefined);
+            if (missingReferenceCoverage.length > 0
+              || !structuralAnalyses.some((analysis) => analysis.identifiers !== undefined)) {
               activeRepoMap = undefined;
-              process.stderr.write('ace-mcp RepoMap NOT_READY: selected structural provider has no shared identifier records; refusing a second parser pass\n');
+              process.stderr.write(`ace-mcp RepoMap NOT_READY: shared def/ref records incomplete for ${missingReferenceCoverage.length} structural files; refusing a second parser pass\n`);
             } else {
               const repoMapDelta = await Effect.runPromise(buildRepoMapDelta({
                 candidates: build.index.candidates,
