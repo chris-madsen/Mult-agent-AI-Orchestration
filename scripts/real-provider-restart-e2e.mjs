@@ -4,9 +4,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { resolveRealProviderRuntime } from './real-provider-runtime.mjs';
 
-const repository = resolve(import.meta.dirname, '..');
+const runtime = await resolveRealProviderRuntime(import.meta.dirname);
 const root = await mkdtemp(join(tmpdir(), 'ace-restart-provider-'));
 const workspace = join(root, 'workspace');
 const state = join(root, 'state');
@@ -19,18 +20,20 @@ const publishedCollections = new Set();
 const digest = async () => createHash('sha256').update(await readFile(sourcePath)).digest('hex');
 
 const runOnce = () => new Promise((resolveRun, rejectRun) => {
-  const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
-    cwd: repository,
+  const child = spawn(process.execPath, [runtime.executable], {
+    cwd: runtime.runtimeRoot,
     env: {
       ...process.env,
+      ACE_RUNTIME_ROOT: runtime.runtimeRoot,
       ACE_WORKSPACE_ROOT: workspace,
       ACE_ALLOWED_ROOTS: root,
       ACE_STATE_DIR: state,
       ACE_WORKSPACE_ID: workspaceId,
       ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
+      ACE_RETRIEVAL_STRATEGY: process.env.ACE_RETRIEVAL_STRATEGY?.trim() || 'dense',
       ACE_QDRANT_URL: qdrantUrl,
-      ACE_EMBEDDING_WORKER: resolve(import.meta.dirname, 'fastembed-worker.sh'),
-      ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
+      ACE_EMBEDDING_WORKER: process.env.ACE_EMBEDDING_WORKER ?? runtime.embeddingWorker,
+      ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND ?? runtime.astGrepCommand,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });

@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "evidence": "real-qdrant-snapshot-concurrency",
+  "generatedAt": "2026-10-30T16:43:38.969Z",
+  "sourceCommit": "34816d17fb51f6b9706a188d7a4e5d0177968886",
+  "fixture": {
+    "workspaceId": "qdrant-concurrency-6d52a581-a3ed-4f52-85f1-a9b6e910909d",
+    "sourcePath": "src/concurrent-sentinel.ts",
+    "sourceDigest": "6bcfe64a5c0d0fd044b01c49363bfdc196003d3361d4778e2972cb59fe1f1609"
+  },
+  "runtime": {
+    "node": "v24.15.0",
+    "qdrant": "qdrant/1.19.2",
+    "qdrantUrlKind": "local-loopback",
+    "embeddingWorker": "fastembed-worker.sh",
+    "astGrepCommand": "ast-grep",
+    "embeddingDelayMs": 750
+  },
+  "concurrency": {
+    "elapsedMs": 1151,
+    "collection": "ace_d8d2450a45eb_1d0d9baa947176f2_a9eff6effbbab6ab",
+    "publicationMode": "stable_collection_direct",
+    "indexKey": "5a3b77b997098d510606d622b71158dfae281ac6c85297e84566b15273e835ef",
+    "retrievalFingerprint": "a9eff6effbbab6abebc93d33de8fabca6db1448adc744967f090101ff7a0cbdd",
+    "writers": [
+      {
+        "label": "writer-a",
+        "metrics": {
+          "indexKey": "5a3b77b997098d510606d622b71158dfae281ac6c85297e84566b15273e835ef",
+          "retrievalFingerprint": "a9eff6effbbab6abebc93d33de8fabca6db1448adc744967f090101ff7a0cbdd",
+          "collection": "ace_d8d2450a45eb_1d0d9baa947176f2_a9eff6effbbab6ab",
+          "indexMode": "warm_reused",
+          "embeddingIdentity": "1d0d9baa9471",
+          "structuralIdentity": "b7c65fde7c4d",
+          "publicationMode": "stable_collection_direct"
+        },
+        "requestId": "e742aa94-292e-45c6-ba48-62ce5dbda133"
+      },
+      {
+        "label": "writer-b",
+        "metrics": {
+          "indexKey": "5a3b77b997098d510606d622b71158dfae281ac6c85297e84566b15273e835ef",
+          "retrievalFingerprint": "a9eff6effbbab6abebc93d33de8fabca6db1448adc744967f090101ff7a0cbdd",
+          "collection": "ace_d8d2450a45eb_1d0d9baa947176f2_a9eff6effbbab6ab",
+          "indexMode": "rebuilt",
+          "embeddingIdentity": "1d0d9baa9471",
+          "structuralIdentity": "b7c65fde7c4d",
+          "publicationMode": "stable_collection_direct"
+        },
+        "requestId": "9152b201-dae8-49ad-a76c-8664b57c8b29"
+      }
+    ]
+  },
+  "checks": {
+    "bothRequestsComplete": "PASS",
+    "bothCitationsCurrent": "PASS",
+    "citationsShareD1Digest": "PASS",
+    "writersConvergedOnIndexKey": "PASS",
+    "writersConvergedOnProviderFingerprint": "PASS",
+    "stableCollectionExists": "PASS",
+    "noDuplicateCollectionForSameIndex": "PASS"
+  },
+  "providerTraceDigests": {
+    "writerA": "0fcf1a840cb00665624ffb7894dce1774a8ed09a3183399a330c1b0e88f43289",
+    "writerB": "01b8c6bbb7bc1d04163d05998e94a6edfb149df73b6c5f0d65c145f1562f4e1d"
+  },
+  "claims": {
+    "sameSnapshotConcurrencyMeasured": true,
+    "productionApproved": false,
+    "tokenSavings5x": false,
+    "graphitiLocalOnly": false,
+    "note": "Real local-provider concurrency evidence only; it does not close W04 production gates or approve Graphiti/OAuth/Vertex claims."
+  }
+}

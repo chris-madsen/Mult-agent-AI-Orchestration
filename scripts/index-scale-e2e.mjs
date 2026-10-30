@@ -5,8 +5,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
+import { resolveRealProviderRuntime } from './real-provider-runtime.mjs';
 
-const repository = resolve(import.meta.dirname, '..');
+const runtime = await resolveRealProviderRuntime(import.meta.dirname);
 
 const parseArgs = (argv) => {
   const parsed = { files: undefined, changed: 10, output: undefined };
@@ -121,20 +122,22 @@ const parseStartupMetrics = (stderr) => {
 const runOnce = (workspace, state, workspaceId, phase, beforeQuery) => new Promise((resolveRun, rejectRun) => {
   const startedNs = process.hrtime.bigint();
   const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
-  const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
-    cwd: repository,
+  const child = spawn(process.execPath, [runtime.executable], {
+    cwd: runtime.runtimeRoot,
     env: {
       ...process.env,
+      ACE_RUNTIME_ROOT: runtime.runtimeRoot,
       ACE_WORKSPACE_ROOT: workspace,
       ACE_ALLOWED_ROOTS: resolve(workspace, '..'),
       ACE_STATE_DIR: state,
       ACE_WORKSPACE_ID: workspaceId,
       ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
+      ACE_RETRIEVAL_STRATEGY: process.env.ACE_RETRIEVAL_STRATEGY?.trim() || 'dense',
       ACE_QDRANT_URL: qdrantUrl,
       ACE_EMBEDDING_WORKER: process.env.ACE_EMBEDDING_WORKER
-        ?? resolve(import.meta.dirname, 'fastembed-worker.sh'),
+        ?? runtime.embeddingWorker,
       ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND
-        ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
+        ?? runtime.astGrepCommand,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -329,10 +332,7 @@ const workspaceId = `index-scale-${options.files}-${randomUUID()}`;
 try {
   await writeFixtureFiles(workspace);
   initializeGit(workspace);
-  const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
-    cwd: repository,
-    encoding: 'utf8',
-  }).trim().toLowerCase();
+  const sourceCommit = runtime.sourceCommit;
 
   const d1Path = `src/${fileName(0)}`;
   const d1Digest = await sha256File(filePath(workspace, 0));

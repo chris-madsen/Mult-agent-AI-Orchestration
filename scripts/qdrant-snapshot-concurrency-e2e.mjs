@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import {
   mkdir,
   mkdtemp,
@@ -11,8 +11,9 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
+import { resolveRealProviderRuntime } from './real-provider-runtime.mjs';
 
-const repository = resolve(import.meta.dirname, '..');
+const runtime = await resolveRealProviderRuntime(import.meta.dirname);
 const timeoutMs = Number(process.env.ACE_QDRANT_CONCURRENCY_TIMEOUT_MS ?? 20 * 60_000);
 if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 60_000 || timeoutMs > 60 * 60_000) {
   throw new Error('ACE_QDRANT_CONCURRENCY_TIMEOUT_MS must be between 60000 and 3600000');
@@ -34,10 +35,7 @@ const state = join(root, 'shared-state');
 const workspaceId = `qdrant-concurrency-${randomUUID()}`;
 const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
 const embeddingDelayMs = process.env.ACE_QDRANT_CONCURRENCY_EMBEDDING_DELAY_MS?.trim() || '750';
-const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
-  cwd: repository,
-  encoding: 'utf8',
-}).trim().toLowerCase();
+const sourceCommit = runtime.sourceCommit;
 const publishedCollections = new Set();
 
 const sourcePath = join(workspace, 'src', 'concurrent-sentinel.ts');
@@ -88,22 +86,24 @@ const parseStartupMetrics = (stderr) => {
 
 const makeClient = (label) => {
   const traceFile = join(root, `${label}-provider-trace.jsonl`);
-  const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
-    cwd: repository,
+  const child = spawn(process.execPath, [runtime.executable], {
+    cwd: runtime.runtimeRoot,
     env: {
       ...process.env,
+      ACE_RUNTIME_ROOT: runtime.runtimeRoot,
       ACE_WORKSPACE_ROOT: workspace,
       ACE_ALLOWED_ROOTS: root,
       ACE_STATE_DIR: state,
       ACE_WORKSPACE_ID: workspaceId,
       ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
+      ACE_RETRIEVAL_STRATEGY: process.env.ACE_RETRIEVAL_STRATEGY?.trim() || 'dense',
       ACE_QDRANT_URL: qdrantUrl,
       ACE_PROVIDER_TRACE_FILE: traceFile,
       ACE_EMBEDDING_DELAY_MS: embeddingDelayMs,
       ACE_EMBEDDING_WORKER: process.env.ACE_EMBEDDING_WORKER
-        ?? resolve(import.meta.dirname, 'fastembed-worker.sh'),
+        ?? runtime.embeddingWorker,
       ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND
-        ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
+        ?? runtime.astGrepCommand,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });

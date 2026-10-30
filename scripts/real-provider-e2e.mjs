@@ -4,8 +4,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { resolveRealProviderRuntime } from './real-provider-runtime.mjs';
 
+const runtime = await resolveRealProviderRuntime(import.meta.dirname);
 const root = await mkdtemp(join(tmpdir(), 'ace-real-provider-'));
 const workspace = join(root, 'workspace');
 await mkdir(workspace);
@@ -55,19 +57,21 @@ const requestTimeoutMs = Number(process.env.ACE_REAL_PROVIDER_TIMEOUT_MS ?? 180_
 if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 10_000 || requestTimeoutMs > 600_000) {
   throw new Error('ACE_REAL_PROVIDER_TIMEOUT_MS must be an integer between 10000 and 600000');
 }
-const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
-  cwd: resolve(import.meta.dirname, '..'),
+const child = spawn(process.execPath, [runtime.executable], {
+  cwd: runtime.runtimeRoot,
   detached: process.platform !== 'win32',
   env: {
     ...process.env,
+    ACE_RUNTIME_ROOT: runtime.runtimeRoot,
     ACE_WORKSPACE_ROOT: workspace,
     ACE_ALLOWED_ROOTS: root,
     ACE_STATE_DIR: join(root, 'state'),
     ACE_WORKSPACE_ID: workspaceId,
     ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
+    ACE_RETRIEVAL_STRATEGY: process.env.ACE_RETRIEVAL_STRATEGY?.trim() || 'dense',
     ACE_QDRANT_URL: outage || hardOutage ? 'http://127.0.0.1:6339' : qdrantUrl,
-    ACE_EMBEDDING_WORKER: resolve(import.meta.dirname, 'fastembed-worker.sh'),
-    ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
+    ACE_EMBEDDING_WORKER: process.env.ACE_EMBEDDING_WORKER ?? runtime.embeddingWorker,
+    ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND ?? runtime.astGrepCommand,
     ...(race ? {
       // The runtime forwards the artificial delay only under its explicit
       // test-only double opt-in; production runs never receive this knob.
@@ -189,7 +193,11 @@ const request = (id, message) => new Promise((resolveResponse, reject) => {
     waiters.delete(id);
     settlement();
   };
-  timer = setTimeout(() => settle(() => reject(new Error(`MCP request ${id} timed out after ${requestTimeoutMs}ms; stderr=${stderr.join('').slice(-2000)}`))), requestTimeoutMs);
+  timer = setTimeout(() => settle(() => {
+    const detail = `MCP request ${id} timed out after ${requestTimeoutMs}ms; stderr=${stderr.join('').slice(-2000)}`;
+    process.stderr.write(`${JSON.stringify({ status: 'blocked', code: 'RUNNER_TIMEOUT', detail })}\n`);
+    reject(new Error(detail));
+  }), requestTimeoutMs);
   const existing = responses.get(id);
   if (existing !== undefined) {
     responses.delete(id);

@@ -13,8 +13,9 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
+import { resolveRealProviderRuntime } from './real-provider-runtime.mjs';
 
-const repository = resolve(import.meta.dirname, '..');
+const runtime = await resolveRealProviderRuntime(import.meta.dirname);
 const timeoutMs = Number(process.env.ACE_QDRANT_CRASH_E2E_TIMEOUT_MS ?? 20 * 60_000);
 if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 60_000 || timeoutMs > 60 * 60_000) {
   throw new Error('ACE_QDRANT_CRASH_E2E_TIMEOUT_MS must be between 60000 and 3600000');
@@ -36,10 +37,7 @@ const traces = {
 };
 const workspaceId = `qdrant-crash-${randomUUID()}`;
 const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
-const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
-  cwd: repository,
-  encoding: 'utf8',
-}).trim().toLowerCase();
+const sourceCommit = runtime.sourceCommit;
 
 const git = (args) => execFileSync('git', args, {
   cwd: workspace,
@@ -78,17 +76,19 @@ const mutateToV2 = async () => {
 
 const baseEnv = (stateDir, traceFile, failpoint = false) => ({
   ...process.env,
+  ACE_RUNTIME_ROOT: runtime.runtimeRoot,
   ACE_WORKSPACE_ROOT: workspace,
   ACE_ALLOWED_ROOTS: root,
   ACE_STATE_DIR: stateDir,
   ACE_WORKSPACE_ID: workspaceId,
   ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
+  ACE_RETRIEVAL_STRATEGY: process.env.ACE_RETRIEVAL_STRATEGY?.trim() || 'dense',
   ACE_QDRANT_URL: qdrantUrl,
   ACE_PROVIDER_TRACE_FILE: traceFile,
   ACE_EMBEDDING_WORKER: process.env.ACE_EMBEDDING_WORKER
-    ?? resolve(import.meta.dirname, 'fastembed-worker.sh'),
+    ?? runtime.embeddingWorker,
   ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND
-    ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
+    ?? runtime.astGrepCommand,
   ...(failpoint ? {
     ACE_ENABLE_TEST_FAILPOINTS: 'true',
     ACE_TEST_FAILPOINT: 'after_qdrant_verify_before_publish',
@@ -99,8 +99,8 @@ const baseEnv = (stateDir, traceFile, failpoint = false) => ({
 });
 
 const makeProtocolProcess = (label, stateDir, traceFile) => {
-  const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
-    cwd: repository,
+  const child = spawn(process.execPath, [runtime.executable], {
+    cwd: runtime.runtimeRoot,
     env: baseEnv(stateDir, traceFile),
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -256,8 +256,8 @@ const qdrantCollectionExists = async (collection) => {
 };
 
 const runCrashWriter = async () => {
-  const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
-    cwd: repository,
+  const child = spawn(process.execPath, [runtime.executable], {
+    cwd: runtime.runtimeRoot,
     env: baseEnv(writerState, traces.crashedWriter, true),
     stdio: ['pipe', 'pipe', 'pipe'],
   });

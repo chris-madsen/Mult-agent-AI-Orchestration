@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-30T10:49:11.791Z",
-  "sourceCommit": "9a242ca24eef00c1425998e9ba8ed81aa84bbb65",
+  "generatedAt": "2026-10-30T14:12:26.550Z",
+  "sourceCommit": "34816d17fb51f6b9706a188d7a4e5d0177968886",
   "command": "npm run test:real-same-name",
   "status": "provider-pass",
   "contract": "DBC-04",

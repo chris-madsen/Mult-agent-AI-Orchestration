@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "evidence": "current-main-retrieval-gates",
+  "sourceCommit": "34816d17fb51f6b9706a188d7a4e5d0177968886",
+  "sourceCleanAtBuild": true,
+  "runtimeBundle": {
+    "sourceCommit": "34816d17fb51f6b9706a188d7a4e5d0177968886",
+    "bundleSha256": "60dfb180797e7c244d0c8be3ff01157eca5be5d55d22651ed19fc2a18813048d",
+    "taskImage": "ace-local-hermes:ace-local-smoke-paired-fast@sha256:c0529227d3303b66115cd246d39c552cb591eed58c906d412e7883824d294dbc",
+    "python": "3.11",
+    "pillow": "11.3.0",
+    "fastembed": "0.7.4",
+    "onnxruntime": "1.23.2"
+  },
+  "deterministic": {
+    "verifyPr": "PASS: 677/677 TypeScript tests, Hermes plugin 20/20, lint, build",
+    "openspec": "PASS: 9/9"
+  },
+  "napiParity": {
+    "status": "BLOCKED",
+    "fileCount": 125,
+    "equivalent": false,
+    "differences": 1409,
+    "byKind": {
+      "missing_from_cli": 827,
+      "missing_from_napi": 465,
+      "range_mismatch": 116,
+      "syntax_mismatch": 1
+    },
+    "productionDefault": "official ast-grep CLI",
+    "command": "npm exec -- tsx scripts/ast-grep-provider-parity.ts src"
+  },
+  "ownershipCutover": {
+    "status": "BLOCKED",
+    "reason": "legacy retrieval composition remains reachable through qdrant-context-provider.ts, ace-mcp.ts, local-code-index.ts and public exports; no deletion was attempted"
+  },
+  "runnerHardening": {
+    "status": "PASS",
+    "contracts": "6/6",
+    "sourceRuntimeSeparation": true,
+    "sourceCommitBinding": true
+  },
+  "realProvider": {
+    "provider": "PASS: current citation service.ts:1-25, complete=true, expansion=63482 bytes",
+    "race": "PASS: reconciled-current, complete=true",
+    "raceEvidence": {
+      "outcome": "reconciled-current",
+      "complete": true,
+      "warning": "service.ts: exact structural identifier anchor is unavailable for requested LSP enrichment"
+    },
+    "outage": "PASS: honest NOT_READY provider failure",
+    "restart": "PASS: cold generation, warm reuse, changed-source rebuild, stable_collection_direct",
+    "restartEvidence": {
+      "firstGeneration": 1,
+      "warmGeneration": 2,
+      "secondGeneration": 3,
+      "warmIndexReused": true,
+      "collection": "ace_a44ccf5b95f6_1d0d9baa947176f2_a9eff6effbbab6ab",
+      "publicationMode": "stable_collection_direct",
+      "firstDigest": "af54532725fa378c039f9d1d819a03096a82a85aaa4bc3b1642d51fb5aa99528",
+      "secondDigest": "054d87d0189a6e9df618eb362b41a6e2fa99af87708f22b7db9020efed2a0494"
+    },
+    "scale": "PASS: 100-file cold/warm/change-only/rename/delete/untracked fixture; content index-key transition and D2 digest verified",
+    "crash": "PASS: stable collection retained across failpoint SIGKILL; reader reconciled current source; restart published S2",
+    "concurrency": "PASS: two writers completed, current citations, converged index/provider fingerprints, no duplicate collection",
+    "priorBlockedAttempt": "Before runner hardening, separate runtime execution was rejected because current-main runners bound dist/bin/ace-mcp.js to the source worktree while ACE_RUNTIME_ROOT pointed to the bundle",
+    "commands": [
+      "node scripts/real-provider-e2e.mjs",
+      "node scripts/real-provider-e2e.mjs with ACE_REAL_PROVIDER_RACE=true",
+      "node scripts/real-provider-e2e.mjs with ACE_REAL_PROVIDER_OUTAGE=true",
+      "node scripts/real-provider-restart-e2e.mjs",
+      "node scripts/index-scale-e2e.mjs --files 100",
+      "node scripts/qdrant-snapshot-crash-e2e.mjs",
+      "node scripts/qdrant-snapshot-concurrency-e2e.mjs"
+    ],
+    "retainedArtifacts": [
+      "benchmarks/reports/real-qdrant-concurrency-34816d1.json"
+    ]
+  },
+  "lsp": {
+    "sameName": "PASS: DBC-04, ast-grep 0.51.0 + typescript-language-server 6.0.2",
+    "nonTs": "FAIL/BLOCKED: rust-analyzer path returned EXTERNAL_UNAVAILABLE content modified during definition query"
+  },
+  "harborHermes": {
+    "status": "NOT_RUN",
+    "reason": "exact-current native/ACE Hermes jobs and model-bound experiment binding are absent"
+  },
+  "claims": {
+    "productionReadiness": false,
+    "qualityParity": false,
+    "tokenSavings": false,
+    "fiveXTargetReached": false
+  }
+}

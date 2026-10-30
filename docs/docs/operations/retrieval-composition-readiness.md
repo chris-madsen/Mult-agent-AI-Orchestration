@@ -39,7 +39,7 @@ Required on the final reviewed SHA:
 
 Still deferred:
 
-- NAPI-vs-CLI symbol/range parity before making NAPI the default; the frozen representative fixture passes, while the current `src` comparison remains `BLOCKED` with 125 files and 1,386 differences (`missing_from_cli=809`, `missing_from_napi=462`, `range_mismatch=114`, `syntax_mismatch=1`), so NAPI remains opt-in;
+- NAPI-vs-CLI symbol/range parity before making NAPI the default; the frozen representative fixture passes, while the current `src` comparison remains `BLOCKED` with 125 files and 1,409 differences (`missing_from_cli=827`, `missing_from_napi=465`, `range_mismatch=116`, `syntax_mismatch=1`), so NAPI remains opt-in;
 - real-provider/agent evidence for the LSP registry and measured large-workspace refresh I/O;
 - real cross-process Qdrant concurrency acceptance;
 - real-repository/agent evidence for RepoMap and ContextAssembler source-priority behavior;
@@ -154,3 +154,23 @@ This is not acceptance-eligible evidence: the run timestamp, exact commands actu
 - Harbor paired and matched Hermes gates — `BLOCKED`: generated native/ACE job paths, paired artifact and exact-current experiment binding are still absent.
 
 All provider acceptance gates remain `BLOCKED` until the commands are rerun on a reviewed current head with the required raw bindings retained. These observations do not close Aider parity, full Claw parity, model-aware token counting, agent-E2E, Harbor/Hermes benchmark acceptance, production readiness or token-savings claims.
+
+## Current-main gate attempt — SHA `34816d17fb51f6b9706a188d7a4e5d0177968886`
+
+The machine-readable evidence is `benchmarks/reports/real-retrieval-gates-34816d1.json`. Deterministic verification passed on the clean current head: `677/677` TypeScript tests, Hermes context plugin `20/20`, lint, build with `sourceCleanAtBuild=true`, and OpenSpec `9/9`.
+
+A fresh runtime bundle was built from the same clean SHA with bundle SHA `60dfb180797e7c244d0c8be3ff01157eca5be5d55d22651ed19fc2a18813048d`, task image `ace-local-hermes:ace-local-smoke-paired-fast@sha256:c0529227d3303b66115cd246d39c552cb591eed58c906d412e7883824d294dbc`, Python `3.11`, Pillow `11.3.0`, FastEmbed `0.7.4` and ONNX Runtime `1.23.2`.
+
+- Provider smoke — `PASS`: current citation `service.ts:1-25`, `complete=true`, expansion `63482` bytes.
+- Provider race — `PASS`: `reconciled-current`, `complete=true`.
+- Provider outage — `PASS`: honest `NOT_READY` provider failure.
+- Provider restart — `PASS`: cold generation, warm reuse, changed-source rebuild and `stable_collection_direct` publication.
+- Index scale 100 — `PASS`: cold/warm/change-only/rename/delete/untracked fixture; content index-key transition and changed-source digest were verified.
+- Qdrant crash — `PASS`: stable collection retained across failpoint `SIGKILL`, reader reconciled current source, and restart published S2.
+- Qdrant concurrency — `PASS`: two writers completed with current citations, converged index/provider fingerprints and no duplicate collection. Retained artifact: `benchmarks/reports/real-qdrant-concurrency-34816d1.json`.
+- Same-name LSP — `PASS`: DBC-04 with ast-grep `0.51.0` and TypeScript Language Server `6.0.2`.
+- Non-TypeScript LSP — `BLOCKED/FAIL`: Rust Analyzer returned `EXTERNAL_UNAVAILABLE: content modified` during the definition query; no non-TypeScript conformance PASS is claimed.
+- Runner hardening — `PASS`: `6/6` runner contracts; `ACE_SOURCE_ROOT`/`ACE_RUNTIME_ROOT` separation and source/runtime commit binding are exercised.
+- Harbor/Hermes — `NOT_RUN`: exact-current native/ACE job directories and model-bound experiment binding are absent.
+
+The earlier separate-runtime attempt was blocked before provider execution because the old current-main runners launched source-worktree `dist/bin/ace-mcp.js` while `ACE_RUNTIME_ROOT` pointed at the bundle. That defect is fixed in the current worktree runner slice. Provider and Qdrant evidence above is real local-provider evidence for the stated source/runtime identities; it does not close Aider parity, full Claw parity, model-bound Hermes, Harbor, production readiness or token-savings claims.
