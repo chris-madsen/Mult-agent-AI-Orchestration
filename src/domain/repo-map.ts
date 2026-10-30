@@ -1,5 +1,6 @@
 import type { ContentDigest, RepoPath } from './workspace.js';
 import type { SourceRange } from './retrieval.js';
+import { renderAiderTreeContext } from './aider-tree-context.js';
 
 export type RepoMapSymbolId = string & { readonly __brand: 'RepoMapSymbolId' };
 
@@ -24,13 +25,22 @@ export interface RepoMapSymbol {
   readonly references: readonly RepoMapReference[];
 }
 
+export interface RepoMapSource {
+  readonly repoPath: RepoPath;
+  readonly sourceDigest: ContentDigest;
+  /** Exact source text from the verified workspace snapshot. */
+  readonly text: string;
+}
+
 export interface RepoMapDelta {
   readonly upserted: readonly RepoMapSymbol[];
   readonly removed: readonly RepoMapSymbolId[];
+  readonly sourceByPath?: readonly RepoMapSource[];
 }
 
 export interface RepoMapGraph {
   readonly symbols: ReadonlyMap<RepoMapSymbolId, RepoMapSymbol>;
+  readonly sourceByPath?: ReadonlyMap<RepoPath, RepoMapSource>;
 }
 
 export interface RepoMapRankedSymbol {
@@ -83,7 +93,7 @@ export const makeRepoMapSymbol = (input: Omit<RepoMapSymbol, 'id'>): RepoMapSymb
   references: normalizeReferences(input.references),
 });
 
-export const emptyRepoMapGraph = (): RepoMapGraph => ({ symbols: new Map() });
+export const emptyRepoMapGraph = (): RepoMapGraph => ({ symbols: new Map(), sourceByPath: new Map() });
 
 export const applyRepoMapDelta = (graph: RepoMapGraph, delta: RepoMapDelta): RepoMapGraph => {
   const symbols = new Map(graph.symbols);
@@ -118,7 +128,13 @@ export const applyRepoMapDelta = (graph: RepoMapGraph, delta: RepoMapDelta): Rep
       if (changed) symbols.set(id, { ...symbol, references: normalizeReferences(rebound) });
     }
   }
-  return { symbols };
+  const sourceByPath = new Map(graph.sourceByPath ?? []);
+  for (const source of delta.sourceByPath ?? []) sourceByPath.set(source.repoPath, source);
+  const remainingPaths = new Set([...symbols.values()].map((symbol) => symbol.repoPath));
+  for (const path of sourceByPath.keys()) {
+    if (!remainingPaths.has(path)) sourceByPath.delete(path);
+  }
+  return { symbols, sourceByPath };
 };
 
 const queryTokens = (query: string): readonly string[] => query.toLocaleLowerCase().split(/[^\p{L}\p{N}_$]+/u).filter((token) => token.length >= 2);
@@ -137,55 +153,25 @@ const pathTokens = (path: RepoPath): readonly string[] => {
 };
 
 /**
- * Adapted from the pinned Aider RepoMap weighting model. Aider weights
- * identifier relations before PageRank: mentioned/long identifiers matter
- * more, private identifiers matter less, and chat-file relations receive a
- * strong multiplier. ACE keeps its own typed graph and source verification;
- * only the ranking semantics are adapted here.
+ * Source-faithful adaptation of Aider RepoMap.get_ranked_tags(), pinned at
+ * Aider-AI/aider@5dc9490bb35f9729ef2c95d00a19ccd30c26339c
+ * aider/repomap.py:365-574. Apache-2.0; see third_party/licenses.
+ *
+ * ACE-specific boundary: all tags are verified, immutable structural records;
+ * no Aider CLI, file reads, Tree-sitter rerun, or Python subprocess here.
+ * The graph construction, definitions/references, multipliers, fallback edges,
+ * personalization, and rank projection follow the upstream source's sequence.
  */
-const aiderIdentifierMultiplier = (
-  name: string,
-  input: RepoMapRenderInput,
-  definitionCount: number,
-): number => {
-  const lowerName = name.toLocaleLowerCase();
-  let multiplier = 1;
-  if (normalizedMentionedIdentifiers(input).has(lowerName)) multiplier *= 10;
-  const isSnake = name.includes('_') && /[A-Za-z]/u.test(name);
-  const isKebab = name.includes('-') && /[A-Za-z]/u.test(name);
-  const isCamel = /[A-Z]/u.test(name) && /[a-z]/u.test(name);
-  if ((isSnake || isKebab || isCamel) && name.length >= 8) multiplier *= 10;
-  if (name.startsWith('_')) multiplier *= 0.1;
-  if (definitionCount > 5) multiplier *= 0.1;
-  return multiplier;
-};
-
 interface RepoMapFileEdge {
   readonly targetPath: RepoPath;
   readonly identifier: string;
   readonly weight: number;
 }
 
-const personalizedFileWeights = (
-  files: readonly RepoPath[],
-  input: RepoMapRenderInput,
-): readonly number[] => {
-  const mentionedIdentifiers = normalizedMentionedIdentifiers(input);
-  const base = files.length === 0 ? 0 : 1 / files.length;
-  return files.map((file) => {
-    const mentionedPath = input.mentionedFiles.includes(file);
-    const openPath = input.openFiles.includes(file);
-    const pathMentioned = pathTokens(file).some((token) => mentionedIdentifiers.has(token));
-    let weight = openPath ? base : 0;
-    if (mentionedPath) weight = Math.max(weight, base);
-    if (pathMentioned) weight += base;
-    return weight;
-  });
-};
-
 const normalizeProbabilities = (weights: readonly number[]): readonly number[] => {
   const total = weights.reduce((sum, weight) => sum + weight, 0);
-  return total > 0 ? weights.map((weight) => weight / total) : weights.map(() => 1 / Math.max(1, weights.length));
+  return total > 0 ? weights.map((weight) => weight / total)
+    : weights.map(() => 1 / Math.max(1, weights.length));
 };
 
 const isFileAnchor = (symbol: RepoMapSymbol): boolean => symbol.kind === 'repo-map-file-anchor';
@@ -234,151 +220,199 @@ const pageRankFiles = (
           (x.get(edge.targetPath) ?? 0) + alpha * (previous.get(file) ?? 0) * edge.weight);
       }
     }
-    const error = files.reduce((sum, file) =>
-      sum + Math.abs((x.get(file) ?? 0) - (previous.get(file) ?? 0)), 0);
+    let error = 0;
+    for (const file of files) {
+      error += Math.abs((x.get(file) ?? 0) - (previous.get(file) ?? 0));
+    }
     if (error < count * tolerance) return x;
   }
   throw new Error(`NetworkX PageRank power iteration failed to converge after ${maxIterations} iterations`);
 };
 
+
 export const rankRepoMap = (graph: RepoMapGraph, input: RepoMapRenderInput): readonly RepoMapRankedSymbol[] => {
   const symbols = [...graph.symbols.values()].sort((left, right) => left.id.localeCompare(right.id));
-  if (symbols.length === 0) return [];
-  const rankableSymbols = symbols.filter((symbol) => !isFileAnchor(symbol));
-  if (rankableSymbols.length === 0) return [];
+  const rankable = symbols.filter((symbol) => !isFileAnchor(symbol));
+  if (rankable.length === 0) return [];
 
-  const symbolsByPath = new Map<RepoPath, RepoMapSymbol[]>();
-  for (const symbol of symbols) symbolsByPath.set(symbol.repoPath, [...(symbolsByPath.get(symbol.repoPath) ?? []), symbol]);
-  const files = [...symbolsByPath.keys()].sort((left, right) => left.localeCompare(right));
-  const definitionPaths = new Map<string, Set<RepoPath>>();
-  for (const symbol of rankableSymbols) {
-    const paths = definitionPaths.get(symbol.name) ?? new Set<RepoPath>();
-    paths.add(symbol.repoPath);
-    definitionPaths.set(symbol.name, paths);
+  // Aider: defines[name], references[name], definitions[(file, name)].
+  const defines = new Map<string, Set<RepoPath>>();
+  const definitions = new Map<string, RepoMapSymbol[]>();
+  const definitionKey = (file: RepoPath, name: string): string => JSON.stringify([file, name]);
+  for (const definition of rankable) {
+    const paths = defines.get(definition.name) ?? new Set<RepoPath>();
+    paths.add(definition.repoPath);
+    defines.set(definition.name, paths);
+    const key = definitionKey(definition.repoPath, definition.name);
+    definitions.set(key, [...(definitions.get(key) ?? []), definition]);
   }
-  const referenceCounts = new Map<string, { readonly sourcePath: RepoPath; readonly identifier: string; count: number }>();
+
+  // One ast-grep identifier occurrence is linked to EACH defining file. As
+  // in pinned Aider Counter(references[ident]), count that occurrence once,
+  // not N times for N possible definitions. Count distinct source symbols
+  // separately; an occurrence record remains the authority on multiplicity.
+  const references = new Map<string, Map<RepoPath, number>>();
   for (const source of symbols) {
+    const occurrences = new Map<string, number>();
     for (const reference of source.references) {
       const target = graph.symbols.get(reference.targetId);
-      if (target === undefined) continue;
-      const identifier = target.name;
-      const key = `${source.repoPath}\0${identifier}`;
-      const previous = referenceCounts.get(key);
-      referenceCounts.set(key, {
-        sourcePath: source.repoPath,
-        identifier,
-        count: (previous?.count ?? 0) + Math.max(1, reference.weight ?? 1),
-      });
+      if (target === undefined || isFileAnchor(target)) continue;
+      const count = Math.max(1, reference.weight ?? 1);
+      occurrences.set(target.name, Math.max(occurrences.get(target.name) ?? 0, count));
+    }
+    for (const [name, count] of occurrences) {
+      const referencers = references.get(name) ?? new Map<RepoPath, number>();
+      referencers.set(source.repoPath, (referencers.get(source.repoPath) ?? 0) + count);
+      references.set(name, referencers);
     }
   }
-  const edgeGroups = new Map<string, RepoMapFileEdge>();
-  for (const reference of referenceCounts.values()) {
-    const definitions = rankableSymbols.filter((symbol) => symbol.name === reference.identifier);
-    const chatFileMultiplier = input.openFiles.includes(reference.sourcePath) ? 50 : 1;
-    const weight = Math.sqrt(reference.count)
-      * aiderIdentifierMultiplier(reference.identifier, input, definitionPaths.get(reference.identifier)?.size ?? 0)
-      * chatFileMultiplier;
-    for (const targetPath of [...new Set(definitions.map((symbol) => symbol.repoPath))]) {
-      const key = `${reference.sourcePath}\0${targetPath}\0${reference.identifier}`;
-      const previous = edgeGroups.get(key);
-      edgeGroups.set(key, {
-        targetPath,
-        identifier: reference.identifier,
-        weight: (previous?.weight ?? 0) + weight,
-      });
+
+  // Aider lines 465-466: only when there are ZERO references globally,
+  // definitions become one fallback reference per defining file.
+  if (references.size === 0) {
+    for (const [name, definers] of defines) {
+      references.set(name, new Map([...definers].map((file) => [file, 1])));
     }
   }
-  if (referenceCounts.size === 0) {
-    for (const [identifier, definers] of definitionPaths) {
-      const identifierWeight = aiderIdentifierMultiplier(identifier, input, definers.size);
-      for (const sourcePath of definers) {
-        const weight = identifierWeight * (input.openFiles.includes(sourcePath) ? 50 : 1);
-        for (const targetPath of definers) {
-          edgeGroups.set(`${sourcePath}\0${targetPath}\0${identifier}`, {
-            targetPath,
-            identifier,
-            weight,
-          });
-        }
+
+  // Aider lines 470-514: MultiDiGraph edges, including the special 0.1
+  // self-edge for an unreferenced definition. Preserve parallel identifiers.
+  const outgoing = new Map<RepoPath, RepoMapFileEdge[]>();
+  const addEdge = (source: RepoPath, edge: RepoMapFileEdge): void => {
+    outgoing.set(source, [...(outgoing.get(source) ?? []), edge]);
+  };
+  const mentioned = normalizedMentionedIdentifiers(input);
+  for (const [name, definers] of defines) {
+    if (references.has(name)) continue;
+    for (const definer of definers) {
+      addEdge(definer, { targetPath: definer, identifier: name, weight: 0.1 });
+    }
+  }
+  for (const [name, referencers] of references) {
+    const definers = defines.get(name);
+    if (definers === undefined) continue;
+    let multiplier = 1;
+    const isSnake = name.includes('_') && /\p{L}/u.test(name);
+    const isKebab = name.includes('-') && /\p{L}/u.test(name);
+    const isCamel = /\p{Lu}/u.test(name) && /\p{Ll}/u.test(name);
+    if (mentioned.has(name.toLocaleLowerCase())) multiplier *= 10;
+    if ((isSnake || isKebab || isCamel) && [...name].length >= 8) multiplier *= 10;
+    if (name.startsWith('_')) multiplier *= 0.1;
+    if (definers.size > 5) multiplier *= 0.1;
+    for (const [source, numRefs] of referencers) {
+      const weight = multiplier * Math.sqrt(numRefs) * (input.openFiles.includes(source) ? 50 : 1);
+      for (const targetPath of definers) {
+        addEdge(source, { targetPath, identifier: name, weight });
       }
     }
-  } else {
-    const referencedIdentifiers = new Set([...referenceCounts.values()].map((reference) => reference.identifier));
-    for (const definition of rankableSymbols) {
-      if (referencedIdentifiers.has(definition.name)) continue;
-      const key = `${definition.repoPath}\0${definition.repoPath}\0${definition.name}`;
-      if (edgeGroups.has(key)) continue;
-      edgeGroups.set(key, {
-        targetPath: definition.repoPath,
-        identifier: definition.name,
-        weight: 0.1,
-      });
-    }
   }
-  const outgoing = new Map<RepoPath, readonly RepoMapFileEdge[]>(files.map((file) => [
-    file,
-    [...edgeGroups.entries()]
-      .filter(([key]) => key.startsWith(`${file}\0`))
-      .map(([, edge]) => edge)
-      .sort((left, right) => left.targetPath.localeCompare(right.targetPath) || left.identifier.localeCompare(right.identifier)),
-  ]));
-  const personalized = personalizedFileWeights(files, input);
-  const teleport = normalizeProbabilities(personalized.some((weight) => weight > 0)
-    ? personalized
-    : files.map(() => 1));
-  const fileScores = pageRankFiles(files, outgoing, teleport);
-  const scores = new Map<RepoMapSymbolId, number>(rankableSymbols.map((symbol) => [symbol.id, 0]));
-  for (const source of files) {
+
+  // NetworkX MultiDiGraph contains edge endpoints only, NOT every unrelated
+  // symbol file from the source snapshot.
+  const nodes = [...new Set([...outgoing].flatMap(([source, edges]) =>
+    [source, ...edges.map((edge) => edge.targetPath)]))].sort((a, b) => a.localeCompare(b));
+  if (nodes.length === 0) return rankable.map((symbol) => ({ symbol, score: 0 }));
+
+  // Aider lines 381-445: file mentions / opened files / identifier-matched
+  // path components. NetworkX normalizes the positive personalization vector.
+  const pathPersonalization = nodes.map((file) => {
+    let weight = input.openFiles.includes(file) ? 1 : 0;
+    if (input.mentionedFiles.includes(file)) weight = Math.max(weight, 1);
+    if (pathTokens(file).some((part) => mentioned.has(part))) weight += 1;
+    return weight;
+  });
+  const scores = pageRankFiles(nodes, outgoing,
+    pathPersonalization.some((value) => value > 0)
+      ? pathPersonalization
+      : nodes.map(() => 1));
+
+  // Aider lines 533-558: project source node rank over its outgoing weighted
+  // edges and then onto (destination file, identifier) definitions.
+  const projected = new Map<string, number>();
+  for (const source of nodes) {
     const edges = outgoing.get(source) ?? [];
     const totalWeight = edges.reduce((sum, edge) => sum + edge.weight, 0);
-    if (totalWeight === 0) continue;
+    if (!(totalWeight > 0)) continue;
     for (const edge of edges) {
-      const definitions = (symbolsByPath.get(edge.targetPath) ?? [])
-        .filter((symbol) => !isFileAnchor(symbol) && symbol.name === edge.identifier);
-      if (definitions.length === 0) continue;
-      const contribution = (fileScores.get(source) ?? 0) * edge.weight / totalWeight;
-      for (const definition of definitions) scores.set(definition.id, (scores.get(definition.id) ?? 0) + contribution);
+      const key = definitionKey(edge.targetPath, edge.identifier);
+      const contribution = (scores.get(source) ?? 0) * edge.weight / totalWeight;
+      projected.set(key, (projected.get(key) ?? 0) + contribution);
     }
   }
-  // Pinned Aider get_ranked_tags() projects file rank ONLY through actual
-  // outgoing identifier edges. It never redistributes dangling file mass
-  // equally to unrelated definitions in that file.
-  return rankableSymbols.map((symbol) => ({ symbol, score: scores.get(symbol.id) ?? 0 }))
-    .sort((left, right) =>
-      right.score - left.score
-      || left.symbol.repoPath.localeCompare(right.symbol.repoPath)
-      || left.symbol.name.localeCompare(right.symbol.name)
-      || left.symbol.id.localeCompare(right.symbol.id));
+
+  return rankable.map((symbol) => ({
+    symbol,
+    score: projected.get(definitionKey(symbol.repoPath, symbol.name)) ?? 0,
+  })).sort((left, right) =>
+    right.score - left.score
+    || left.symbol.repoPath.localeCompare(right.symbol.repoPath)
+    || left.symbol.name.localeCompare(right.symbol.name)
+    || left.symbol.id.localeCompare(right.symbol.id));
 };
 
+/**
+ * Render Aider-style file sections from the exact verified source snapshot.
+ * The original Aider.to_tree() sorts tags by path, skips open chat files,
+ * groups lines of interest by file, uses grep_ast.TreeContext.format(), and
+ * clips each physical output line to 100 characters. No second AST parser.
+ *
+ * The existing character count is ONLY an estimate; ContextAssembler owns
+ * model-aware final delivery accounting.
+ */
 export const renderRepoMap = (
   ranked: readonly RepoMapRankedSymbol[],
   tokenBudget: number,
+  sourceByPath?: ReadonlyMap<RepoPath, RepoMapSource>,
+  openFiles: readonly RepoPath[] = [],
 ): RepoMapResult => {
   const safeBudget = Number.isSafeInteger(tokenBudget) && tokenBudget > 0 ? tokenBudget : 1;
-  const lines: string[] = [];
-  const grouped = new Map<RepoPath, RepoMapRankedSymbol[]>();
-  for (const item of ranked) grouped.set(item.symbol.repoPath, [...(grouped.get(item.symbol.repoPath) ?? []), item]);
+  const open = new Set(openFiles);
+  const byPath = new Map<RepoPath, RepoMapRankedSymbol[]>();
+  for (const item of ranked) {
+    if (open.has(item.symbol.repoPath)) continue;
+    byPath.set(item.symbol.repoPath, [...(byPath.get(item.symbol.repoPath) ?? []), item]);
+  }
+  // Retain importance order for token packing; format each group only once
+  // as Aider.to_tree() does after selecting the ranked tag prefix.
+  const blocks: string[] = [];
   let estimatedTokens = 0;
   let truncated = false;
-  for (const [repoPath, items] of grouped) {
-    const bodies = [...items]
-      .sort((left, right) => left.symbol.range.startLine - right.symbol.range.startLine || left.symbol.name.localeCompare(right.symbol.name))
-      .map((item) => {
-        const firstLine = item.symbol.text.split(String.fromCharCode(10), 1)[0]?.trim();
-        return `  ${item.symbol.repoPath}:${item.symbol.range.startLine} ${firstLine || `${item.symbol.kind} ${item.symbol.name}`}`;
-      });
-    const block = [`${repoPath}:`, ...bodies].join(String.fromCharCode(10));
-    const blockTokens = Math.max(1, Math.ceil(block.length / 4));
-    if (estimatedTokens + blockTokens > safeBudget) {
+  for (const [repoPath, items] of byPath) {
+    const source = sourceByPath?.get(repoPath);
+    const sourceVerified = source !== undefined
+      && items.every((item) => item.symbol.sourceDigest === source.sourceDigest);
+    let block: string;
+    if (sourceVerified) {
+      const scopes = items.map((item) => ({
+        startLine: item.symbol.range.startLine,
+        endLine: item.symbol.range.endLine,
+      }));
+      const lines = [...new Set(items.map((item) => item.symbol.range.startLine))].sort((a, b) => a - b);
+      block = repoPath + ':\n' + renderAiderTreeContext(source.text, scopes, lines);
+    } else {
+      // A standalone domain graph may not have source evidence. Keep its
+      // old structural outline but do not pretend it is verified tree context.
+      const bodies = [...items].sort((a, b) =>
+        a.symbol.range.startLine - b.symbol.range.startLine || a.symbol.name.localeCompare(b.symbol.name))
+        .map((item) => {
+          const firstLine = item.symbol.text.split('\n', 1)[0]?.trim();
+          return `  ${item.symbol.repoPath}:${item.symbol.range.startLine} ${firstLine || `${item.symbol.kind} ${item.symbol.name}`}`;
+        });
+      block = [repoPath + ':', ...bodies].join('\n');
+    }
+    // Aider.to_tree() limits every line to 100 chars for minified sources.
+    block = block.split('\n').map((line) => line.slice(0, 100)).join('\n').trimEnd();
+    const itemTokens = Math.max(1, Math.ceil(block.length / 4));
+    const delimiterTokens = blocks.length === 0 ? 0 : 1;
+    if (estimatedTokens + delimiterTokens + itemTokens > safeBudget) {
       truncated = true;
       continue;
     }
-    lines.push(block);
-    estimatedTokens += blockTokens;
+    blocks.push(block);
+    estimatedTokens += delimiterTokens + itemTokens;
   }
-  return { ranked, rendered: lines.join('\n'), estimatedTokens, truncated };
+  return { ranked, rendered: blocks.join('\n\n'), estimatedTokens, truncated };
 };
 
 export const renderRepoMapFor = (graph: RepoMapGraph, input: RepoMapRenderInput): RepoMapResult =>
-  renderRepoMap(rankRepoMap(graph, input), input.tokenBudget);
+  renderRepoMap(rankRepoMap(graph, input), input.tokenBudget, graph.sourceByPath, input.openFiles);

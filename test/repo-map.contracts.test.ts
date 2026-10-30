@@ -271,7 +271,7 @@ test('RepoMap budget packing skips oversized ranked entries and includes shorter
   const graph = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [big, short], removed: [] });
   const result = renderRepoMapFor(graph, {
     query: 'long',
-    openFiles: [big.repoPath],
+    openFiles: [],
     mentionedFiles: [big.repoPath],
     tokenBudget: 12,
   });
@@ -405,4 +405,72 @@ test('RepoMap delta drops ambiguous same-file rebinding instead of guessing a ne
     removed: [original.id],
   });
   assert.deepEqual(updated.symbols.get(caller.id)?.references, []);
+});
+
+test('Aider multidef edges do not multiply one identifier occurrence by the number of defining files', () => {
+  const first = makeRepoMapSymbol({ ...symbol('shared', 1), repoPath: path('src/a.ts') });
+  const second = makeRepoMapSymbol({ ...symbol('shared', 2), repoPath: path('src/b.ts') });
+  const other = symbol('another', 3);
+  const caller = symbol('caller', 4, [
+    { targetId: first.id, kind: 'reference' },
+    { targetId: other.id, kind: 'reference' },
+  ]);
+  const graphWithOriginalAiderTag = applyRepoMapDelta(emptyRepoMapGraph(), {
+    upserted: [first, second, other, caller], removed: [],
+  });
+  const graphWithExpandedAstGrepEdges = applyRepoMapDelta(emptyRepoMapGraph(), {
+    upserted: [first, second, other, {
+      ...caller,
+      references: [...caller.references, { targetId: second.id, kind: 'reference' }],
+    }], removed: [],
+  });
+  const input = { query: '', openFiles: [], mentionedFiles: [], tokenBudget: 128 };
+  const baseline = rankRepoMap(graphWithOriginalAiderTag, input);
+  const expanded = rankRepoMap(graphWithExpandedAstGrepEdges, input);
+  for (const original of baseline) {
+    const updated = expanded.find((item) => item.symbol.id === original.symbol.id);
+    assert.ok(updated);
+    assert.ok(Math.abs(original.score - updated.score) < 1e-9,
+      `a second defining file must not inflate reference frequency for ${original.symbol.name}`);
+  }
+});
+
+test('Aider TreeContext-style sections use exact verified source and collapse unselected lines', () => {
+  const fn = makeRepoMapSymbol({
+    ...symbol('run', 4),
+    repoPath: path('src/context.ts'),
+    sourceDigest: digest,
+    range: { startLine: 4, startColumn: 1, endLine: 6, endColumn: 2 },
+    text: 'export function run() { return 2; }',
+  });
+  const source = ['// private header', 'const a = 1;', '', 'export function run() {',
+    '  return 2;', '}', '', 'const unrelated = 100;', ''].join('\n');
+  const graph = applyRepoMapDelta(emptyRepoMapGraph(), {
+    upserted: [fn], removed: [],
+    sourceByPath: [{ repoPath: fn.repoPath, sourceDigest: digest, text: source }],
+  });
+  const rendered = renderRepoMapFor(graph, { query: '', openFiles: [], mentionedFiles: [], tokenBudget: 200 });
+  assert.match(rendered.rendered, /src\/context\.ts:\n⋮\n│export function run\(\)/u);
+  assert.doesNotMatch(rendered.rendered, /const unrelated/u);
+  assert.doesNotMatch(rendered.rendered, /private header/u);
+  assert.match(rendered.rendered, /│export function run\(\)/u);
+  assert.equal(renderRepoMapFor(graph, {
+    query: '', openFiles: [fn.repoPath], mentionedFiles: [], tokenBudget: 200,
+  }).rendered, '', 'Aider does not repeat open chat files in the repo map');
+});
+
+test('RepoMap refresh replaces verified source context and discards removed file bytes', () => {
+  const initial = symbol('run', 1);
+  const first = applyRepoMapDelta(emptyRepoMapGraph(), {
+    upserted: [initial], removed: [],
+    sourceByPath: [{ repoPath: initial.repoPath, sourceDigest: digest, text: 'export function run() {}' }],
+  });
+  const next = makeRepoMapSymbol({ ...initial, sourceDigest: 'b'.repeat(64) as never });
+  const changed = applyRepoMapDelta(first, {
+    upserted: [next], removed: [initial.id],
+    sourceByPath: [{ repoPath: next.repoPath, sourceDigest: next.sourceDigest, text: 'export function run() { return 1; }' }],
+  });
+  assert.equal(changed.sourceByPath?.get(next.repoPath)?.sourceDigest, next.sourceDigest);
+  const deleted = applyRepoMapDelta(changed, { upserted: [], removed: [next.id] });
+  assert.equal(deleted.sourceByPath?.has(next.repoPath), false);
 });

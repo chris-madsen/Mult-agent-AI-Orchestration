@@ -172,8 +172,9 @@ const terminateProviderProcessAndWait = async (child: ChildProcess): Promise<voi
 
 export const lspLanguageIdForPath = (repoPath: string, languageIds?: Readonly<Record<string, string>>): string | undefined => {
   const extension = path.extname(repoPath).toLocaleLowerCase();
-  const configured = languageIds?.[extension];
-  if (configured !== undefined) return configured;
+  // Claw discovery yields an exact server-specific language allowlist.
+  // Do not send TypeScript documents to an auto-selected Python/Rust server.
+  if (languageIds !== undefined) return languageIds[extension];
   switch (extension) {
     case '.ts': return 'typescript';
     case '.tsx': return 'typescriptreact';

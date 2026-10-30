@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash, randomUUID } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
@@ -79,6 +79,7 @@ import {
   makeLspServerDescriptor,
   makeLspServerRegistry,
 } from '../application/lsp/server-registry.js';
+import { selectInstalledLspForPaths } from '../application/lsp/claw-discovery.js';
 import { makeGatewayProjectionService } from '../application/gateway-projection-service.js';
 import { runContextBridgeStdio } from '../transport/context-bridge-stdio.js';
 import { runGatewayProjectionHttp } from '../transport/gateway-projection-http.js';
@@ -293,13 +294,13 @@ const main = async (): Promise<void> => {
     throw new Error('ACE_AST_GREP_PROVIDER must be cli, napi, or auto');
   }
   const astGrepProvider = astGrepProviderRaw as 'cli' | 'napi' | 'auto';
-  const lspCommand = optionalCommand(
+  let lspCommand = optionalCommand(
     process.env.ACE_LSP_COMMAND,
     resolve(runtimeRoot, 'node_modules/.bin/typescript-language-server'),
   );
-  const lspArgs = configuredStringArray('ACE_LSP_ARGS', ['--stdio']);
-  const lspServerName = optionalCommand(process.env.ACE_LSP_SERVER, 'typescript-language-server');
-  const lspLanguageIds = configuredLanguageIds('ACE_LSP_LANGUAGE_IDS');
+  let lspArgs = configuredStringArray('ACE_LSP_ARGS', ['--stdio']);
+  let lspServerName = optionalCommand(process.env.ACE_LSP_SERVER, 'typescript-language-server');
+  let lspLanguageIds = configuredLanguageIds('ACE_LSP_LANGUAGE_IDS');
   const embeddingWorkerArgs = configuredStringArray('ACE_EMBEDDING_WORKER_ARGS_JSON', []);
   const sparseEmbeddingWorkerArgs = configuredStringArray('ACE_SPARSE_EMBEDDING_WORKER_ARGS_JSON', []);
   const rerankerWorkerArgs = configuredStringArray('ACE_RERANKER_WORKER_ARGS_JSON', []);
@@ -749,6 +750,36 @@ const main = async (): Promise<void> => {
                   }
                   activeRepoMap = repoMapService;
                 }
+              }
+            }
+            // Reuse Claw #3016's installed-server discovery on verified index
+            // paths. ACE explicit LSP overrides win. Only one best-matching
+            // server is chosen; unrelated languages remain LSP-unavailable.
+            if (process.env.ACE_LSP_COMMAND === undefined
+              && process.env.ACE_LSP_SERVER === undefined
+              && process.env.ACE_LSP_ARGS === undefined
+              && process.env.ACE_LSP_LANGUAGE_IDS === undefined) {
+              const discovered = selectInstalledLspForPaths(build.indexedPaths, (entry) => {
+                // Claw's command_exists_on_path() actually executes --version.
+                // A nonempty command name is NOT proof it exists on PATH.
+                const candidate = entry.command === 'typescript-language-server'
+                  ? resolve(runtimeRoot, 'node_modules/.bin/typescript-language-server')
+                  : entry.command;
+                try {
+                  const probe = spawnSync(candidate, ['--version'], {
+                    stdio: 'ignore', timeout: 1_000,
+                  });
+                  return probe.error === undefined;
+                } catch {
+                  return false;
+                }
+              });
+              if (discovered !== undefined) {
+                lspCommand = discovered.command === 'typescript-language-server'
+                  ? resolve(runtimeRoot, 'node_modules/.bin/typescript-language-server') : discovered.command;
+                lspArgs = discovered.args;
+                lspServerName = discovered.command;
+                lspLanguageIds = discovered.languageIds;
               }
             }
             const lspProviderIdentity = commandBoundaryExists(lspCommand)

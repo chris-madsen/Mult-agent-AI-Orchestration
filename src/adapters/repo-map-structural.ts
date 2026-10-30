@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Effect } from 'effect';
 import type { DomainError } from '../domain/errors.js';
 import type { StructuralAnalysis } from '../domain/semantic.js';
@@ -155,6 +156,18 @@ export const buildRepoMapDelta = (
   }
 
   return ok({
+    sourceByPath: [...input.sourceBytesByPath].flatMap(([path, bytes]) => {
+      if (input.upsertPaths !== undefined && !input.upsertPaths.has(path)) return [];
+      const analysis = structuralByPath.get(path);
+      if (analysis === undefined) return [];
+      const digest = createHash('sha256').update(bytes).digest('hex');
+      if (digest !== analysis.sourceDigest) return [];
+      return [{
+        repoPath: path,
+        sourceDigest: analysis.sourceDigest,
+        text: new TextDecoder('utf-8', { fatal: true }).decode(bytes),
+      }];
+    }),
     upserted: symbols.filter((symbol) => input.upsertPaths === undefined
       || input.upsertPaths.has(symbol.repoPath)
       || referenceAffectedSymbols.has(symbol.id)).map((symbol) => ({

@@ -133,3 +133,30 @@ test('LSP registry close waits for an async shutdown already started by lease re
   await Effect.runPromise(registry.close());
   assert.equal(shutdownFinished, true);
 });
+
+test('Claw pinned discovery chooses installed server for verified workspace paths', async () => {
+  const { findKnownLspForFile, knownLspServers, selectInstalledLspForPaths } =
+    await import('../src/application/lsp/claw-discovery.js');
+  assert.ok(knownLspServers().length >= 13);
+  assert.equal(findKnownLspForFile('src/worker.py')?.command, 'pyright-langserver');
+  assert.equal(findKnownLspForFile('src/component.tsx')?.command, 'typescript-language-server');
+  assert.equal(findKnownLspForFile('.gitignore'), undefined);
+  const checks: string[] = [];
+  const chosen = selectInstalledLspForPaths(['a.py', 'b.py', 'c.ts', 'd.ts', 'e.go'], (item) => {
+    checks.push(item.command);
+    return item.command !== 'pyright-langserver';
+  });
+  assert.equal(chosen?.command, 'typescript-language-server');
+  assert.deepEqual(checks, ['pyright-langserver', 'typescript-language-server']);
+  assert.equal(selectInstalledLspForPaths(['README.md'], () => true), undefined);
+});
+
+test('Claw language allowlist keeps an unrelated TS document out of a Python LSP session', async () => {
+  const { lspLanguageIdForPath } = await import('../src/adapters/lsp-semantic.js');
+  const { findKnownLspForFile } = await import('../src/application/lsp/claw-discovery.js');
+  const python = findKnownLspForFile('tools/scan.py');
+  assert.ok(python);
+  assert.equal(lspLanguageIdForPath('tools/scan.py', python.languageIds), 'python');
+  assert.equal(lspLanguageIdForPath('app.ts', python.languageIds), undefined);
+  assert.equal(lspLanguageIdForPath('app.ts'), 'typescript');
+});
