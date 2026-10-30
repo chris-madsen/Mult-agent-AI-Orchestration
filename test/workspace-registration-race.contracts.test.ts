@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -12,6 +12,7 @@ test('concurrent real file stores agree on one canonical workspace registration'
   const directory = await mkdtemp(join(tmpdir(), 'ace-register-race-'));
   try {
     const rootPath = join(directory, 'worktree');
+    await mkdir(rootPath);
     const stateFile = join(directory, 'workspace-state.json');
     const files = makeNodeWorkspacePort({ allowedRoots: [directory] });
     const first = makeFileWorkspaceStore(stateFile);
