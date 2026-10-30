@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Effect } from 'effect';
 import { makeLspSemanticAnalysisPort, resolveLspProviderIdentity } from '../src/adapters/lsp-semantic.js';
+import { makeRoutedLspSession } from '../src/application/lsp/routed-semantic.js';
 import type { Result } from '../src/domain/result.js';
 
 const mustOk = <Value, Error>(result: Result<Value, Error>): Value => {
@@ -116,6 +117,57 @@ try {
     assert.ok(hover !== undefined, 'non-TS LSP must return hover/type information');
     assert.ok(diagnostics.length > 0, 'non-TS LSP conformance requires diagnostics for the invalid fixture');
 
+    // Exercise the real multi-server router with the native Rust LSP plus
+    // the pinned TypeScript language server in the SAME verified workspace.
+    // No synthetic LSP server or second process-manager implementation.
+    const tsSourcePath = 'src/main.ts';
+    const tsSource = [
+      'export function tsTarget(): string { return "ok"; }',
+      'export function tsCaller(): string { return tsTarget(); }',
+      '',
+    ].join('\\n');
+    await writeFile(join(rootPath, tsSourcePath), tsSource, 'utf8');
+    const tsProvider = makeLspSemanticAnalysisPort({
+      command: join(process.cwd(), 'node_modules/.bin/typescript-language-server'),
+      args: ['--stdio'],
+      serverName: 'typescript-language-server',
+      rootPath,
+      files: { [tsSourcePath]: tsSource },
+      languageIds: { '.ts': 'typescript' },
+      snapshotIdentity,
+      timeoutMs: 30_000,
+      keepProcessAlive: false,
+    });
+    let mixedTsDefinitionCount = 0;
+    try {
+      const routed = makeRoutedLspSession([
+        { session: provider, languageIds: { [extension]: languageId } },
+        { session: tsProvider, languageIds: { '.ts': 'typescript' } },
+      ]);
+      const tsDefinitions = mustOk(await Effect.runPromise(routed.definition({
+        repoPath: tsSourcePath,
+        ...queryAt(tsSource, 'tsTarget', 1),
+        snapshotIdentity,
+      })));
+      assert.ok(tsDefinitions.length > 0,
+        'real mixed-language router must resolve TS through TS LSP');
+      mixedTsDefinitionCount = tsDefinitions.length;
+      const routedRust = mustOk(await Effect.runPromise(routed.definition({
+        repoPath: sourcePath,
+        ...queryAt(source, 'save', 1),
+        snapshotIdentity,
+      })));
+      assert.ok(routedRust.length > 0,
+        'real mixed-language router must resolve Rust through Rust LSP');
+      const unrelated = await Effect.runPromise(routed.definition({
+        repoPath: 'src/unhandled.py', line: 1, column: 1, snapshotIdentity,
+      }));
+      assert.equal(unrelated._tag, 'Err',
+        'unowned language is explicitly unsupported, not silently sent to TS/Rust');
+    } finally {
+      await tsProvider.close();
+    }
+
     const report = {
       schemaVersion: 1,
       generatedAt: new Date().toISOString(),
@@ -128,6 +180,7 @@ try {
       sourcePath,
       languageId,
       definitionCount: definition.length,
+      mixedTsDefinitionCount,
       referenceCount: references.length,
       hover: hover.display,
       diagnosticCodes: diagnostics.map((item) => item.code),
