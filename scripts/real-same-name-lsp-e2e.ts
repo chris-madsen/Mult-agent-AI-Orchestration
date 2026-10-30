@@ -7,7 +7,11 @@ import { join, resolve } from 'node:path';
 import { Effect } from 'effect';
 import { buildLocalCodeIndex } from '../src/adapters/local-code-index.js';
 import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
-import { makeAstGrepStructuralPort } from '../src/adapters/ast-grep-structural.js';
+import {
+  makeAstGrepStructuralPort,
+  resolveAstGrepProviderIdentity,
+} from '../src/adapters/ast-grep-structural.js';
+import { resolveLspProviderIdentity } from '../src/adapters/lsp-semantic.js';
 import { makeTypeScriptLanguageServicePort } from '../src/adapters/typescript-language-service.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
 import type { Result } from '../src/domain/result.js';
@@ -54,7 +58,16 @@ if (!/^[a-f0-9]{40,64}$/u.test(sourceCommit)) throw new Error('could not resolve
 
 try {
   const files = makeNodeWorkspacePort({ allowedRoots: [parent] });
-  const structural = makeAstGrepStructuralPort({ command: resolve('node_modules/.bin/ast-grep') });
+  const structuralCommand = resolve('node_modules/.bin/ast-grep');
+  const lspCommand = process.env.ACE_LSP_COMMAND?.trim() || resolve('node_modules/.bin/typescript-language-server');
+  const structuralIdentity = mustOk(await Effect.runPromise(resolveAstGrepProviderIdentity({
+    command: structuralCommand,
+  })));
+  const lspIdentity = mustOk(await Effect.runPromise(resolveLspProviderIdentity({
+    command: lspCommand,
+    snapshotIdentity: sourceCommit,
+  })));
+  const structural = makeAstGrepStructuralPort({ command: structuralCommand });
   const indexed = mustOk(await Effect.runPromise(buildLocalCodeIndex(files, workspaceId, root, { generation: 1, structural })));
   const saves = indexed.index.candidates.filter((candidate) => candidate.symbolName === 'save');
   assert.equal(saves.length, 2);
@@ -93,7 +106,7 @@ try {
     command: 'npm run test:real-same-name',
     status: 'provider-pass',
     contract: 'DBC-04',
-    provider: 'ast-grep 0.51.0 + typescript-language-server 6.0.2',
+    provider: `${structuralIdentity.version} + ${lspIdentity.server} ${lspIdentity.version}`,
     source: 'repositories.ts',
     sourceDigest,
     structuralSaveSpans: saves.map((candidate) => candidate.range),

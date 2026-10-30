@@ -17,6 +17,14 @@ claim.
 - Historical report `benchmarks/reports/real-retrieval-gates-9512.json` remains
   historical and acceptance-invalid; it is not relabeled.
 
+Audit follow-up found that the same-name runner previously wrote those two
+provider versions from a duplicated literal. The values happened to match this
+run, but a configured replacement binary could have been mislabeled. The
+runner now obtains both versions through the existing ast-grep and LSP identity
+resolvers, and a real-process regression fixture covers the configured-command
+case. The retained report remains evidence for the exact `9a242ca` run above;
+no later source commit is retroactively substituted.
+
 ## Deterministic current-head checks
 
 | Check | Result | Observation |
