@@ -133,3 +133,62 @@ jobs:
         env:
           GOWORK: "off"
         run: go vet ./...
+
+  real-qdrant:
+    # Real Qdrant service + real FastEmbed model, not mocked provider wires.
+    # Keep a single shared cache for the composed provider/crash acceptance.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.19.2
+        ports:
+          - 6333:6333
+    env:
+      ACE_QDRANT_URL: http://127.0.0.1:6333
+      ACE_RETRIEVAL_STRATEGY: dense
+      ACE_EMBEDDING_PYTHON: python
+      PYTHONDONTWRITEBYTECODE: "1"
+      FASTEMBED_CACHE_PATH: ${{ runner.temp }}/ace-fastembed-cache
+      HF_HOME: ${{ runner.temp }}/ace-huggingface-cache
+    steps:
+      - name: Checkout full clean repository identity
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Python 3.13 for pinned FastEmbed
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install locked Node and embedding dependencies
+        run: |
+          npm ci --ignore-scripts
+          python -m pip install --disable-pip-version-check -r requirements-embedding-fast.txt
+      - name: Verify live Qdrant server
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..45}; do
+            if curl --fail --silent "http://127.0.0.1:6333/collections" >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "BLOCKED: Qdrant live server unavailable" >&2
+          exit 1
+      - name: Build source-identified production runtime
+        run: npm run build
+      - name: Run actual provider and restart acceptance
+        run: |
+          npm run test:real-provider
+          npm run test:real-provider-restart
+      - name: Run real two-writer and crash publication acceptance
+        run: |
+          npm run test:real-qdrant-concurrency
+          npm run test:real-qdrant-crash
