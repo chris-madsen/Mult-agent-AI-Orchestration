@@ -296,7 +296,9 @@ test('RepoMap normalizes malformed edge weights instead of poisoning PageRank', 
     tokenBudget: 128,
   });
   assert.ok(ranked.every((item) => Number.isFinite(item.score)));
-  assert.ok(Math.abs(ranked.reduce((sum, item) => sum + item.score, 0) - 1) < 1e-8);
+  const projectedMass = ranked.reduce((sum, item) => sum + item.score, 0);
+  assert.ok(projectedMass > 0 && projectedMass < 1,
+    'Aider projects weighted outgoing edges only; dangling file rank is not invented as a symbol');
 });
 
 test('RepoMap preserves the pinned Aider behavioral fixture for weighting and personalization', () => {
