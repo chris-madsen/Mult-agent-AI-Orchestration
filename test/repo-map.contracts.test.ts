@@ -271,7 +271,7 @@ test('RepoMap budget packing skips oversized ranked entries and includes shorter
   const graph = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [big, short], removed: [] });
   const result = renderRepoMapFor(graph, {
     query: 'long',
-    openFiles: [big.repoPath],
+    openFiles: [],
     mentionedFiles: [big.repoPath],
     tokenBudget: 12,
   });
