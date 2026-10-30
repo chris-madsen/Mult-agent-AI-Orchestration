@@ -166,6 +166,7 @@ export const buildRepoMapDelta = (
         repoPath: path,
         sourceDigest: analysis.sourceDigest,
         text: new TextDecoder('utf-8', { fatal: true }).decode(bytes),
+        ...(analysis.scopes === undefined ? {} : { scopes: analysis.scopes }),
       }];
     }),
     upserted: symbols.filter((symbol) => input.upsertPaths === undefined

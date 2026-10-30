@@ -52,12 +52,19 @@ export interface StructuralIdentifier {
   readonly endByteOffset: number;
 }
 
+export interface StructuralScope {
+  readonly startLine: number;
+  readonly endLine: number;
+}
+
 export interface StructuralAnalysis {
   readonly repoPath: string;
   readonly sourceDigest: ContentDigest;
   readonly symbols: readonly StructuralSymbol[];
   /** Identifier occurrences emitted by the same official structural provider. */
   readonly identifiers?: readonly StructuralIdentifier[];
+  /** Parent header scopes from the SAME native tree parse, not a second pass. */
+  readonly scopes?: readonly StructuralScope[];
   readonly hasSyntaxErrors: boolean;
 }
 
@@ -102,6 +109,7 @@ export const makeStructuralAnalysis = (input: {
   readonly sourceDigest: unknown;
   readonly symbols: readonly StructuralSymbol[];
   readonly identifiers?: readonly StructuralIdentifier[];
+  readonly scopes?: readonly StructuralScope[];
   readonly hasSyntaxErrors: unknown;
 }): Result<StructuralAnalysis, DomainError> => {
   if (typeof input.repoPath !== 'string' || input.repoPath.trim().length === 0) {
@@ -161,6 +169,12 @@ export const makeStructuralAnalysis = (input: {
       return err({ code: 'INVALID_RETRIEVAL', path: `identifiers[${index}].byte_range`, message: 'structural identifier byte range must increase' });
     }
   }
+  for (const [index, scope] of (input.scopes ?? []).entries()) {
+    if (!Number.isSafeInteger(scope.startLine) || !Number.isSafeInteger(scope.endLine)
+      || scope.startLine < 1 || scope.endLine < scope.startLine) {
+      return err({ code: 'INVALID_RETRIEVAL', path: `scopes[${index}]`, message: 'invalid structural scope' });
+    }
+  }
   return ok({
     repoPath: input.repoPath.trim(),
     sourceDigest: input.sourceDigest as ContentDigest,
@@ -168,6 +182,7 @@ export const makeStructuralAnalysis = (input: {
     ...(input.identifiers === undefined
       ? {}
       : { identifiers: input.identifiers.map((identifier) => ({ ...identifier })) }),
+    ...(input.scopes === undefined ? {} : { scopes: input.scopes.map((scope) => ({ ...scope })) }),
     hasSyntaxErrors: input.hasSyntaxErrors,
   });
 };

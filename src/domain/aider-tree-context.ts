@@ -5,11 +5,10 @@
  * https://github.com/Aider-AI/aider/blob/5dc9490bb35f9729ef2c95d00a19ccd30c26339c/aider/repomap.py
  * Apache-2.0; notices in third_party/licenses.
  *
- * ACE has only *verified structural symbol ranges*, not the entire grammar
- * tree scopes used by original grep-ast. Parent header selection therefore
- * uses those known ranges; it never invents missing AST scopes or reparses
- * the source with a second engine. This is deliberately NOT full TreeContext
- * tree-sitter parity, and must not be claimed as such.
+ * The NAPI parser emits actual AST scope ranges during its existing
+ * structural def/ref traversal. CLI-only files retain declaration-range
+ * fallback, without a second grammar parse. Full TreeContext header
+ * truncation/child-context modes are intentionally not claimed here.
  */
 export interface VerifiedScope {
   readonly startLine: number;
@@ -29,9 +28,8 @@ export const renderAiderTreeContext = (
     const index = line - 1;
     if (!Number.isSafeInteger(index) || index < 0 || index >= numLines) continue;
     showing.add(index);
-    // grep-ast TreeContext.add_parent_scopes() selects the source header of
-    // each AST scope containing an interesting line. The shared structural
-    // records provide only declaration extents, so do not guess more scopes.
+    // grep-ast TreeContext.add_parent_scopes() selects ancestor headers.
+    // Source scopes are captured from the exact same NAPI AST traversal.
     for (const scope of scopes) {
       if (scope.startLine > 1 && scope.startLine <= line && line <= scope.endLine) {
         showing.add(scope.startLine - 1);

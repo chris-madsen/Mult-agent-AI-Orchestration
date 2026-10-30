@@ -193,3 +193,23 @@ test('real-repo NAPI symbol coverage subsumes pinned official ast-grep CLI outli
       `${repoPath} NAPI must expose same-pass identifier occurrences`);
   }
 });
+
+test('same-pass NAPI scopes expose real nested AST parent ranges for TreeContext', async () => {
+  const sourceBytes = Buffer.from([
+    'export class Box {',
+    '  value() {',
+    '    return 42;',
+    '  }',
+    '}',
+    '',
+  ].join('\n'));
+  const result = await Effect.runPromise(makeAstGrepNapiStructuralPort().extract({
+    repoPath: 'box.ts', source: sourceBytes,
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Err') return;
+  assert.ok(result.value.scopes?.some((scope) =>
+    scope.startLine === 1 && scope.endLine >= 5));
+  assert.ok(result.value.scopes?.some((scope) =>
+    scope.startLine === 2 && scope.endLine >= 4));
+});

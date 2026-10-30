@@ -30,6 +30,7 @@ export interface RepoMapSource {
   readonly sourceDigest: ContentDigest;
   /** Exact source text from the verified workspace snapshot. */
   readonly text: string;
+  readonly scopes?: readonly { readonly startLine: number; readonly endLine: number }[];
 }
 
 export interface RepoMapDelta {
@@ -383,7 +384,7 @@ export const renderRepoMap = (
       && items.every((item) => item.symbol.sourceDigest === source.sourceDigest);
     let block: string;
     if (sourceVerified) {
-      const scopes = items.map((item) => ({
+      const scopes = source.scopes ?? items.map((item) => ({
         startLine: item.symbol.range.startLine,
         endLine: item.symbol.range.endLine,
       }));

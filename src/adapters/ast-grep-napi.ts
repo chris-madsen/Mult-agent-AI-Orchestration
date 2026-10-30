@@ -178,8 +178,19 @@ const extractOne = (
     };
     const symbols: StructuralSymbol[] = [];
     const identifiers: StructuralIdentifier[] = [];
+    const scopes: { readonly startLine: number; readonly endLine: number }[] = [];
     let hasSyntaxErrors = false;
     const visit = (node: NapiNode): void => {
+      // grep-ast TreeContext.walk_tree() records each enclosing multi-line
+      // AST scope for parent headers. Reuse THIS parse tree while visiting it
+      // for def/ref; never run a second Tree-sitter parse for rendering.
+      const nodeRange = node.range();
+      if (nodeRange.end.line > nodeRange.start.line) {
+        scopes.push({
+          startLine: nodeRange.start.line + 1,
+          endLine: nodeRange.end.line + 1,
+        });
+      }
       if (node.kind() === 'ERROR' || node.kind() === 'MISSING') hasSyntaxErrors = true;
       const symbol = nodeSymbol(node, language.language, toBytePosition);
       if (symbol !== undefined) symbols.push(symbol);
@@ -217,6 +228,9 @@ const extractOne = (
         left.startByteOffset - right.startByteOffset
         || left.endByteOffset - right.endByteOffset
         || left.name.localeCompare(right.name)),
+      scopes: [...new Map(scopes.map((scope) =>
+        [`${scope.startLine}:${scope.endLine}`, scope] as const)).values()]
+        .sort((left, right) => left.startLine - right.startLine || left.endLine - right.endLine),
       hasSyntaxErrors,
     });
   } catch (cause) {
