@@ -150,8 +150,8 @@ jobs:
       ACE_RETRIEVAL_STRATEGY: dense
       ACE_EMBEDDING_PYTHON: python
       PYTHONDONTWRITEBYTECODE: "1"
-      FASTEMBED_CACHE_PATH: ${{ runner.temp }}/ace-fastembed-cache
-      HF_HOME: ${{ runner.temp }}/ace-huggingface-cache
+      FASTEMBED_CACHE_PATH: /tmp/ace-fastembed-cache
+      HF_HOME: /tmp/ace-huggingface-cache
     steps:
       - name: Checkout full clean repository identity
         uses: actions/checkout@v4
