@@ -50,4 +50,3 @@ export * from './adapters/process-embedding.js';
 export * from './adapters/codex-session-history.js';
 export * from './gateway/mcp-gateway.js';
 export * from './transport/context-bridge-stdio.js';
-export * from './transport/mcp-stdio.js';

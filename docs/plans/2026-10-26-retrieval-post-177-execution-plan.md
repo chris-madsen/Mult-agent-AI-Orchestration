@@ -15,6 +15,60 @@ This document is written for the implementation agent. Follow the PR order below
 
 ---
 
+## Current milestone — 2026-10-30: post-#210 upstream-first production reconciliation
+
+**Evidence baseline:** `main@f9e0a4c7fdba3550d93c0f410e8897b62049bedf`, merged PRs #200–#210, exact checked CI run [41129709680](https://github.com/chris-madsen/Mult-agent-AI-Orchestration/actions/runs/41129709680) on PR #210 commit `23273fc29b71c4335dbdf584c0ee7ecdbc848036`. Its four jobs — contracts, Bifrost connector, real Qdrant/FastEmbed, and real mixed-language Rust+TypeScript LSP — passed. Retained named artifacts: `ace-real-qdrant-41129709680` and `ace-real-lsp-41129709680`. This evidence is specific to the tested commit/scenarios, **not** full release or token-economy certification.
+
+**Milestone status: INTEGRATED / PARTIAL ACCEPTANCE; not release-ready.** The original PR #177 baseline and the 2026-10-27 F01–F19 static findings below are historical snapshots. The following reconciles them with current source and verified PRs rather than treating the old wording as a description of current production.
+
+### Delivered implementation and evidence
+
+| Workstream | Current delivered capability | What this establishes |
+| --- | --- | --- |
+| R1 / Qdrant SDK | `@qdrant/js-client-rest@1.20.0` is the production wire boundary for search/upsert/delete and alias/count/scroll; digest/collection verification remains an ACE-specific policy. | Real pinned Qdrant 1.19.2 + FastEmbed provider, restart, two-writer and writer-kill tests passed in run 41129709680. This does **not** prove a Qdrant multi-operation transaction or complete single-owner refactoring. |
+| R2 / shared AST | Auto parser routes supported JS/TS/TSX/JSX through the installed `@ast-grep/napi@0.51.0`, extracting declarations, identifier occurrences and AST ancestor scopes in one pass; unsupported extensions stay on batched CLI. Parser identity fingerprints the hybrid strategy. | Real-repository canonical CLI declaration **subsumption** test (NAPI may find extra valid declarations), same-source byte/range regression and explicit fail-closed RepoMap when a mixed-language input lacks complete identifier records. |
+| R3 / Aider | Pinned Apache-2.0 Aider `get_ranked_tags` source-adapted file graph/weighting/rank projection, licensed NetworkX PageRank translation, pinned independent ranking oracle, digest-verified map text and selected `grep-ast` TreeContext formatting with NAPI ancestor scopes. | No index-wide LSP dependency and no second parser pass for supported AST data. This is **not** every original `grep_ast.TreeContext` feature or complete cross-language Aider oracle parity. |
+| R4 / stable publication | Source generation fences and cross-process workspace registration convergence. Real Qdrant concurrency/crash/restart acceptance automated in CI with retained traces. | Proves the exercised real-provider failure/recovery scenarios, not arbitrarily many writers or every partial write interleaving. |
+| R5 / Claw LSP | Licensed pinned Claw server catalog/discovery, maintained `vscode-jsonrpc`, existing registry leases and per-language routing; lazy refresh and diagnostic waiter cleanup. | Real `rust-analyzer` and TypeScript server combined routing/definition/reference/hover/diagnostics passed; full provider crash/restart/cancellation matrix remains independent work. |
+| R6 / ContextAssembler | Sections and budgets, host token-count callback, whole-rendered-string accounting when injected, mode `host_counter` vs `character_estimate`; estimated counting is explicitly `partial`. | Avoids falsely claiming guaranteed token fit. The actual Hermes/model-compatible counter is **not** connected to production. |
+| Gateway / Bifröst | Separate `ACE_GATEWAY_HTTP_MODE` HTTP projection, Go ACE connector/plug-in for pinned Bifröst, `ace.gateway.v1` receipts, one selected OpenAI Chat Completions route. | Mock upstream wire proof exists; no certified real-provider gateway projection, streaming/retry/fallback or provider usage/economics results. MCP SDK is only the **explicit tool** plane; not a substitute for model-bound delivery. |
+| Dead-code cleanup (this PR) | Remove non-production handwritten `src/transport/mcp-stdio.ts`, its self-only test and public barrel export. Construct the official MCP tool façade **only** in explicit MCP mode; ensure Bifröst request context is passed to the existing Go HTTP client. | No duplicate JSON-RPC framing in production or package exports. Existing official MCP tool integration, native Hermes bridge and Bifröst projection remain separate. Pending CI on this PR before marking accepted. |
+
+### Still used bespoke owners — do NOT silently delete
+
+1. `src/adapters/qdrant-context-provider.ts` + `http-provider-boundaries.ts` for ACE source-integrity, workspace-freshness, incremental publication and Qdrant SDK integration; these remain active despite a large implementation surface. **R1/R4/R7** must separate true protocol duplication from necessary ACE invariants before deleting more code.
+2. `src/adapters/process-embedding.ts`, `process-sparse-embedding.ts`, `process-reranker.ts`: three independent, active Node/JSONL worker lifecycle owners over real model processes. Consolidate common launch/cancellation/teardown with existing Effect/Node primitives only after model-specific parity (X1/F09).
+3. `src/application/file-workspace-store.ts`, `src/adapters/file-memory-archive.ts`, `src/adapters/file-projection-outbox.ts`: active repeated filesystem locking / state-journal mechanics. Do not replace fail-closed fencing with optimistic atomic writes lacking crash/restart proof (X4/F14).
+4. `src/adapters/lsp-semantic.ts` and `src/application/lsp/server-registry.ts`: active LSP document/process lifecycle built over **official** `vscode-jsonrpc` with reused Claw catalog. Still needs exact shutdown/crash/startup/concurrent refresh conformance (R5); do not call every ACE-specific freshness check a reinvention.
+5. `src/domain/aider-tree-context.ts`, `src/domain/context-assembly.ts`, `src/application/context-transform-service.ts`: active context assembly and source rendering. Full upstream TreeContext parity and an actual model tokenizer remain open (R3/R6).
+6. `src/application/gateway-projection-service.ts`, `src/transport/gateway-projection-http.ts`, `integrations/bifrost/ace-connector`: active, intentionally thin ACE↔Bifröst contract; Go/TS/JSON Schema strict validator drift, context cancellation, per-attempt authorization and real provider wire certification remain open (X3/F11/F12).
+7. `src/adapters/graphiti-mcp.ts`: active **official Graphiti MCP** integration with large episode enumeration fallback because exact-ID provider capability is not proved (X5/F16).
+8. `src/bin/ace-mcp.ts`: actively composes all three runtime entry modes and remains oversized; R7 should extract existing bootstrap ownership without introducing a second runtime or model proxy.
+
+### Non-production / historical parts retained intentionally
+
+- `src/adapters/local-hash-embedding.ts`: used by `test/provider-spikes.contracts.test.ts` and `scripts/embedding-spike.ts`, not a production embedding engine.
+- `src/adapters/local-context-provider.ts`: consumed by architecture and retrieval-memory tests only; intentionally incomplete degraded fixture.
+- `src/adapters/jev-route-provider.ts`: no import from ACE runtime found; used by routing and outbound-secret tests and exported publicly. Do not silently break an external evaluation/API consumer.
+- `src/adapters/typescript-language-service.ts`: compatibility/comparison adapter used by tests and real semantic comparison scripts, not an independent production language-server engine.
+- `scripts/harbor-ace-mcp.sh`: historical MCP launcher with install-at-start behavior; archived/explicit benchmark configurations or external callers must be checked before deletion. Replace startup installation with the verified prebuilt runtime if still needed (X6/F19).
+- **Deleted this milestone:** handwritten `src/transport/mcp-stdio.ts` + its own tests and export. Official `src/transport/mcp-sdk-stdio.ts` stays for tool calls; `src/transport/context-bridge-stdio.ts` is a native **Hermes JSONL bridge**, not MCP.
+
+### Remaining acceptance / next actions (priority order)
+
+- [ ] **R6 / gateway blocker (P0):** bind a verified, **model-compatible existing** token counter from the actual Hermes/Bifröst/provider host to ContextAssembler, or explicitly block unsupported model/protocol combinations. Today `length/4` remains diagnostic-only; `ContextTransformService` reports `partial`, and strict gateway projection refuses `APPLY` when transformation is not `ready`. Do not claim working model-bound context replacement or token savings merely because Bifröst routes requests.
+- [ ] **Gateway G3 (P0):** run exact pinned Bifröst plugin build + **real provider egress and usage receipts**, protected message/tool/reasoning/multimodal/streaming checks, cancellation, retry/fallback per-attempt authorization, unknown OpenAI/Anthropic/Gemini routes fail closed. Existing Go `HTTPTransportPreHook` accepts only `/v1/chat/completions` and mock wire proof; not certified multi-provider rollout.
+- [ ] **R2/R3 (P1):** add real cross-language reference extraction for CLI-only grammars using maintained existing parser capabilities, without doubling AST parse passes; prove source scope/render fidelity, exact source freshness and top-K quality against pinned upstream Aider.
+- [ ] **R1/R4/R7 (P1):** inventory current remaining redundant wire/coordination owners with imports and tests, remove only shadow branches; add before/after changed-file/10k-index timings, metadata-fence and process restart evidence.
+- [ ] **R5/X1 (P1):** complete startup timeout, provider crash/restart, shutdown→exit, refresh/query cancellation and worker interruption conformance against real TS/Rust servers and model workers; reuse official libraries.
+- [ ] **X3/X4/X5/X6 (P1/P2):** consolidate gateway schemas/validators, cancellation, filesystem locks, Graphiti exact episode lookup, historical launcher only after verified replacement and negative diff.
+- [ ] **R8 (P0 for any 5× claim):** matched Hermes native-vs-ACE A/B with same model, provider, task, context budget, cache, quality oracle and recorded provider input/cached/output tokens, cost and latency. No result is currently certified.
+- [ ] Re-run `npm run verify:pr`, Bifröst connector tests and the affected gateway/architecture contracts at the cleanup PR HEAD; record the exact CI SHA before merging. Do not reuse run 41129709680 as proof for this new change.
+
+**Architectural boundary:** Bifröst replaces **MCP-first model-bound context delivery**, **not** the optional official MCP tool protocol. Hermes native ContextEngine remains a separate explicitly owned entry path. Do not remove the official SDK or confuse a standalone ACE projection HTTP service with another general-purpose LLM reverse proxy.
+
+---
+
 ## 0. Current state after PR #177
 
 PR #177 correctly established only the foundation:

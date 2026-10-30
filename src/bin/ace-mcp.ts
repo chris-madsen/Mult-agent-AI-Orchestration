@@ -1139,16 +1139,6 @@ const main = async (): Promise<void> => {
     readiness.unified_context = { state: 'not_ready', reason: 'real_provider_disabled' };
     process.stderr.write('ace-mcp context NOT_READY: enable ACE_ENABLE_EXPERIMENTAL_QDRANT=true for the real local Qdrant+FastEmbed+ast-grep+TypeScript-LS composition; provider outage remains not_ready\n');
   }
-  const gateway = makeMcpGateway({
-    clock: ports.clock,
-    ids: ports.ids,
-    files,
-    store,
-    artifacts,
-    ...(context === undefined ? {} : { context }),
-    ...(memory === undefined ? {} : { memory }),
-    readiness: () => ({ ...readiness }),
-  });
   const contextBridge = context === undefined
     ? undefined
     : makeContextTransformService({
@@ -1164,6 +1154,10 @@ const main = async (): Promise<void> => {
         semantic: process.env.ACE_LSP_VERSION?.trim() || 'typescript-language-server/6.0.2',
       },
     });
+  if (process.env.ACE_GATEWAY_HTTP_MODE === 'true'
+    && process.env.ACE_CONTEXT_BRIDGE_MODE === 'true') {
+    throw new Error('ACE_GATEWAY_HTTP_MODE and ACE_CONTEXT_BRIDGE_MODE are mutually exclusive context-delivery owners');
+  }
   try {
     if (process.env.ACE_GATEWAY_HTTP_MODE === 'true') {
       if (contextBridge === undefined) throw new Error('ACE gateway HTTP requires a ready context provider');
@@ -1172,7 +1166,19 @@ const main = async (): Promise<void> => {
       if (contextBridge === undefined) throw new Error('ACE context bridge requires a ready context provider');
       await runContextBridgeStdio(contextBridge);
     } else {
-      await runMcpSdkStdio(gateway, benchmarkTrace === undefined ? {} : { benchmarkTrace });
+      // MCP is the optional explicit-tool plane; the model-bound Bifrost
+      // projection and native Hermes modes do not instantiate an MCP gateway.
+      const mcpGateway = makeMcpGateway({
+        clock: ports.clock,
+        ids: ports.ids,
+        files,
+        store,
+        artifacts,
+        ...(context === undefined ? {} : { context }),
+        ...(memory === undefined ? {} : { memory }),
+        readiness: () => ({ ...readiness }),
+      });
+      await runMcpSdkStdio(mcpGateway, benchmarkTrace === undefined ? {} : { benchmarkTrace });
     }
   } finally {
     let cleanupError: unknown;

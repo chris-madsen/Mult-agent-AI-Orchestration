@@ -16,4 +16,9 @@ test('Bifrost plugin build is pinned and fail-closed before plugin compilation',
   assert.match(plugin, /AllowFallbacks:\s*&allowFallbacks/u);
   assert.match(plugin, /ace\.pre_llm_attempt_seen/u);
   assert.match(plugin, /len\(fallbacks\) != 0/u);
+  // Reuse Bifrost's own request cancellation/deadline context. An orphan
+  // context.Background() would keep the provider projection running after
+  // a host request was cancelled.
+  assert.match(plugin, /projectionClient\.Project\(ctx, connector\.Request/u);
+  assert.doesNotMatch(plugin, /context\.Background\(\)/u);
 });

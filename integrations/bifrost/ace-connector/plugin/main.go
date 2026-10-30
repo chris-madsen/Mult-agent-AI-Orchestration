@@ -3,7 +3,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -131,7 +130,7 @@ func HTTPTransportPreHook(ctx *schemas.BifrostContext, req *schemas.HTTPRequest)
 	}
 	deadline := time.Now().Add(30 * time.Second)
 	requestID := fmt.Sprintf("bifrost-%d", time.Now().UnixNano())
-	projection, err := projectionClient.Project(context.Background(), connector.Request{
+	projection, err := projectionClient.Project(ctx, connector.Request{
 		RequestID: requestID, AttemptGroupID: attemptGroupID, AgentSessionID: sessionID,
 		WorkspaceID: workspaceID, DataClass: "private", Protocol: "openai.chat.completions",
 		Provider: provider, Model: model, Query: query, ProjectionMode: "gateway",
