@@ -133,3 +133,104 @@ jobs:
         env:
           GOWORK: "off"
         run: go vet ./...
+
+  real-qdrant:
+    # Real Qdrant service + real FastEmbed model, not mocked provider wires.
+    # Keep a single shared cache for the composed provider/crash acceptance.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.19.2
+        ports:
+          - 6333:6333
+    env:
+      ACE_QDRANT_URL: http://127.0.0.1:6333
+      ACE_RETRIEVAL_STRATEGY: dense
+      ACE_EMBEDDING_PYTHON: python
+      PYTHONDONTWRITEBYTECODE: "1"
+      FASTEMBED_CACHE_PATH: /tmp/ace-fastembed-cache
+      HF_HOME: /tmp/ace-huggingface-cache
+    steps:
+      - name: Checkout full clean repository identity
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Python 3.13 for pinned FastEmbed
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install locked Node and embedding dependencies
+        run: |
+          npm ci --ignore-scripts
+          python -m pip install --disable-pip-version-check -r requirements-embedding-fast.txt
+      - name: Verify live Qdrant server
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..45}; do
+            if curl --fail --silent "http://127.0.0.1:6333/collections" >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "BLOCKED: Qdrant live server unavailable" >&2
+          exit 1
+      - name: Build source-identified production runtime
+        run: npm run build
+      - name: Run actual provider and restart acceptance
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/ace-provider-evidence
+          npm run test:real-provider | tee /tmp/ace-provider-evidence/provider.log
+          npm run test:real-provider-restart | tee /tmp/ace-provider-evidence/restart.log
+      - name: Run real two-writer and crash publication acceptance
+        run: |
+          npm run test:real-qdrant-concurrency -- --output /tmp/ace-provider-evidence/concurrency.json
+          npm run test:real-qdrant-crash -- /tmp/ace-provider-evidence/crash.json
+      - name: Retain source-linked real provider reports and traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ace-real-qdrant-${{ github.run_id }}
+          path: /tmp/ace-provider-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+  real-non-ts-lsp:
+    # Real rust-analyzer protocol conformance, no fake LSP or fixture server.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Install native rust-analyzer component
+        run: rustup component add rust-analyzer
+      - name: Real non-TypeScript LSP definition/reference/hover/diagnostics
+        env:
+          ACE_NON_TS_LSP_COMMAND: rust-analyzer
+          ACE_NON_TS_LSP_TIMEOUT_MS: "60000"
+          ACE_NON_TS_LSP_SETTLE_MS: "8000"
+        run: npm run test:real-non-ts-lsp -- /tmp/ace-real-non-ts-lsp.json
+      - name: Retain real rust-analyzer and TypeScript routing evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ace-real-lsp-${{ github.run_id }}
+          path: /tmp/ace-real-non-ts-lsp.json
+          if-no-files-found: warn
+          retention-days: 14

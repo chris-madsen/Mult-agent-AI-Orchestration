@@ -72,7 +72,16 @@ export const registerWorkspace = (
       createdAtMs: ports.clock.nowMs(),
     };
     const saved = yield* ports.store.save(record);
-    if (isErr(saved)) return saved;
+    if (isErr(saved)) {
+      if (saved.error.code !== 'WORKTREE_RACED') return saved;
+      // Concurrent registration for the same canonical root is idempotent.
+      // The file store serializes writers and rejects a second epoch-0 save
+      // even when the first just registered this exact workspace. Read back
+      // the committed winner, never overwrite it or invent an epoch.
+      const committed = yield* ports.store.findByRoot(canonical.value);
+      if (isErr(committed)) return committed;
+      return committed.value === undefined ? saved : ok(committed.value);
+    }
     return ok(record);
   });
 

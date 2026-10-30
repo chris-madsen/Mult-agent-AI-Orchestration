@@ -129,3 +129,25 @@ export const selectInstalledLspForPaths = (
     .map((candidate) => candidate.entry)
     .find(available);
 };
+
+/**
+ * Claw's discovered-server list, not a single winner. Each installed
+ * descriptor contributes only its own extensions, with no duplicate owning
+ * server for a file. Existing registry leases own the actual LSP processes.
+ */
+export const selectInstalledLspServersForPaths = (
+  paths: readonly string[],
+  available: (entry: KnownLspServer) => boolean,
+): readonly KnownLspServer[] => {
+  const extensions = new Set(paths.map((file) => extname(file).toLocaleLowerCase()));
+  const owned = new Set<string>();
+  const results: KnownLspServer[] = [];
+  for (const descriptor of descriptors) {
+    const matching = descriptor.extensions.filter((extension) =>
+      extensions.has(extension) && !owned.has(extension));
+    if (matching.length === 0 || !available(descriptor)) continue;
+    results.push(descriptor);
+    for (const extension of matching) owned.add(extension);
+  }
+  return results;
+};

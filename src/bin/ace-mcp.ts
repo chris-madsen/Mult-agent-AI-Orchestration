@@ -79,7 +79,8 @@ import {
   makeLspServerDescriptor,
   makeLspServerRegistry,
 } from '../application/lsp/server-registry.js';
-import { selectInstalledLspForPaths } from '../application/lsp/claw-discovery.js';
+import { knownLspServers, selectInstalledLspServersForPaths } from '../application/lsp/claw-discovery.js';
+import { makeRoutedLspSession } from '../application/lsp/routed-semantic.js';
 import { makeGatewayProjectionService } from '../application/gateway-projection-service.js';
 import { runContextBridgeStdio } from '../transport/context-bridge-stdio.js';
 import { runGatewayProjectionHttp } from '../transport/gateway-projection-http.js';
@@ -293,13 +294,13 @@ const main = async (): Promise<void> => {
     throw new Error('ACE_AST_GREP_PROVIDER must be cli, napi, or auto');
   }
   const astGrepProvider = astGrepProviderRaw as 'cli' | 'napi' | 'auto';
-  let lspCommand = optionalCommand(
+  const lspCommand = optionalCommand(
     process.env.ACE_LSP_COMMAND,
     resolve(runtimeRoot, 'node_modules/.bin/typescript-language-server'),
   );
-  let lspArgs = configuredStringArray('ACE_LSP_ARGS', ['--stdio']);
-  let lspServerName = optionalCommand(process.env.ACE_LSP_SERVER, 'typescript-language-server');
-  let lspLanguageIds = configuredLanguageIds('ACE_LSP_LANGUAGE_IDS');
+  const lspArgs = configuredStringArray('ACE_LSP_ARGS', ['--stdio']);
+  const lspServerName = optionalCommand(process.env.ACE_LSP_SERVER, 'typescript-language-server');
+  const lspLanguageIds = configuredLanguageIds('ACE_LSP_LANGUAGE_IDS');
   const embeddingWorkerArgs = configuredStringArray('ACE_EMBEDDING_WORKER_ARGS_JSON', []);
   const sparseEmbeddingWorkerArgs = configuredStringArray('ACE_SPARSE_EMBEDDING_WORKER_ARGS_JSON', []);
   const rerankerWorkerArgs = configuredStringArray('ACE_RERANKER_WORKER_ARGS_JSON', []);
@@ -624,6 +625,8 @@ const main = async (): Promise<void> => {
             providerVersion: astGrepProvider === 'napi'
               ? process.env.ACE_AST_GREP_NAPI_VERSION?.trim() || 'ast-grep/napi@0.51.0'
               : process.env.ACE_AST_GREP_VERSION?.trim() || 'ast-grep/0.51.0',
+            // Auto embeds BOTH maintained parser identities in warm-cache keys.
+            napiProviderVersion: process.env.ACE_AST_GREP_NAPI_VERSION?.trim() || 'ast-grep/napi@0.51.0',
             trace: providerTrace,
           };
           const structuralIdentity = await Effect.runPromise(resolveAstGrepProviderIdentity(structuralOptions));
@@ -717,9 +720,12 @@ const main = async (): Promise<void> => {
               ? changedPaths.flatMap((repoPath) => repoMapSymbolIdsByPath.get(repoPath) ?? [])
               : [];
             const structuralAnalyses = [...(build.structuralAnalysesByPath?.values() ?? [])];
-            if (!structuralAnalyses.some((analysis) => analysis.identifiers !== undefined)) {
+            const missingReferenceCoverage = structuralAnalyses.filter((analysis) =>
+              analysis.symbols.length > 0 && analysis.identifiers === undefined);
+            if (missingReferenceCoverage.length > 0
+              || !structuralAnalyses.some((analysis) => analysis.identifiers !== undefined)) {
               activeRepoMap = undefined;
-              process.stderr.write('ace-mcp RepoMap NOT_READY: selected structural provider has no shared identifier records; refusing a second parser pass\n');
+              process.stderr.write(`ace-mcp RepoMap NOT_READY: shared def/ref records incomplete for ${missingReferenceCoverage.length} structural files; refusing a second parser pass\n`);
             } else {
               const repoMapDelta = await Effect.runPromise(buildRepoMapDelta({
                 candidates: build.index.candidates,
@@ -751,47 +757,47 @@ const main = async (): Promise<void> => {
                 }
               }
             }
-            // Reuse Claw #3016's installed-server discovery on verified index
-            // paths. ACE explicit LSP overrides win. Only one best-matching
-            // server is chosen; unrelated languages remain LSP-unavailable.
-            if (process.env.ACE_LSP_COMMAND === undefined
-              && process.env.ACE_LSP_SERVER === undefined
-              && process.env.ACE_LSP_ARGS === undefined
-              && process.env.ACE_LSP_LANGUAGE_IDS === undefined) {
-              const discovered = selectInstalledLspForPaths(build.indexedPaths, (entry) => {
-                // Claw's command_exists_on_path() actually executes --version.
-                // A nonempty command name is NOT proof it exists on PATH.
+            // Pinned Claw descriptors + existing vscode-jsonrpc/registry:
+            // each installed language server owns only its known extensions.
+            const lspOverridden = [
+              'ACE_LSP_COMMAND', 'ACE_LSP_ARGS', 'ACE_LSP_SERVER', 'ACE_LSP_LANGUAGE_IDS',
+            ].some((name) => process.env[name] !== undefined);
+            const discovered = lspOverridden ? [] : selectInstalledLspServersForPaths(
+              build.indexedPaths,
+              (entry) => {
                 const candidate = entry.command === 'typescript-language-server'
-                  ? resolve(runtimeRoot, 'node_modules/.bin/typescript-language-server')
-                  : entry.command;
+                  ? resolve(runtimeRoot, 'node_modules/.bin/typescript-language-server') : entry.command;
                 try {
-                  const probe = spawnSync(candidate, ['--version'], {
-                    stdio: 'ignore', timeout: 1_000,
-                  });
+                  const probe = spawnSync(candidate, ['--version'], { stdio: 'ignore', timeout: 1_000 });
                   return probe.error === undefined;
-                } catch {
-                  return false;
-                }
-              });
-              if (discovered !== undefined) {
-                lspCommand = discovered.command === 'typescript-language-server'
-                  ? resolve(runtimeRoot, 'node_modules/.bin/typescript-language-server') : discovered.command;
-                lspArgs = discovered.args;
-                lspServerName = discovered.command;
-                lspLanguageIds = discovered.languageIds;
-              }
-            }
-            const lspProviderIdentity = commandBoundaryExists(lspCommand)
-              ? await Effect.runPromise(resolveLspProviderIdentity({
-                command: lspCommand,
-                args: lspArgs,
-                serverName: lspServerName,
-                snapshotIdentity: sourceKey,
-              }))
-              : undefined;
-            const semanticProviderVersion = lspProviderIdentity?._tag === 'Ok'
-              ? lspProviderIdentity.value.version
-              : process.env.ACE_LSP_VERSION?.trim() || `${lspServerName}/unavailable`;
+                } catch { return false; }
+              },
+            );
+            const serverPlans = discovered.length > 0 ? discovered.map((entry) => ({
+              command: entry.command === 'typescript-language-server'
+                ? resolve(runtimeRoot, 'node_modules/.bin/typescript-language-server') : entry.command,
+              args: entry.args,
+              serverName: entry.command,
+              languageIds: entry.languageIds,
+            })) : [{
+              command: lspCommand,
+              args: lspArgs,
+              serverName: lspServerName,
+              languageIds: lspLanguageIds ?? (lspServerName === 'typescript-language-server'
+                ? knownLspServers().find((entry) => entry.command === 'typescript-language-server')?.languageIds ?? {}
+                : {}),
+            }];
+            const providerIdentities = await Promise.all(serverPlans.map((plan) =>
+              commandBoundaryExists(plan.command)
+                ? Effect.runPromise(resolveLspProviderIdentity({
+                  command: plan.command, args: plan.args,
+                  serverName: plan.serverName, snapshotIdentity: sourceKey,
+                }))
+                : Promise.resolve(undefined)));
+            const semanticProviderVersion = serverPlans.map((plan, index) => {
+              const identity = providerIdentities[index];
+              return `${plan.serverName}:${identity?._tag === 'Ok' ? identity.value.version : 'unavailable'}`;
+            }).join('|');
             const configIdentity = build.workspaceManifest.files
               .filter((file) => /^tsconfig(?:\..+)?\.json$/u.test(file.repoPath))
               .map((file) => `${file.repoPath}:${file.sourceDigest}`).sort().join('|') || 'absent';
@@ -808,40 +814,54 @@ const main = async (): Promise<void> => {
               moduleResolutionIdentity: 'node-next|allowJs=true|checkJs=false|target=es2022',
               declarationsIdentity: declarationIdentity,
               packageLockIdentity,
-              providerIdentity: `${lspCommand}|${semanticProviderVersion}|${lspProviderIdentity?._tag === 'Ok' ? lspProviderIdentity.value.fingerprint : 'unverified'}`,
+              providerIdentity: serverPlans.map((plan, index) => {
+                const identity = providerIdentities[index];
+                return `${plan.command}|${identity?._tag === 'Ok' ? identity.value.fingerprint : 'unverified'}`;
+              }).join('|'),
             });
             // Keep process identity independent from source generation. A
             // reused session is refreshed through its serialized lifecycle;
             // retain the lease until this publication commits so a prior
             // generation cannot close the shared process underneath it.
-            const descriptor = makeLspServerDescriptor({
-              workspaceId: registered.value.workspaceId,
-              rootPath: registered.value.rootPath,
-              command: lspCommand,
-              args: lspArgs,
-              serverName: lspServerName,
-              ...(lspLanguageIds === undefined ? {} : { languageIds: lspLanguageIds }),
-            });
-            const acquired = await Effect.runPromise(lspRegistry.acquire(descriptor, () => makeLspSemanticAnalysisPort({
-              command: lspCommand,
-              args: lspArgs,
-              serverName: lspServerName,
-              rootPath: registered.value.rootPath,
-              files: sourceFiles.value,
-              ...(lspLanguageIds === undefined ? {} : { languageIds: lspLanguageIds }),
-              providerVersion: semanticProviderVersion,
-              snapshotIdentity: semanticIdentity,
-              trace: providerTrace,
-            })));
-            if (acquired._tag === 'Err') return acquired;
-            const semanticLease = acquired.value;
-            const semantics = semanticLease.session;
-            const firstLspPath = build.indexedPaths.find((repoPath) => lspLanguageIdForPath(repoPath, lspLanguageIds) !== undefined);
-            const lspConfigured = lspProviderIdentity?._tag === 'Ok' && firstLspPath !== undefined;
+            const acquiredRoutes: {
+              readonly lease: { readonly session: ReturnType<typeof makeLspSemanticAnalysisPort>; readonly created: boolean; readonly release: () => void };
+              readonly languageIds: Readonly<Record<string, string>>;
+            }[] = [];
+            for (const [index, plan] of serverPlans.entries()) {
+              const identity = providerIdentities[index];
+              // Optional unavailable servers never block non-LSP retrieval.
+              if (identity?._tag !== 'Ok') continue;
+              const descriptor = makeLspServerDescriptor({
+                workspaceId: registered.value.workspaceId,
+                rootPath: registered.value.rootPath,
+                command: plan.command, args: plan.args,
+                serverName: plan.serverName, languageIds: plan.languageIds,
+              });
+              const acquired = await Effect.runPromise(lspRegistry.acquire(descriptor, () =>
+                makeLspSemanticAnalysisPort({
+                  command: plan.command, args: plan.args,
+                  serverName: plan.serverName, rootPath: registered.value.rootPath,
+                  files: sourceFiles.value, languageIds: plan.languageIds,
+                  providerVersion: identity.value.version,
+                  snapshotIdentity: semanticIdentity, trace: providerTrace,
+                })));
+              if (acquired._tag === 'Err') {
+                for (const route of acquiredRoutes) route.lease.release();
+                return acquired;
+              }
+              acquiredRoutes.push({ lease: acquired.value, languageIds: plan.languageIds });
+            }
+            const semantics = makeRoutedLspSession(acquiredRoutes.map(({ lease, languageIds }) =>
+              ({ session: lease.session, languageIds })));
+            const semanticLease = {
+              session: semantics,
+              created: acquiredRoutes.every((route) => route.lease.created),
+              release: (): void => { for (const route of acquiredRoutes) route.lease.release(); },
+            };
+            const lspConfigured = acquiredRoutes.some((route) =>
+              build.indexedPaths.some((file) => lspLanguageIdForPath(file, route.languageIds) !== undefined));
             if (!lspConfigured) {
-              process.stderr.write(firstLspPath === undefined
-                ? 'ace-mcp semantic LSP NOT_READY: no LSP-capable source language is present in this workspace\n'
-                : `ace-mcp semantic LSP NOT_READY: ${lspServerName} identity is unavailable\n`);
+              process.stderr.write('ace-mcp semantic LSP NOT_READY: no installed server for indexed source languages\n');
             }
             let finalManifest;
             if (verification === 'incremental') {
@@ -911,8 +931,8 @@ const main = async (): Promise<void> => {
             // to the returned publication there are no awaited provider
             // operations, so a failed preparation cannot leave the previous
             // Qdrant publication paired with a newer LSP snapshot.
-            if (!semanticLease.created) {
-              const refreshed = await Effect.runPromise(semanticLease.session.refresh(sourceFiles.value, semanticIdentity));
+            for (const route of acquiredRoutes.filter((item) => !item.lease.created)) {
+              const refreshed = await Effect.runPromise(route.lease.session.refresh(sourceFiles.value, semanticIdentity));
               if (refreshed._tag === 'Err') {
                 semanticLease.release();
                 return refreshed;
@@ -983,7 +1003,7 @@ const main = async (): Promise<void> => {
                   : `${effectiveSparseEmbedding.provider}|model=${effectiveSparseEmbedding.model}|runtime=${effectiveSparseEmbedding.runtimeVersion}|artifact=${effectiveSparseEmbedding.artifactDigest}`,
                 qdrant: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
                 structural: effectiveStructuralProviderIdentity,
-                semantic: `${lspServerName}|${semanticProviderVersion}`,
+                semantic: semanticProviderVersion,
                 reranker: rerankerModel === undefined ? 'disabled' : `fastembed/cross-encoder|model=${rerankerModel}`,
               },
               history,

@@ -20,6 +20,7 @@ export interface AstGrepStructuralOptions {
   readonly provider?: 'cli' | 'napi' | 'auto';
   readonly timeoutMs?: number;
   readonly providerVersion?: string;
+  readonly napiProviderVersion?: string;
   readonly trace?: ProviderTraceSink;
 }
 
@@ -277,7 +278,9 @@ export const resolveAstGrepProviderIdentity = (
   options: AstGrepStructuralOptions,
 ): Effect.Effect<Result<AstGrepProviderIdentity, DomainError>> => Effect.gen(function* () {
   const provider = options.provider ?? 'auto';
-  const napiVersion = options.providerVersion ?? 'ast-grep/napi@0.51.0';
+  const napiVersion = options.napiProviderVersion
+    ?? (provider === 'napi' ? options.providerVersion : undefined)
+    ?? 'ast-grep/napi@0.51.0';
   if (provider === 'napi') {
     const stable = {
       provider: 'ast-grep' as const,
@@ -304,7 +307,7 @@ export const resolveAstGrepProviderIdentity = (
     protocolSchema: 1 as const,
     command: provider === 'auto' ? `${command}+@ast-grep/napi` : command,
     version: provider === 'auto'
-      ? `${cliVersion.value}|napi:${napiVersion}|hybrid-defref-v1`
+      ? `${cliVersion.value}|napi:${napiVersion}|hybrid-defref-scopes-v2`
       : cliVersion.value,
   };
   return ok({

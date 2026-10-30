@@ -49,7 +49,7 @@ test('runtime failpoint is double-opt-in and release config capture refuses fail
 test('semantic refresh is ordered after fallible Qdrant preparation', async () => {
   const runtime = await readFile('src/bin/ace-mcp.ts', 'utf8');
   const qdrantPreparation = runtime.indexOf('const indexed = await Effect.runPromise(');
-  const semanticRefresh = runtime.indexOf('semanticLease.session.refresh(sourceFiles.value, semanticIdentity)');
+  const semanticRefresh = runtime.indexOf('route.lease.session.refresh(sourceFiles.value, semanticIdentity)');
   const publicationConstruction = runtime.indexOf('const qdrant = makeQdrantCodeCandidatePort({');
   assert.ok(qdrantPreparation >= 0);
   assert.ok(semanticRefresh > qdrantPreparation, 'LSP refresh must not precede Qdrant preparation');
