@@ -142,7 +142,7 @@ test('Claw pinned discovery chooses installed server for verified workspace path
   assert.equal(findKnownLspForFile('src/component.tsx')?.command, 'typescript-language-server');
   assert.equal(findKnownLspForFile('.gitignore'), undefined);
   const checks: string[] = [];
-  const chosen = selectInstalledLspForPaths(['a.py', 'b.py', 'c.ts', 'd.go'], (item) => {
+  const chosen = selectInstalledLspForPaths(['a.py', 'b.py', 'c.ts', 'd.ts', 'e.go'], (item) => {
     checks.push(item.command);
     return item.command !== 'pyright-langserver';
   });
