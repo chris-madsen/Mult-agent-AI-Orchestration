@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const repository = resolve(import.meta.dirname, '..');
+const repository = resolve(process.env.ACE_SOURCE_ROOT?.trim() || resolve(import.meta.dirname, '..'));
 const root = await mkdtemp(join(tmpdir(), 'ace-restart-provider-'));
 const workspace = join(root, 'workspace');
 const state = join(root, 'state');
@@ -28,9 +28,10 @@ const runOnce = () => new Promise((resolveRun, rejectRun) => {
       ACE_STATE_DIR: state,
       ACE_WORKSPACE_ID: workspaceId,
       ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
+      ACE_RETRIEVAL_STRATEGY: process.env.ACE_RETRIEVAL_STRATEGY?.trim() || 'dense',
       ACE_QDRANT_URL: qdrantUrl,
-      ACE_EMBEDDING_WORKER: resolve(import.meta.dirname, 'fastembed-worker.sh'),
-      ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
+      ACE_EMBEDDING_WORKER: process.env.ACE_EMBEDDING_WORKER ?? resolve(repository, 'scripts/fastembed-worker.sh'),
+      ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND ?? resolve(repository, 'node_modules/.bin/ast-grep'),
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });

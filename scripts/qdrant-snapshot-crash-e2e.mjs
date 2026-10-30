@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 
-const repository = resolve(import.meta.dirname, '..');
+const repository = resolve(process.env.ACE_SOURCE_ROOT?.trim() || resolve(import.meta.dirname, '..'));
 const timeoutMs = Number(process.env.ACE_QDRANT_CRASH_E2E_TIMEOUT_MS ?? 20 * 60_000);
 if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 60_000 || timeoutMs > 60 * 60_000) {
   throw new Error('ACE_QDRANT_CRASH_E2E_TIMEOUT_MS must be between 60000 and 3600000');
@@ -36,10 +36,15 @@ const traces = {
 };
 const workspaceId = `qdrant-crash-${randomUUID()}`;
 const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
-const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
-  cwd: repository,
-  encoding: 'utf8',
-}).trim().toLowerCase();
+let sourceCommit;
+try {
+  sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: repository,
+    encoding: 'utf8',
+  }).trim().toLowerCase();
+} catch {
+  throw new Error(`BLOCKED: ACE_SOURCE_ROOT must be a Git worktree: ${repository}`);
+}
 
 const git = (args) => execFileSync('git', args, {
   cwd: workspace,
@@ -83,12 +88,13 @@ const baseEnv = (stateDir, traceFile, failpoint = false) => ({
   ACE_STATE_DIR: stateDir,
   ACE_WORKSPACE_ID: workspaceId,
   ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
+  ACE_RETRIEVAL_STRATEGY: process.env.ACE_RETRIEVAL_STRATEGY?.trim() || 'dense',
   ACE_QDRANT_URL: qdrantUrl,
   ACE_PROVIDER_TRACE_FILE: traceFile,
   ACE_EMBEDDING_WORKER: process.env.ACE_EMBEDDING_WORKER
-    ?? resolve(import.meta.dirname, 'fastembed-worker.sh'),
+    ?? resolve(repository, 'scripts/fastembed-worker.sh'),
   ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND
-    ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
+    ?? resolve(repository, 'node_modules/.bin/ast-grep'),
   ...(failpoint ? {
     ACE_ENABLE_TEST_FAILPOINTS: 'true',
     ACE_TEST_FAILPOINT: 'after_qdrant_verify_before_publish',

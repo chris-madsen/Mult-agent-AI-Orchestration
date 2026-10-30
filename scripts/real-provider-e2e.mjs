@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+const sourceRoot = resolve(process.env.ACE_SOURCE_ROOT?.trim() || resolve(import.meta.dirname, '..'));
 const root = await mkdtemp(join(tmpdir(), 'ace-real-provider-'));
 const workspace = join(root, 'workspace');
 await mkdir(workspace);
@@ -52,7 +53,7 @@ const race = process.env.ACE_REAL_PROVIDER_RACE === 'true';
 const outage = process.env.ACE_REAL_PROVIDER_OUTAGE === 'true';
 const hardOutage = process.env.ACE_REAL_PROVIDER_HARD_OUTAGE === 'true';
 const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
-  cwd: resolve(import.meta.dirname, '..'),
+  cwd: sourceRoot,
   env: {
     ...process.env,
     ACE_WORKSPACE_ROOT: workspace,
@@ -60,9 +61,10 @@ const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
     ACE_STATE_DIR: join(root, 'state'),
     ACE_WORKSPACE_ID: workspaceId,
     ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
+    ACE_RETRIEVAL_STRATEGY: process.env.ACE_RETRIEVAL_STRATEGY?.trim() || 'dense',
     ACE_QDRANT_URL: outage || hardOutage ? 'http://127.0.0.1:6339' : qdrantUrl,
-    ACE_EMBEDDING_WORKER: resolve(import.meta.dirname, 'fastembed-worker.sh'),
-    ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
+    ACE_EMBEDDING_WORKER: process.env.ACE_EMBEDDING_WORKER ?? resolve(sourceRoot, 'scripts/fastembed-worker.sh'),
+    ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND ?? resolve(sourceRoot, 'node_modules/.bin/ast-grep'),
     ...(race ? {
       // The runtime forwards the artificial delay only under its explicit
       // test-only double opt-in; production runs never receive this knob.
@@ -100,7 +102,9 @@ child.stdout.on('data', (chunk) => {
 const request = (id, message) => new Promise((resolveResponse, reject) => {
   const timer = setTimeout(() => {
     waiters.delete(id);
-    reject(new Error(`MCP request ${id} timed out; stderr=${stderr.join('').slice(-2000)}`));
+    const detail = `MCP request ${id} timed out; stderr=${stderr.join('').slice(-2000)}`;
+    process.stderr.write(`${JSON.stringify({ status: 'blocked', code: 'RUNNER_TIMEOUT', detail })}\n`);
+    reject(new Error(detail));
   }, 180_000);
   const existing = responses.get(id);
   if (existing !== undefined) {
@@ -115,6 +119,32 @@ const request = (id, message) => new Promise((resolveResponse, reject) => {
   });
   child.stdin.write(`${JSON.stringify(message)}\n`);
 });
+
+const waitForChildExit = (timeoutMs) => new Promise((resolveExit) => {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    resolveExit(true);
+    return;
+  }
+  let timer;
+  const onExit = () => {
+    if (timer !== undefined) clearTimeout(timer);
+    child.off('exit', onExit);
+    resolveExit(true);
+  };
+  child.once('exit', onExit);
+  timer = setTimeout(() => {
+    child.off('exit', onExit);
+    resolveExit(false);
+  }, timeoutMs);
+});
+
+const terminateChild = async () => {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  child.kill('SIGTERM');
+  if (await waitForChildExit(1_000)) return;
+  child.kill('SIGKILL');
+  await waitForChildExit(1_000);
+};
 
 try {
   await request(1, { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2026-07-28', capabilities: {}, clientInfo: { name: 'ace-real-provider-e2e', version: '1' } } });
@@ -193,6 +223,6 @@ try {
   }
 } finally {
   child.stdin.end();
-  child.kill('SIGTERM');
+  await terminateChild();
   await rm(root, { recursive: true, force: true });
 }
