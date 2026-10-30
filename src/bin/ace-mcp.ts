@@ -286,10 +286,9 @@ const main = async (): Promise<void> => {
     process.env.ACE_AST_GREP_COMMAND,
     resolve(runtimeRoot, 'node_modules/.bin/ast-grep'),
   );
-  // Keep the already-batched CLI canonical until NAPI symbol extraction has
-  // real-repository parity evidence. "auto" is a compatibility alias for CLI;
-  // only explicit "napi" selects the experimental NAPI extractor.
-  const astGrepProviderRaw = process.env.ACE_AST_GREP_PROVIDER?.trim() || 'cli';
+  // Auto reuses @ast-grep/napi for the verified JS/TS def/ref parser and
+  // keeps the already-batched CLI outline for unsupported grammars.
+  const astGrepProviderRaw = process.env.ACE_AST_GREP_PROVIDER?.trim() || 'auto';
   if (!['cli', 'napi', 'auto'].includes(astGrepProviderRaw)) {
     throw new Error('ACE_AST_GREP_PROVIDER must be cli, napi, or auto');
   }

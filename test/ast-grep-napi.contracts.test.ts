@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Effect } from 'effect';
 import test from 'node:test';
 import { makeAstGrepNapiStructuralPort, supportsAstGrepNapiPath } from '../src/adapters/ast-grep-napi.js';
@@ -31,7 +33,7 @@ test('NAPI collects byte-bound identifier occurrences in the same parse as decla
   }
 });
 
-test('explicit NAPI identity remains experimental while auto mode uses the CLI outline provider', async () => {
+test('auto selects single-pass NAPI def/ref for JS/TS while preserving CLI for other languages', async () => {
   const identity = await Effect.runPromise(resolveAstGrepProviderIdentity({
     command: '/definitely/missing/ast-grep',
     provider: 'napi',
@@ -40,12 +42,43 @@ test('explicit NAPI identity remains experimental while auto mode uses the CLI o
   assert.equal(identity._tag, 'Ok');
   if (identity._tag === 'Ok') assert.equal(identity.value.command, '@ast-grep/napi');
 
-  const auto = makeAstGrepStructuralPort({
+  const autoOptions = {
     command: 'node_modules/.bin/ast-grep',
-    provider: 'auto',
+    provider: 'auto' as const,
     providerVersion: 'ast-grep/napi@0.51.0',
-  });
-  assert.equal((await Effect.runPromise(auto.extract({ repoPath: 'main.ts', source })))._tag, 'Ok');
+  };
+  const auto = makeAstGrepStructuralPort(autoOptions);
+  const tsResult = await Effect.runPromise(auto.extract({ repoPath: 'main.ts', source }));
+  assert.equal(tsResult._tag, 'Ok');
+  if (tsResult._tag === 'Ok') {
+    assert.ok(tsResult.value.identifiers?.some((item) => item.name === 'save'));
+    assert.ok(tsResult.value.identifiers?.some((item) => item.name === 'value'));
+  }
+  const pyResult = await Effect.runPromise(auto.extract({
+    repoPath: 'worker.py', source: Buffer.from('def work():\n    pass\n'),
+  }));
+  assert.equal(pyResult._tag, 'Ok');
+  if (pyResult._tag === 'Ok') {
+    assert.equal(pyResult.value.identifiers, undefined);
+    assert.ok(pyResult.value.symbols.some((item) => item.name === 'work'));
+  }
+  const combined = await Effect.runPromise(auto.extractMany!([
+    { repoPath: 'one.ts', source },
+    { repoPath: 'two.py', source: Buffer.from('def work():\n    pass\n') },
+    { repoPath: 'three.js', source: Buffer.from('function run() { return run(); }\n') },
+  ]));
+  assert.deepEqual(combined.map((item) => item._tag), ['Ok', 'Ok', 'Ok']);
+  assert.equal(combined[0]?._tag === 'Ok' && combined[0].value.identifiers !== undefined, true);
+  assert.equal(combined[1]?._tag === 'Ok' && combined[1].value.identifiers, undefined);
+  assert.equal(combined[2]?._tag === 'Ok' && combined[2].value.identifiers !== undefined, true);
+  const autoIdentity = await Effect.runPromise(resolveAstGrepProviderIdentity(autoOptions));
+  const cliIdentity = await Effect.runPromise(resolveAstGrepProviderIdentity({ ...autoOptions, provider: 'cli' }));
+  assert.equal(autoIdentity._tag, 'Ok');
+  assert.equal(cliIdentity._tag, 'Ok');
+  if (autoIdentity._tag === 'Ok' && cliIdentity._tag === 'Ok') {
+    assert.notEqual(autoIdentity.value.fingerprint, cliIdentity.value.fingerprint);
+    assert.match(autoIdentity.value.version, /hybrid-defref-v1/u);
+  }
 });
 
 
@@ -114,5 +147,37 @@ test('NAPI matches CLI field scope for interfaces without inventing type-alias o
   if (result._tag === 'Ok') {
     assert.equal(result.value.symbols.some((item) => item.name === 'path' && item.kind === 'field'), true);
     assert.equal(result.value.symbols.some((item) => item.name === 'value' && item.kind === 'field'), false);
+  }
+});
+
+test('real-repo JS/TS symbol parity against pinned official ast-grep outline', async () => {
+  const cli = makeAstGrepStructuralPort({
+    command: 'node_modules/.bin/ast-grep',
+    provider: 'cli',
+  });
+  const napi = makeAstGrepNapiStructuralPort();
+  const examples = [
+    'src/domain/repo-map.ts',
+    'src/adapters/ast-grep-napi.ts',
+    'src/application/lsp/claw-discovery.ts',
+  ];
+  const filtered = (symbols: readonly { readonly kind: string; readonly name: string; readonly startLine: number }[]) =>
+    symbols.filter((symbol) => ['function', 'class', 'interface', 'type', 'enum', 'method'].includes(symbol.kind))
+      .map((symbol) => `${symbol.kind}|${symbol.name}|${symbol.startLine}`).sort();
+  for (const repoPath of examples) {
+    const source = readFileSync(join(process.cwd(), repoPath));
+    const [expected, actual] = await Promise.all([
+      Effect.runPromise(cli.extract({ repoPath, source })),
+      Effect.runPromise(napi.extract({ repoPath, source })),
+    ]);
+    assert.equal(expected._tag, 'Ok', repoPath);
+    assert.equal(actual._tag, 'Ok', repoPath);
+    if (expected._tag === 'Err' || actual._tag === 'Err') continue;
+    const canonical = filtered(expected.value.symbols);
+    const candidate = filtered(actual.value.symbols);
+    assert.deepEqual(candidate, canonical,
+      `${repoPath} structural tags differ from canonical CLI outline; do not enable NAPI by default until parity holds`);
+    assert.ok(actual.value.identifiers && actual.value.identifiers.length > 0,
+      `${repoPath} NAPI must expose same-pass identifier occurrences`);
   }
 });

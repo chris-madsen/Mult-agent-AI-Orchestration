@@ -13,7 +13,7 @@ import { recoverResult } from '../application/effect-result.js';
 import { structuralLanguageForPath } from '../domain/structural-language.js';
 import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
 import { providerUsesWindowsShell, resolveProviderCommand } from './provider-command.js';
-import { makeAstGrepNapiStructuralPort } from './ast-grep-napi.js';
+import { makeAstGrepNapiStructuralPort, supportsAstGrepNapiPath } from './ast-grep-napi.js';
 
 export interface AstGrepStructuralOptions {
   readonly command: string;
@@ -276,7 +276,7 @@ const commandVersion = (command: string): Effect.Effect<Result<string, DomainErr
 export const resolveAstGrepProviderIdentity = (
   options: AstGrepStructuralOptions,
 ): Effect.Effect<Result<AstGrepProviderIdentity, DomainError>> => Effect.gen(function* () {
-  const provider = options.provider ?? 'cli';
+  const provider = options.provider ?? 'auto';
   const napiVersion = options.providerVersion ?? 'ast-grep/napi@0.51.0';
   if (provider === 'napi') {
     const stable = {
@@ -293,19 +293,24 @@ export const resolveAstGrepProviderIdentity = (
 
   const command = resolveProviderCommand(options.command);
   const cliVersion = yield* commandVersion(command);
-  if (provider === 'cli' || provider === 'auto') {
-    if (cliVersion._tag === 'Err') return cliVersion;
-    const stable = {
-      provider: 'ast-grep' as const,
-      protocolSchema: 1 as const,
-      command,
-      version: cliVersion.value,
-    };
-    return ok({
-      ...stable,
-      fingerprint: createHash('sha256').update(JSON.stringify(stable), 'utf8').digest('hex'),
-    });
-  }
+  if (cliVersion._tag === 'Err') return cliVersion;
+  // The auto owner uses the already-installed NAPI only for the JS/TS
+  // grammars with actual shared def/ref extraction parity. All other source
+  // languages use the canonical CLI outline without a second parser pass.
+  // Both engines are pinned to the cache fingerprint to avoid reusing a
+  // CLI-only generation as if it contained identifier records.
+  const stable = {
+    provider: 'ast-grep' as const,
+    protocolSchema: 1 as const,
+    command: provider === 'auto' ? `${command}+@ast-grep/napi` : command,
+    version: provider === 'auto'
+      ? `${cliVersion.value}|napi:${napiVersion}|hybrid-defref-v1`
+      : cliVersion.value,
+  };
+  return ok({
+    ...stable,
+    fingerprint: createHash('sha256').update(JSON.stringify(stable), 'utf8').digest('hex'),
+  });
 
   return err(domainError(
     'UNSUPPORTED_PROVIDER',
@@ -422,10 +427,38 @@ const makeCliAstGrepStructuralPort = (options: AstGrepStructuralOptions): Struct
 });
 
 export const makeAstGrepStructuralPort = (options: AstGrepStructuralOptions): StructuralAnalysisPort => {
-  const provider = options.provider ?? 'cli';
-  const cli = makeCliAstGrepStructuralPort(options);
+  const provider = options.provider ?? 'auto';
   const napi = makeAstGrepNapiStructuralPort();
-  if (provider === 'cli' || provider === 'auto') return cli;
   if (provider === 'napi') return napi;
-  return napi;
+  const cli = makeCliAstGrepStructuralPort(options);
+  if (provider === 'cli') return cli;
+
+  // One authoritative parser per file. Partition the caller's already
+  // verified source bytes by proven NAPI extraction capability. Keep CLI
+  // batching for every unsupported grammar, preserving input order and
+  // per-file failure semantics. No reparsing of any individual file.
+  return {
+    extract: (input) => supportsAstGrepNapiPath(input.repoPath)
+      ? napi.extract(input) : cli.extract(input),
+    extractMany: (inputs) => Effect.promise(async () => {
+      const result: Result<StructuralAnalysis, DomainError>[] = [];
+      const napiIndices: number[] = [];
+      const cliIndices: number[] = [];
+      for (const [index, input] of inputs.entries()) {
+        if (supportsAstGrepNapiPath(input.repoPath)) napiIndices.push(index);
+        else cliIndices.push(index);
+      }
+      const [napiResults, cliResults] = await Promise.all([
+        napiIndices.length > 0
+          ? Effect.runPromise(napi.extractMany!(napiIndices.map((index) => inputs[index]!)))
+          : Promise.resolve([]),
+        cliIndices.length > 0
+          ? Effect.runPromise(cli.extractMany!(cliIndices.map((index) => inputs[index]!)))
+          : Promise.resolve([]),
+      ]);
+      for (const [position, index] of napiIndices.entries()) result[index] = napiResults[position]!;
+      for (const [position, index] of cliIndices.entries()) result[index] = cliResults[position]!;
+      return result;
+    }),
+  };
 };

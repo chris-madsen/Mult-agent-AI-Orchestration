@@ -12,10 +12,10 @@ import {
 } from '../src/domain/structural-language.js';
 
 const command = join(process.cwd(), 'node_modules/.bin/ast-grep');
-const provider = makeAstGrepStructuralPort({ command });
+const provider = makeAstGrepStructuralPort({ command, provider: 'cli' });
 
 test('ast-grep identity is pinned to the executable version', async () => {
-  const identity = await Effect.runPromise(resolveAstGrepProviderIdentity({ command }));
+  const identity = await Effect.runPromise(resolveAstGrepProviderIdentity({ command, provider: 'cli' }));
   assert.equal(identity._tag, 'Ok');
   if (identity._tag === 'Err') return;
   assert.equal(identity.value.provider, 'ast-grep');
