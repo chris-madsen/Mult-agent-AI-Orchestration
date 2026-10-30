@@ -1,5 +1,6 @@
 import type { ContentDigest, RepoPath } from './workspace.js';
 import type { SourceRange } from './retrieval.js';
+import { renderAiderTreeContext } from './aider-tree-context.js';
 
 export type RepoMapSymbolId = string & { readonly __brand: 'RepoMapSymbolId' };
 
@@ -24,13 +25,22 @@ export interface RepoMapSymbol {
   readonly references: readonly RepoMapReference[];
 }
 
+export interface RepoMapSource {
+  readonly repoPath: RepoPath;
+  readonly sourceDigest: ContentDigest;
+  /** Exact source text from the verified workspace snapshot. */
+  readonly text: string;
+}
+
 export interface RepoMapDelta {
   readonly upserted: readonly RepoMapSymbol[];
   readonly removed: readonly RepoMapSymbolId[];
+  readonly sourceByPath?: readonly RepoMapSource[];
 }
 
 export interface RepoMapGraph {
   readonly symbols: ReadonlyMap<RepoMapSymbolId, RepoMapSymbol>;
+  readonly sourceByPath?: ReadonlyMap<RepoPath, RepoMapSource>;
 }
 
 export interface RepoMapRankedSymbol {
@@ -83,7 +93,7 @@ export const makeRepoMapSymbol = (input: Omit<RepoMapSymbol, 'id'>): RepoMapSymb
   references: normalizeReferences(input.references),
 });
 
-export const emptyRepoMapGraph = (): RepoMapGraph => ({ symbols: new Map() });
+export const emptyRepoMapGraph = (): RepoMapGraph => ({ symbols: new Map(), sourceByPath: new Map() });
 
 export const applyRepoMapDelta = (graph: RepoMapGraph, delta: RepoMapDelta): RepoMapGraph => {
   const symbols = new Map(graph.symbols);
@@ -118,7 +128,13 @@ export const applyRepoMapDelta = (graph: RepoMapGraph, delta: RepoMapDelta): Rep
       if (changed) symbols.set(id, { ...symbol, references: normalizeReferences(rebound) });
     }
   }
-  return { symbols };
+  const sourceByPath = new Map(graph.sourceByPath ?? []);
+  for (const source of delta.sourceByPath ?? []) sourceByPath.set(source.repoPath, source);
+  const remainingPaths = new Set([...symbols.values()].map((symbol) => symbol.repoPath));
+  for (const path of sourceByPath.keys()) {
+    if (!remainingPaths.has(path)) sourceByPath.delete(path);
+  }
+  return { symbols, sourceByPath };
 };
 
 const queryTokens = (query: string): readonly string[] => query.toLocaleLowerCase().split(/[^\p{L}\p{N}_$]+/u).filter((token) => token.length >= 2);
@@ -334,34 +350,69 @@ export const rankRepoMap = (graph: RepoMapGraph, input: RepoMapRenderInput): rea
     || left.symbol.id.localeCompare(right.symbol.id));
 };
 
+/**
+ * Render Aider-style file sections from the exact verified source snapshot.
+ * The original Aider.to_tree() sorts tags by path, skips open chat files,
+ * groups lines of interest by file, uses grep_ast.TreeContext.format(), and
+ * clips each physical output line to 100 characters. No second AST parser.
+ *
+ * The existing character count is ONLY an estimate; ContextAssembler owns
+ * model-aware final delivery accounting.
+ */
 export const renderRepoMap = (
   ranked: readonly RepoMapRankedSymbol[],
   tokenBudget: number,
+  sourceByPath?: ReadonlyMap<RepoPath, RepoMapSource>,
+  openFiles: readonly RepoPath[] = [],
 ): RepoMapResult => {
   const safeBudget = Number.isSafeInteger(tokenBudget) && tokenBudget > 0 ? tokenBudget : 1;
-  const lines: string[] = [];
-  const grouped = new Map<RepoPath, RepoMapRankedSymbol[]>();
-  for (const item of ranked) grouped.set(item.symbol.repoPath, [...(grouped.get(item.symbol.repoPath) ?? []), item]);
+  const open = new Set(openFiles);
+  const byPath = new Map<RepoPath, RepoMapRankedSymbol[]>();
+  for (const item of ranked) {
+    if (open.has(item.symbol.repoPath)) continue;
+    byPath.set(item.symbol.repoPath, [...(byPath.get(item.symbol.repoPath) ?? []), item]);
+  }
+  // Retain importance order for token packing; format each group only once
+  // as Aider.to_tree() does after selecting the ranked tag prefix.
+  const blocks: string[] = [];
   let estimatedTokens = 0;
   let truncated = false;
-  for (const [repoPath, items] of grouped) {
-    const bodies = [...items]
-      .sort((left, right) => left.symbol.range.startLine - right.symbol.range.startLine || left.symbol.name.localeCompare(right.symbol.name))
-      .map((item) => {
-        const firstLine = item.symbol.text.split(String.fromCharCode(10), 1)[0]?.trim();
-        return `  ${item.symbol.repoPath}:${item.symbol.range.startLine} ${firstLine || `${item.symbol.kind} ${item.symbol.name}`}`;
-      });
-    const block = [`${repoPath}:`, ...bodies].join(String.fromCharCode(10));
-    const blockTokens = Math.max(1, Math.ceil(block.length / 4));
-    if (estimatedTokens + blockTokens > safeBudget) {
+  for (const [repoPath, items] of byPath) {
+    const source = sourceByPath?.get(repoPath);
+    const sourceVerified = source !== undefined
+      && items.every((item) => item.symbol.sourceDigest === source.sourceDigest);
+    let block: string;
+    if (sourceVerified) {
+      const scopes = items.map((item) => ({
+        startLine: item.symbol.range.startLine,
+        endLine: item.symbol.range.endLine,
+      }));
+      const lines = [...new Set(items.map((item) => item.symbol.range.startLine))].sort((a, b) => a - b);
+      block = repoPath + ':\n' + renderAiderTreeContext(source.text, scopes, lines);
+    } else {
+      // A standalone domain graph may not have source evidence. Keep its
+      // old structural outline but do not pretend it is verified tree context.
+      const bodies = [...items].sort((a, b) =>
+        a.symbol.range.startLine - b.symbol.range.startLine || a.symbol.name.localeCompare(b.symbol.name))
+        .map((item) => {
+          const firstLine = item.symbol.text.split('\n', 1)[0]?.trim();
+          return `  ${item.symbol.repoPath}:${item.symbol.range.startLine} ${firstLine || `${item.symbol.kind} ${item.symbol.name}`}`;
+        });
+      block = [repoPath + ':', ...bodies].join('\n');
+    }
+    // Aider.to_tree() limits every line to 100 chars for minified sources.
+    block = block.split('\n').map((line) => line.slice(0, 100)).join('\n').trimEnd();
+    const itemTokens = Math.max(1, Math.ceil(block.length / 4));
+    const delimiterTokens = blocks.length === 0 ? 0 : 1;
+    if (estimatedTokens + delimiterTokens + itemTokens > safeBudget) {
       truncated = true;
       continue;
     }
-    lines.push(block);
-    estimatedTokens += blockTokens;
+    blocks.push(block);
+    estimatedTokens += delimiterTokens + itemTokens;
   }
-  return { ranked, rendered: lines.join('\n'), estimatedTokens, truncated };
+  return { ranked, rendered: blocks.join('\n\n'), estimatedTokens, truncated };
 };
 
 export const renderRepoMapFor = (graph: RepoMapGraph, input: RepoMapRenderInput): RepoMapResult =>
-  renderRepoMap(rankRepoMap(graph, input), input.tokenBudget);
+  renderRepoMap(rankRepoMap(graph, input), input.tokenBudget, graph.sourceByPath, input.openFiles);

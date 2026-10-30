@@ -434,3 +434,43 @@ test('Aider multidef edges do not multiply one identifier occurrence by the numb
       `a second defining file must not inflate reference frequency for ${original.symbol.name}`);
   }
 });
+
+test('Aider TreeContext-style sections use exact verified source and collapse unselected lines', () => {
+  const fn = makeRepoMapSymbol({
+    ...symbol('run', 4),
+    repoPath: path('src/context.ts'),
+    sourceDigest: digest,
+    range: { startLine: 4, startColumn: 1, endLine: 6, endColumn: 2 },
+    text: 'export function run() { return 2; }',
+  });
+  const source = ['// private header', 'const a = 1;', '', 'export function run() {',
+    '  return 2;', '}', '', 'const unrelated = 100;', ''].join('\n');
+  const graph = applyRepoMapDelta(emptyRepoMapGraph(), {
+    upserted: [fn], removed: [],
+    sourceByPath: [{ repoPath: fn.repoPath, sourceDigest: digest, text: source }],
+  });
+  const rendered = renderRepoMapFor(graph, { query: '', openFiles: [], mentionedFiles: [], tokenBudget: 200 });
+  assert.match(rendered.rendered, /src\/context\.ts:\n⋮\n│export function run\(\)/u);
+  assert.doesNotMatch(rendered.rendered, /const unrelated/u);
+  assert.doesNotMatch(rendered.rendered, /private header/u);
+  assert.match(rendered.rendered, /│export function run\(\)/u);
+  assert.equal(renderRepoMapFor(graph, {
+    query: '', openFiles: [fn.repoPath], mentionedFiles: [], tokenBudget: 200,
+  }).rendered, '', 'Aider does not repeat open chat files in the repo map');
+});
+
+test('RepoMap refresh replaces verified source context and discards removed file bytes', () => {
+  const initial = symbol('run', 1);
+  const first = applyRepoMapDelta(emptyRepoMapGraph(), {
+    upserted: [initial], removed: [],
+    sourceByPath: [{ repoPath: initial.repoPath, sourceDigest: digest, text: 'export function run() {}' }],
+  });
+  const next = makeRepoMapSymbol({ ...initial, sourceDigest: 'b'.repeat(64) as never });
+  const changed = applyRepoMapDelta(first, {
+    upserted: [next], removed: [initial.id],
+    sourceByPath: [{ repoPath: next.repoPath, sourceDigest: next.sourceDigest, text: 'export function run() { return 1; }' }],
+  });
+  assert.equal(changed.sourceByPath?.get(next.repoPath)?.sourceDigest, next.sourceDigest);
+  const deleted = applyRepoMapDelta(changed, { upserted: [], removed: [next.id] });
+  assert.equal(deleted.sourceByPath?.has(next.repoPath), false);
+});
