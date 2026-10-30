@@ -297,6 +297,7 @@ test('RepoMap normalizes malformed edge weights instead of poisoning PageRank', 
   });
   assert.ok(ranked.every((item) => Number.isFinite(item.score)));
   const projectedMass = ranked.reduce((sum, item) => sum + item.score, 0);
+  console.log('UPSTREAM-ORACLE-DEBUG malformed reference scores', JSON.stringify(ranked.map((item) => ({name:item.symbol.name,score:item.score,refs:item.symbol.references}))));
   assert.ok(projectedMass > 0 && projectedMass <= 1 + 1e-8,
     `Aider projects weighted outgoing edges only; observed mass=${projectedMass}`);
 });
