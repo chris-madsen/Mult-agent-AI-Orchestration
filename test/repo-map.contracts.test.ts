@@ -352,3 +352,33 @@ test('RepoMap distributes an identifier relation across same-name definitions in
   assert.ok(firstScore > 0);
   assert.equal(firstScore, secondScore);
 });
+
+test('RepoMap graph ranking agrees numerically with pinned Aider plus networkx oracle', () => {
+  const oracle = JSON.parse(readFileSync(
+    join(process.cwd(), 'test/fixtures/repo-map/aider-networkx-oracle.json'),
+    'utf8',
+  )) as { readonly cases: readonly {
+    readonly name: string;
+    readonly expected: readonly (readonly [string, string, number])[];
+  }[] };
+  const graph = aiderGraph();
+  for (const fixture of oracle.cases) {
+    const original = aiderFixture.cases.find((item) => item.name === fixture.name);
+    assert.ok(original, 'oracle case must use the same frozen def/ref inputs');
+    const ranked = rankRepoMap(graph, aiderInput(original));
+    for (const [repoPath, name, expected] of fixture.expected) {
+      const actual = ranked.find((item) => item.symbol.repoPath === repoPath && item.symbol.name === name);
+      assert.ok(actual, `missing oracle tag ${repoPath}/${name}`);
+      // NetworkX's default convergence tolerance (1e-6 * N) differs from the
+      // current numeric solver; compare scores with a bounded numeric epsilon.
+      assert.ok(Math.abs(actual.score - expected) < 1e-4,
+        `${fixture.name} ${repoPath}/${name}: got ${actual.score}, upstream ${expected}`);
+    }
+    // Compare only tags with meaningful scores; Aider's chat-file skip does
+    // not remove their graph nodes, while ACE's public rank includes them.
+    assert.deepEqual(
+      ranked.filter((item) => item.score > 1e-4).map((item) => item.symbol.name),
+      [...fixture.expected].filter((row) => row[2] > 1e-4).map((row) => row[1]),
+    );
+  }
+});
