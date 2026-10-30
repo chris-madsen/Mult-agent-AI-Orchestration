@@ -167,8 +167,8 @@ test('real-repo NAPI symbol coverage subsumes pinned official ast-grep CLI outli
   for (const repoPath of examples) {
     const fixtureBytes = readFileSync(join(process.cwd(), repoPath));
     const [expected, actual] = await Promise.all([
-      Effect.runPromise(cli.extract({ repoPath, source })),
-      Effect.runPromise(napi.extract({ repoPath, source })),
+      Effect.runPromise(cli.extract({ repoPath, source: fixtureBytes })),
+      Effect.runPromise(napi.extract({ repoPath, source: fixtureBytes })),
     ]);
     assert.equal(expected._tag, 'Ok', repoPath);
     assert.equal(actual._tag, 'Ok', repoPath);
