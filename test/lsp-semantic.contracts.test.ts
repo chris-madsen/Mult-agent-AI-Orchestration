@@ -401,3 +401,24 @@ test('LSP identity version probe allows bounded graceful provider termination', 
   assert.ok(Date.now() - startedAt < 3_000, 'identity probe must not inherit an unbounded child lifetime');
   assert.equal(await readFile(marker, 'utf8'), 'terminated');
 });
+
+test('LSP refresh before first semantic query only stages source; it does not spawn a server', async () => {
+  const rootPath = await mkdtemp(join(tmpdir(), 'ace-lsp-lazy-refresh-'));
+  const provider = makeLspSemanticAnalysisPort({
+    command: join(rootPath, 'missing-language-server'),
+    rootPath,
+    files: { 'main.ts': 'export const oldName = 1;\n' },
+    snapshotIdentity: 'original',
+    timeoutMs: 300,
+  });
+  try {
+    const updated = await Effect.runPromise(provider.refresh(
+      { 'main.ts': 'export const newName = 1;\n' },
+      'updated',
+    ));
+    assert.equal(updated._tag, 'Ok',
+      'refreshing an uninitialized Claw-style session must not start a missing provider');
+  } finally {
+    await provider.close();
+  }
+});
