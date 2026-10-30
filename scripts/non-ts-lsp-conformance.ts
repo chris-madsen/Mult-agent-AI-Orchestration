@@ -125,7 +125,7 @@ try {
       'export function tsTarget(): string { return "ok"; }',
       'export function tsCaller(): string { return tsTarget(); }',
       '',
-    ].join('\\n');
+    ].join('\n');
     await writeFile(join(rootPath, tsSourcePath), tsSource, 'utf8');
     const tsProvider = makeLspSemanticAnalysisPort({
       command: join(process.cwd(), 'node_modules/.bin/typescript-language-server'),
