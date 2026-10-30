@@ -276,7 +276,7 @@ const commandVersion = (command: string): Effect.Effect<Result<string, DomainErr
 export const resolveAstGrepProviderIdentity = (
   options: AstGrepStructuralOptions,
 ): Effect.Effect<Result<AstGrepProviderIdentity, DomainError>> => Effect.gen(function* () {
-  const provider = options.provider ?? 'cli';
+  const provider = options.provider ?? 'auto';
   const napiVersion = options.providerVersion ?? 'ast-grep/napi@0.51.0';
   if (provider === 'napi') {
     const stable = {
