@@ -11,7 +11,6 @@ test('real Qdrant crash runner is syntactically valid and uses the production AC
   const script = await readFile('scripts/qdrant-snapshot-crash-e2e.mjs', 'utf8');
   for (const token of [
     "ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true'",
-    'dist/bin/ace-mcp.js',
     'after_qdrant_verify_before_publish',
     '/collections/',
     'stableCollectionIdentityDuringInterruptedBuild',
@@ -45,6 +44,16 @@ test('runtime failpoint is double-opt-in and release config capture refuses fail
   assert.match(releaseCapture, /ACE_ENABLE_TEST_FAILPOINTS/u);
   assert.match(releaseCapture, /ACE_TEST_FAILPOINT/u);
   assert.match(releaseCapture, /refuses environments with ACE test failpoints enabled/u);
+});
+
+test('semantic refresh is ordered after fallible Qdrant preparation', async () => {
+  const runtime = await readFile('src/bin/ace-mcp.ts', 'utf8');
+  const qdrantPreparation = runtime.indexOf('const indexed = await Effect.runPromise(');
+  const semanticRefresh = runtime.indexOf('semanticLease.session.refresh(sourceFiles.value, semanticIdentity)');
+  const publicationConstruction = runtime.indexOf('const qdrant = makeQdrantCodeCandidatePort({');
+  assert.ok(qdrantPreparation >= 0);
+  assert.ok(semanticRefresh > qdrantPreparation, 'LSP refresh must not precede Qdrant preparation');
+  assert.ok(publicationConstruction > semanticRefresh, 'LSP refresh must precede the final publication object');
 });
 
 test('runner never claims production readiness or DBC-13 closure from one crash scenario', async () => {

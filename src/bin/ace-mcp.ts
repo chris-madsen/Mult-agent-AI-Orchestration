@@ -41,6 +41,7 @@ import {
   reuseOrPopulateQdrantSnapshot,
 } from '../adapters/qdrant-context-provider.js';
 import { makeAstGrepStructuralPort, resolveAstGrepProviderIdentity } from '../adapters/ast-grep-structural.js';
+import { buildRepoMapDelta } from '../adapters/repo-map-structural.js';
 import {
   lspLanguageIdForPath,
   makeLspSemanticAnalysisPort,
@@ -53,6 +54,7 @@ import { defaultLocalPolicy } from '../domain/policy.js';
 import { makeWorkspaceId, type RepoPath, type WorkspaceId } from '../domain/workspace.js';
 import { isSensitiveSourcePath } from '../domain/sensitive-path.js';
 import { structuralLanguageForPath } from '../domain/structural-language.js';
+import type { RepoMapSymbolId } from '../domain/repo-map.js';
 import type { RetrievalBenchmarkTraceSink } from '../domain/retrieval-benchmark.js';
 import {
   workspaceManifestFromSnapshot,
@@ -72,7 +74,11 @@ import { verifyCompiledRuntimeProvenance } from '../application/runtime-provenan
 import { makeMcpGateway, type CapabilityReadiness } from '../gateway/mcp-gateway.js';
 import { makeContextTransformService } from '../application/context-transform-service.js';
 import { makeContextAssembler } from '../application/context-assembler.js';
-import { makeLspServerRegistry } from '../application/lsp/server-registry.js';
+import { makeRepoMapService, type RepoMapService } from '../application/repo-map-service.js';
+import {
+  makeLspServerDescriptor,
+  makeLspServerRegistry,
+} from '../application/lsp/server-registry.js';
 import { makeGatewayProjectionService } from '../application/gateway-projection-service.js';
 import { runContextBridgeStdio } from '../transport/context-bridge-stdio.js';
 import { runGatewayProjectionHttp } from '../transport/gateway-projection-http.js';
@@ -379,8 +385,13 @@ const main = async (): Promise<void> => {
     const qdrantEndpoint = validateLocalQdrantBaseUrl(qdrantUrl, qdrantAllowedHosts);
     if (qdrantEndpoint._tag === 'Err') throw new Error(qdrantEndpoint.error.message);
     const qdrantApiKey = process.env.ACE_QDRANT_API_KEY?.trim();
+    const qdrantTimeoutMs = Number(process.env.ACE_QDRANT_TIMEOUT_MS ?? '5000');
+    if (!Number.isSafeInteger(qdrantTimeoutMs) || qdrantTimeoutMs < 100 || qdrantTimeoutMs > 600_000) {
+      throw new Error('ACE_QDRANT_TIMEOUT_MS must be an integer between 100 and 600000');
+    }
     const qdrantClient = new QdrantClient({
       url: qdrantEndpoint.value,
+      timeout: qdrantTimeoutMs,
       ...(qdrantApiKey === undefined || qdrantApiKey.length === 0 ? {} : { apiKey: qdrantApiKey }),
       checkCompatibility: false,
     });
@@ -639,6 +650,9 @@ const main = async (): Promise<void> => {
             process.stderr.write(`ace retrieval warning: structural identity unverified; cache disabled and cross-restart snapshot reuse intentionally disabled (${structuralIdentity.error.code})\n`);
           }
           const structural = makeAstGrepStructuralPort(structuralOptions);
+          const repoMapService = makeRepoMapService();
+          const repoMapSymbolIdsByPath = new Map<RepoPath, readonly RepoMapSymbolId[]>();
+          let activeRepoMap: RepoMapService | undefined;
           let latestBuild: LocalCodeIndexBuild | undefined;
           let nextGeneration = generation;
           let workspaceSync: WorkspaceSync | undefined;
@@ -695,6 +709,48 @@ const main = async (): Promise<void> => {
               semanticSnapshot,
             ));
             if (sourceFiles._tag === 'Err') return sourceFiles;
+            const sourceBytesByPath = new Map<RepoPath, Uint8Array>(
+              Object.entries(sourceFiles.value).map(([repoPath, source]) => [repoPath as RepoPath, new TextEncoder().encode(source)]),
+            );
+            const changedPathSet = verification === 'incremental' ? new Set(changedPaths) : undefined;
+            const removedSymbolIds = verification === 'incremental'
+              ? changedPaths.flatMap((repoPath) => repoMapSymbolIdsByPath.get(repoPath) ?? [])
+              : [];
+            const structuralAnalyses = [...(build.structuralAnalysesByPath?.values() ?? [])];
+            if (!structuralAnalyses.some((analysis) => analysis.identifiers !== undefined)) {
+              activeRepoMap = undefined;
+              process.stderr.write('ace-mcp RepoMap NOT_READY: selected structural provider has no shared identifier records; refusing a second parser pass\n');
+            } else {
+              const repoMapDelta = await Effect.runPromise(buildRepoMapDelta({
+                candidates: build.index.candidates,
+                structuralAnalyses,
+                sourceBytesByPath,
+                ...(changedPathSet === undefined ? {} : { upsertPaths: changedPathSet }),
+                removedSymbolIds,
+              }));
+              if (repoMapDelta._tag === 'Err') {
+                activeRepoMap = undefined;
+                process.stderr.write(`ace-mcp RepoMap NOT_READY: structural graph assembly failed (${repoMapDelta.error.code})\n`);
+              } else {
+                const updatedRepoMap = await Effect.runPromise(repoMapService.update(repoMapDelta.value));
+                if (updatedRepoMap._tag === 'Err') {
+                  activeRepoMap = undefined;
+                  process.stderr.write(`ace-mcp RepoMap NOT_READY: structural graph update failed (${updatedRepoMap.error.code})\n`);
+                } else {
+                  for (const repoPath of changedPaths) repoMapSymbolIdsByPath.delete(repoPath);
+                  for (const symbol of repoMapDelta.value.upserted) {
+                    repoMapSymbolIdsByPath.set(symbol.repoPath, [
+                      ...(repoMapSymbolIdsByPath.get(symbol.repoPath) ?? []),
+                      symbol.id,
+                    ]);
+                  }
+                  for (const [repoPath, ids] of repoMapSymbolIdsByPath) {
+                    repoMapSymbolIdsByPath.set(repoPath, [...new Set(ids)]);
+                  }
+                  activeRepoMap = repoMapService;
+                }
+              }
+            }
             const lspProviderIdentity = commandBoundaryExists(lspCommand)
               ? await Effect.runPromise(resolveLspProviderIdentity({
                 command: lspCommand,
@@ -724,25 +780,18 @@ const main = async (): Promise<void> => {
               packageLockIdentity,
               providerIdentity: `${lspCommand}|${semanticProviderVersion}|${lspProviderIdentity?._tag === 'Ok' ? lspProviderIdentity.value.fingerprint : 'unverified'}`,
             });
-            // Stage an immutable LSP generation. Refreshing the *published*
-            // server before the manifest/Qdrant commit can invalidate live
-            // requests and even close the new session on failed publication.
-            const key = JSON.stringify({
-              workspace: registered.value.workspaceId,
+            // Keep process identity independent from source generation. A
+            // reused session is refreshed through its serialized lifecycle;
+            // retain the lease until this publication commits so a prior
+            // generation cannot close the shared process underneath it.
+            const descriptor = makeLspServerDescriptor({
+              workspaceId: registered.value.workspaceId,
               rootPath: registered.value.rootPath,
               command: lspCommand,
               args: lspArgs,
               serverName: lspServerName,
-              languageIds: lspLanguageIds ?? null,
-              snapshotIdentity: semanticIdentity,
-            });
-            const descriptor = {
-              key,
-              command: lspCommand,
-              args: lspArgs,
-              serverName: lspServerName,
               ...(lspLanguageIds === undefined ? {} : { languageIds: lspLanguageIds }),
-            };
+            });
             const acquired = await Effect.runPromise(lspRegistry.acquire(descriptor, () => makeLspSemanticAnalysisPort({
               command: lspCommand,
               args: lspArgs,
@@ -764,12 +813,6 @@ const main = async (): Promise<void> => {
                 ? 'ace-mcp semantic LSP NOT_READY: no LSP-capable source language is present in this workspace\n'
                 : `ace-mcp semantic LSP NOT_READY: ${lspServerName} identity is unavailable\n`);
             }
-            // The current structural outline provider does not expose the
-            // definition/reference tags required by the approved RepoMap plan.
-            // Do not substitute O(N) LSP reference scans here: LSP belongs after
-            // RepoMap + Qdrant candidate selection. Until the structural graph
-            // owner is adapted, runtime RepoMap remains explicitly unavailable.
-            process.stderr.write('ace-mcp RepoMap NOT_READY: structural def/ref graph provider is not implemented; refusing per-candidate LSP graph construction\n');
             let finalManifest;
             if (verification === 'incremental') {
               const verificationProbe = await Effect.runPromise(observeWorkspaceManifest(
@@ -832,6 +875,18 @@ const main = async (): Promise<void> => {
               process.stderr.write('ace test failpoint reached name=after_qdrant_verify_before_publish\n');
               process.kill(process.pid, 'SIGKILL');
               throw new Error('test failpoint failed to terminate the process');
+            }
+            // Refresh a reused semantic session only after all fallible
+            // manifest and Qdrant preparation has succeeded. From this point
+            // to the returned publication there are no awaited provider
+            // operations, so a failed preparation cannot leave the previous
+            // Qdrant publication paired with a newer LSP snapshot.
+            if (!semanticLease.created) {
+              const refreshed = await Effect.runPromise(semanticLease.session.refresh(sourceFiles.value, semanticIdentity));
+              if (refreshed._tag === 'Err') {
+                semanticLease.release();
+                return refreshed;
+              }
             }
             const qdrant = makeQdrantCodeCandidatePort({
               baseUrl: qdrantUrl,
@@ -904,6 +959,7 @@ const main = async (): Promise<void> => {
               history,
               ...(documentation === undefined ? {} : { documentation }),
               ...(memory === undefined ? {} : { memory }),
+              ...(activeRepoMap === undefined ? {} : { repoMap: activeRepoMap }),
             });
           };
           const reconcileRuntime: NonNullable<QdrantContextConfig['reconcile']> = (currentManifest, delta) => {

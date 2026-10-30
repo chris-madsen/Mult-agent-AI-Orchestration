@@ -13,6 +13,8 @@ export interface LspRegistrySession extends SemanticAnalysisPort {
 
 export interface LspRegistryLease<Session extends LspRegistrySession = LspRegistrySession> {
   readonly session: Session;
+  /** True only for the lease that creates the process-backed session. */
+  readonly created: boolean;
   readonly release: () => void;
 }
 
@@ -55,6 +57,37 @@ const sameDescriptor = (left: LspServerDescriptor, right: LspServerDescriptor): 
   && left.args.length === right.args.length
   && left.args.every((value, index) => value === right.args[index])
   && normalizedLanguageIds(left.languageIds) === normalizedLanguageIds(right.languageIds);
+
+export interface LspServerDescriptorInput {
+  readonly workspaceId: string;
+  readonly rootPath: string;
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly serverName: string;
+  readonly languageIds?: Readonly<Record<string, string>>;
+}
+
+/**
+ * Process identity deliberately excludes source-generation identity. The
+ * session validates generations through refresh/query snapshot identities.
+ */
+export const makeLspServerDescriptor = (input: LspServerDescriptorInput): LspServerDescriptor => {
+  const languageIds = normalizedLanguageIds(input.languageIds);
+  return {
+    key: JSON.stringify({
+      workspaceId: input.workspaceId,
+      rootPath: input.rootPath,
+      command: input.command,
+      args: input.args,
+      serverName: input.serverName,
+      languageIds,
+    }),
+    command: input.command,
+    args: [...input.args],
+    serverName: input.serverName,
+    ...(input.languageIds === undefined ? {} : { languageIds: input.languageIds }),
+  };
+};
 
 export const makeLspServerRegistry = (): LspServerRegistry => {
   const entries = new Map<string, Entry>();
@@ -102,6 +135,7 @@ export const makeLspServerRegistry = (): LspServerRegistry => {
       let released = false;
       return ok({
         session: entry.session as Session,
+        created: entry.refs === 1,
         release: (): void => {
           if (released) return;
           released = true;

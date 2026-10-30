@@ -4,6 +4,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import ts from 'typescript';
 
 const FULL_SUITE_TRIGGERS = new Set([
   'package.json',
@@ -28,15 +29,44 @@ const lines = (value) => value.split(/\r?\n/u).map((line) => normalize(line.trim
 
 export const parseImports = (source) => {
   const specifiers = new Set();
-  const patterns = [
-    /\b(?:import|export)\s+(?:[^'"\n]*?\s+from\s+)?['"]([^'"]+)['"]/gu,
-    /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/gu,
-  ];
-  for (const pattern of patterns) {
-    for (const match of source.matchAll(pattern)) {
-      if (match[1]) specifiers.add(match[1]);
+  const sourceFile = ts.createSourceFile('module.ts', source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+  const addModuleSpecifier = (node) => {
+    if (node && ts.isStringLiteralLike(node)) specifiers.add(node.text);
+  };
+  const visit = (node) => {
+    if (ts.isImportDeclaration(node)) {
+      const clause = node.importClause;
+      const bindings = clause?.namedBindings;
+      const hasRuntimeBinding = clause === undefined
+        || (!clause.isTypeOnly && (
+          clause.name !== undefined
+          || bindings === undefined
+          || ts.isNamespaceImport(bindings)
+          || bindings.elements.length === 0
+          || bindings.elements.some((element) => !element.isTypeOnly)
+        ));
+      if (hasRuntimeBinding) addModuleSpecifier(node.moduleSpecifier);
+    } else if (ts.isImportEqualsDeclaration(node)
+      && !node.isTypeOnly
+      && ts.isExternalModuleReference(node.moduleReference)) {
+      addModuleSpecifier(node.moduleReference.expression);
+    } else if (ts.isExportDeclaration(node)) {
+      const clause = node.exportClause;
+      const hasRuntimeExport = !node.isTypeOnly && (
+        clause === undefined
+        || ts.isNamespaceExport(clause)
+        || clause.elements.length === 0
+        || clause.elements.some((element) => !element.isTypeOnly)
+      );
+      if (hasRuntimeExport) addModuleSpecifier(node.moduleSpecifier);
+    } else if (ts.isCallExpression(node)
+      && node.expression.kind === ts.SyntaxKind.ImportKeyword
+      && node.arguments.length >= 1) {
+      addModuleSpecifier(node.arguments[0]);
     }
-  }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
   return [...specifiers];
 };
 
@@ -141,17 +171,27 @@ const runSelfTest = () => {
   const trackedFiles = [
     'src/a.ts',
     'src/b.ts',
+    'src/shared-types.ts',
+    'src/type-only-consumer.ts',
+    'src/value-consumer.ts',
     'test/a.test.ts',
     'test/b.test.ts',
     'test/script.test.ts',
+    'test/type-only-consumer.test.ts',
+    'test/value-consumer.test.ts',
     'scripts/report.ts',
   ];
   const contents = new Map([
     ['src/a.ts', 'export const a = 1;'],
     ['src/b.ts', "import { a } from './a.js'; export const b = a;"],
+    ['src/shared-types.ts', 'export type Shared = { value: string }; export const value = 1;'],
+    ['src/type-only-consumer.ts', "import type { Shared } from './shared-types.js'; export const accept = (_value: Shared) => true;"],
+    ['src/value-consumer.ts', "import { value } from './shared-types.js'; export const doubled = value * 2;"],
     ['test/a.test.ts', "import { a } from '../src/a.js';"],
     ['test/b.test.ts', "import { b } from '../src/b.js';"],
     ['test/script.test.ts', "const script = 'scripts/report.ts';"],
+    ['test/type-only-consumer.test.ts', "import { accept } from '../src/type-only-consumer.js';"],
+    ['test/value-consumer.test.ts', "import { doubled } from '../src/value-consumer.js';"],
     ['scripts/report.ts', 'export {};'],
   ]);
 
@@ -170,6 +210,36 @@ const runSelfTest = () => {
   assert.deepEqual(
     selectAffectedTests({ trackedFiles, changedFiles: ['scripts/report.ts'], contents }).tests,
     ['test/script.test.ts'],
+  );
+  assert.deepEqual(
+    selectAffectedTests({ trackedFiles, changedFiles: ['src/shared-types.ts'], contents }).tests,
+    ['test/value-consumer.test.ts'],
+  );
+  assert.deepEqual(
+    parseImports(`
+      import type { Alpha } from './alpha.js';
+      import { type Beta } from './beta.js';
+      export type { Gamma } from './gamma.js';
+      export { type Delta } from './delta.js';
+    `),
+    [],
+  );
+  assert.deepEqual(
+    parseImports(`
+      import './side-effect.js';
+      import main, { type Shape, value } from './mixed.js';
+      export * from './exports.js';
+      const lazy = import('./lazy.js');
+    `).sort(),
+    ['./exports.js', './lazy.js', './mixed.js', './side-effect.js'],
+  );
+  assert.deepEqual(
+    parseImports(`
+      import dependency = require('./dependency.js');
+      import type TypeDependency = require('./type-dependency.js');
+      const lazy = import('./lazy-with-options.js', {});
+    `).sort(),
+    ['./dependency.js', './lazy-with-options.js'],
   );
   console.log('[test-impact] self-test PASS');
 };

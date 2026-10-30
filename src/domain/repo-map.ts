@@ -19,6 +19,8 @@ export interface RepoMapSymbol {
   readonly range: SourceRange;
   readonly text: string;
   readonly isExported?: boolean;
+  readonly nameStartLine?: number;
+  readonly nameStartColumn?: number;
   readonly references: readonly RepoMapReference[];
 }
 
@@ -40,6 +42,8 @@ export interface RepoMapRenderInput {
   readonly query: string;
   readonly openFiles: readonly RepoPath[];
   readonly mentionedFiles: readonly RepoPath[];
+  /** Optional identifier mentions supplied by a caller that already parsed the query. */
+  readonly mentionedIdentifiers?: readonly string[];
   readonly tokenBudget: number;
 }
 
@@ -61,10 +65,8 @@ const stableSymbolId = (symbol: Omit<RepoMapSymbol, 'id'>): RepoMapSymbolId => [
   symbol.range.endColumn ?? '',
 ].join('\0') as RepoMapSymbolId;
 
-export const makeRepoMapSymbol = (input: Omit<RepoMapSymbol, 'id'>): RepoMapSymbol => ({
-  ...input,
-  id: stableSymbolId(input),
-  references: [...input.references.reduce((grouped, reference) => {
+const normalizeReferences = (references: readonly RepoMapReference[]): readonly RepoMapReference[] =>
+  [...references.reduce((grouped, reference) => {
     const key = `${reference.kind}:${reference.targetId}`;
     const previous = grouped.get(key);
     const observed = reference.weight === undefined
@@ -73,100 +75,252 @@ export const makeRepoMapSymbol = (input: Omit<RepoMapSymbol, 'id'>): RepoMapSymb
     grouped.set(key, { ...reference, weight: (previous?.weight ?? 0) + observed });
     return grouped;
   }, new Map<string, RepoMapReference>()).values()]
-    .sort((left, right) => left.targetId.localeCompare(right.targetId) || left.kind.localeCompare(right.kind)),
+    .sort((left, right) => left.targetId.localeCompare(right.targetId) || left.kind.localeCompare(right.kind));
+
+export const makeRepoMapSymbol = (input: Omit<RepoMapSymbol, 'id'>): RepoMapSymbol => ({
+  ...input,
+  id: stableSymbolId(input),
+  references: normalizeReferences(input.references),
 });
 
 export const emptyRepoMapGraph = (): RepoMapGraph => ({ symbols: new Map() });
 
 export const applyRepoMapDelta = (graph: RepoMapGraph, delta: RepoMapDelta): RepoMapGraph => {
   const symbols = new Map(graph.symbols);
+  const removedTargets = new Map(delta.removed.flatMap((id) => {
+    const symbol = symbols.get(id);
+    return symbol === undefined ? [] : [[id, symbol] as const];
+  }));
   for (const id of delta.removed) symbols.delete(id);
   for (const symbol of delta.upserted) symbols.set(symbol.id, symbol);
+  if (removedTargets.size > 0) {
+    const replacementByName = new Map<string, RepoMapSymbol>();
+    for (const symbol of [...symbols.values()].sort((left, right) => left.id.localeCompare(right.id))) {
+      if (!replacementByName.has(symbol.name)) replacementByName.set(symbol.name, symbol);
+    }
+    for (const [id, symbol] of symbols) {
+      let changed = false;
+      const rebound = symbol.references.flatMap((reference): RepoMapReference[] => {
+        const removed = removedTargets.get(reference.targetId);
+        if (removed === undefined) return [reference];
+        changed = true;
+        const replacement = replacementByName.get(removed.name);
+        return replacement === undefined ? [] : [{ ...reference, targetId: replacement.id }];
+      });
+      if (changed) symbols.set(id, { ...symbol, references: normalizeReferences(rebound) });
+    }
+  }
   return { symbols };
 };
 
 const queryTokens = (query: string): readonly string[] => query.toLocaleLowerCase().split(/[^\p{L}\p{N}_$]+/u).filter((token) => token.length >= 2);
 
-const personalization = (symbol: RepoMapSymbol, input: RepoMapRenderInput): number => {
-  let score = 0;
-  if (input.openFiles.includes(symbol.repoPath)) score += 0.25;
-  if (input.mentionedFiles.includes(symbol.repoPath)) score += 0.2;
-  const lowerName = symbol.name.toLocaleLowerCase();
-  const lowerPath = symbol.repoPath.toLocaleLowerCase();
-  for (const token of queryTokens(input.query)) {
-    if (lowerName === token) score += 0.35;
-    else if (lowerName.includes(token) || lowerPath.includes(token)) score += 0.08;
-  }
-  if (symbol.isExported === true) score += 0.02;
-  return score;
+const normalizedMentionedIdentifiers = (input: RepoMapRenderInput): ReadonlySet<string> => new Set(
+  (input.mentionedIdentifiers ?? queryTokens(input.query)).map((value) => value.toLocaleLowerCase()),
+);
+
+const pathTokens = (path: RepoPath): readonly string[] => {
+  const parts = path.toLocaleLowerCase().split(/[\\/]+/u).filter((part) => part.length > 0);
+  const basename = parts.at(-1);
+  const extensionAt = basename?.lastIndexOf('.') ?? -1;
+  const stem = basename !== undefined && extensionAt > 0 ? basename.slice(0, extensionAt) : basename;
+  return [...new Set([...parts, ...(basename === undefined ? [] : [basename]), ...(stem === undefined ? [] : [stem])])]
+    .filter((token) => token.length >= 2);
 };
 
-const identifierWeight = (name: string, input: RepoMapRenderInput): number => {
-  const token = name.toLocaleLowerCase();
-  if (queryTokens(input.query).includes(token)) return 4;
-  if (input.mentionedFiles.some((path) => path.toLocaleLowerCase().includes(token))) return 2;
-  return 1;
-};
-
-const edgeWeight = (
-  reference: RepoMapReference,
-  target: RepoMapSymbol,
-  source: RepoMapSymbol,
+/**
+ * Adapted from the pinned Aider RepoMap weighting model. Aider weights
+ * identifier relations before PageRank: mentioned/long identifiers matter
+ * more, private identifiers matter less, and chat-file relations receive a
+ * strong multiplier. ACE keeps its own typed graph and source verification;
+ * only the ranking semantics are adapted here.
+ */
+const aiderIdentifierMultiplier = (
+  name: string,
   input: RepoMapRenderInput,
+  definitionCount: number,
 ): number => {
-  const frequency = Math.max(1, reference.weight ?? 1);
-  const chatFileBoost = input.openFiles.includes(source.repoPath) ? 2 : 1;
-  return Math.sqrt(frequency) * chatFileBoost * identifierWeight(target.name, input);
+  const lowerName = name.toLocaleLowerCase();
+  let multiplier = 1;
+  if (normalizedMentionedIdentifiers(input).has(lowerName)) multiplier *= 10;
+  const isSnake = name.includes('_') && /[A-Za-z]/u.test(name);
+  const isKebab = name.includes('-') && /[A-Za-z]/u.test(name);
+  const isCamel = /[A-Z]/u.test(name) && /[a-z]/u.test(name);
+  if ((isSnake || isKebab || isCamel) && name.length >= 8) multiplier *= 10;
+  if (name.startsWith('_')) multiplier *= 0.1;
+  if (definitionCount > 5) multiplier *= 0.1;
+  return multiplier;
+};
+
+interface RepoMapFileEdge {
+  readonly targetPath: RepoPath;
+  readonly identifier: string;
+  readonly weight: number;
+}
+
+const personalizedFileWeights = (
+  files: readonly RepoPath[],
+  input: RepoMapRenderInput,
+): readonly number[] => {
+  const mentionedIdentifiers = normalizedMentionedIdentifiers(input);
+  const base = files.length === 0 ? 0 : 1 / files.length;
+  return files.map((file) => {
+    const mentionedPath = input.mentionedFiles.includes(file);
+    const openPath = input.openFiles.includes(file);
+    const pathMentioned = pathTokens(file).some((token) => mentionedIdentifiers.has(token));
+    let weight = openPath ? base : 0;
+    if (mentionedPath) weight = Math.max(weight, base);
+    if (pathMentioned) weight += base;
+    return weight;
+  });
+};
+
+const normalizeProbabilities = (weights: readonly number[]): readonly number[] => {
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  return total > 0 ? weights.map((weight) => weight / total) : weights.map(() => 1 / Math.max(1, weights.length));
+};
+
+const isFileAnchor = (symbol: RepoMapSymbol): boolean => symbol.kind === 'repo-map-file-anchor';
+
+const pageRankFiles = (
+  files: readonly RepoPath[],
+  outgoing: ReadonlyMap<RepoPath, readonly RepoMapFileEdge[]>,
+  teleport: readonly number[],
+): ReadonlyMap<RepoPath, number> => {
+  const damping = 0.85;
+  const scores = new Map<RepoPath, number>(files.map((file, index) => [file, teleport[index] ?? 0]));
+  for (let iteration = 0; iteration < 100; iteration += 1) {
+    const danglingMass = files.reduce((sum, file) => (
+      (outgoing.get(file)?.length ?? 0) === 0 ? sum + (scores.get(file) ?? 0) : sum
+    ), 0);
+    const next = new Map<RepoPath, number>(files.map((file, index) => [
+      file,
+      ((1 - damping) + damping * danglingMass) * (teleport[index] ?? 0),
+    ]));
+    for (const source of files) {
+      const edges = outgoing.get(source) ?? [];
+      if (edges.length === 0) continue;
+      const totalWeight = edges.reduce((sum, edge) => sum + edge.weight, 0);
+      for (const edge of edges) {
+        const share = damping * (scores.get(source) ?? 0) * edge.weight / totalWeight;
+        next.set(edge.targetPath, (next.get(edge.targetPath) ?? 0) + share);
+      }
+    }
+    const delta = files.reduce((sum, file) => sum + Math.abs((next.get(file) ?? 0) - (scores.get(file) ?? 0)), 0);
+    for (const file of files) scores.set(file, next.get(file) ?? 0);
+    if (delta < 1e-8) break;
+  }
+  return scores;
 };
 
 export const rankRepoMap = (graph: RepoMapGraph, input: RepoMapRenderInput): readonly RepoMapRankedSymbol[] => {
   const symbols = [...graph.symbols.values()].sort((left, right) => left.id.localeCompare(right.id));
   if (symbols.length === 0) return [];
+  const rankableSymbols = symbols.filter((symbol) => !isFileAnchor(symbol));
+  if (rankableSymbols.length === 0) return [];
 
-  // Calculate personalized teleport probabilities once. A vertex with no
-  // outgoing *valid* references must redistribute its rank instead of losing
-  // it. This also prevents unresolved references from diluting live edges.
-  const personalWeights = symbols.map((symbol) => 1 + 8 * Math.min(1, personalization(symbol, input)));
-  const totalPersonalWeight = personalWeights.reduce((sum, weight) => sum + weight, 0);
-  const teleport = personalWeights.map((weight) => weight / totalPersonalWeight);
-  // Adapted from the pinned Aider RepoMap idea: repeated identifier references
-  // carry frequency, chat/open files personalize the graph, and rank flows
-  // through weighted edges rather than a deduplicated unweighted adjacency set.
-  const outgoing = new Map<RepoMapSymbolId, readonly { readonly targetId: RepoMapSymbolId; readonly weight: number }[]>(
-    symbols.map((symbol) => [symbol.id, symbol.references.flatMap((reference) => {
+  const symbolsByPath = new Map<RepoPath, RepoMapSymbol[]>();
+  for (const symbol of symbols) symbolsByPath.set(symbol.repoPath, [...(symbolsByPath.get(symbol.repoPath) ?? []), symbol]);
+  const files = [...symbolsByPath.keys()].sort((left, right) => left.localeCompare(right));
+  const definitionPaths = new Map<string, Set<RepoPath>>();
+  for (const symbol of rankableSymbols) {
+    const paths = definitionPaths.get(symbol.name) ?? new Set<RepoPath>();
+    paths.add(symbol.repoPath);
+    definitionPaths.set(symbol.name, paths);
+  }
+  const referenceCounts = new Map<string, { readonly sourcePath: RepoPath; readonly identifier: string; count: number }>();
+  for (const source of symbols) {
+    for (const reference of source.references) {
       const target = graph.symbols.get(reference.targetId);
-      return target === undefined ? [] : [{
-        targetId: target.id,
-        weight: edgeWeight(reference, target, symbol, input),
-      }];
-    })]),
-  );
-  const scores = new Map<RepoMapSymbolId, number>(
-    symbols.map((symbol, index) => [symbol.id, teleport[index] ?? 0]),
-  );
-  const damping = 0.85;
-  for (let iteration = 0; iteration < 30; iteration += 1) {
-    const danglingMass = symbols.reduce((sum, symbol) => (
-      (outgoing.get(symbol.id)?.length ?? 0) === 0 ? sum + (scores.get(symbol.id) ?? 0) : sum
-    ), 0);
-    const next = new Map<RepoMapSymbolId, number>(
-      symbols.map((symbol, index) => [
-        symbol.id,
-        ((1 - damping) + damping * danglingMass) * (teleport[index] ?? 0),
-      ]),
-    );
-    for (const symbol of symbols) {
-      const targets = outgoing.get(symbol.id) ?? [];
-      if (targets.length === 0) continue;
-      const totalWeight = targets.reduce((sum, target) => sum + target.weight, 0);
-      for (const target of targets) {
-        const share = damping * (scores.get(symbol.id) ?? 0) * target.weight / totalWeight;
-        next.set(target.targetId, (next.get(target.targetId) ?? 0) + share);
+      if (target === undefined) continue;
+      const identifier = target.name;
+      const key = `${source.repoPath}\0${identifier}`;
+      const previous = referenceCounts.get(key);
+      referenceCounts.set(key, {
+        sourcePath: source.repoPath,
+        identifier,
+        count: (previous?.count ?? 0) + Math.max(1, reference.weight ?? 1),
+      });
+    }
+  }
+  const edgeGroups = new Map<string, RepoMapFileEdge>();
+  for (const reference of referenceCounts.values()) {
+    const definitions = rankableSymbols.filter((symbol) => symbol.name === reference.identifier);
+    const chatFileMultiplier = input.openFiles.includes(reference.sourcePath) ? 50 : 1;
+    const weight = Math.sqrt(reference.count)
+      * aiderIdentifierMultiplier(reference.identifier, input, definitionPaths.get(reference.identifier)?.size ?? 0)
+      * chatFileMultiplier;
+    for (const targetPath of [...new Set(definitions.map((symbol) => symbol.repoPath))]) {
+      const key = `${reference.sourcePath}\0${targetPath}\0${reference.identifier}`;
+      const previous = edgeGroups.get(key);
+      edgeGroups.set(key, {
+        targetPath,
+        identifier: reference.identifier,
+        weight: (previous?.weight ?? 0) + weight,
+      });
+    }
+  }
+  if (referenceCounts.size === 0) {
+    for (const [identifier, definers] of definitionPaths) {
+      const identifierWeight = aiderIdentifierMultiplier(identifier, input, definers.size);
+      for (const sourcePath of definers) {
+        const weight = identifierWeight * (input.openFiles.includes(sourcePath) ? 50 : 1);
+        for (const targetPath of definers) {
+          edgeGroups.set(`${sourcePath}\0${targetPath}\0${identifier}`, {
+            targetPath,
+            identifier,
+            weight,
+          });
+        }
       }
     }
-    for (const symbol of symbols) scores.set(symbol.id, next.get(symbol.id) ?? 0);
+  } else {
+    const referencedIdentifiers = new Set([...referenceCounts.values()].map((reference) => reference.identifier));
+    for (const definition of rankableSymbols) {
+      if (referencedIdentifiers.has(definition.name)) continue;
+      const key = `${definition.repoPath}\0${definition.repoPath}\0${definition.name}`;
+      if (edgeGroups.has(key)) continue;
+      edgeGroups.set(key, {
+        targetPath: definition.repoPath,
+        identifier: definition.name,
+        weight: 0.1,
+      });
+    }
   }
-  return symbols.map((symbol) => ({ symbol, score: scores.get(symbol.id) ?? 0 }))
+  const outgoing = new Map<RepoPath, readonly RepoMapFileEdge[]>(files.map((file) => [
+    file,
+    [...edgeGroups.entries()]
+      .filter(([key]) => key.startsWith(`${file}\0`))
+      .map(([, edge]) => edge)
+      .sort((left, right) => left.targetPath.localeCompare(right.targetPath) || left.identifier.localeCompare(right.identifier)),
+  ]));
+  const personalized = personalizedFileWeights(files, input);
+  const teleport = normalizeProbabilities(personalized.some((weight) => weight > 0)
+    ? personalized
+    : files.map(() => 1));
+  const fileScores = pageRankFiles(files, outgoing, teleport);
+  const scores = new Map<RepoMapSymbolId, number>(rankableSymbols.map((symbol) => [symbol.id, 0]));
+  for (const source of files) {
+    const edges = outgoing.get(source) ?? [];
+    const totalWeight = edges.reduce((sum, edge) => sum + edge.weight, 0);
+    if (totalWeight === 0) continue;
+    for (const edge of edges) {
+      const definitions = (symbolsByPath.get(edge.targetPath) ?? [])
+        .filter((symbol) => !isFileAnchor(symbol) && symbol.name === edge.identifier);
+      if (definitions.length === 0) continue;
+      const contribution = (fileScores.get(source) ?? 0) * edge.weight / totalWeight;
+      for (const definition of definitions) scores.set(definition.id, (scores.get(definition.id) ?? 0) + contribution);
+    }
+  }
+  for (const file of files) {
+    const fileSymbols = (symbolsByPath.get(file) ?? []).filter((symbol) => !isFileAnchor(symbol));
+    const fileEdges = outgoing.get(file) ?? [];
+    const fallback = (fileScores.get(file) ?? 0) / Math.max(1, fileSymbols.length);
+    for (const symbol of fileSymbols) {
+      if ((scores.get(symbol.id) ?? 0) === 0 && fileEdges.length === 0) scores.set(symbol.id, fallback);
+    }
+  }
+  return rankableSymbols.map((symbol) => ({ symbol, score: scores.get(symbol.id) ?? 0 }))
     .sort((left, right) =>
       right.score - left.score
       || left.symbol.repoPath.localeCompare(right.symbol.repoPath)
@@ -180,24 +334,25 @@ export const renderRepoMap = (
 ): RepoMapResult => {
   const safeBudget = Number.isSafeInteger(tokenBudget) && tokenBudget > 0 ? tokenBudget : 1;
   const lines: string[] = [];
-  const renderedPaths = new Set<RepoPath>();
+  const grouped = new Map<RepoPath, RepoMapRankedSymbol[]>();
+  for (const item of ranked) grouped.set(item.symbol.repoPath, [...(grouped.get(item.symbol.repoPath) ?? []), item]);
   let estimatedTokens = 0;
   let truncated = false;
-  for (const item of ranked) {
-    const header = renderedPaths.has(item.symbol.repoPath) ? '' : `${item.symbol.repoPath}:`;
-    const firstLine = item.symbol.text.split(String.fromCharCode(10), 1)[0]?.trim();
-    const body = `  ${item.symbol.repoPath}:${item.symbol.range.startLine} ${firstLine || `${item.symbol.kind} ${item.symbol.name}`}`;
-    const line = header === '' ? body : [header, body].join(String.fromCharCode(10));
-    const lineTokens = Math.max(1, Math.ceil(line.length / 4));
-    if (estimatedTokens + lineTokens > safeBudget) {
-      // A long high-ranked path must not prevent shorter lower-ranked entries
-      // from using the remaining budget.
+  for (const [repoPath, items] of grouped) {
+    const bodies = [...items]
+      .sort((left, right) => left.symbol.range.startLine - right.symbol.range.startLine || left.symbol.name.localeCompare(right.symbol.name))
+      .map((item) => {
+        const firstLine = item.symbol.text.split(String.fromCharCode(10), 1)[0]?.trim();
+        return `  ${item.symbol.repoPath}:${item.symbol.range.startLine} ${firstLine || `${item.symbol.kind} ${item.symbol.name}`}`;
+      });
+    const block = [`${repoPath}:`, ...bodies].join(String.fromCharCode(10));
+    const blockTokens = Math.max(1, Math.ceil(block.length / 4));
+    if (estimatedTokens + blockTokens > safeBudget) {
       truncated = true;
       continue;
     }
-    lines.push(line);
-    renderedPaths.add(item.symbol.repoPath);
-    estimatedTokens += lineTokens;
+    lines.push(block);
+    estimatedTokens += blockTokens;
   }
   return { ranked, rendered: lines.join('\n'), estimatedTokens, truncated };
 };

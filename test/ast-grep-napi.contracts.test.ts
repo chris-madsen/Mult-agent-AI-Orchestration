@@ -15,6 +15,22 @@ test('NAPI extracts named declarations without mistaking an arrow parameter for 
   assert.equal(result.value.symbols.some((item) => item.name === 'attempt' && item.kind === 'function'), false);
 });
 
+test('NAPI collects byte-bound identifier occurrences in the same parse as declarations', async () => {
+  const result = await Effect.runPromise(makeAstGrepNapiStructuralPort().extract({ repoPath: 'main.ts', source }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Err') return;
+  const identifiers = result.value.identifiers;
+  assert.ok(identifiers);
+  assert.ok(identifiers.some((item) => item.name === 'save'));
+  assert.ok(identifiers.filter((item) => item.name === 'value').length >= 2);
+  for (const identifier of identifiers) {
+    assert.equal(
+      source.subarray(identifier.startByteOffset, identifier.endByteOffset).toString('utf8'),
+      identifier.name,
+    );
+  }
+});
+
 test('explicit NAPI identity remains experimental while auto mode uses the CLI outline provider', async () => {
   const identity = await Effect.runPromise(resolveAstGrepProviderIdentity({
     command: '/definitely/missing/ast-grep',
@@ -54,6 +70,18 @@ test('NAPI semantic name ranges use UTF-8 byte columns', async () => {
     (symbol?.nameEndColumn ?? 0) - (symbol?.nameStartColumn ?? 0),
     Buffer.byteLength('café', 'utf8'),
   );
+  const identifiers = result.value.identifiers ?? [];
+  for (const name of ['café', 'π']) {
+    const occurrences = identifiers.filter((item) => item.name === name);
+    assert.ok(occurrences.length > 0, name);
+    for (const identifier of occurrences) {
+      assert.equal(
+        unicode.subarray(identifier.startByteOffset, identifier.endByteOffset).toString('utf8'),
+        name,
+      );
+      assert.equal(identifier.endByteOffset - identifier.startByteOffset, Buffer.byteLength(name, 'utf8'));
+    }
+  }
 });
 
 test('NAPI import records use the CLI module identity and preserve import state', async () => {

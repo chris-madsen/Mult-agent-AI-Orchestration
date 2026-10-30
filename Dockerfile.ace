@@ -22,7 +22,7 @@ RUN npm run build \
   && npm prune --omit=dev --ignore-scripts \
   && python3 -m venv /opt/ace/.venv-embedding-fast \
   && /opt/ace/.venv-embedding-fast/bin/pip install --no-cache-dir \
-       fastembed==0.7.4 onnxruntime==1.23.2 numpy==2.2.6 huggingface-hub==1.33.0 \
+       pillow==11.3.0 fastembed==0.7.4 onnxruntime==1.23.2 numpy==2.2.6 huggingface-hub==1.33.0 \
   && mkdir -p /var/lib/ace/state /var/lib/ace/artifacts /var/lib/ace/model-cache /tmp/ace \
   && chown -R node:node /var/lib/ace /tmp/ace
 

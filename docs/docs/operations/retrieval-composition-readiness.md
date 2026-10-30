@@ -68,6 +68,32 @@ These changes are committed in PR #187 but are not attributed to the historical 
 - The Qdrant context adapter can consume a RepoMap provider, but production composition does not inject one until a structural def/ref graph owner exists. Any injected/test RepoMap evidence is fail-closed as `unknown` until every rendered source is exact-reread at the request boundary; structural coverage cannot be `satisfied` merely because Qdrant returned code hits.
 - Qdrant coverage degradation now uses the resolved `includeCode` default when marking incomplete index coverage, so omitted `include_code` cannot turn failed indexed paths into a false complete bundle.
 
+## PR #188 R2 shared structural-record slice — pending final-head evidence
+
+This PR is deliberately scoped to the R2 record boundary. It does not activate a production RepoMap implementation and does not close Aider parity, LSP lifecycle, real-provider, production-readiness, quality-parity or token-savings gates.
+
+- Active structural runtime still uses the official ast-grep CLI outline path for `provider=auto`; explicit NAPI remains experimental parity research.
+- The canonical per-file `StructuralAnalysis` can now carry optional identifier occurrences with exact byte ranges. The explicit NAPI provider collects those occurrences during the same already-existing tree traversal that produces declarations; the production CLI path is not given a second parse pass merely to manufacture reference data.
+- Identifier coverage remains optional: the production CLI record leaves it `undefined`, while a provider that actually supplies occurrence coverage can return `[]` for a known-empty result or a non-empty byte-bound array. Absence is not converted into false empty coverage.
+- `LocalCodeIndexBuild` retains those digest-bound structural records in path-keyed state and reuses the record only when the authoritative source digest still matches. This is preparatory R2 state for changed-path consumers; it is not evidence that all remaining index work is O(changed bytes).
+- NAPI identifier occurrences are not claimed as full language-independent definition/reference parity. Grammar-specific node kinds, declaration/reference classification, cross-file binding, frozen CLI/NAPI parity and the eventual shared tag contract remain R2 gaps.
+- Production RepoMap remains `NOT_READY` in this slice. The current custom graph/rank/render implementation is still the R3 deviation documented above and is not injected into the runtime until the pinned Aider graph/ranking/rendering behavior has a frozen comparison and the R2 tag contract is sufficient.
+- This PR does not change the LSP lifecycle or termination policy. LSP remains optional bounded enrichment after candidate selection as established by the previous retrieval follow-up.
+- Existing Qdrant, ContextAssembler and freshness behavior is unchanged by this R2 slice.
+
+## PR #189 R5 generic diagnostics slice — reviewed deterministic evidence
+
+This PR is deliberately scoped to generic LSP diagnostics and bounded provider lifecycle behavior. It does not activate RepoMap, close R2/R3/R6, or relabel historical provider artifacts as current evidence.
+
+- Production RepoMap remains `NOT_READY` exactly as established by PR #188. No custom Aider-like graph/ranking/rendering path is injected by this slice.
+- Pull diagnostics are selected from the server's `initialize` capability `diagnosticProvider`; a pull request uses the provider-advertised diagnostic identifier when present. Pull-capable servers are not forced to wait through a push-notification timeout first.
+- Push `textDocument/publishDiagnostics` remains supported. Versioned notifications that do not match the current document version are ignored, and cached diagnostics are invalidated on didOpen/didChange/didClose so a refreshed source cannot inherit stale diagnostics.
+- Caller `timeoutMs` remains the actual startup/identity deadline. Graceful TERM/KILL cleanup has its own bounded grace window rather than silently raising the requested operation timeout.
+- The non-TypeScript conformance script requires definition, references, hover **and non-empty diagnostics** for its invalid Rust fixture; a missing diagnostics result is a failed gate, not `provider-partial` success.
+- The previously generated non-TypeScript report from pre-fix SHA `65aec6f...` is intentionally not retained as final-head evidence. `npm run test:real-non-ts-lsp` must be rerun on the reviewed final SHA where rust-analyzer is available.
+- Deterministic runtime evidence at code head `f15b8c0f74ba0f4d8e7901b15db393a30b01c54d`: GitHub Actions run `40826931580` passed the affected selector (`4` changed files → `4` test files), `17/17` TypeScript tests, `tsc --noEmit`, ESLint, build, clean compiled-runtime provenance, isolated Bifröst tests and `go vet`. Full `verify:pr`, documentation/evidence verification and the real non-TypeScript provider command were not run on that head.
+- Full Claw lifecycle parity remains open: one process per workspace/server-language group, source-generation separation from process identity, serialized refresh/query or equivalent generation fencing, crash/restart evidence and agent-facing semantic evidence are not claimed here.
+
 ## Historical PR-A evidence — runtime SHA `4e44252db0fa63305398d87a96bde5e410e183f2`
 
 Evidence below predates the later PR #187 lifecycle, lazy-LSP and source-plan fixes. It remains historical evidence for that runtime and must not be treated as acceptance evidence for the final PR #187 head. The run used `sourceCleanAtBuild=true` and local Qdrant `qdrant/1.19.2`:
@@ -111,3 +137,20 @@ These provider results do not close NAPI real-repository parity, RepoMap quality
 - `npm run test:real-index-scale -- --files 100` — `PASS` on runtime SHA `1efc987`; cold/warm/change-only phases passed with current citations and add/change/delete/rename deltas.
 - `npm run test:real-qdrant-crash` — `PASS`; interrupted writer, direct stable collection identity, current-or-NOT_READY semantics and restart recovery verified.
 - `npm run test:real-qdrant-concurrency` — `PASS`; concurrent writers converged on one direct stable collection, index key and provider fingerprint without duplicate collections.
+
+## Historical branch-only observations — SHA `9512d379da892736dfb4375b4fe4ba191390c180`
+
+The retained machine-readable file is `benchmarks/reports/real-retrieval-gates-9512.json`. It records operator-reported observations from a clean checkout and a reported runtime bundle built with task image `ace-local-hermes:ace-local-smoke-paired-fast@sha256:c0529227d3303b66115cd246d39c552cb591eed58c906d412e7883824d294dbc`, bundle SHA `13ffea031a86b6e3ab2b4b6cbda72b545f25c4ebd31f26359e8797f08805d785`, Python `3.11`, Pillow `11.3.0`, FastEmbed `0.7.4` and ONNX Runtime `1.23.2`.
+
+This is not acceptance-eligible evidence: the run timestamp, exact commands actually executed, request/correlation IDs, raw stdout/stderr digests and bundle manifest were not retained. The source SHA is an intermediate historical branch commit and is not an ancestor of current `main`. The statuses below therefore describe observations only and must not be promoted to current-main gate results.
+
+- Real dense provider smoke — observed pass: current citation `service.ts:1-25`, `complete=true`, exact expansion `63482` bytes.
+- Provider outage — observed honest `NOT_READY`; no outage was reported as an empty successful result.
+- Provider restart — observed pass: generations `1/2/3`, warm reuse, changed-source rebuild and direct stable collection reuse.
+- Index scale 100 — observed pass: cold/warm/change-only phases, `100` warm reused vectors, `97` unchanged reuse and add/change/delete/rename deltas.
+- Qdrant crash — observed pass: interrupted writer recovery, current-after-crash semantics, restart publication and stable collection reuse on Qdrant `1.19.2`.
+- Qdrant concurrency — observed pass: both requests complete, current citations, converged index/provider fingerprints and no duplicate collection.
+- Provider race — `BLOCKED`: the bounded race runner did not complete and was killed; this is not a provider PASS.
+- Harbor paired and matched Hermes gates — `BLOCKED`: generated native/ACE job paths, paired artifact and exact-current experiment binding are still absent.
+
+All provider acceptance gates remain `BLOCKED` until the commands are rerun on a reviewed current head with the required raw bindings retained. These observations do not close Aider parity, full Claw parity, model-aware token counting, agent-E2E, Harbor/Hermes benchmark acceptance, production readiness or token-savings claims.
