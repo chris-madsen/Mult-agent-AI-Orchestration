@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { spawn } from 'node:child_process';
 import {
   mkdir,
   mkdtemp,
-  readFile,
   rm,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
+import { stopAndRetainProviderTraces } from './real-provider-evidence.mjs';
+import { spawnRealProviderProcess, stopRealProviderProcess } from './real-provider-process.mjs';
 import { resolveRealProviderRuntime } from './real-provider-runtime.mjs';
 
 const runtime = await resolveRealProviderRuntime(import.meta.dirname);
@@ -86,7 +86,7 @@ const parseStartupMetrics = (stderr) => {
 
 const makeClient = (label) => {
   const traceFile = join(root, `${label}-provider-trace.jsonl`);
-  const child = spawn(process.execPath, [runtime.executable], {
+  const child = spawnRealProviderProcess(process.execPath, [runtime.executable], {
     cwd: runtime.runtimeRoot,
     env: {
       ...process.env,
@@ -201,19 +201,7 @@ const makeClient = (label) => {
   const stop = async () => {
     if (stopped) return;
     stopped = true;
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    await new Promise((resolveStop) => {
-      const force = setTimeout(() => {
-        child.kill('SIGKILL');
-        resolveStop();
-      }, 5_000);
-      child.once('exit', () => {
-        clearTimeout(force);
-        resolveStop();
-      });
-      child.stdin.end();
-      child.kill('SIGTERM');
-    });
+    await stopRealProviderProcess(child, { termTimeoutMs: 5_000 });
   };
 
   return {
@@ -242,14 +230,6 @@ const qdrantCollectionExists = async (collection) => {
   return true;
 };
 
-const digestIfPresent = async (path) => {
-  try {
-    return createHash('sha256').update(await readFile(path)).digest('hex');
-  } catch {
-    return undefined;
-  }
-};
-
 let first;
 let second;
 try {
@@ -259,7 +239,7 @@ try {
   await Promise.all([first.initialize(), second.initialize()]);
   const startedAt = Date.now();
   const [firstContext, secondContext] = await Promise.all([first.query(), second.query()]);
-  const elapsedMs = Date.now() - startedAt;
+  const queryElapsedMs = Date.now() - startedAt;
   const firstEvidence = findEvidence(firstContext);
   const secondEvidence = findEvidence(secondContext);
   const firstMetrics = parseStartupMetrics(first.stderr());
@@ -273,12 +253,21 @@ try {
   publishedCollections.add(firstMetrics.collection);
   assert.equal(await qdrantCollectionExists(firstMetrics.collection), true,
     'stable collection must exist after verified concurrent publication');
+  const retainedDirectory = outputArg === undefined ? undefined : dirname(resolve(outputArg));
+  const traceDigests = await stopAndRetainProviderTraces([
+    { label: 'writer-a', traceFile: first.traceFile, stop: first.stop },
+    { label: 'writer-b', traceFile: second.traceFile, stop: second.stop },
+  ], retainedDirectory);
 
   const result = {
     schemaVersion: 1,
     evidence: 'real-qdrant-snapshot-concurrency',
     generatedAt: new Date().toISOString(),
     sourceCommit,
+    runner: {
+      commit: runtime.runnerCommit,
+      cleanAtStart: runtime.runnerClean,
+    },
     fixture: {
       workspaceId,
       sourcePath: 'src/concurrent-sentinel.ts',
@@ -296,7 +285,7 @@ try {
       embeddingDelayMs: Number(embeddingDelayMs),
     },
     concurrency: {
-      elapsedMs,
+      queryElapsedMs,
       collection: firstMetrics.collection,
       publicationMode: firstMetrics.publicationMode,
       indexKey: firstMetrics.indexKey,
@@ -313,11 +302,11 @@ try {
       writersConvergedOnIndexKey: 'PASS',
       writersConvergedOnProviderFingerprint: 'PASS',
       stableCollectionExists: (await qdrantCollectionExists(firstMetrics.collection)) ? 'PASS' : 'FAIL',
-      noDuplicateCollectionForSameIndex: firstMetrics.collection === secondMetrics.collection ? 'PASS' : 'FAIL',
+      writersShareStableCollection: firstMetrics.collection === secondMetrics.collection ? 'PASS' : 'FAIL',
     },
     providerTraceDigests: {
-      writerA: await digestIfPresent(first.traceFile),
-      writerB: await digestIfPresent(second.traceFile),
+      writerA: traceDigests['writer-a'],
+      writerB: traceDigests['writer-b'],
     },
     claims: {
       sameSnapshotConcurrencyMeasured: true,
@@ -342,7 +331,7 @@ try {
       await fetch(`${qdrantUrl.replace(/\/$/u, '')}/collections/${encodeURIComponent(collection)}`, { method: 'DELETE' });
     }
   } catch {
-    // The generated collection name is unique; a failed cleanup is retained as a blocker in the command output.
+    // Best-effort cleanup only; the generated collection name is unique to this fixture.
   }
   await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
 }

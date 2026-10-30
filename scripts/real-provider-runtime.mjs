@@ -9,8 +9,8 @@ const git = (sourceRoot, args) => execFileSync('git', args, {
 }).trim();
 
 export const resolveRealProviderRuntime = async (scriptDirectory) => {
-  const defaultRoot = resolve(scriptDirectory, '..');
-  const sourceRoot = resolve(process.env.ACE_SOURCE_ROOT?.trim() || defaultRoot);
+  const runnerRoot = resolve(scriptDirectory, '..');
+  const sourceRoot = resolve(process.env.ACE_SOURCE_ROOT?.trim() || runnerRoot);
   const runtimeRoot = resolve(process.env.ACE_RUNTIME_ROOT?.trim() || sourceRoot);
   let sourceCommit;
   let sourceStatus;
@@ -34,7 +34,19 @@ export const resolveRealProviderRuntime = async (scriptDirectory) => {
     throw new Error('BLOCKED: runtime source commit does not match ACE_SOURCE_ROOT HEAD');
   }
 
+  let runnerCommit;
+  let runnerStatus;
+  try {
+    runnerCommit = git(runnerRoot, ['rev-parse', 'HEAD']).toLowerCase();
+    runnerStatus = git(runnerRoot, ['status', '--porcelain=v1', '--untracked-files=all']);
+  } catch {
+    throw new Error(`BLOCKED: real-provider runner must execute from a Git worktree: ${runnerRoot}`);
+  }
+
   return {
+    runnerRoot,
+    runnerCommit,
+    runnerClean: runnerStatus.length === 0,
     runtimeRoot,
     sourceCommit,
     executable: resolve(runtimeRoot, 'dist/bin/ace-mcp.js'),
