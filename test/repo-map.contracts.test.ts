@@ -384,3 +384,31 @@ test('RepoMap graph ranking agrees numerically with pinned Aider plus networkx o
     );
   }
 });
+
+test('Aider multidef edges do not multiply one identifier occurrence by the number of defining files', () => {
+  const first = makeRepoMapSymbol({ ...symbol('shared', 1), repoPath: path('src/a.ts') });
+  const second = makeRepoMapSymbol({ ...symbol('shared', 2), repoPath: path('src/b.ts') });
+  const other = symbol('another', 3);
+  const caller = symbol('caller', 4, [
+    { targetId: first.id, kind: 'reference' },
+    { targetId: other.id, kind: 'reference' },
+  ]);
+  const graphWithOriginalAiderTag = applyRepoMapDelta(emptyRepoMapGraph(), {
+    upserted: [first, second, other, caller], removed: [],
+  });
+  const graphWithExpandedAstGrepEdges = applyRepoMapDelta(emptyRepoMapGraph(), {
+    upserted: [first, second, other, {
+      ...caller,
+      references: [...caller.references, { targetId: second.id, kind: 'reference' }],
+    }], removed: [],
+  });
+  const input = { query: '', openFiles: [], mentionedFiles: [], tokenBudget: 128 };
+  const baseline = rankRepoMap(graphWithOriginalAiderTag, input);
+  const expanded = rankRepoMap(graphWithExpandedAstGrepEdges, input);
+  for (const original of baseline) {
+    const updated = expanded.find((item) => item.symbol.id === original.symbol.id);
+    assert.ok(updated);
+    assert.ok(Math.abs(original.score - updated.score) < 1e-9,
+      `a second defining file must not inflate reference frequency for ${original.symbol.name}`);
+  }
+});

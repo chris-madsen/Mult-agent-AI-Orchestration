@@ -230,16 +230,24 @@ export const rankRepoMap = (graph: RepoMapGraph, input: RepoMapRenderInput): rea
   }
   const referenceCounts = new Map<string, { readonly sourcePath: RepoPath; readonly identifier: string; count: number }>();
   for (const source of symbols) {
+    // Pinned Aider get_ranked_tags() counts each identifier occurrence once
+    // before linking it to EVERY defining file. Shared ast-grep records
+    // materialize one edge per definer; summing those edges here would turn
+    // one reference into N references and distort its sqrt(num_refs) weight.
+    const occurrences = new Map<string, number>();
     for (const reference of source.references) {
       const target = graph.symbols.get(reference.targetId);
       if (target === undefined) continue;
-      const identifier = target.name;
+      const count = Math.max(1, reference.weight ?? 1);
+      occurrences.set(target.name, Math.max(occurrences.get(target.name) ?? 0, count));
+    }
+    for (const [identifier, count] of occurrences) {
       const key = `${source.repoPath}\0${identifier}`;
       const previous = referenceCounts.get(key);
       referenceCounts.set(key, {
         sourcePath: source.repoPath,
         identifier,
-        count: (previous?.count ?? 0) + Math.max(1, reference.weight ?? 1),
+        count: (previous?.count ?? 0) + count,
       });
     }
   }
