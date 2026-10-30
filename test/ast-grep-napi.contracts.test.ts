@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Effect } from 'effect';
 import test from 'node:test';
 import { makeAstGrepNapiStructuralPort, supportsAstGrepNapiPath } from '../src/adapters/ast-grep-napi.js';
@@ -145,5 +147,37 @@ test('NAPI matches CLI field scope for interfaces without inventing type-alias o
   if (result._tag === 'Ok') {
     assert.equal(result.value.symbols.some((item) => item.name === 'path' && item.kind === 'field'), true);
     assert.equal(result.value.symbols.some((item) => item.name === 'value' && item.kind === 'field'), false);
+  }
+});
+
+test('real-repo JS/TS symbol parity against pinned official ast-grep outline', async () => {
+  const cli = makeAstGrepStructuralPort({
+    command: 'node_modules/.bin/ast-grep',
+    provider: 'cli',
+  });
+  const napi = makeAstGrepNapiStructuralPort();
+  const examples = [
+    'src/domain/repo-map.ts',
+    'src/adapters/ast-grep-napi.ts',
+    'src/application/lsp/claw-discovery.ts',
+  ];
+  const filtered = (symbols: readonly { readonly kind: string; readonly name: string; readonly startLine: number }[]) =>
+    symbols.filter((symbol) => ['function', 'class', 'interface', 'type', 'enum', 'method'].includes(symbol.kind))
+      .map((symbol) => `${symbol.kind}|${symbol.name}|${symbol.startLine}`).sort();
+  for (const repoPath of examples) {
+    const source = readFileSync(join(process.cwd(), repoPath));
+    const [expected, actual] = await Promise.all([
+      Effect.runPromise(cli.extract({ repoPath, source })),
+      Effect.runPromise(napi.extract({ repoPath, source })),
+    ]);
+    assert.equal(expected._tag, 'Ok', repoPath);
+    assert.equal(actual._tag, 'Ok', repoPath);
+    if (expected._tag === 'Err' || actual._tag === 'Err') continue;
+    const canonical = filtered(expected.value.symbols);
+    const candidate = filtered(actual.value.symbols);
+    assert.deepEqual(candidate, canonical,
+      `${repoPath} structural tags differ from canonical CLI outline; do not enable NAPI by default until parity holds`);
+    assert.ok(actual.value.identifiers && actual.value.identifiers.length > 0,
+      `${repoPath} NAPI must expose same-pass identifier occurrences`);
   }
 });
