@@ -2,10 +2,17 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import {
+  realProviderProcessTreeAlive,
+  spawnRealProviderProcess,
+  stopRealProviderProcess,
+} from './real-provider-process.mjs';
+import { resolveRealProviderRuntime } from './real-provider-runtime.mjs';
 
+const runtime = await resolveRealProviderRuntime(import.meta.dirname);
+const runner = { commit: runtime.runnerCommit, cleanAtStart: runtime.runnerClean };
 const root = await mkdtemp(join(tmpdir(), 'ace-real-provider-'));
 const workspace = join(root, 'workspace');
 await mkdir(workspace);
@@ -55,19 +62,20 @@ const requestTimeoutMs = Number(process.env.ACE_REAL_PROVIDER_TIMEOUT_MS ?? 180_
 if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 10_000 || requestTimeoutMs > 600_000) {
   throw new Error('ACE_REAL_PROVIDER_TIMEOUT_MS must be an integer between 10000 and 600000');
 }
-const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
-  cwd: resolve(import.meta.dirname, '..'),
-  detached: process.platform !== 'win32',
+const child = spawnRealProviderProcess(process.execPath, [runtime.executable], {
+  cwd: runtime.runtimeRoot,
   env: {
     ...process.env,
+    ACE_RUNTIME_ROOT: runtime.runtimeRoot,
     ACE_WORKSPACE_ROOT: workspace,
     ACE_ALLOWED_ROOTS: root,
     ACE_STATE_DIR: join(root, 'state'),
     ACE_WORKSPACE_ID: workspaceId,
     ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
+    ACE_RETRIEVAL_STRATEGY: process.env.ACE_RETRIEVAL_STRATEGY?.trim() || 'dense',
     ACE_QDRANT_URL: outage || hardOutage ? 'http://127.0.0.1:6339' : qdrantUrl,
-    ACE_EMBEDDING_WORKER: resolve(import.meta.dirname, 'fastembed-worker.sh'),
-    ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
+    ACE_EMBEDDING_WORKER: process.env.ACE_EMBEDDING_WORKER ?? runtime.embeddingWorker,
+    ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND ?? runtime.astGrepCommand,
     ...(race ? {
       // The runtime forwards the artificial delay only under its explicit
       // test-only double opt-in; production runs never receive this knob.
@@ -110,43 +118,7 @@ child.stdout.on('data', (chunk) => {
   }
 });
 
-const signalChild = (signal) => {
-  if (child.pid !== undefined && process.platform !== 'win32') {
-    try {
-      process.kill(-child.pid, signal);
-    } catch {
-      // The process group may already have exited; signal the direct child below.
-    }
-  }
-  try {
-    child.kill(signal);
-  } catch {
-    // The child may have exited between the group and direct signals.
-  }
-};
-
 const directChildAlive = () => child.exitCode === null && child.signalCode === null;
-
-const processGroupAlive = () => {
-  if (process.platform === 'win32' || child.pid === undefined) return directChildAlive();
-  try {
-    process.kill(-child.pid, 0);
-    return true;
-  } catch (cause) {
-    return cause?.code === 'EPERM';
-  }
-};
-
-const processTreeAlive = () => directChildAlive() || processGroupAlive();
-
-const waitForProcessTreeExit = async (timeoutMs) => {
-  const deadline = Date.now() + timeoutMs;
-  while (processTreeAlive()) {
-    if (Date.now() >= deadline) return false;
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
-  }
-  return true;
-};
 
 const stopChild = () => {
   if (stopPromise !== undefined) return stopPromise;
@@ -154,11 +126,7 @@ const stopChild = () => {
     stopped = true;
     for (const waiter of waiters.values()) waiter.reject(new Error('MCP child stopped'));
     waiters.clear();
-    if (!processTreeAlive()) return;
-    signalChild('SIGTERM');
-    if (await waitForProcessTreeExit(750)) return;
-    signalChild('SIGKILL');
-    await waitForProcessTreeExit(250);
+    await stopRealProviderProcess(child);
   })();
   return stopPromise;
 };
@@ -189,7 +157,11 @@ const request = (id, message) => new Promise((resolveResponse, reject) => {
     waiters.delete(id);
     settlement();
   };
-  timer = setTimeout(() => settle(() => reject(new Error(`MCP request ${id} timed out after ${requestTimeoutMs}ms; stderr=${stderr.join('').slice(-2000)}`))), requestTimeoutMs);
+  timer = setTimeout(() => settle(() => {
+    const detail = `MCP request ${id} timed out after ${requestTimeoutMs}ms; stderr=${stderr.join('').slice(-2000)}`;
+    process.stderr.write(`${JSON.stringify({ status: 'blocked', code: 'RUNNER_TIMEOUT', detail })}\n`);
+    reject(new Error(detail));
+  }), requestTimeoutMs);
   const existing = responses.get(id);
   if (existing !== undefined) {
     responses.delete(id);
@@ -200,7 +172,7 @@ const request = (id, message) => new Promise((resolveResponse, reject) => {
     resolve: (response) => settle(() => resolveResponse(response)),
     reject: (cause) => settle(() => reject(cause)),
   });
-  if (stopped || !directChildAlive()) {
+  if (stopped || !directChildAlive() || !realProviderProcessTreeAlive(child)) {
     settle(() => reject(new Error(stopped ? 'MCP child is already stopped' : 'MCP child exited before request')));
     return;
   }
@@ -231,7 +203,7 @@ try {
     assert.equal(contextResponse.result?.isError, true, JSON.stringify(contextResponse));
     assert.equal(context.status, 'not_ready', JSON.stringify(context));
     assert.equal(context.code, 'NOT_READY', JSON.stringify(context));
-    console.log(JSON.stringify({ status: 'provider-failure-is-honest', outage, hard_outage: hardOutage, code: context.code }, null, 2));
+    console.log(JSON.stringify({ status: 'provider-failure-is-honest', runner, outage, hard_outage: hardOutage, code: context.code }, null, 2));
   } else {
     assert.equal(contextResponse.result?.isError, undefined, JSON.stringify(contextResponse));
     if (race) {
@@ -245,6 +217,7 @@ try {
         assert.match(evidence.content, /return result \+ '-changed';/u, JSON.stringify(context));
         console.log(JSON.stringify({
           status: 'provider-pass',
+          runner,
           race: true,
           outcome: 'reconciled-current',
           complete: true,
@@ -254,7 +227,7 @@ try {
         assert.ok(context.partialSources.includes('code'), JSON.stringify(context));
         assert.ok(context.warnings.some((warning) => warning.includes('stale') || warning.includes('changed')), JSON.stringify(context));
         assert.ok(evidence === undefined || evidence.freshness !== 'current', JSON.stringify(context));
-        console.log(JSON.stringify({ status: 'provider-pass', race: true, outcome: 'partial-raced', complete: false, warnings: context.warnings, partial_sources: context.partialSources }, null, 2));
+        console.log(JSON.stringify({ status: 'provider-pass', runner, race: true, outcome: 'partial-raced', complete: false, warnings: context.warnings, partial_sources: context.partialSources }, null, 2));
       }
     } else {
       assert.equal(context.complete, true, JSON.stringify(context));
@@ -276,6 +249,7 @@ try {
 
       console.log(JSON.stringify({
         status: 'provider-pass',
+        runner,
         fixture: '2000-line TypeScript source / 25-line target function',
         qdrant: qdrantUrl,
         citation: evidence.citation,

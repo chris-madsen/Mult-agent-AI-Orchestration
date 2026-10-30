@@ -2,11 +2,12 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { spawnRealProviderProcess, stopRealProviderProcess } from './real-provider-process.mjs';
+import { resolveRealProviderRuntime } from './real-provider-runtime.mjs';
 
-const repository = resolve(import.meta.dirname, '..');
+const runtime = await resolveRealProviderRuntime(import.meta.dirname);
 const root = await mkdtemp(join(tmpdir(), 'ace-restart-provider-'));
 const workspace = join(root, 'workspace');
 const state = join(root, 'state');
@@ -19,18 +20,20 @@ const publishedCollections = new Set();
 const digest = async () => createHash('sha256').update(await readFile(sourcePath)).digest('hex');
 
 const runOnce = () => new Promise((resolveRun, rejectRun) => {
-  const child = spawn(process.execPath, ['dist/bin/ace-mcp.js'], {
-    cwd: repository,
+  const child = spawnRealProviderProcess(process.execPath, [runtime.executable], {
+    cwd: runtime.runtimeRoot,
     env: {
       ...process.env,
+      ACE_RUNTIME_ROOT: runtime.runtimeRoot,
       ACE_WORKSPACE_ROOT: workspace,
       ACE_ALLOWED_ROOTS: root,
       ACE_STATE_DIR: state,
       ACE_WORKSPACE_ID: workspaceId,
       ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true',
+      ACE_RETRIEVAL_STRATEGY: process.env.ACE_RETRIEVAL_STRATEGY?.trim() || 'dense',
       ACE_QDRANT_URL: qdrantUrl,
-      ACE_EMBEDDING_WORKER: resolve(import.meta.dirname, 'fastembed-worker.sh'),
-      ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND ?? resolve(import.meta.dirname, '../node_modules/.bin/ast-grep'),
+      ACE_EMBEDDING_WORKER: process.env.ACE_EMBEDDING_WORKER ?? runtime.embeddingWorker,
+      ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND ?? runtime.astGrepCommand,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -38,9 +41,21 @@ const runOnce = () => new Promise((resolveRun, rejectRun) => {
   let stderr = '';
   const responses = new Map();
   const waiters = new Map();
+  let settled = false;
+  const fail = (cause) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    const error = cause instanceof Error ? cause : new Error(String(cause));
+    for (const waiter of waiters.values()) waiter.reject(error);
+    waiters.clear();
+    void stopRealProviderProcess(child).then(
+      () => rejectRun(error),
+      (stopError) => rejectRun(new AggregateError([error, stopError], 'restart MCP failed and cleanup was incomplete')),
+    );
+  };
   const timer = setTimeout(() => {
-    child.kill('SIGTERM');
-    rejectRun(new Error(`restart MCP request timed out: ${stderr.slice(-2000)}`));
+    fail(new Error(`restart MCP request timed out: ${stderr.slice(-2000)}`));
   }, 180_000);
   child.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
   child.stdout.on('data', (chunk) => {
@@ -48,38 +63,52 @@ const runOnce = () => new Promise((resolveRun, rejectRun) => {
     for (;;) {
       const newline = stdout.indexOf('\n');
       if (newline < 0) break;
-      const message = JSON.parse(stdout.slice(0, newline));
+      let message;
+      try {
+        message = JSON.parse(stdout.slice(0, newline));
+      } catch (cause) {
+        fail(new Error(`restart MCP emitted malformed JSON: ${String(cause)}`));
+        return;
+      }
       stdout = stdout.slice(newline + 1);
       const waiter = waiters.get(message.id);
       if (waiter !== undefined) {
         waiters.delete(message.id);
-        waiter(message);
+        waiter.resolve(message);
       } else responses.set(message.id, message);
     }
   });
-  const request = (id, message) => new Promise((resolveRequest) => {
+  child.once('error', fail);
+  child.once('exit', (code, signal) => {
+    fail(new Error(`restart MCP exited before response code=${code} signal=${signal}: ${stderr.slice(-2000)}`));
+  });
+  child.stdin.on('error', fail);
+  const request = (id, message) => new Promise((resolveRequest, rejectRequest) => {
     const existing = responses.get(id);
     if (existing !== undefined) {
       responses.delete(id);
       resolveRequest(existing);
       return;
     }
-    waiters.set(id, resolveRequest);
+    waiters.set(id, { resolve: resolveRequest, reject: rejectRequest });
     child.stdin.write(`${JSON.stringify(message)}\n`);
   });
-  (async () => {
+  void (async () => {
     try {
       await request(1, { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2026-07-28', capabilities: {}, clientInfo: { name: 'ace-restart-e2e', version: '1' } } });
       child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
       const response = await request(2, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'ace_context', arguments: { workspace_id: workspaceId, query: 'current value' } } });
+      settled = true;
       clearTimeout(timer);
-      child.stdin.end();
-      child.kill('SIGTERM');
+      try {
+        await stopRealProviderProcess(child);
+      } catch (error) {
+        rejectRun(error);
+        return;
+      }
       resolveRun({ response, stderr });
     } catch (error) {
-      clearTimeout(timer);
-      child.kill('SIGTERM');
-      rejectRun(error);
+      fail(error);
     }
   })();
 });
@@ -148,6 +177,7 @@ try {
 
   console.log(JSON.stringify({
     status: 'provider-pass',
+    runner: { commit: runtime.runnerCommit, cleanAtStart: runtime.runnerClean },
     first_generation: 1,
     warm_generation: 2,
     warm_index_reused: true,

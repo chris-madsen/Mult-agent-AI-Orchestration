@@ -11,7 +11,6 @@ test('real Qdrant crash runner is syntactically valid and uses the production AC
   const script = await readFile('scripts/qdrant-snapshot-crash-e2e.mjs', 'utf8');
   for (const token of [
     "ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true'",
-    'dist/bin/ace-mcp.js',
     'after_qdrant_verify_before_publish',
     '/collections/',
     'stableCollectionIdentityDuringInterruptedBuild',
