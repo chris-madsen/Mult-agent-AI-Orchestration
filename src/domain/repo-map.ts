@@ -204,8 +204,10 @@ const pageRankFiles = (
           (x.get(edge.targetPath) ?? 0) + alpha * (previous.get(file) ?? 0) * edge.weight);
       }
     }
-    const error = files.reduce((sum, file) =>
-      sum + Math.abs((x.get(file) ?? 0) - (previous.get(file) ?? 0)), 0);
+    let error = 0;
+    for (const file of files) {
+      error += Math.abs((x.get(file) ?? 0) - (previous.get(file) ?? 0));
+    }
     if (error < count * tolerance) return x;
   }
   throw new Error(`NetworkX PageRank power iteration failed to converge after ${maxIterations} iterations`);
