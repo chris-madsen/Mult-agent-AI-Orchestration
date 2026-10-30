@@ -141,8 +141,8 @@ test('ContextAssembler uses the supplied model counter for Unicode instead of le
   const countTokens = (text: string): number =>
     [...text].reduce((total, codepoint) => total + (codepoint === '🦊' ? 12 : 1), 0);
   const result = await Effect.runPromise(makeContextAssembler(countTokens).assemble({
-    budgetTokens: 80,
-    sectionBudgets: { code: 80 },
+    budgetTokens: 45,
+    sectionBudgets: { code: 45 },
     evidence: [evidence('first', 'code', '🦊'), evidence('second', 'code', '🦊')],
   }));
   assert.equal(result._tag, 'Ok');
