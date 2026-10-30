@@ -77,7 +77,7 @@ test('auto selects single-pass NAPI def/ref for JS/TS while preserving CLI for o
   assert.equal(cliIdentity._tag, 'Ok');
   if (autoIdentity._tag === 'Ok' && cliIdentity._tag === 'Ok') {
     assert.notEqual(autoIdentity.value.fingerprint, cliIdentity.value.fingerprint);
-    assert.match(autoIdentity.value.version, /hybrid-defref-v1/u);
+    assert.match(autoIdentity.value.version, /hybrid-defref-scopes-v2/u);
     const changedParser = await Effect.runPromise(resolveAstGrepProviderIdentity({
       ...autoOptions, napiProviderVersion: 'ast-grep/napi@next',
     }));

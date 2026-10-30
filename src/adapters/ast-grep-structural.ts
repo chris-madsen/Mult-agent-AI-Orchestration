@@ -307,7 +307,7 @@ export const resolveAstGrepProviderIdentity = (
     protocolSchema: 1 as const,
     command: provider === 'auto' ? `${command}+@ast-grep/napi` : command,
     version: provider === 'auto'
-      ? `${cliVersion.value}|napi:${napiVersion}|hybrid-defref-v1`
+      ? `${cliVersion.value}|napi:${napiVersion}|hybrid-defref-scopes-v2`
       : cliVersion.value,
   };
   return ok({
