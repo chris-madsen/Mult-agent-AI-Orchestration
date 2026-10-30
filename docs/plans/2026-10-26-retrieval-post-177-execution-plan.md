@@ -1,5 +1,7 @@
 # Execution plan: finish the Aider + Claw retrieval composition after PR #177
 
+> **2026-10-30 owner clarification:** For named upstream components, *reuse the actual working, appropriately licensed functions and their tested behavior*. “Port/adapt” means a narrow, traceable translation or wrapper of real source code, not re-deriving algorithms from a summary and calling the result Aider/Claw-compatible. For Rust Claw → TypeScript, reuse only source whose license/provenance permits it; preserve `vscode-jsonrpc` instead of copying Claw framing. No unapproved Python/Rust sidecar or model-tokenizer rewrite. This clarification does not change current implementation or acceptance status.
+
 > **2026-10-27 update:** The original A–E queue below describes the post-#177 starting point. Read the [repository-wide reuse audit and remediation queue](#2026-10-27-addendum--repository-wide-reuse-audit-and-remediation-queue) before new work; it records the inspected post-#183 baseline, remaining deviations, adjacent candidates, and the updated dependency order. Findings and replacement choices are not production acceptance.
 
 
@@ -48,6 +50,7 @@ The next work must **replace**, not stack on top of, these owners.
 1. **One PR = one behavioral step.** Do not combine RepoMap + freshness + LSP + context delivery in one giant PR.
 2. **No new benchmark framework.** Use existing tests/scripts and add only focused regressions needed by the changed owner.
 3. **No fake feature naming.** A lexical boost is not RepoMap; a registry wrapper is not Claw LSP; a mock Qdrant response is not real-provider proof.
+3a. **Source-code reuse is required before new algorithm code.** Pin original working functions, inspect their tests/license, and adapt their implementations faithfully. For Aider this includes ranking/rendering, not merely mimicking a few weights. For LSP, prefer permitted Claw discovery/lifecycle implementations and existing standard Node/Effect libraries. A from-scratch implementation requires recorded evidence and explicit owner approval.
 4. **No parallel permanent old/new paths.** Transitional compatibility is allowed only when there is an explicit deletion point in the next PR.
 5. **Dense first.** Do not reintroduce sparse/RRF/reranker as a dependency until dense retrieval has real measured evidence that it is insufficient.
 6. **Freshness is fail-closed.** Never label stale source as current.
@@ -285,7 +288,7 @@ type SymbolRecord = {
 
 ## Aider algorithm to adapt
 
-Port/adapt the small core ideas, not the Aider CLI:
+Port/adapt the **working, pinned Aider source functions** (not only their ideas), with Apache-2.0 provenance and upstream parity; do not run or vendor the entire Aider CLI:
 
 1. collect definition/reference tags;
 2. build file/symbol relation graph;
@@ -378,14 +381,14 @@ Reference:
 - Claw Code PR #3016
 - head `5e7d7edb8e82782371f8747aca63e63412ccfca6`
 
-Study/adapt:
+Reuse the **actual, legally reusable** implementation and tests, translated only as needed for TypeScript/Node:
 
-- `lsp_discovery.rs`
-- `lsp_client/`
-- `lsp_process/`
-- action/status model
+- `lsp_discovery.rs` descriptors, known server catalog, PATH discovery and hints;
+- `lsp_client/` registry, status and lazy lifetime;
+- `lsp_process/` document and action lifecycle;
+- action/status model.
 
-Do **not** port Claw's hand-written stdio framing; keep `vscode-jsonrpc`.
+Retain concrete behavior and upstream test scenarios rather than rebuilding the subsystem from a prose description. Inspect standalone maintained Node LSP lifecycle clients before writing replacement lifecycle mechanics; if a compatible one exists, wrap it instead. Record the source license/provenance for each Claw file; do not copy reconstructed proprietary Claude/Anthropic sources without rights. **Do not** port Claw's hand-written stdio framing; keep `vscode-jsonrpc`.
 
 ## Target architecture
 
@@ -942,9 +945,9 @@ Inspected upstream MCP get_episodes has no exact-ID/cursor facility, but Graphit
 
 | Area | Preferred option and alternatives considered | Constraint / decision |
 | --- | --- | --- |
-| RepoMap | Faithful Aider adaptation versus wrapping the full Python Aider runtime or another generic graph ranker | **ADAPT pinned Aider** per governing plan. A generic PageRank library cannot substitute its selected weighting/tag/rendering semantics; production Python sidecar is not the planned topology |
+| RepoMap | Reuse and faithfully translate selected working functions from pinned Apache-2.0 Aider, with upstream tests/oracles; compare wrapping existing runtime only if translation is materially infeasible | **ADOPT original algorithmic implementation**, not a paraphrase. Preserve weighting, graph semantics, PageRank and TreeContext-style rendering, with permitted licensed fragments and attribution. Do not add a production Python sidecar without a separately justified topology decision |
 | AST | Locked ast-grep NAPI plus the existing batched CLI transition versus a new parser or LSP-wide indexing | **ADOPT existing parsers**; preserve one normalization/tag contract. No permanent double extraction |
-| LSP | Pinned Claw lifecycle over locked vscode-jsonrpc versus wholesale Claw framing port or another LSP framework | **ADAPT + ADOPT**. Keep standard wire library and small ACE generation validation |
+| LSP | Reuse licensed Claw #3016 discovery/registry/lifecycle functions and tests where appropriate, or a compatible ready standalone Node LSP client, over locked vscode-jsonrpc | **ADOPT/WRAP first**. A Rust-to-TS port must trace actual permitted Claw source, not redesign lifecycle from scratch. Keep standard wire library and only necessary ACE source-generation validation |
 | Qdrant | Existing SDK batch/filter/scroll/ordering/alias facilities versus raw REST twin or new coordination service | **ADOPT SDK**; publication fence choice remains evidence-gated. No unsupported transaction claim |
 | Worker lifecycle | Existing Effect 3.22.3 + Node versus adding @effect/platform solely for extraction or a worker service/pool | **ADOPT existing primitives**, consolidate only real common behavior; no dependency/topology expansion by default |
 | Token counting | Existing host/provider counter; gpt-tokenizer; host tiktoken | Prefer the already available matching counter; otherwise pin a maintained matching encoding. gpt-tokenizer is MIT, TypeScript; host tiktoken avoids a new TS runtime only if already present. Model mapping, startup/memory/security and parity must be checked before selection |
@@ -1016,9 +1019,10 @@ Inspected source references (pins are evidence references, not instructions to u
 **Depends on:** R2 tags.
 **Modify:** src/domain/repo-map.ts; src/application/repo-map-service.ts; src/adapters/repo-map-structural.ts; map call sites. **Tests:** existing repo-map suites and a frozen upstream comparison fixture/tool, not a new benchmark framework.
 
+- [ ] Inventory and map **actual pinned Aider functions** (`get_ranked_tags`, `get_ranked_tags_map`, `render_tree`, `to_tree`) and their executable dependencies/tests to replacement ACE symbols. Record direct reuse vs line-traceable translation, Apache-2.0 license/notice, and necessary ACE-specific deviations; do not implement the algorithm from a verbal summary.
 - [ ] Record the pinned Aider graph, weighting, dangling behavior, personalization, rank-to-definition redistribution, tie and rendering semantics actually being adopted.
 - [ ] Produce expected rankings/map sections from pinned Aider on a frozen source fixture with query/open-file inputs. Record tolerated parser/tag differences explicitly.
-- [ ] Replace the current unweighted symbol-level ranking with the selected adaptation and attributed provenance. Reuse a proven numerical engine only if it preserves those semantics; unrelated PageRank output is insufficient.
+- [ ] Replace custom `pageRankFiles`/`rankRepoMap`/`renderRepoMap` behavior with faithful reuse/translation of the **original pinned algorithm and rendering code**, not another invented implementation. Retain official upstream fixtures as an independent oracle; a generic numerical library is acceptable only if upstream semantic equivalence is proven.
 - [ ] Update only the changed graph inputs; keep ranking invocation distinct from ingest. Render useful source/tree context under an explicit budget, not only path/name rows.
 - [ ] Remove the old custom ranking/build path and stale-prior handling that exists solely because of that path. Preserve digest-bound candidate matching.
 - [ ] Run upstream behavioral comparison, query personalization, dangling/duplicate/ambiguous identifier, deletion and bounded rendering cases; measure top-K effect on an existing real repository fixture.
@@ -1044,7 +1048,8 @@ Inspected source references (pins are evidence references, not instructions to u
 **Depends on:** R2/R3 remove index-time LSP dependency.
 **Modify:** src/application/lsp/server-registry.ts, src/adapters/lsp-semantic.ts, src/application/semantic-snapshot.ts and ace-mcp.ts. **Tests:** existing LSP registry/semantic/snapshot contracts and real LSP scripts.
 
-- [ ] Add descriptor/discovery and explicit server status modeled on the pinned Claw source; retain configured overrides and library URI semantics.
+- [ ] Inspect pinned Claw #3016 actual discovery, registry and process code, tests and per-file licensing; compare existing standalone Node lifecycle libraries before writing new management logic. Record function-level direct reuse/faithful translation (or a proven compatibility reason for wrapping another ready library), not a new lifecycle inspired by Claw.
+- [ ] Add descriptor/discovery and explicit server status based on the permitted working Claw source; retain configured overrides and library URI semantics.
 - [ ] Make the registry own one process per workspace/server-language group, with lazy start. Separate source-generation validation from the process key.
 - [ ] Serialize document delta application and semantic queries or use an equivalent evidenced protocol. Check expected generation before/after; failed refresh must not turn old semantic evidence current.
 - [ ] Bound version/startup/initialize and ordinary calls; invalidate dead sessions and restart on a subsequent bounded operation. Implement shutdown request → exit notification → bounded forced termination fallback.
@@ -1061,7 +1066,8 @@ Inspected source references (pins are evidence references, not instructions to u
 
 - [ ] Extend assembly inputs to carry a map section, verified snippet candidates and relation summaries with provenance. Keep public ContextBundle compatibility or version the affected boundary deliberately.
 - [ ] Allocate configurable bounded slices: initially map at most about 25%, snippets the majority and LSP a small tail. Specify unused-slice redistribution and truthful omitted/partial behavior.
-- [ ] Compare existing host count with maintained tokenizer options for the actual model/protocol; pin encoding identity. Budget rendered headers/separators/escaping, not only content length.
+- [ ] **Treat existing `length / 4` as diagnostic-only, never a guaranteed limit.** Inventory exact token-count APIs already available in the actual Hermes/model host. Only if those cannot be reused, select a maintained tokenizer compatible with the actual model/protocol and pinned encoding; do not implement BPE or a competing tokenizer. Budget rendered headers/separators/escaping, not only content length.
+- [ ] Compare the selected existing-host or maintained-library token count against measured provider usage on RU/CJK/emoji, minified source, JSON escaping and message wrappers; pin encoding identity and mark unsupported models estimated/unknown.
 - [ ] Centralize counting; delete duplicated budget heuristics where a matching counter replaces them. Explicit estimated-only modes cannot claim an exact model bound.
 - [ ] Deduplicate by current source identity/range while preserving distinct relations and provider receipts. Keep expansion lossless and independent of initial budget.
 - [ ] Verify RU/CJK/emoji, long identifiers, minified source, overlapping evidence, an oversized highest-ranked entry, unknown model, empty sections and unavailable LSP. Confirm rendered RepoMap actually reaches provider-bound context.
