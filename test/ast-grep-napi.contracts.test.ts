@@ -31,7 +31,7 @@ test('NAPI collects byte-bound identifier occurrences in the same parse as decla
   }
 });
 
-test('explicit NAPI identity remains experimental while auto mode uses the CLI outline provider', async () => {
+test('auto selects single-pass NAPI def/ref for JS/TS while preserving CLI for other languages', async () => {
   const identity = await Effect.runPromise(resolveAstGrepProviderIdentity({
     command: '/definitely/missing/ast-grep',
     provider: 'napi',
@@ -40,12 +40,43 @@ test('explicit NAPI identity remains experimental while auto mode uses the CLI o
   assert.equal(identity._tag, 'Ok');
   if (identity._tag === 'Ok') assert.equal(identity.value.command, '@ast-grep/napi');
 
-  const auto = makeAstGrepStructuralPort({
+  const autoOptions = {
     command: 'node_modules/.bin/ast-grep',
-    provider: 'auto',
+    provider: 'auto' as const,
     providerVersion: 'ast-grep/napi@0.51.0',
-  });
-  assert.equal((await Effect.runPromise(auto.extract({ repoPath: 'main.ts', source })))._tag, 'Ok');
+  };
+  const auto = makeAstGrepStructuralPort(autoOptions);
+  const tsResult = await Effect.runPromise(auto.extract({ repoPath: 'main.ts', source }));
+  assert.equal(tsResult._tag, 'Ok');
+  if (tsResult._tag === 'Ok') {
+    assert.ok(tsResult.value.identifiers?.some((item) => item.name === 'save'));
+    assert.ok(tsResult.value.identifiers?.some((item) => item.name === 'value'));
+  }
+  const pyResult = await Effect.runPromise(auto.extract({
+    repoPath: 'worker.py', source: Buffer.from('def work():\\n    pass\\n'),
+  }));
+  assert.equal(pyResult._tag, 'Ok');
+  if (pyResult._tag === 'Ok') {
+    assert.equal(pyResult.value.identifiers, undefined);
+    assert.ok(pyResult.value.symbols.some((item) => item.name === 'work'));
+  }
+  const combined = await Effect.runPromise(auto.extractMany!([
+    { repoPath: 'one.ts', source },
+    { repoPath: 'two.py', source: Buffer.from('def work():\\n    pass\\n') },
+    { repoPath: 'three.js', source: Buffer.from('function run() { return run(); }\\n') },
+  ]));
+  assert.deepEqual(combined.map((item) => item._tag), ['Ok', 'Ok', 'Ok']);
+  assert.equal(combined[0]?._tag === 'Ok' && combined[0].value.identifiers !== undefined, true);
+  assert.equal(combined[1]?._tag === 'Ok' && combined[1].value.identifiers, undefined);
+  assert.equal(combined[2]?._tag === 'Ok' && combined[2].value.identifiers !== undefined, true);
+  const autoIdentity = await Effect.runPromise(resolveAstGrepProviderIdentity(autoOptions));
+  const cliIdentity = await Effect.runPromise(resolveAstGrepProviderIdentity({ ...autoOptions, provider: 'cli' }));
+  assert.equal(autoIdentity._tag, 'Ok');
+  assert.equal(cliIdentity._tag, 'Ok');
+  if (autoIdentity._tag === 'Ok' && cliIdentity._tag === 'Ok') {
+    assert.notEqual(autoIdentity.value.fingerprint, cliIdentity.value.fingerprint);
+    assert.match(autoIdentity.value.version, /hybrid-defref-v1/u);
+  }
 });
 
 
