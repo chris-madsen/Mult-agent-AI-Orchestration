@@ -46,6 +46,7 @@ test('Git-dependent provider runners execute the verified runtime bundle and rej
   try {
     const cases = [
       { script: 'scripts/real-provider-e2e.mjs', args: [], env: { ACE_REAL_PROVIDER_TIMEOUT_MS: '10000' } },
+      { script: 'scripts/index-scale-e2e.mjs', args: ['--files', '100'], env: { ACE_INDEX_SCALE_PHASE_TIMEOUT_MS: '60000' } },
       { script: 'scripts/qdrant-snapshot-crash-e2e.mjs', args: [], env: { ACE_QDRANT_CRASH_E2E_TIMEOUT_MS: '60000' } },
       { script: 'scripts/qdrant-snapshot-concurrency-e2e.mjs', args: [], env: { ACE_QDRANT_CONCURRENCY_TIMEOUT_MS: '60000' } },
     ];
