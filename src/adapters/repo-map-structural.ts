@@ -1,5 +1,5 @@
 import { Effect } from 'effect';
-import { domainError, type DomainError } from '../domain/errors.js';
+import type { DomainError } from '../domain/errors.js';
 import type { StructuralAnalysis } from '../domain/semantic.js';
 import type { CodeCandidate, SourceRange } from '../domain/retrieval.js';
 import {
@@ -10,7 +10,7 @@ import {
   type RepoMapSymbolId,
 } from '../domain/repo-map.js';
 import type { RepoPath } from '../domain/workspace.js';
-import { err, ok, type Result } from '../domain/result.js';
+import { ok, type Result } from '../domain/result.js';
 
 export interface RepoMapStructuralInput {
   readonly candidates: readonly CodeCandidate[];
