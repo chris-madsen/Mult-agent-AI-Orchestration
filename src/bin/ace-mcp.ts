@@ -625,6 +625,8 @@ const main = async (): Promise<void> => {
             providerVersion: astGrepProvider === 'napi'
               ? process.env.ACE_AST_GREP_NAPI_VERSION?.trim() || 'ast-grep/napi@0.51.0'
               : process.env.ACE_AST_GREP_VERSION?.trim() || 'ast-grep/0.51.0',
+            // Auto embeds BOTH maintained parser identities in warm-cache keys.
+            napiProviderVersion: process.env.ACE_AST_GREP_NAPI_VERSION?.trim() || 'ast-grep/napi@0.51.0',
             trace: providerTrace,
           };
           const structuralIdentity = await Effect.runPromise(resolveAstGrepProviderIdentity(structuralOptions));
