@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { Effect } from 'effect';
 import { buildRepoMapDelta } from '../src/adapters/repo-map-structural.js';
@@ -297,4 +298,33 @@ test('RepoMap counts one reference per defining file even when that file defines
   const caller = result.value.upserted.find((symbol) => symbol.repoPath === 'src/caller.ts');
   assert.equal(caller?.references.length, 1);
   assert.equal(caller?.references[0]?.weight ?? 1, 1);
+});
+
+test('RepoMap only retains exact digest-bound source bytes for rendering, never stale index text', async () => {
+  const source = new TextEncoder().encode('export function verified() {\n  return 42;\n}\n');
+  const digest = createHash('sha256').update(source).digest('hex');
+  const verified = { ...candidate('verified', 1), sourceDigest: digest as never };
+  const input = {
+    candidates: [verified],
+    structuralAnalyses: [{
+      repoPath: verified.repoPath,
+      sourceDigest: digest as never,
+      symbols: [],
+      identifiers: [],
+      hasSyntaxErrors: false,
+    }],
+    sourceBytesByPath: new Map([[verified.repoPath, source]]),
+  };
+  const result = await Effect.runPromise(buildRepoMapDelta(input));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag !== 'Ok') return;
+  assert.equal(result.value.sourceByPath?.[0]?.text, new TextDecoder().decode(source));
+  assert.equal(result.value.sourceByPath?.[0]?.sourceDigest, digest);
+  const stale = await Effect.runPromise(buildRepoMapDelta({
+    ...input,
+    structuralAnalyses: [{ ...input.structuralAnalyses[0]!, sourceDigest: 'a'.repeat(64) as never }],
+  }));
+  assert.equal(stale._tag, 'Ok');
+  if (stale._tag === 'Ok') assert.deepEqual(stale.value.sourceByPath, [],
+    'source digest disagreement must never authorize a stale source excerpt');
 });
