@@ -69,7 +69,9 @@ test('transforms a request into bounded source-attributed context without mutati
 
   assert.equal(result._tag, 'Ok');
   if (result._tag === 'Err') return;
-  assert.equal(result.value.status, 'ready');
+  assert.equal(result.value.status, 'partial');
+  assert.equal(result.value.tokenCountMode, 'character_estimate');
+  assert.match(result.value.limitations.join(' '), /model-exact fit is unverified/u);
   assert.match(result.value.contextText, /context transform service/u);
   assert.deepEqual(result.value.selectedEvidenceIds, ['evidence-1']);
   assert.equal(result.value.sourceCommit, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
@@ -104,7 +106,11 @@ test('returns partial status and preserves omitted evidence when the provider is
   assert.equal(result._tag, 'Ok');
   if (result._tag === 'Err') return;
   assert.equal(result.value.status, 'partial');
-  assert.deepEqual(result.value.limitations, ['lsp unavailable', 'lsp: partial']);
+  assert.deepEqual(result.value.limitations, [
+    'lsp unavailable',
+    'lsp: partial',
+    'token budget is a character-based estimate; model-exact fit is unverified',
+  ]);
 });
 
 test('does not report a successful transform when the provider returns no evidence', async () => {
@@ -115,4 +121,18 @@ test('does not report a successful transform when the provider returns no eviden
   assert.equal(result._tag, 'Err');
   if (result._tag === 'Ok') return;
   assert.equal(result.error.code, 'NOT_READY');
+});
+
+test('returns ready only with a host-provided model token counter', async () => {
+  const service = makeContextTransformService({
+    ...makePorts(),
+    countTokens: (text: string): number => Array.from(text).length,
+  });
+  const result = await Effect.runPromise(service.transform(request));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Err') return;
+  assert.equal(result.value.status, 'ready');
+  assert.equal(result.value.tokenCountMode, 'host_counter');
+  assert.deepEqual(result.value.limitations, []);
+  assert.equal(result.value.estimatedTokens, Array.from(result.value.contextText).length);
 });

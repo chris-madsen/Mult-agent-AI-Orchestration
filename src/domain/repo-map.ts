@@ -94,9 +94,15 @@ export const applyRepoMapDelta = (graph: RepoMapGraph, delta: RepoMapDelta): Rep
   for (const id of delta.removed) symbols.delete(id);
   for (const symbol of delta.upserted) symbols.set(symbol.id, symbol);
   if (removedTargets.size > 0) {
-    const replacementByName = new Map<string, RepoMapSymbol>();
-    for (const symbol of [...symbols.values()].sort((left, right) => left.id.localeCompare(right.id))) {
-      if (!replacementByName.has(symbol.name)) replacementByName.set(symbol.name, symbol);
+    // Rebind only to an unambiguous replacement at the SAME source path.
+    // A global name match is not a proven semantic binding and can redirect a
+    // caller to an unrelated function in another module after deletion.
+    const replacementByPathNameKind = new Map<string, RepoMapSymbol[]>();
+    const keyFor = (symbol: RepoMapSymbol): string =>
+      [symbol.repoPath, symbol.name, symbol.kind].join('\0');
+    for (const current of symbols.values()) {
+      const key = keyFor(current);
+      replacementByPathNameKind.set(key, [...(replacementByPathNameKind.get(key) ?? []), current]);
     }
     for (const [id, symbol] of symbols) {
       let changed = false;
@@ -104,8 +110,10 @@ export const applyRepoMapDelta = (graph: RepoMapGraph, delta: RepoMapDelta): Rep
         const removed = removedTargets.get(reference.targetId);
         if (removed === undefined) return [reference];
         changed = true;
-        const replacement = replacementByName.get(removed.name);
-        return replacement === undefined ? [] : [{ ...reference, targetId: replacement.id }];
+        const candidates = replacementByPathNameKind.get(keyFor(removed)) ?? [];
+        // An ambiguous source transition must be rebuilt from source tags;
+        // choosing a random same-name symbol would fabricate a reference.
+        return candidates.length !== 1 ? [] : [{ ...reference, targetId: candidates[0]!.id }];
       });
       if (changed) symbols.set(id, { ...symbol, references: normalizeReferences(rebound) });
     }
@@ -182,35 +190,55 @@ const normalizeProbabilities = (weights: readonly number[]): readonly number[] =
 
 const isFileAnchor = (symbol: RepoMapSymbol): boolean => symbol.kind === 'repo-map-file-anchor';
 
+/**
+ * Licensed, intentionally narrow TypeScript translation of NetworkX 3.6.1
+ * pagerank_alg._pagerank_scipy (lines 455-498), which Aider calls from
+ * RepoMap.get_ranked_tags() via nx.pagerank(weight="weight").
+ * Source: https://github.com/networkx/networkx/blob/networkx-3.6.1/networkx/algorithms/link_analysis/pagerank_alg.py
+ * Copyright 2004-2025 NetworkX Developers; BSD-3-Clause; see third_party/licenses.
+ * The pre-normalized adjacency lists below replace SciPy's sparse Q @ A,
+ * but the initial vector, dangling redistribution, damping, and convergence
+ * contract are carried over directly, not redesigned for ACE.
+ */
 const pageRankFiles = (
   files: readonly RepoPath[],
   outgoing: ReadonlyMap<RepoPath, readonly RepoMapFileEdge[]>,
-  teleport: readonly number[],
+  personalization: readonly number[],
 ): ReadonlyMap<RepoPath, number> => {
-  const damping = 0.85;
-  const scores = new Map<RepoPath, number>(files.map((file, index) => [file, teleport[index] ?? 0]));
-  for (let iteration = 0; iteration < 100; iteration += 1) {
-    const danglingMass = files.reduce((sum, file) => (
-      (outgoing.get(file)?.length ?? 0) === 0 ? sum + (scores.get(file) ?? 0) : sum
-    ), 0);
-    const next = new Map<RepoPath, number>(files.map((file, index) => [
+  const count = files.length;
+  if (count === 0) return new Map();
+  const alpha = 0.85;
+  const tolerance = 1.0e-6;
+  const maxIterations = 100;
+  const p = normalizeProbabilities(personalization);
+  // NetworkX nstart=None is a uniform vector, even with personalization.
+  let x = new Map<RepoPath, number>(files.map((file) => [file, 1 / count]));
+  const stochastic = new Map<RepoPath, readonly RepoMapFileEdge[]>();
+  for (const file of files) {
+    const edges = outgoing.get(file) ?? [];
+    const totalWeight = edges.reduce((sum, edge) => sum + edge.weight, 0);
+    stochastic.set(file, totalWeight === 0 ? []
+      : edges.map((edge) => ({ ...edge, weight: edge.weight / totalWeight })));
+  }
+  const dangling = files.filter((file) => stochastic.get(file)?.length === 0);
+  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    const previous = x;
+    const danglingMass = alpha * dangling.reduce((sum, file) => sum + (previous.get(file) ?? 0), 0);
+    x = new Map(files.map((file, index) => [
       file,
-      ((1 - damping) + damping * danglingMass) * (teleport[index] ?? 0),
+      (danglingMass + (1 - alpha)) * (p[index] ?? 0),
     ]));
-    for (const source of files) {
-      const edges = outgoing.get(source) ?? [];
-      if (edges.length === 0) continue;
-      const totalWeight = edges.reduce((sum, edge) => sum + edge.weight, 0);
-      for (const edge of edges) {
-        const share = damping * (scores.get(source) ?? 0) * edge.weight / totalWeight;
-        next.set(edge.targetPath, (next.get(edge.targetPath) ?? 0) + share);
+    for (const file of files) {
+      for (const edge of stochastic.get(file) ?? []) {
+        x.set(edge.targetPath,
+          (x.get(edge.targetPath) ?? 0) + alpha * (previous.get(file) ?? 0) * edge.weight);
       }
     }
-    const delta = files.reduce((sum, file) => sum + Math.abs((next.get(file) ?? 0) - (scores.get(file) ?? 0)), 0);
-    for (const file of files) scores.set(file, next.get(file) ?? 0);
-    if (delta < 1e-8) break;
+    const error = files.reduce((sum, file) =>
+      sum + Math.abs((x.get(file) ?? 0) - (previous.get(file) ?? 0)), 0);
+    if (error < count * tolerance) return x;
   }
-  return scores;
+  throw new Error(`NetworkX PageRank power iteration failed to converge after ${maxIterations} iterations`);
 };
 
 export const rankRepoMap = (graph: RepoMapGraph, input: RepoMapRenderInput): readonly RepoMapRankedSymbol[] => {

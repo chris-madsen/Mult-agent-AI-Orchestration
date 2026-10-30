@@ -41,6 +41,8 @@ export interface AceTransformResult {
   readonly selectedEvidenceIds: readonly string[];
   readonly omittedEvidenceIds: readonly string[];
   readonly estimatedTokens: number;
+  /** Explicitly distinguishes a model-matched count from the fallback estimate. */
+  readonly tokenCountMode: 'host_counter' | 'character_estimate';
   readonly sourceCommit?: string;
   readonly sourceManifestSha256?: string;
   readonly providerIdentities: Readonly<Record<string, string>>;
@@ -173,9 +175,15 @@ export const makeContextTransformService = (ports: ContextTransformPorts): Conte
       ...projected.warnings,
       ...projected.partialSources.map((source) => `${source}: partial`),
       ...assembled.value.limitations,
+      ...(assembled.value.tokenCountMode === 'host_counter'
+        ? []
+        : ['token budget is a character-based estimate; model-exact fit is unverified']),
     ];
     // A complete provider bundle can still become partial after budget packing.
-    const status = projected.complete && !assembled.value.truncated ? 'ready' as const : 'partial' as const;
+    const status = projected.complete
+      && !assembled.value.truncated
+      && assembled.value.tokenCountMode === 'host_counter'
+      ? 'ready' as const : 'partial' as const;
     const receiptId = `ace-transform-${projected.bundleId ?? requestId.value}`;
     return ok({
       schemaVersion: 1,
@@ -189,6 +197,7 @@ export const makeContextTransformService = (ports: ContextTransformPorts): Conte
       selectedEvidenceIds: selectedIds,
       omittedEvidenceIds: omittedIds,
       estimatedTokens: assembled.value.estimatedTokens,
+      tokenCountMode: assembled.value.tokenCountMode,
       ...(workspace.value.lastObservation?.headRevision === undefined
         ? {}
         : { sourceCommit: workspace.value.lastObservation.headRevision }),
