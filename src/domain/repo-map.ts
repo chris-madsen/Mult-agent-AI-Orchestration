@@ -94,9 +94,15 @@ export const applyRepoMapDelta = (graph: RepoMapGraph, delta: RepoMapDelta): Rep
   for (const id of delta.removed) symbols.delete(id);
   for (const symbol of delta.upserted) symbols.set(symbol.id, symbol);
   if (removedTargets.size > 0) {
-    const replacementByName = new Map<string, RepoMapSymbol>();
-    for (const symbol of [...symbols.values()].sort((left, right) => left.id.localeCompare(right.id))) {
-      if (!replacementByName.has(symbol.name)) replacementByName.set(symbol.name, symbol);
+    // Rebind only to an unambiguous replacement at the SAME source path.
+    // A global name match is not a proven semantic binding and can redirect a
+    // caller to an unrelated function in another module after deletion.
+    const replacementByPathNameKind = new Map<string, RepoMapSymbol[]>();
+    const keyFor = (symbol: RepoMapSymbol): string =>
+      [symbol.repoPath, symbol.name, symbol.kind].join('\0');
+    for (const current of symbols.values()) {
+      const key = keyFor(current);
+      replacementByPathNameKind.set(key, [...(replacementByPathNameKind.get(key) ?? []), current]);
     }
     for (const [id, symbol] of symbols) {
       let changed = false;
@@ -104,8 +110,10 @@ export const applyRepoMapDelta = (graph: RepoMapGraph, delta: RepoMapDelta): Rep
         const removed = removedTargets.get(reference.targetId);
         if (removed === undefined) return [reference];
         changed = true;
-        const replacement = replacementByName.get(removed.name);
-        return replacement === undefined ? [] : [{ ...reference, targetId: replacement.id }];
+        const candidates = replacementByPathNameKind.get(keyFor(removed)) ?? [];
+        // An ambiguous source transition must be rebuilt from source tags;
+        // choosing a random same-name symbol would fabricate a reference.
+        return candidates.length !== 1 ? [] : [{ ...reference, targetId: candidates[0]!.id }];
       });
       if (changed) symbols.set(id, { ...symbol, references: normalizeReferences(rebound) });
     }
