@@ -160,3 +160,32 @@ test('Claw language allowlist keeps an unrelated TS document out of a Python LSP
   assert.equal(lspLanguageIdForPath('app.ts', python.languageIds), undefined);
   assert.equal(lspLanguageIdForPath('app.ts'), 'typescript');
 });
+
+test('Claw multi-server registry routing preserves independent language ownership', async () => {
+  const { selectInstalledLspServersForPaths } = await import('../src/application/lsp/claw-discovery.js');
+  const { makeRoutedLspSession } = await import('../src/application/lsp/routed-semantic.js');
+  const detected = selectInstalledLspServersForPaths(
+    ['src/app.ts', 'src/work.py', 'src/pkg.go', 'README.md'],
+    (entry) => ['typescript-language-server', 'pyright-langserver'].includes(entry.command),
+  );
+  assert.deepEqual(detected.map((entry) => entry.command),
+    ['pyright-langserver', 'typescript-language-server']);
+  const called = { py: 0, ts: 0 };
+  const python = {
+    ...session({ starts: 0, closes: 0 }),
+    references: () => { called.py += 1; return Effect.succeed({ _tag: 'Ok', value: [] } as never); },
+  };
+  const typescript = {
+    ...session({ starts: 0, closes: 0 }),
+    references: () => { called.ts += 1; return Effect.succeed({ _tag: 'Ok', value: [] } as never); },
+  };
+  const composite = makeRoutedLspSession(detected.map((item) => ({
+    session: item.command === 'pyright-langserver' ? python : typescript,
+    languageIds: item.languageIds,
+  })));
+  const query = { line: 1, column: 1 };
+  assert.equal((await Effect.runPromise(composite.references({ ...query, repoPath: 'src/work.py' })))._tag, 'Ok');
+  assert.equal((await Effect.runPromise(composite.references({ ...query, repoPath: 'src/app.ts' })))._tag, 'Ok');
+  assert.equal((await Effect.runPromise(composite.references({ ...query, repoPath: 'src/pkg.go' })))._tag, 'Err');
+  assert.deepEqual(called, { py: 1, ts: 1 });
+});
