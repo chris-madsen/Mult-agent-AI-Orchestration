@@ -271,3 +271,30 @@ test('RepoMap name reference connects all definitions instead of selecting a fab
     targets.map((symbol) => symbol.id).sort(),
   );
 });
+
+test('RepoMap counts one reference per defining file even when that file defines the same name twice', async () => {
+  const first = candidate('target', 1);
+  const second = candidate('target', 2);
+  const result = await Effect.runPromise(buildRepoMapDelta({
+    candidates: [first, second],
+    structuralAnalyses: [{
+      repoPath: 'src/caller.ts',
+      sourceDigest: 'a'.repeat(64) as never,
+      symbols: [],
+      identifiers: [{
+        name: 'target', startLine: 1, startColumn: 1,
+        endLine: 1, endColumn: 7, startByteOffset: 0, endByteOffset: 6,
+      }],
+      hasSyntaxErrors: false,
+    }],
+    sourceBytesByPath: new Map([
+      ['src/example.ts' as never, new TextEncoder().encode('target()\ntarget()\n')],
+      ['src/caller.ts' as never, new TextEncoder().encode('target()\n')],
+    ]),
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Err') return;
+  const caller = result.value.upserted.find((symbol) => symbol.repoPath === 'src/caller.ts');
+  assert.equal(caller?.references.length, 1);
+  assert.equal(caller?.references[0]?.weight ?? 1, 1);
+});
