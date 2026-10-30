@@ -134,3 +134,54 @@ test('ContextAssembler rejects malformed section budgets instead of silently cha
     if (result._tag === 'Err') assert.equal(result.error.code, 'INVALID_INPUT');
   }
 });
+
+test('ContextAssembler uses the supplied model counter for Unicode instead of length/4', async () => {
+  // Stub simulates the host model: each emoji costs 12 tokens. This is NOT a
+  // claim about any particular tokenizer's actual encoding.
+  const countTokens = (text: string): number =>
+    [...text].reduce((total, codepoint) => total + (codepoint === '🦊' ? 12 : 1), 0);
+  const result = await Effect.runPromise(makeContextAssembler(countTokens).assemble({
+    budgetTokens: 80,
+    sectionBudgets: { code: 80 },
+    evidence: [evidence('first', 'code', '🦊'), evidence('second', 'code', '🦊')],
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Ok') {
+    assert.equal(result.value.tokenCountMode, 'host_counter');
+    assert.equal(result.value.selected.length, 1);
+    assert.equal(result.value.truncated, true);
+    assert.equal(result.value.estimatedTokens, countTokens(result.value.text));
+  }
+});
+
+test('ContextAssembler counts separators using the full model string, not additive block lengths', async () => {
+  const countTokens = (text: string): number => text.includes('\n\n') ? 100 : 1;
+  const result = await Effect.runPromise(makeContextAssembler(countTokens).assemble({
+    budgetTokens: 50,
+    sectionBudgets: { code: 50 },
+    evidence: [evidence('one', 'code', 'a'), evidence('two', 'code', 'b')],
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Ok') {
+    assert.equal(result.value.selected.length, 1);
+    assert.equal(result.value.truncated, true);
+  }
+});
+
+test('ContextAssembler rejects a broken model-token counter rather than silently guessing', async () => {
+  const result = await Effect.runPromise(makeContextAssembler(() => Number.NaN).assemble({
+    budgetTokens: 50,
+    evidence: [evidence('one', 'code', 'a')],
+  }));
+  assert.equal(result._tag, 'Err');
+  if (result._tag === 'Err') assert.equal(result.error.code, 'NOT_READY');
+});
+
+test('ContextAssembler labels character counting explicitly as an estimate', async () => {
+  const result = await Effect.runPromise(makeContextAssembler().assemble({
+    budgetTokens: 100,
+    evidence: [evidence('one', 'code', 'abc')],
+  }));
+  assert.equal(result._tag, 'Ok');
+  if (result._tag === 'Ok') assert.equal(result.value.tokenCountMode, 'character_estimate');
+});
