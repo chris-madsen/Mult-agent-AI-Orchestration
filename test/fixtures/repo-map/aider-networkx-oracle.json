@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "upstream": "Aider-AI/aider",
+    "sha": "5dc9490bb35f9729ef2c95d00a19ccd30c26339c",
+    "file": "aider/repomap.py",
+    "function": "RepoMap.get_ranked_tags",
+    "pagerank": "networkx.pagerank",
+    "oracleNetworkxVersion": "3.6.1",
+    "note": "Frozen expected projection scores from pinned Aider get_ranked_tags graph construction, run with networkx 3.6.1 over aider-behavior.json def/ref fixture; not ACE-generated golden values."
+  },
+  "cases": [
+    {
+      "name": "weighted identifier baseline",
+      "expected": [
+        [
+          "src/lib.ts",
+          "veryLongIdentifier",
+          0.40992003174794645
+        ],
+        [
+          "src/lib.ts",
+          "small",
+          0.014001641446037258
+        ],
+        [
+          "src/chat.ts",
+          "handleRequest",
+          0.0021190691946323527
+        ],
+        [
+          "src/consumer.ts",
+          "consume",
+          0.0014001641446037257
+        ]
+      ]
+    },
+    {
+      "name": "chat-file personalization",
+      "expected": [
+        [
+          "src/lib.ts",
+          "veryLongIdentifier",
+          0.5404814889815356
+        ],
+        [
+          "src/lib.ts",
+          "small",
+          2.0788144615888823e-171
+        ],
+        [
+          "src/chat.ts",
+          "handleRequest",
+          0.00010809629779630711
+        ],
+        [
+          "src/consumer.ts",
+          "consume",
+          2.0788144615888827e-172
+        ]
+      ]
+    },
+    {
+      "name": "explicit identifier personalization",
+      "expected": [
+        [
+          "src/lib.ts",
+          "veryLongIdentifier",
+          0.33627484784507844
+        ],
+        [
+          "src/lib.ts",
+          "small",
+          0.08788491644835447
+        ],
+        [
+          "src/chat.ts",
+          "handleRequest",
+          0.0021198680707578926
+        ],
+        [
+          "src/consumer.ts",
+          "consume",
+          0.0008788491644835449
+        ]
+      ]
+    }
+  ]
+}
