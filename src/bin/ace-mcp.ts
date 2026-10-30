@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash, randomUUID } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
@@ -759,9 +759,21 @@ const main = async (): Promise<void> => {
               && process.env.ACE_LSP_SERVER === undefined
               && process.env.ACE_LSP_ARGS === undefined
               && process.env.ACE_LSP_LANGUAGE_IDS === undefined) {
-              const discovered = selectInstalledLspForPaths(build.indexedPaths,
-                (entry) => commandBoundaryExists(entry.command === 'typescript-language-server'
-                  ? resolve(runtimeRoot, 'node_modules/.bin/typescript-language-server') : entry.command));
+              const discovered = selectInstalledLspForPaths(build.indexedPaths, (entry) => {
+                // Claw's command_exists_on_path() actually executes --version.
+                // A nonempty command name is NOT proof it exists on PATH.
+                const candidate = entry.command === 'typescript-language-server'
+                  ? resolve(runtimeRoot, 'node_modules/.bin/typescript-language-server')
+                  : entry.command;
+                try {
+                  const probe = spawnSync(candidate, ['--version'], {
+                    stdio: 'ignore', timeout: 1_000,
+                  });
+                  return probe.error === undefined;
+                } catch {
+                  return false;
+                }
+              });
               if (discovered !== undefined) {
                 lspCommand = discovered.command === 'typescript-language-server'
                   ? resolve(runtimeRoot, 'node_modules/.bin/typescript-language-server') : discovered.command;
