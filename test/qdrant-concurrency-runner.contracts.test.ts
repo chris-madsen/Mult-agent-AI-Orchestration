@@ -11,7 +11,6 @@ test('real Qdrant concurrency runner is syntactically valid and uses two product
   const script = await readFile('scripts/qdrant-snapshot-concurrency-e2e.mjs', 'utf8');
   for (const token of [
     "ACE_ENABLE_EXPERIMENTAL_QDRANT: 'true'",
-    'runtime.executable',
     'ACE_STATE_DIR: state',
     'Promise.all([first.query(), second.query()])',
     'writersConvergedOnIndexKey',

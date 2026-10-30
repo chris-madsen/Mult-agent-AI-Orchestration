@@ -3,6 +3,12 @@
   "evidence": "real-qdrant-snapshot-concurrency",
   "generatedAt": "2026-10-30T16:43:38.969Z",
   "sourceCommit": "34816d17fb51f6b9706a188d7a4e5d0177968886",
+  "runner": {
+    "status": "UNBOUND_PRECOMMIT",
+    "commit": null,
+    "cleanAtStart": null,
+    "reason": "The run preceded commit 7940fdafb46d05e79db3b25409450237daae5445 and did not retain the runner worktree identity."
+  },
   "fixture": {
     "workspaceId": "qdrant-concurrency-6d52a581-a3ed-4f52-85f1-a9b6e910909d",
     "sourcePath": "src/concurrent-sentinel.ts",
@@ -58,17 +64,20 @@
     "writersConvergedOnIndexKey": "PASS",
     "writersConvergedOnProviderFingerprint": "PASS",
     "stableCollectionExists": "PASS",
-    "noDuplicateCollectionForSameIndex": "PASS"
+    "writersShareStableCollection": "PASS"
   },
   "providerTraceDigests": {
+    "status": "UNVERIFIED_PRE_SHUTDOWN",
     "writerA": "0fcf1a840cb00665624ffb7894dce1774a8ed09a3183399a330c1b0e88f43289",
-    "writerB": "01b8c6bbb7bc1d04163d05998e94a6edfb149df73b6c5f0d65c145f1562f4e1d"
+    "writerB": "01b8c6bbb7bc1d04163d05998e94a6edfb149df73b6c5f0d65c145f1562f4e1d",
+    "reason": "The original runner hashed traces before stopping the providers and did not retain the raw trace files."
   },
   "claims": {
     "sameSnapshotConcurrencyMeasured": true,
+    "acceptanceEligible": false,
     "productionApproved": false,
     "tokenSavings5x": false,
     "graphitiLocalOnly": false,
-    "note": "Real local-provider concurrency evidence only; it does not close W04 production gates or approve Graphiti/OAuth/Vertex claims."
+    "note": "Historical local-provider observation only. It is not acceptance-eligible because the runner identity and final raw traces were not retained; equality of deterministic collection names does not prove that no other collection existed."
   }
 }

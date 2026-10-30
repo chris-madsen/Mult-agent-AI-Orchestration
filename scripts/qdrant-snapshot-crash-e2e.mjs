@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { createHash, randomUUID } from 'node:crypto';
-import { execFileSync, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import {
-  copyFile,
   cp,
   mkdir,
   mkdtemp,
-  readFile,
   rm,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
+import { stopAndRetainProviderTraces } from './real-provider-evidence.mjs';
+import { spawnRealProviderProcess, stopRealProviderProcess } from './real-provider-process.mjs';
 import { resolveRealProviderRuntime } from './real-provider-runtime.mjs';
 
 const runtime = await resolveRealProviderRuntime(import.meta.dirname);
@@ -99,7 +99,7 @@ const baseEnv = (stateDir, traceFile, failpoint = false) => ({
 });
 
 const makeProtocolProcess = (label, stateDir, traceFile) => {
-  const child = spawn(process.execPath, [runtime.executable], {
+  const child = spawnRealProviderProcess(process.execPath, [runtime.executable], {
     cwd: runtime.runtimeRoot,
     env: baseEnv(stateDir, traceFile),
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -192,19 +192,7 @@ const makeProtocolProcess = (label, stateDir, traceFile) => {
   const stop = async () => {
     if (stopped) return;
     stopped = true;
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    await new Promise((resolveStop) => {
-      const force = setTimeout(() => {
-        child.kill('SIGKILL');
-        resolveStop();
-      }, 5_000);
-      child.once('exit', () => {
-        clearTimeout(force);
-        resolveStop();
-      });
-      child.stdin.end();
-      child.kill('SIGTERM');
-    });
+    await stopRealProviderProcess(child, { termTimeoutMs: 5_000 });
   };
 
   return { child, initialize, query, stop, stderr: () => stderr };
@@ -256,7 +244,7 @@ const qdrantCollectionExists = async (collection) => {
 };
 
 const runCrashWriter = async () => {
-  const child = spawn(process.execPath, [runtime.executable], {
+  const child = spawnRealProviderProcess(process.execPath, [runtime.executable], {
     cwd: runtime.runtimeRoot,
     env: baseEnv(writerState, traces.crashedWriter, true),
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -266,19 +254,28 @@ const runCrashWriter = async () => {
   child.stdout.resume();
 
   const outcome = await new Promise((resolveExit, rejectExit) => {
+    let settled = false;
     const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      rejectExit(new Error(`crash writer did not reach failpoint: ${stderr.slice(-4000)}`));
+      if (settled) return;
+      settled = true;
+      const error = new Error(`crash writer did not reach failpoint: ${stderr.slice(-4000)}`);
+      void stopRealProviderProcess(child).then(() => rejectExit(error), rejectExit);
     }, timeoutMs);
     child.once('error', (cause) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       rejectExit(cause);
     });
     child.once('exit', (code, signal) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       resolveExit({ code, signal });
     });
   });
+
+  await stopRealProviderProcess(child);
 
   assert.match(stderr, /ace test failpoint reached name=after_qdrant_verify_before_publish/u);
   assert.equal(outcome.signal, 'SIGKILL', `expected SIGKILL, got ${JSON.stringify(outcome)}`);
@@ -306,15 +303,6 @@ const assertCurrentOrNotReady = (response, citationPart, contentPart) => {
   assert.equal(context?.complete, true, JSON.stringify(response));
   assertEvidence(context, citationPart, contentPart);
   return 'complete';
-};
-
-const hashFileIfPresent = async (path) => {
-  try {
-    const bytes = await readFile(path);
-    return createHash('sha256').update(bytes).digest('hex');
-  } catch {
-    return undefined;
-  }
 };
 
 let reader;
@@ -361,11 +349,16 @@ try {
 
   const afterPublish = await reader.query('stableSnapshotSentinel stable-sentinel-v1', true);
   const afterPublishStatus = assertCurrentOrNotReady(afterPublish, 'src/stable.ts', 'stable-sentinel-v1');
-
+  const retainedDirectory = outputArg === undefined ? undefined : dirname(resolve(outputArg));
+  const traceDigests = await stopAndRetainProviderTraces([
+    { label: 'reader', traceFile: traces.reader, stop: reader.stop },
+    { label: 'crashed-writer', traceFile: traces.crashedWriter },
+    { label: 'restarted-writer', traceFile: traces.restartedWriter, stop: restartedWriter.stop },
+  ], retainedDirectory);
   const providerTraceDigests = {
-    reader: await hashFileIfPresent(traces.reader),
-    crashedWriter: await hashFileIfPresent(traces.crashedWriter),
-    restartedWriter: await hashFileIfPresent(traces.restartedWriter),
+    reader: traceDigests.reader,
+    crashedWriter: traceDigests['crashed-writer'],
+    restartedWriter: traceDigests['restarted-writer'],
   };
 
   const evidence = {
@@ -373,6 +366,10 @@ try {
     evidence: 'real-qdrant-snapshot-crash-lifecycle',
     generatedAt: new Date().toISOString(),
     sourceCommit,
+    runner: {
+      commit: runtime.runnerCommit,
+      cleanAtStart: runtime.runnerClean,
+    },
     fixtureCommit,
     qdrant: {
       urlKind: qdrantUrl.startsWith('http://127.0.0.1') || qdrantUrl.startsWith('http://localhost')
@@ -416,13 +413,6 @@ try {
     const output = resolve(outputArg);
     await mkdir(dirname(output), { recursive: true });
     await writeFile(output, JSON.stringify(evidence, null, 2) + '\n', 'utf8');
-    for (const [name, source] of Object.entries(traces)) {
-      try {
-        await copyFile(source, join(dirname(output), `${name}-provider-trace.jsonl`));
-      } catch {
-        // A crash before the first trace event is allowed; the digest remains undefined.
-      }
-    }
   }
   process.stdout.write(JSON.stringify(evidence, null, 2) + '\n');
 } finally {

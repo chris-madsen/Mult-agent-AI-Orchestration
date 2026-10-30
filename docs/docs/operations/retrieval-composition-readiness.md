@@ -126,7 +126,7 @@ These provider results do not close NAPI real-repository parity, RepoMap quality
 - `npm run test:real-provider-restart` — `PASS`; warm reuse, changed-source rebuild and direct stable collection identity verified; `publication_mode=stable_collection_direct`.
 - `npm run test:real-index-scale -- --files 100` — `PASS`; cold/warm/change-only phases completed with current citations and the expected add/change/delete/rename deltas for that SHA.
 - `npm run test:real-qdrant-crash` — `PASS`; interrupted publication retained direct stable collection identity, current-or-NOT_READY semantics and restart recovery for that SHA.
-- `npm run test:real-qdrant-concurrency` — `PASS`; same-snapshot concurrent writers converged on one direct stable collection/index key/provider fingerprint with no duplicate collection.
+- `npm run test:real-qdrant-concurrency` — `PASS`; same-snapshot concurrent writers reported the same deterministic stable collection name, index key and provider fingerprint. The runner did not enumerate all collections, so this is not proof that no other collection existed.
 - These historical results do not validate the later generation-fenced cleanup or strict mutation-result checks and do not close NAPI real-repository parity, RepoMap/LSP/ContextAssembler conformance, Harbor A/B, production readiness or token-savings claims.
 
 ## R4 direct stable publication component evidence — runtime SHA `8867d94e3ebadf917e26bd9a24dd0dff8e354309`
@@ -136,7 +136,7 @@ These provider results do not close NAPI real-repository parity, RepoMap quality
 - `npm run test:real-provider-restart` — `PASS` on runtime SHA `5a85b44`; warm reuse, changed-source rebuild and direct stable collection identity verified.
 - `npm run test:real-index-scale -- --files 100` — `PASS` on runtime SHA `1efc987`; cold/warm/change-only phases passed with current citations and add/change/delete/rename deltas.
 - `npm run test:real-qdrant-crash` — `PASS`; interrupted writer, direct stable collection identity, current-or-NOT_READY semantics and restart recovery verified.
-- `npm run test:real-qdrant-concurrency` — `PASS`; concurrent writers converged on one direct stable collection, index key and provider fingerprint without duplicate collections.
+- `npm run test:real-qdrant-concurrency` — `PASS`; concurrent writers reported the same deterministic stable collection name, index key and provider fingerprint. The run did not prove global absence of other collections.
 
 ## Historical branch-only observations — SHA `9512d379da892736dfb4375b4fe4ba191390c180`
 
@@ -149,28 +149,28 @@ This is not acceptance-eligible evidence: the run timestamp, exact commands actu
 - Provider restart — observed pass: generations `1/2/3`, warm reuse, changed-source rebuild and direct stable collection reuse.
 - Index scale 100 — observed pass: cold/warm/change-only phases, `100` warm reused vectors, `97` unchanged reuse and add/change/delete/rename deltas.
 - Qdrant crash — observed pass: interrupted writer recovery, current-after-crash semantics, restart publication and stable collection reuse on Qdrant `1.19.2`.
-- Qdrant concurrency — observed pass: both requests complete, current citations, converged index/provider fingerprints and no duplicate collection.
+- Qdrant concurrency — observed pass: both requests complete, current citations and converged index/provider fingerprints; both writers reported the same deterministic stable collection name.
 - Provider race — `BLOCKED`: the bounded race runner did not complete and was killed; this is not a provider PASS.
 - Harbor paired and matched Hermes gates — `BLOCKED`: generated native/ACE job paths, paired artifact and exact-current experiment binding are still absent.
 
 All provider acceptance gates remain `BLOCKED` until the commands are rerun on a reviewed current head with the required raw bindings retained. These observations do not close Aider parity, full Claw parity, model-aware token counting, agent-E2E, Harbor/Hermes benchmark acceptance, production readiness or token-savings claims.
 
-## Current-main gate attempt — SHA `34816d17fb51f6b9706a188d7a4e5d0177968886`
+## Historical current-main runtime observations — runtime SHA `34816d17fb51f6b9706a188d7a4e5d0177968886`
 
-The machine-readable evidence is `benchmarks/reports/real-retrieval-gates-34816d1.json`. Deterministic verification passed on the clean current head: `677/677` TypeScript tests, Hermes context plugin `20/20`, lint, build with `sourceCleanAtBuild=true`, and OpenSpec `9/9`.
+The machine-readable summary is `benchmarks/reports/real-retrieval-gates-34816d1.json`. The runtime bundle is bound to clean source SHA `34816d17fb51f6b9706a188d7a4e5d0177968886`, but the provider commands ran before their runner changes were committed. The runner commit/clean state and final raw concurrency traces were not retained, so these are historical observations rather than acceptance-eligible current-head evidence.
 
 A fresh runtime bundle was built from the same clean SHA with bundle SHA `60dfb180797e7c244d0c8be3ff01157eca5be5d55d22651ed19fc2a18813048d`, task image `ace-local-hermes:ace-local-smoke-paired-fast@sha256:c0529227d3303b66115cd246d39c552cb591eed58c906d412e7883824d294dbc`, Python `3.11`, Pillow `11.3.0`, FastEmbed `0.7.4` and ONNX Runtime `1.23.2`.
 
 - Provider smoke — `PASS`: current citation `service.ts:1-25`, `complete=true`, expansion `63482` bytes.
 - Provider race — `PASS`: `reconciled-current`, `complete=true`.
 - Provider outage — `PASS`: honest `NOT_READY` provider failure.
-- Provider restart — `PASS`: cold generation, warm reuse, changed-source rebuild and `stable_collection_direct` publication.
+- Provider restart — `INVALIDATED`: the old runner sent `SIGTERM` but started the next generation without awaiting process exit, so the observed sequence does not prove a real restart boundary.
 - Index scale 100 — `PASS`: cold/warm/change-only/rename/delete/untracked fixture; content index-key transition and changed-source digest were verified.
-- Qdrant crash — `PASS`: stable collection retained across failpoint `SIGKILL`, reader reconciled current source, and restart published S2.
-- Qdrant concurrency — `PASS`: two writers completed with current citations, converged index/provider fingerprints and no duplicate collection. Retained artifact: `benchmarks/reports/real-qdrant-concurrency-34816d1.json`.
+- Qdrant crash — observed pass: stable collection retained across failpoint `SIGKILL`, reader reconciled current source, and restart published S2. The original runner hashed traces before provider shutdown.
+- Qdrant concurrency — observed pass: two writers completed with current citations and converged index/provider fingerprints; both reported the same deterministic stable collection name. This does not prove global absence of other collections. The summary is `benchmarks/reports/real-qdrant-concurrency-34816d1.json`; final raw traces were not retained.
 - Same-name LSP — `PASS`: DBC-04 with ast-grep `0.51.0` and TypeScript Language Server `6.0.2`.
 - Non-TypeScript LSP — `BLOCKED/FAIL`: Rust Analyzer returned `EXTERNAL_UNAVAILABLE: content modified` during the definition query; no non-TypeScript conformance PASS is claimed.
-- Runner hardening — `PASS`: `6/6` runner contracts; `ACE_SOURCE_ROOT`/`ACE_RUNTIME_ROOT` separation and source/runtime commit binding are exercised.
+- Runner hardening — `BLOCKED` for this historical run: source/runtime binding was exercised, but the executing runner itself was not bound to a committed clean worktree.
 - Harbor/Hermes — `NOT_RUN`: exact-current native/ACE job directories and model-bound experiment binding are absent.
 
-The earlier separate-runtime attempt was blocked before provider execution because the old current-main runners launched source-worktree `dist/bin/ace-mcp.js` while `ACE_RUNTIME_ROOT` pointed at the bundle. That defect is fixed in the current worktree runner slice. Provider and Qdrant evidence above is real local-provider evidence for the stated source/runtime identities; it does not close Aider parity, full Claw parity, model-bound Hermes, Harbor, production readiness or token-savings claims.
+The earlier separate-runtime attempt was blocked before provider execution because the old current-main runners launched source-worktree `dist/bin/ace-mcp.js` while `ACE_RUNTIME_ROOT` pointed at the bundle. The current runner slice fixes that path and now records runner provenance, waits for bounded process-tree shutdown, and hashes traces only after provider exit. The observations above must be rerun on the final committed runner before promotion; they do not close Aider parity, full Claw parity, model-bound Hermes, Harbor, production readiness or token-savings claims.

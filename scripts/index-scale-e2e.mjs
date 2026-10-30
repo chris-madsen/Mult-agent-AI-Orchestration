@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
+import { spawnRealProviderProcess, stopRealProviderProcess } from './real-provider-process.mjs';
 import { resolveRealProviderRuntime } from './real-provider-runtime.mjs';
 
 const runtime = await resolveRealProviderRuntime(import.meta.dirname);
@@ -122,7 +123,7 @@ const parseStartupMetrics = (stderr) => {
 const runOnce = (workspace, state, workspaceId, phase, beforeQuery) => new Promise((resolveRun, rejectRun) => {
   const startedNs = process.hrtime.bigint();
   const qdrantUrl = process.env.ACE_QDRANT_URL?.trim() || 'http://127.0.0.1:6333';
-  const child = spawn(process.execPath, [runtime.executable], {
+  const child = spawnRealProviderProcess(process.execPath, [runtime.executable], {
     cwd: runtime.runtimeRoot,
     env: {
       ...process.env,
@@ -147,29 +148,15 @@ const runOnce = (workspace, state, workspaceId, phase, beforeQuery) => new Promi
   const responses = new Map();
   const waiters = new Map();
   let settled = false;
-  const stopChild = async () => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    await new Promise((resolveStop) => {
-      let stopped = false;
-      const finish = () => {
-        if (stopped) return;
-        stopped = true;
-        clearTimeout(forceTimer);
-        resolveStop();
-      };
-      const forceTimer = setTimeout(() => {
-        child.kill('SIGKILL');
-        finish();
-      }, 5_000);
-      child.once('exit', finish);
-      child.stdin.end();
-      child.kill('SIGTERM');
-    });
-  };
+  const stopChild = () => stopRealProviderProcess(child, { termTimeoutMs: 5_000 });
   const timer = setTimeout(() => {
     if (settled) return;
     settled = true;
-    void stopChild().finally(() => rejectRun(new Error(`${phase} MCP request timed out: ${stderr.slice(-4000)}`)));
+    const timeoutError = new Error(`${phase} MCP request timed out: ${stderr.slice(-4000)}`);
+    void stopChild().then(
+      () => rejectRun(timeoutError),
+      (stopError) => rejectRun(new AggregateError([timeoutError, stopError], `${phase} MCP timed out and cleanup was incomplete`)),
+    );
   }, phaseTimeoutMs);
 
   child.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
@@ -187,7 +174,11 @@ const runOnce = (workspace, state, workspaceId, phase, beforeQuery) => new Promi
         if (!settled) {
           settled = true;
           clearTimeout(timer);
-          void stopChild().finally(() => rejectRun(new Error(`invalid MCP JSON during ${phase}: ${String(cause)}`)));
+          const parseError = new Error(`invalid MCP JSON during ${phase}: ${String(cause)}`);
+          void stopChild().then(
+            () => rejectRun(parseError),
+            (stopError) => rejectRun(new AggregateError([parseError, stopError], `${phase} MCP emitted invalid JSON and cleanup was incomplete`)),
+          );
         }
         return;
       }
@@ -392,6 +383,10 @@ try {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
     sourceCommit,
+    runner: {
+      commit: runtime.runnerCommit,
+      cleanAtStart: runtime.runnerClean,
+    },
     fixture: {
       baselineFiles: options.files,
       requestedChangedFiles: options.changed,

@@ -3,6 +3,13 @@
   "evidence": "current-main-retrieval-gates",
   "sourceCommit": "34816d17fb51f6b9706a188d7a4e5d0177968886",
   "sourceCleanAtBuild": true,
+  "evidenceStatus": "HISTORICAL_UNBOUND_RUNNER",
+  "runner": {
+    "status": "UNBOUND_PRECOMMIT",
+    "commit": null,
+    "cleanAtStart": null,
+    "reason": "The provider runs preceded commit 7940fdafb46d05e79db3b25409450237daae5445 and did not retain the runner worktree identity."
+  },
   "runtimeBundle": {
     "sourceCommit": "34816d17fb51f6b9706a188d7a4e5d0177968886",
     "bundleSha256": "60dfb180797e7c244d0c8be3ff01157eca5be5d55d22651ed19fc2a18813048d",
@@ -35,10 +42,11 @@
     "reason": "legacy retrieval composition remains reachable through qdrant-context-provider.ts, ace-mcp.ts, local-code-index.ts and public exports; no deletion was attempted"
   },
   "runnerHardening": {
-    "status": "PASS",
-    "contracts": "6/6",
+    "status": "BLOCKED",
+    "contracts": "reported 6/6 before the runner source was committed",
     "sourceRuntimeSeparation": true,
-    "sourceCommitBinding": true
+    "sourceCommitBinding": true,
+    "runnerCommitBinding": false
   },
   "realProvider": {
     "provider": "PASS: current citation service.ts:1-25, complete=true, expansion=63482 bytes",
@@ -49,7 +57,7 @@
       "warning": "service.ts: exact structural identifier anchor is unavailable for requested LSP enrichment"
     },
     "outage": "PASS: honest NOT_READY provider failure",
-    "restart": "PASS: cold generation, warm reuse, changed-source rebuild, stable_collection_direct",
+    "restart": "INVALIDATED: the runner started the next generation before awaiting prior process exit",
     "restartEvidence": {
       "firstGeneration": 1,
       "warmGeneration": 2,
@@ -62,7 +70,7 @@
     },
     "scale": "PASS: 100-file cold/warm/change-only/rename/delete/untracked fixture; content index-key transition and D2 digest verified",
     "crash": "PASS: stable collection retained across failpoint SIGKILL; reader reconciled current source; restart published S2",
-    "concurrency": "PASS: two writers completed, current citations, converged index/provider fingerprints, no duplicate collection",
+    "concurrency": "OBSERVED: two writers completed with current citations and converged index/provider fingerprints; both reported the same deterministic stable collection name",
     "priorBlockedAttempt": "Before runner hardening, separate runtime execution was rejected because current-main runners bound dist/bin/ace-mcp.js to the source worktree while ACE_RUNTIME_ROOT pointed to the bundle",
     "commands": [
       "node scripts/real-provider-e2e.mjs",
@@ -86,9 +94,16 @@
     "reason": "exact-current native/ACE Hermes jobs and model-bound experiment binding are absent"
   },
   "claims": {
+    "acceptanceEligible": false,
     "productionReadiness": false,
     "qualityParity": false,
     "tokenSavings": false,
-    "fiveXTargetReached": false
+    "fiveXTargetReached": false,
+    "limitations": [
+      "runner commit and clean state were not retained",
+      "restart lifecycle observation is invalidated by overlapping process generations",
+      "concurrency raw traces were not retained and were hashed before provider shutdown",
+      "same reported collection name does not establish absence of other collections"
+    ]
   }
 }
