@@ -49,7 +49,7 @@ const rootPath = join(parent, 'workspace');
 const source = [
   'pub fn save() -> String { "ok".to_owned() }',
   'pub fn call() -> String { save() }',
-  'pub fn invalid() -> String {',
+  'pub fn invalid() -> u32 { "not-a-number".to_owned() }',
 ].join('\n') + '\n';
 const sourcePath = 'src/lib.rs';
 const cargoToml = [
@@ -86,6 +86,13 @@ try {
   });
   try {
     mustOk(await Effect.runPromise(provider.refresh({ [sourcePath]: source }, snapshotIdentity)));
+    // Claw-style lazy startup begins on the first actual semantic request,
+    // not on refresh(). Warm the real server before measuring its index delay.
+    mustOk(await Effect.runPromise(provider.typeInfo({
+      repoPath: sourcePath,
+      ...queryAt(source, 'save', 0),
+      snapshotIdentity,
+    })));
     await wait(Number(process.env.ACE_NON_TS_LSP_SETTLE_MS ?? 5_000));
     const definition = mustOk(await Effect.runPromise(provider.definition({
       repoPath: sourcePath,
