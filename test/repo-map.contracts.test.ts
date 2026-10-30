@@ -352,3 +352,25 @@ test('RepoMap distributes an identifier relation across same-name definitions in
   assert.ok(firstScore > 0);
   assert.equal(firstScore, secondScore);
 });
+
+test('RepoMap delta never rebinds a deleted target to an unrelated same-name file', () => {
+  const deleted = makeRepoMapSymbol({ ...symbol('shared', 1), repoPath: path('src/deleted.ts') });
+  const unrelated = makeRepoMapSymbol({ ...symbol('shared', 1), repoPath: path('src/unrelated.ts') });
+  const caller = symbol('caller', 4, [{ targetId: deleted.id, kind: 'reference' }]);
+  const graph = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [deleted, unrelated, caller], removed: [] });
+  const updated = applyRepoMapDelta(graph, { upserted: [], removed: [deleted.id] });
+  assert.deepEqual(updated.symbols.get(caller.id)?.references, []);
+});
+
+test('RepoMap delta drops ambiguous same-file rebinding instead of guessing a new target', () => {
+  const original = makeRepoMapSymbol({ ...symbol('shared', 1), repoPath: path('src/shared.ts') });
+  const caller = symbol('caller', 4, [{ targetId: original.id, kind: 'reference' }]);
+  const first = makeRepoMapSymbol({ ...original, sourceDigest: 'b'.repeat(64) as never, range: range(2) });
+  const second = makeRepoMapSymbol({ ...original, sourceDigest: 'b'.repeat(64) as never, range: range(3) });
+  const graph = applyRepoMapDelta(emptyRepoMapGraph(), { upserted: [original, caller], removed: [] });
+  const updated = applyRepoMapDelta(graph, {
+    upserted: [first, second],
+    removed: [original.id],
+  });
+  assert.deepEqual(updated.symbols.get(caller.id)?.references, []);
+});
