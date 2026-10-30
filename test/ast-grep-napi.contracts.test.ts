@@ -53,7 +53,7 @@ test('auto selects single-pass NAPI def/ref for JS/TS while preserving CLI for o
     assert.ok(tsResult.value.identifiers?.some((item) => item.name === 'value'));
   }
   const pyResult = await Effect.runPromise(auto.extract({
-    repoPath: 'worker.py', source: Buffer.from('def work():\\n    pass\\n'),
+    repoPath: 'worker.py', source: Buffer.from('def work():\n    pass\n'),
   }));
   assert.equal(pyResult._tag, 'Ok');
   if (pyResult._tag === 'Ok') {
@@ -62,8 +62,8 @@ test('auto selects single-pass NAPI def/ref for JS/TS while preserving CLI for o
   }
   const combined = await Effect.runPromise(auto.extractMany!([
     { repoPath: 'one.ts', source },
-    { repoPath: 'two.py', source: Buffer.from('def work():\\n    pass\\n') },
-    { repoPath: 'three.js', source: Buffer.from('function run() { return run(); }\\n') },
+    { repoPath: 'two.py', source: Buffer.from('def work():\n    pass\n') },
+    { repoPath: 'three.js', source: Buffer.from('function run() { return run(); }\n') },
   ]));
   assert.deepEqual(combined.map((item) => item._tag), ['Ok', 'Ok', 'Ok']);
   assert.equal(combined[0]?._tag === 'Ok' && combined[0].value.identifiers !== undefined, true);
