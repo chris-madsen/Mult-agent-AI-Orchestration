@@ -473,7 +473,7 @@ const startRuntime = async (options: LspSemanticOptions): Promise<Result<LspRunt
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           const waiters = diagnosticWaiters.get(uri) ?? [];
-          diagnosticWaiters.set(uri, waiters.filter((item) => item !== resolve));
+          diagnosticWaiters.set(uri, waiters.filter((item) => item !== waiter));
           reject(new Error('LSP diagnostics notification timed out'));
         }, timeoutMs);
         const waiter = (value: readonly LspDiagnostic[]): void => {
