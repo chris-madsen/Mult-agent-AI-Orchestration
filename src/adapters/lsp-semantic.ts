@@ -813,6 +813,15 @@ export const makeLspSemanticAnalysisPort = (options: LspSemanticOptions): LspSem
     },
     refresh: (nextFiles: Readonly<Record<string, string>>, snapshotIdentity: string): Effect.Effect<Result<void, DomainError>> => recoverResult(Effect.tryPromise({
       try: () => enqueue(async () => {
+        // Claw-style lazy process ownership: a snapshot publication must not
+        // initialize a language server before semantic enrichment is requested.
+        // No provider document state exists yet, so staging the verified bytes
+        // and identity is sufficient until the first bounded query.
+        if (runtimePromise === undefined) {
+          activeFiles = { ...nextFiles };
+          activeSnapshotIdentity = snapshotIdentity;
+          return ok(undefined);
+        }
         const active = await runtime();
         if (active._tag === 'Err') return active;
         const updated = await active.value.updateFiles(nextFiles);
