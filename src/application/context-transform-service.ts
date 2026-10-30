@@ -56,6 +56,8 @@ export interface ContextTransformPorts {
   readonly context: ContextProvider;
   readonly providerIdentities?: Readonly<Record<string, string>>;
   readonly assembler?: ContextAssembler;
+  /** Optional exact host/provider token counter for the active model. */
+  readonly countTokens?: (text: string) => number;
 }
 
 export interface ContextTransformService {
@@ -111,7 +113,7 @@ const workingContextFor = (
 
 export const makeContextTransformService = (ports: ContextTransformPorts): ContextTransformService => ({
   transform: (request) => Effect.gen(function* () {
-    const assembler = ports.assembler ?? makeContextAssembler();
+    const assembler = ports.assembler ?? makeContextAssembler(ports.countTokens);
     if (request.schemaVersion !== 1) return err(domainError('INVALID_INPUT', 'schemaVersion', 'unsupported transform schema version'));
     const requestId = nonEmpty(request.requestId, 'requestId');
     if (requestId._tag === 'Err') return requestId;

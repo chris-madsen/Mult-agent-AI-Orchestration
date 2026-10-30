@@ -312,14 +312,9 @@ export const rankRepoMap = (graph: RepoMapGraph, input: RepoMapRenderInput): rea
       for (const definition of definitions) scores.set(definition.id, (scores.get(definition.id) ?? 0) + contribution);
     }
   }
-  for (const file of files) {
-    const fileSymbols = (symbolsByPath.get(file) ?? []).filter((symbol) => !isFileAnchor(symbol));
-    const fileEdges = outgoing.get(file) ?? [];
-    const fallback = (fileScores.get(file) ?? 0) / Math.max(1, fileSymbols.length);
-    for (const symbol of fileSymbols) {
-      if ((scores.get(symbol.id) ?? 0) === 0 && fileEdges.length === 0) scores.set(symbol.id, fallback);
-    }
-  }
+  // Pinned Aider get_ranked_tags() projects file rank ONLY through actual
+  // outgoing identifier edges. It never redistributes dangling file mass
+  // equally to unrelated definitions in that file.
   return rankableSymbols.map((symbol) => ({ symbol, score: scores.get(symbol.id) ?? 0 }))
     .sort((left, right) =>
       right.score - left.score

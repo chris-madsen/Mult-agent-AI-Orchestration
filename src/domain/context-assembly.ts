@@ -10,6 +10,8 @@ export interface ContextAssemblyInput {
   readonly budgetTokens: number;
   /** Optional absolute token caps; omitted sections use bounded defaults. */
   readonly sectionBudgets?: ContextAssemblySectionBudgets;
+  /** Native host/model tokenizer. Omit only when no model-bound counter is available. */
+  readonly countTokens?: (text: string) => number;
 }
 
 export interface ContextAssemblyResult {
@@ -17,6 +19,7 @@ export interface ContextAssemblyResult {
   readonly omitted: readonly RetrievalEvidence[];
   readonly text: string;
   readonly estimatedTokens: number;
+  readonly tokenCountMode: 'host_counter' | 'character_estimate';
   readonly truncated: boolean;
   readonly limitations: readonly string[];
   readonly sectionBudgets: Readonly<Record<ContextAssemblySection, number>>;
@@ -59,7 +62,8 @@ const sectionBudgetsFor = (
   };
 };
 
-const tokensFor = (text: string): number => Math.ceil(text.length / 4);
+// Diagnostic fallback only; never claim that this estimate is an exact model budget.
+const estimateTokens = (text: string): number => Math.ceil(text.length / 4);
 
 const evidenceText = (item: RetrievalEvidence): string => {
   const header = `[${item.source}] ${item.citation}`;
@@ -80,6 +84,17 @@ export const assembleContext = (input: ContextAssemblyInput): ContextAssemblyRes
   const selected: RetrievalEvidence[] = [];
   const omitted: RetrievalEvidence[] = [];
   const blocks: string[] = [];
+  const sectionBlocks: Record<ContextAssemblySection, string[]> = {
+    code: [], repo_map: [], lsp: [], other: [],
+  };
+  const countTokens = input.countTokens ?? estimateTokens;
+  const countVerified = (content: string): number => {
+    const count = countTokens(content);
+    if (!Number.isSafeInteger(count) || count < 0) {
+      throw new Error('model token counter returned a non-integer, negative or unsafe count');
+    }
+    return count;
+  };
   const seen = new Set<string>();
   let estimatedTokens = 0;
   let budgetOmitted = 0;
@@ -93,20 +108,23 @@ export const assembleContext = (input: ContextAssemblyInput): ContextAssemblyRes
     }
     seen.add(dedupeKey(item));
     const block = evidenceText(item);
-    const blockTokens = tokensFor(block);
-    const separatorTokens = blocks.length === 0 ? 0 : tokensFor('\n\n');
-    const nextTokens = blockTokens + separatorTokens;
     const section = sectionFor(item.source);
-    if (sectionUsage[section] + blockTokens > sectionBudgets[section]
-      || estimatedTokens + nextTokens > input.budgetTokens) {
+    // Count the entire model-visible string: BPE is not additive across blocks
+    // or separators. The host owns exact tokenization when available.
+    const nextSection = [...sectionBlocks[section], block].join('\n\n');
+    const nextSectionTokens = countVerified(nextSection);
+    const nextWholeTokens = countVerified([...blocks, block].join('\n\n'));
+    if (nextSectionTokens > sectionBudgets[section]
+      || nextWholeTokens > input.budgetTokens) {
       budgetOmitted += 1;
       omitted.push(item);
       continue;
     }
     selected.push(item);
     blocks.push(block);
-    estimatedTokens += nextTokens;
-    sectionUsage[section] += blockTokens;
+    sectionBlocks[section].push(block);
+    estimatedTokens = nextWholeTokens;
+    sectionUsage[section] = nextSectionTokens;
   }
 
   return {
@@ -114,6 +132,7 @@ export const assembleContext = (input: ContextAssemblyInput): ContextAssemblyRes
     omitted,
     text: blocks.join('\n\n'),
     estimatedTokens,
+    tokenCountMode: input.countTokens === undefined ? 'character_estimate' : 'host_counter',
     truncated: budgetOmitted > 0,
     limitations: budgetOmitted === 0 ? [] : [`${budgetOmitted} evidence items omitted by context budget`],
     sectionBudgets,

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -119,4 +119,10 @@ test('DBC-11 deleting one episode never deletes shared content needed by another
   assert.deepEqual(Buffer.from(survivor.content), content);
   assert.equal((await archive.readEpisode(first.episodeId))._tag, 'Err');
   mustOk(await archive.deleteEpisode(second.episodeId));
+});
+
+test('RepoMap def/ref graph must not regain the old full-candidate LSP dependency', async () => {
+  const source = await readFile(join(process.cwd(), 'src/adapters/repo-map-structural.ts'), 'utf8');
+  assert.doesNotMatch(source, /SemanticAnalysisPort|input\.semantics|semantics\.references/u,
+    'RepoMap must consume shared ast-grep def/ref records, never an LSP scan over candidates');
 });

@@ -9,7 +9,7 @@ export interface ContextAssembler {
   ) => Effect.Effect<Result<ContextAssemblyResult, DomainError>>;
 }
 
-export const makeContextAssembler = (): ContextAssembler => ({
+export const makeContextAssembler = (countTokens?: (text: string) => number): ContextAssembler => ({
   assemble: (input) => Effect.sync(() => {
     if (!Number.isSafeInteger(input.budgetTokens) || input.budgetTokens <= 0) {
       return err(domainError('INVALID_INPUT', 'budgetTokens', 'context budget must be a positive safe integer'));
@@ -24,6 +24,10 @@ export const makeContextAssembler = (): ContextAssembler => ({
         ));
       }
     }
-    return ok(assembleContext(input));
+    try {
+      return ok(assembleContext({ ...input, ...(countTokens === undefined ? {} : { countTokens }) }));
+    } catch (cause) {
+      return err(domainError('NOT_READY', 'token_counter', cause instanceof Error ? cause.message : 'host model token counter failed'));
+    }
   }),
 });
