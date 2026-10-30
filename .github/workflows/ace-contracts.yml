@@ -186,12 +186,22 @@ jobs:
         run: npm run build
       - name: Run actual provider and restart acceptance
         run: |
-          npm run test:real-provider
-          npm run test:real-provider-restart
+          set -o pipefail
+          mkdir -p /tmp/ace-provider-evidence
+          npm run test:real-provider | tee /tmp/ace-provider-evidence/provider.log
+          npm run test:real-provider-restart | tee /tmp/ace-provider-evidence/restart.log
       - name: Run real two-writer and crash publication acceptance
         run: |
-          npm run test:real-qdrant-concurrency
-          npm run test:real-qdrant-crash
+          npm run test:real-qdrant-concurrency -- --output /tmp/ace-provider-evidence/concurrency.json
+          npm run test:real-qdrant-crash -- /tmp/ace-provider-evidence/crash.json
+      - name: Retain source-linked real provider reports and traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ace-real-qdrant-${{ github.run_id }}
+          path: /tmp/ace-provider-evidence/
+          if-no-files-found: warn
+          retention-days: 14
 
   real-non-ts-lsp:
     # Real rust-analyzer protocol conformance, no fake LSP or fixture server.
@@ -216,3 +226,11 @@ jobs:
           ACE_NON_TS_LSP_TIMEOUT_MS: "60000"
           ACE_NON_TS_LSP_SETTLE_MS: "8000"
         run: npm run test:real-non-ts-lsp -- /tmp/ace-real-non-ts-lsp.json
+      - name: Retain real rust-analyzer and TypeScript routing evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ace-real-lsp-${{ github.run_id }}
+          path: /tmp/ace-real-non-ts-lsp.json
+          if-no-files-found: warn
+          retention-days: 14
