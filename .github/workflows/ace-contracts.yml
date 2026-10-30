@@ -192,3 +192,27 @@ jobs:
         run: |
           npm run test:real-qdrant-concurrency
           npm run test:real-qdrant-crash
+
+  real-non-ts-lsp:
+    # Real rust-analyzer protocol conformance, no fake LSP or fixture server.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Install native rust-analyzer component
+        run: rustup component add rust-analyzer
+      - name: Real non-TypeScript LSP definition/reference/hover/diagnostics
+        env:
+          ACE_NON_TS_LSP_COMMAND: rust-analyzer
+          ACE_NON_TS_LSP_TIMEOUT_MS: "60000"
+          ACE_NON_TS_LSP_SETTLE_MS: "8000"
+        run: npm run test:real-non-ts-lsp -- /tmp/ace-real-non-ts-lsp.json
