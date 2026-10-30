@@ -123,15 +123,18 @@ export const buildRepoMapDelta = (
         && symbol.nameStartLine === identifier.startLine
         && symbol.nameStartColumn === identifier.startColumn);
       if (isDeclaration) continue;
-      // Follow pinned Aider's def/ref multigraph: an identifier occurrence
-      // connects to every defining file; an arbitrary first-name match is not
-      // a proven semantic binding.
-      const targets = symbolsByName.get(identifier.name) ?? [];
-      if (targets.length === 0) continue;
+      // Aider relates each identifier occurrence to every defining FILE,
+      // not each same-named declaration within that file. Retain one symbol
+      // anchor per defining path so counting does not multiply references.
+      const targetByPath = new Map<RepoPath, RepoMapSymbol>();
+      for (const target of symbolsByName.get(identifier.name) ?? []) {
+        if (!targetByPath.has(target.repoPath)) targetByPath.set(target.repoPath, target);
+      }
+      if (targetByPath.size === 0) continue;
       const caller = enclosingSymbol(path, identifier.startLine, identifier.startColumn, byPath)
         ?? fileAnchorFor(path);
       if (caller === undefined) continue;
-      for (const target of targets) {
+      for (const target of targetByPath.values()) {
         references.set(caller.id, [
           ...(references.get(caller.id) ?? []),
           { targetId: target.id, kind: 'reference' },
