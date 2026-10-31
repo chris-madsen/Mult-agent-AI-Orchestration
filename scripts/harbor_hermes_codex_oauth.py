@@ -28,7 +28,7 @@ from harbor.models.agent.context import AgentContext
 
 
 class HermesCodexOAuthOptions(HermesOptions):
-    reasoning_effort: Literal["low", "medium", "high"] = Field(
+    reasoning_effort: Literal["low", "medium", "high", "xhigh"] = Field(
         default="high",
         description="Reasoning effort forwarded to Hermes openai-codex.",
     )
@@ -160,18 +160,11 @@ class HermesCodexOAuth(Hermes):
             agent = {}
         agent["reasoning_effort"] = reasoning_effort
         config["agent"] = agent
-        # Pair parity: context-window configuration must be IDENTICAL in the
-        # native and ACE arms. Before this fix only ACE changed model settings,
-        # confounding any token or cache comparison.
-        raw_model_config = config.get("model")
-        if isinstance(raw_model_config, str):
-            model_config: dict[str, Any] = {"default": raw_model_config}
-        elif isinstance(raw_model_config, dict):
-            model_config = raw_model_config
-        else:
-            model_config = {}
-        model_config["context_length"] = 128000
-        config["model"] = model_config
+        # Do not override context_length here. The pinned Hermes release owns
+        # provider/model-specific context resolution (including Codex OAuth live
+        # metadata and its own fallback/opt-in aliases). Both paired arms pass
+        # through the same base model config, so parity does not require a local
+        # context-window guess.
         # Both arms use the same built-in Hermes compaction policy. ACE
         # subclasses ContextCompressor, so selecting the plugin must never
         # silently disable native summaries or tool-result pruning.

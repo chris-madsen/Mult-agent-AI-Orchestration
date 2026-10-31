@@ -13,6 +13,7 @@ import {
   feedbackHermesContextPluginPath,
   feedbackHermesProviderPrefix,
   feedbackHermesVersion,
+  isFeedbackReasoningEffort,
 } from '../src/domain/feedback-harbor-config.js';
 import { hermesCodexAuthenticationRoute } from '../src/domain/feedback-preflight.js';
 import { validateFeedbackTaskManifest, type FeedbackTaskManifest } from '../src/domain/feedback-loop-experiment.js';
@@ -65,7 +66,7 @@ const filesystemTreeEntries = async (root: string, prefix: string): Promise<read
 const shellQuote = (value: string): string => "'" + value.replaceAll("'", "'\\''") + "'";
 
 const usage = (): never => {
-  throw new Error('Usage: tsx scripts/prepare-harbor-feedback-jobs.ts --task-manifest <path> --source-root <checkout> --ace-runtime-bundle <bundle> --output <dir> [--artifacts-root <external-dir>] --run-id <id> --model <model> --reasoning <low|medium|high> [--task-image <reference>] [--image-digest sha256:<64hex> | --task-image-digest <image>=sha256:<64hex> ...]');
+  throw new Error('Usage: tsx scripts/prepare-harbor-feedback-jobs.ts --task-manifest <path> --source-root <checkout> --ace-runtime-bundle <bundle> --output <dir> [--artifacts-root <external-dir>] --run-id <id> --model <model> --reasoning <low|medium|high|xhigh> [--task-image <reference>] [--image-digest sha256:<64hex> | --task-image-digest <image>=sha256:<64hex> ...]');
 };
 
 interface ParsedArgs {
@@ -228,7 +229,7 @@ const main = async (): Promise<void> => {
     if (!existsSync(aceRuntime)) throw new Error(`BLOCKED: compiled ACE context bridge is missing: ${aceRuntime}`);
     if (runtimeBundleMode && !existsSync(join(aceRoot, 'node_modules', 'effect', 'package.json'))) throw new Error('BLOCKED: ACE runtime bundle is missing production dependency effect');
     const reasoning = reasoningArg;
-    if (!['low', 'medium', 'high'].includes(reasoning)) throw new Error('BLOCKED: reasoning effort must be low, medium or high');
+    if (!isFeedbackReasoningEffort(reasoning)) throw new Error('BLOCKED: reasoning effort must be low, medium, high or xhigh');
     const taskImageOverride = args['--task-image'];
     const taskImageReferences = [...new Set(await Promise.all(taskPaths.map((path) => dockerImageReference(path, taskImageOverride))))];
     const explicitTaskImageDigests = new Map<string, string>();
@@ -379,7 +380,7 @@ const main = async (): Promise<void> => {
       agent: 'hermes' as const,
       agentVersion: feedbackHermesVersion,
       model,
-      reasoningEffort: reasoning as 'low' | 'medium' | 'high',
+      reasoningEffort: reasoning,
       harborVersion: execFileSync('harbor', ['--version'], { encoding: 'utf8' }).trim().split(/\r?\n/u)[0]?.trim() ?? 'unknown',
       ...(imageDigest === undefined ? {} : { imageDigest }),
       taskImages,

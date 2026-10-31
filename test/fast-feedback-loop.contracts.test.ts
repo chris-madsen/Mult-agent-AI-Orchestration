@@ -21,6 +21,8 @@ test('fast feedback runner is bounded and fail-closed', async () => {
   assert.match(runner, /timeoutMs: Math\.min\(timeoutMs, remaining\)/u);
   assert.match(runner, /reportPath = join\(args\.output, 'report\.md'\)/u);
   assert.match(runner, /report\.status !== 'PASS'/u);
+  assert.match(runner, /isFeedbackReasoningEffort\(args\.reasoning\)/u);
+  assert.match(runner, /low\|medium\|high\|xhigh/u);
 });
 
 test('fast feedback runner rejects a budget above three minutes before touching runtime inputs', () => {

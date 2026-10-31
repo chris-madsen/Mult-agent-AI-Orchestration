@@ -8,6 +8,14 @@ import {
   inspectHermesAuthJson,
 } from '../src/domain/feedback-preflight.js';
 import * as feedbackPreflight from '../src/domain/feedback-preflight.js';
+import {
+  feedbackHermesAgentImportPath,
+  feedbackHermesVersion,
+  type FeedbackReasoningEffort,
+  validateFeedbackHarborJob,
+  validateMatchingFeedbackHarborJobs,
+} from '../src/domain/feedback-harbor-config.js';
+import { validateFeedbackExperimentManifest } from '../src/domain/feedback-loop-experiment.js';
 
 const validAuth = JSON.stringify({
   providers: {
@@ -105,6 +113,7 @@ test('feedback jobs use Hermes openai-codex OAuth and native ContextEngine regis
   assert.match(jobs, /shellQuote\('ACE_ALLOWED_ROOTS=\/workspace'\)/u);
   assert.match(jobs, /feedbackAceContextBridgeCommand/u);
   assert.match(adapter, /--provider openai-codex/u);
+  assert.match(adapter, /Literal\["low", "medium", "high", "xhigh"\]/u);
   assert.match(adapter, /context.*ace_context_engine/u);
   assert.match(adapter, /ace_workspace_root/u);
   assert.match(adapter, /ace_allowed_roots/u);
@@ -128,8 +137,8 @@ test('feedback jobs use Hermes openai-codex OAuth and native ContextEngine regis
   assert.match(adapter, /ace_workspace_root.*default="\/workspace"/u);
   assert.match(adapter, /ace_allowed_roots.*default="\/workspace"/u);
   assert.match(adapter, /config\["plugins"\]/u);
-  assert.match(adapter, /model_config.*default/u);
-  assert.match(adapter, /context_length.*128000/u);
+  assert.doesNotMatch(adapter, /model_config\["context_length"\]\s*=/u);
+  assert.doesNotMatch(adapter, /context_length\s*:\s*128000/u);
   assert.match(contextPlugin, /def register_context_engine\(context\)/u);
   assert.match(adapter, /status=\$\?/u);
   assert.match(adapter, /exit "\$status"/u);
@@ -156,13 +165,13 @@ test('exact-current preflight binds experiment identity to checkout, jobs, Harbo
       readonly jobAgent: 'hermes';
       readonly jobAgentVersion: string;
       readonly jobModel: string;
-      readonly jobReasoningEffort: 'low' | 'medium' | 'high';
+      readonly jobReasoningEffort: FeedbackReasoningEffort;
       readonly experiment: {
         readonly sourceCommit: string;
         readonly agent: 'hermes';
         readonly agentVersion: string;
         readonly model: string;
-        readonly reasoningEffort: 'low' | 'medium' | 'high';
+        readonly reasoningEffort: FeedbackReasoningEffort;
         readonly harborVersion: string;
         readonly authenticationRoute: string;
       };
@@ -176,14 +185,14 @@ test('exact-current preflight binds experiment identity to checkout, jobs, Harbo
     expectedAuthenticationRoute: hermesCodexAuthenticationRoute,
     jobAgent: 'hermes' as const,
     jobAgentVersion: 'v0.22.3',
-    jobModel: 'openai-codex/gpt-5.6-luna',
-    jobReasoningEffort: 'high' as const,
+    jobModel: 'openai-codex/gpt-6-luna',
+    jobReasoningEffort: 'xhigh' as const,
     experiment: {
       sourceCommit: 'a'.repeat(40),
       agent: 'hermes' as const,
       agentVersion: 'v0.22.3',
-      model: 'openai-codex/gpt-5.6-luna',
-      reasoningEffort: 'high' as const,
+      model: 'openai-codex/gpt-6-luna',
+      reasoningEffort: 'xhigh' as const,
       harborVersion: 'harbor 0.24.0',
       authenticationRoute: hermesCodexAuthenticationRoute,
     },
@@ -213,6 +222,104 @@ test('exact-current preflight binds experiment identity to checkout, jobs, Harbo
     ...base,
     experiment: { ...base.experiment, authenticationRoute: 'different-route' },
   }), ['authenticationRoute']);
+});
+
+test('Hermes feedback jobs and manifests preserve exact gpt-6-luna model and xhigh effort', () => {
+  const job = (aceContextEnabled: boolean) => ({
+    tasks: [{ path: '/frozen/xhigh-task' }],
+    agents: [{
+      import_path: feedbackHermesAgentImportPath,
+      model_name: 'openai-codex/gpt-6-luna',
+      kwargs: {
+        version: feedbackHermesVersion,
+        reasoning_effort: 'xhigh',
+        ace_context_enabled: aceContextEnabled,
+        ...(aceContextEnabled ? {
+          ace_context_bridge_sha256: 'a'.repeat(64),
+          context_plugin_sha256: 'b'.repeat(64),
+        } : {}),
+      },
+    }],
+    n_concurrent_trials: 1,
+    n_attempts: 1,
+  });
+  const native = validateFeedbackHarborJob(job(false));
+  const pair = validateMatchingFeedbackHarborJobs(job(false), job(true));
+  assert.equal(native._tag, 'Ok');
+  if (native._tag === 'Ok') {
+    assert.equal(native.value.model, 'openai-codex/gpt-6-luna');
+    assert.equal(native.value.reasoningEffort, 'xhigh');
+  }
+  assert.equal(pair._tag, 'Ok');
+
+  const manifest = validateFeedbackExperimentManifest({
+    schemaVersion: 1,
+    runId: 'xhigh-smoke',
+    sourceCommit: 'c'.repeat(40),
+    taskManifestSha256: 'd'.repeat(64),
+    agent: 'hermes',
+    agentVersion: feedbackHermesVersion,
+    model: 'openai-codex/gpt-6-luna',
+    reasoningEffort: 'xhigh',
+    harborVersion: 'harbor 0.24.0',
+    taskImages: [{ reference: 'registry.example/task:1', digest: `sha256:${'e'.repeat(64)}` }],
+    agentAdapterSha256: 'f'.repeat(64),
+    aceContextBridgeSha256: 'a'.repeat(64),
+    contextPluginSha256: 'b'.repeat(64),
+    seed: 'unknown',
+    mode: 'cold',
+    nConcurrentTrials: 1,
+    nAttempts: 1,
+    authenticationRoute: hermesCodexAuthenticationRoute,
+  });
+  assert.equal(manifest._tag, 'Ok');
+  if (manifest._tag === 'Ok') {
+    assert.equal(manifest.value.model, 'openai-codex/gpt-6-luna');
+    assert.equal(manifest.value.reasoningEffort, 'xhigh');
+  }
+});
+
+test('unsupported feedback reasoning effort is blocked instead of normalized', () => {
+  const job = {
+    tasks: [{ path: '/frozen/unsupported-effort-task' }],
+    agents: [{
+      import_path: feedbackHermesAgentImportPath,
+      model_name: 'openai-codex/gpt-6-luna',
+      kwargs: {
+        version: feedbackHermesVersion,
+        reasoning_effort: 'ultra',
+        ace_context_enabled: false,
+      },
+    }],
+    n_concurrent_trials: 1,
+    n_attempts: 1,
+  };
+  const invalidJob = validateFeedbackHarborJob(job);
+  assert.equal(invalidJob._tag, 'Err');
+  if (invalidJob._tag === 'Err') assert.equal(invalidJob.error.code, 'INVALID_BENCHMARK');
+
+  const invalidManifest = validateFeedbackExperimentManifest({
+    schemaVersion: 1,
+    runId: 'unsupported-effort',
+    sourceCommit: 'c'.repeat(40),
+    taskManifestSha256: 'd'.repeat(64),
+    agent: 'hermes',
+    agentVersion: feedbackHermesVersion,
+    model: 'openai-codex/gpt-6-luna',
+    reasoningEffort: 'ultra',
+    harborVersion: 'harbor 0.24.0',
+    taskImages: [{ reference: 'registry.example/task:1', digest: `sha256:${'e'.repeat(64)}` }],
+    agentAdapterSha256: 'f'.repeat(64),
+    aceContextBridgeSha256: 'a'.repeat(64),
+    contextPluginSha256: 'b'.repeat(64),
+    seed: 'unknown',
+    mode: 'cold',
+    nConcurrentTrials: 1,
+    nAttempts: 1,
+    authenticationRoute: hermesCodexAuthenticationRoute,
+  });
+  assert.equal(invalidManifest._tag, 'Err');
+  if (invalidManifest._tag === 'Err') assert.equal(invalidManifest.error.code, 'INVALID_BENCHMARK');
 });
 
 test('explicit image digest cannot contradict experiment task-image provenance', () => {
@@ -268,9 +375,9 @@ test('local deterministic preflight makes external dataset registry access not r
   assert.match(preflight, /\['ready', 'not_required'\]/u);
 });
 
-test('Hermes paired arms have the same context-window configuration regardless of ACE selection', async () => {
+test('Hermes paired arms leave provider-owned context-window configuration untouched', async () => {
   const adapter = await readFile('scripts/harbor_hermes_codex_oauth.py', 'utf8');
   const beforeBranch = adapter.split('if ace_context_enabled:')[0];
-  assert.match(beforeBranch, /model_config\["context_length"\] = 128000/u);
-  assert.match(beforeBranch, /config\["model"\] = model_config/u);
+  assert.doesNotMatch(beforeBranch, /model_config\["context_length"\]\s*=/u);
+  assert.doesNotMatch(beforeBranch, /config\["model"\]\s*=\s*model_config/u);
 });

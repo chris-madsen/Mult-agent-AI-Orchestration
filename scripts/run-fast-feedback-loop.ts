@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+import { isFeedbackReasoningEffort } from '../src/domain/feedback-harbor-config.js';
 
 interface ParsedArgs {
   readonly sourceRoot: string;
@@ -23,7 +24,7 @@ interface CommandResult {
 }
 
 const usage = (): never => {
-  throw new Error('Usage: npm run bench:feedback-fast -- --source-root <checkout> --task-path <relative-task-dir> --ace-runtime-bundle <bundle> --task-image <reference> --task-image-digest <reference>=sha256:<64hex> --model <model> --reasoning <low|medium|high> --output <external-dir> [--max-runtime-sec 150]');
+  throw new Error('Usage: npm run bench:feedback-fast -- --source-root <checkout> --task-path <relative-task-dir> --ace-runtime-bundle <bundle> --task-image <reference> --task-image-digest <reference>=sha256:<64hex> --model <model> --reasoning <low|medium|high|xhigh> --output <external-dir> [--max-runtime-sec 150]');
 };
 
 const parseArgs = (): ParsedArgs => {
@@ -157,7 +158,7 @@ const main = async (): Promise<void> => {
   if (!existsSync(args.aceRuntimeBundle)) throw new Error(`BLOCKED: ACE runtime bundle is missing: ${args.aceRuntimeBundle}`);
   if (!/^.+=[^=]+$/u.test(args.taskImageDigest)) throw new Error('BLOCKED: --task-image-digest must bind the task image reference to a digest');
   if (!args.taskImageDigest.startsWith(`${args.taskImage}=`)) throw new Error('BLOCKED: task image digest reference does not match --task-image');
-  if (!['low', 'medium', 'high'].includes(args.reasoning)) throw new Error('BLOCKED: reasoning effort must be low, medium or high');
+  if (!isFeedbackReasoningEffort(args.reasoning)) throw new Error('BLOCKED: reasoning effort must be low, medium, high or xhigh');
 
   const frozen = join(args.output, 'frozen');
   const jobs = join(args.output, 'jobs');

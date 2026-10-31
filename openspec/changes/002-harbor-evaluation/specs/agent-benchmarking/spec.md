@@ -15,6 +15,12 @@ The system SHALL run a native Hermes baseline with normal shell, code-search and
 - **WHEN** a baseline task is launched
 - **THEN** the model, reasoning effort, task input, repository commit and tool permissions match its paired experiment configuration
 
+#### Scenario: Exact owner-selected model and reasoning effort
+
+- **WHEN** the owner selects `openai-codex/gpt-6-luna` with `reasoning_effort=xhigh`
+- **THEN** generated Hermes jobs, experiment manifests and preflight bindings preserve both values exactly
+- **AND** unsupported values are blocked rather than normalized or downgraded
+
 ### Requirement: Harbor run isolation
 
 The system SHALL use Harbor to run reproducible tasks in isolated environments while retaining failed and aborted runs.
