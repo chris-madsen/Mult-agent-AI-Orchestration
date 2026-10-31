@@ -461,3 +461,50 @@ test('Qdrant snapshot vector reuse rejects malformed SDK points instead of retur
     if (result._tag === 'Err') assert.equal(result.error.code, 'INVALID_EXTERNAL_RESPONSE');
   }
 });
+
+
+test('Qdrant snapshot vector reuse rejects empty or malformed cache identities', async () => {
+  const payloads: unknown[] = [
+    { candidate_id: '' },
+    { candidate_id: '   ' },
+    { candidate_id: candidate.candidateId, embedding_key: '' },
+    { candidate_id: candidate.candidateId, embedding_key: 42 },
+  ];
+  for (const payload of payloads) {
+    const client = {
+      scroll: async () => ({
+        points: [{ payload, vector: { dense: [0.1, 0.2] } }],
+        next_page_offset: null,
+      }),
+    } as unknown as QdrantClient;
+    const result = await Effect.runPromise(readQdrantSnapshotVectors(
+      { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
+      'http://127.0.0.1:6333', 'ace-sdk', workspaceId, undefined, [], client,
+    ));
+    assert.equal(result._tag, 'Err', 'empty or malformed cache identity must not be accepted');
+    if (result._tag === 'Err') assert.equal(result.error.code, 'INVALID_EXTERNAL_RESPONSE');
+  }
+});
+
+test('Qdrant snapshot vector reuse rejects conflicting vectors for the same embedding key', async () => {
+  const point = (id: string, vector: number[]) => ({
+    payload: { candidate_id: id, embedding_key: 'same-content-key' },
+    vector: { dense: vector },
+  });
+  const client = {
+    scroll: async () => ({
+      points: [
+        point('candidate-one', [0.1, 0.2]),
+        point('candidate-two', [0.9, 0.8]),
+      ],
+      next_page_offset: null,
+    }),
+  } as unknown as QdrantClient;
+  const result = await Effect.runPromise(readQdrantSnapshotVectors(
+    { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
+    'http://127.0.0.1:6333', 'ace-sdk', workspaceId, undefined, [], client,
+  ));
+  assert.equal(result._tag, 'Err', 'same content-address must not silently select conflicting dense vectors');
+  if (result._tag === 'Err') assert.equal(result.error.code, 'INVALID_EXTERNAL_RESPONSE');
+});
+
