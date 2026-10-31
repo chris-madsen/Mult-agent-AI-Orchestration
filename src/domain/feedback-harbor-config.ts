@@ -32,7 +32,7 @@ const nonEmpty = (value: unknown): value is string => typeof value === 'string' 
 const invalid = (path: string, message: string): Result<never, DomainError> =>
   err(domainError('INVALID_BENCHMARK', path, message));
 
-const reasoningEffort = (value: unknown): value is FeedbackReasoningEffort =>
+export const isFeedbackReasoningEffort = (value: unknown): value is FeedbackReasoningEffort =>
   value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh';
 
 export const dockerImageDigestPattern = /^sha256:[a-f0-9]{64}$/u;
@@ -78,7 +78,7 @@ export const validateFeedbackHarborJob = (
   if (version !== feedbackHermesVersion) {
     return invalid(`${path}.agents[0].kwargs.version`, `Hermes version must be pinned to ${feedbackHermesVersion}`);
   }
-  if (!reasoningEffort(effort)) return invalid(`${path}.agents[0].kwargs.reasoning_effort`, 'reasoning effort must be low, medium, high or xhigh');
+  if (!isFeedbackReasoningEffort(effort)) return invalid(`${path}.agents[0].kwargs.reasoning_effort`, 'reasoning effort must be low, medium, high or xhigh');
   if (agent?.mcp_servers !== undefined) return invalid(`${path}.agents[0].mcp_servers`, 'primary feedback jobs must not use MCP for ACE context injection');
   const contextEngine = validateContextEngine(kwargs ?? {}, `${path}.agents[0].kwargs`);
   if (contextEngine._tag === 'Err') return contextEngine;
