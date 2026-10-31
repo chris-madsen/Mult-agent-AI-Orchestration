@@ -278,18 +278,26 @@ test('stable synchronized retrieval fails closed when WorkspaceSync is absent', 
 
 test('Qdrant collection bootstrap is additive and rejects mismatched dimensions', async () => {
   const requests: string[] = [];
+  let created = false;
   const http: HttpPort = {
     request: (request) => {
       requests.push(request.method);
-      return Effect.succeed(ok(request.method === 'GET'
-        ? { status: 404, body: {} }
-        : { status: 200, body: { result: true } }));
+      if (request.method === 'GET') {
+        return Effect.succeed(ok(created
+          ? { status: 200, body: { result: { config: { params: {
+            vectors: { dense: { size: 2, distance: 'Cosine' } },
+            sparse_vectors: { sparse: { modifier: 'Idf' } },
+          } } } } }
+          : { status: 404, body: {} }));
+      }
+      created = true;
+      return Effect.succeed(ok({ status: 200, body: { result: true } }));
     },
   };
   assert.equal((await Effect.runPromise(ensureQdrantCollection(
     http, 'http://127.0.0.1:6333', 'ace-test', 2, [], undefined, sdk(http), 'hybrid',
   )))._tag, 'Ok');
-  assert.deepEqual(requests, ['GET', 'PUT']);
+  assert.deepEqual(requests, ['GET', 'PUT', 'GET']);
 
   const wrong: HttpPort = {
     request: () => Effect.succeed(ok({ status: 200, body: { result: { config: { params: { vectors: { size: 64 } } } } } })),
