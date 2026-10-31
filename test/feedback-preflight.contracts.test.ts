@@ -185,13 +185,13 @@ test('exact-current preflight binds experiment identity to checkout, jobs, Harbo
     expectedAuthenticationRoute: hermesCodexAuthenticationRoute,
     jobAgent: 'hermes' as const,
     jobAgentVersion: 'v0.22.3',
-    jobModel: 'openai-codex/gpt-6-luna-xhigh',
+    jobModel: 'openai-codex/gpt-6-luna',
     jobReasoningEffort: 'xhigh' as const,
     experiment: {
       sourceCommit: 'a'.repeat(40),
       agent: 'hermes' as const,
       agentVersion: 'v0.22.3',
-      model: 'openai-codex/gpt-6-luna-xhigh',
+      model: 'openai-codex/gpt-6-luna',
       reasoningEffort: 'xhigh' as const,
       harborVersion: 'harbor 0.24.0',
       authenticationRoute: hermesCodexAuthenticationRoute,
@@ -224,12 +224,12 @@ test('exact-current preflight binds experiment identity to checkout, jobs, Harbo
   }), ['authenticationRoute']);
 });
 
-test('Hermes feedback jobs and manifests preserve exact gpt-6-luna-xhigh and xhigh identity', () => {
+test('Hermes feedback jobs and manifests preserve exact gpt-6-luna model and xhigh effort', () => {
   const job = (aceContextEnabled: boolean) => ({
     tasks: [{ path: '/frozen/xhigh-task' }],
     agents: [{
       import_path: feedbackHermesAgentImportPath,
-      model_name: 'openai-codex/gpt-6-luna-xhigh',
+      model_name: 'openai-codex/gpt-6-luna',
       kwargs: {
         version: feedbackHermesVersion,
         reasoning_effort: 'xhigh',
@@ -247,7 +247,7 @@ test('Hermes feedback jobs and manifests preserve exact gpt-6-luna-xhigh and xhi
   const pair = validateMatchingFeedbackHarborJobs(job(false), job(true));
   assert.equal(native._tag, 'Ok');
   if (native._tag === 'Ok') {
-    assert.equal(native.value.model, 'openai-codex/gpt-6-luna-xhigh');
+    assert.equal(native.value.model, 'openai-codex/gpt-6-luna');
     assert.equal(native.value.reasoningEffort, 'xhigh');
   }
   assert.equal(pair._tag, 'Ok');
@@ -259,7 +259,7 @@ test('Hermes feedback jobs and manifests preserve exact gpt-6-luna-xhigh and xhi
     taskManifestSha256: 'd'.repeat(64),
     agent: 'hermes',
     agentVersion: feedbackHermesVersion,
-    model: 'openai-codex/gpt-6-luna-xhigh',
+    model: 'openai-codex/gpt-6-luna',
     reasoningEffort: 'xhigh',
     harborVersion: 'harbor 0.24.0',
     taskImages: [{ reference: 'registry.example/task:1', digest: `sha256:${'e'.repeat(64)}` }],
@@ -274,7 +274,7 @@ test('Hermes feedback jobs and manifests preserve exact gpt-6-luna-xhigh and xhi
   });
   assert.equal(manifest._tag, 'Ok');
   if (manifest._tag === 'Ok') {
-    assert.equal(manifest.value.model, 'openai-codex/gpt-6-luna-xhigh');
+    assert.equal(manifest.value.model, 'openai-codex/gpt-6-luna');
     assert.equal(manifest.value.reasoningEffort, 'xhigh');
   }
 });
@@ -284,7 +284,7 @@ test('unsupported feedback reasoning effort is blocked instead of normalized', (
     tasks: [{ path: '/frozen/unsupported-effort-task' }],
     agents: [{
       import_path: feedbackHermesAgentImportPath,
-      model_name: 'openai-codex/gpt-6-luna-xhigh',
+      model_name: 'openai-codex/gpt-6-luna',
       kwargs: {
         version: feedbackHermesVersion,
         reasoning_effort: 'ultra',
@@ -305,7 +305,7 @@ test('unsupported feedback reasoning effort is blocked instead of normalized', (
     taskManifestSha256: 'd'.repeat(64),
     agent: 'hermes',
     agentVersion: feedbackHermesVersion,
-    model: 'openai-codex/gpt-6-luna-xhigh',
+    model: 'openai-codex/gpt-6-luna',
     reasoningEffort: 'ultra',
     harborVersion: 'harbor 0.24.0',
     taskImages: [{ reference: 'registry.example/task:1', digest: `sha256:${'e'.repeat(64)}` }],
