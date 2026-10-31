@@ -9,7 +9,9 @@ const makeRequest = async (
   const result = await Effect.runPromise(http.request(request));
   if (result._tag === 'Err') throw new Error(result.error.message);
   if (result.value.status < 200 || result.value.status >= 300) {
-    throw new Error(`Qdrant test double request failed: HTTP ${result.value.status}`);
+    throw Object.assign(new Error(`Qdrant test double request failed: HTTP ${result.value.status}`), {
+      status: result.value.status,
+    });
   }
   const body = result.value.body;
   if (typeof body === 'object' && body !== null && !Array.isArray(body)
