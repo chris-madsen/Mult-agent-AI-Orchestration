@@ -57,7 +57,7 @@ const qdrantSdkHttpStatus = (cause: unknown): number | undefined => {
   if (typeof value?.status === 'number' && Number.isSafeInteger(value.status)
     && value.status >= 400 && value.status <= 599) return value.status;
   if (!(cause instanceof Error)) return undefined;
-  const match = /^Unexpected Response: ([4-5][0-9]{2})(?:\\s|$)/u.exec(cause.message);
+  const match = /^Unexpected Response: ([4-5][0-9]{2})(?:\s|$)/u.exec(cause.message);
   return match === null ? undefined : Number(match[1]);
 };
 
