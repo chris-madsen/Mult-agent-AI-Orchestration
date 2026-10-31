@@ -527,7 +527,9 @@ export const ensureQdrantCollection = (
     } as Parameters<QdrantClient['createCollection']>[1]),
     'collection creation',
   );
-  if (created._tag === 'Ok') return created;
+  // Acknowledged creation is not proof that the collection's actual schema
+  // matches the configured vector mode. The same read-back check covers
+  // successful creation and concurrent creators without a second protocol path.
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const raced = yield* qdrantSdkCall(() => client.getCollection(collection));
     if (raced._tag === 'Ok') return verifyExisting(raced.value);
