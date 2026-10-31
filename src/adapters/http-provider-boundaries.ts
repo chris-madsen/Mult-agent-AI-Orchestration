@@ -343,10 +343,7 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
         queryBody as Parameters<QdrantClient['query']>[1],
       ));
       if (queried._tag === 'Err') return queried;
-      const responseBody: unknown = queried.value;
-      const body = object(responseBody);
-      const result = body?.result ?? responseBody;
-      const points = Array.isArray(result) ? result : object(result)?.points;
+      const points = object(queried.value)?.points;
       if (!Array.isArray(points)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'result', 'Qdrant result must be an array'));
       const output: RankedCandidate[] = [];
       for (const raw of points) {

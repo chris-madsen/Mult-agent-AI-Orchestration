@@ -488,11 +488,8 @@ export const ensureQdrantCollection = (
     return err(domainError('INVALID_INPUT', 'vector_dimension', 'invalid embedding dimension'));
   }
   const verifyExisting = (body: unknown): Result<void, DomainError> => {
-    const outer = typeof body === 'object' && body !== null && !Array.isArray(body)
+    const direct = typeof body === 'object' && body !== null && !Array.isArray(body)
       ? body as Record<string, unknown> : {};
-    // SDK facade returns CollectionInfo directly; raw REST returns { result: CollectionInfo }.
-    const direct = typeof outer.result === 'object' && outer.result !== null && !Array.isArray(outer.result)
-      ? outer.result as Record<string, unknown> : outer;
     const config = typeof direct.config === 'object' && direct.config !== null && !Array.isArray(direct.config)
       ? direct.config as Record<string, unknown> : {};
     const params = typeof config.params === 'object' && config.params !== null && !Array.isArray(config.params)

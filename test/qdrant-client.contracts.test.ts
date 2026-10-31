@@ -105,6 +105,37 @@ test('Qdrant SDK query accepts the facade direct points response', async () => {
     'stable point identity must follow source candidate identity, not the global publication key');
 });
 
+test('Qdrant SDK adapters reject raw REST envelopes and legacy array responses', async () => {
+  for (const response of [{ result: { points: [] } }, []]) {
+    const client = { query: async () => response } as unknown as QdrantClient;
+    const port = makeQdrantCodeCandidatePort({
+      baseUrl: 'http://127.0.0.1:6333',
+      collection: 'ace-sdk-shape',
+      client,
+    });
+    const searched = await Effect.runPromise(port.search({
+      workspaceId,
+      vector: [0.1, 0.2],
+      strategy: 'dense',
+      limit: 1,
+    }));
+    assert.equal(searched._tag, 'Err');
+    if (searched._tag === 'Err') assert.equal(searched.error.code, 'INVALID_EXTERNAL_RESPONSE');
+  }
+
+  const http = { request: () => Effect.succeed(ok({ status: 500, body: {} })) };
+  const client = {
+    getCollection: async () => ({
+      result: { config: { params: { vectors: { dense: { size: 384, distance: 'Cosine' } } } } },
+    }),
+  } as unknown as QdrantClient;
+  const collection = await Effect.runPromise(ensureQdrantCollection(
+    http, 'http://127.0.0.1:6333', 'ace-sdk-shape', 384, [], undefined, client, 'dense',
+  ));
+  assert.equal(collection._tag, 'Err');
+  if (collection._tag === 'Err') assert.equal(collection.error.code, 'INVALID_EXTERNAL_RESPONSE');
+});
+
 test('Qdrant SDK mutations require completed operation status', async () => {
   const client = {
     upsert: async () => ({ status: 'acknowledged' }),
