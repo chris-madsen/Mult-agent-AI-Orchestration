@@ -24,7 +24,11 @@ Relevant source boundaries:
 - In the ACE checkout, `integrations/bifrost/ace-connector/plugin/main.go:108-137` only projects `/v1/chat/completions` and labels it `openai.chat.completions`; `:195-196` leaves `PostLLMHook` as a no-op.
 - The retained ACE wire review `docs/reviews/2026-10-25-bifrost-gateway-wire-e2e.md` is `MOCK-PASS` for one Chat Completions route only; it explicitly does not certify Responses, streaming, or a real provider.
 
-Generic OpenAI Responses support is not proof of a Codex subscription OAuth route. The pinned tree contains no exact `gpt-6-luna-xhigh` model entry. The Bifrost token-count endpoint is a candidate provider-native counter, but its compatibility with this exact model and caller OAuth route is unverified; it also does not establish the model's effective context window.
+Generic OpenAI Responses support is not proof of a Codex subscription OAuth route. The pinned Bifrost tree contains no exact `gpt-6-luna-xhigh` model entry. The Bifrost token-count endpoint is a candidate provider-native counter, but its compatibility with this exact model and caller OAuth route is unverified; it also does not establish the model's effective context window.
+
+The pinned Hermes runtime is a separate boundary and must not be conflated with Bifrost readiness. Hermes `v0.22.3` declares `xhigh` in the Codex reasoning ladder and its static Codex catalog contains `gpt-6-luna`; it does not define a special `gpt-6-luna-xhigh` alias or strip an `-xhigh` suffix before the wire. Therefore this PR may preserve an owner-selected exact slug for later provider validation, but it does **not** prove that slug is routable. Provider-wire acceptance remains blocked until the real authenticated route accepts the exact model identity.
+
+ACE also must not hard-code a guessed context window for this configuration. Hermes `v0.22.3` already owns provider-aware Codex context resolution (including live metadata and its own fallback/opt-in context variants), so the Harbor adapter leaves `context_length` unset instead of overriding it locally.
 
 ## Unmerged upstream candidates observed on 2026-10-31
 
