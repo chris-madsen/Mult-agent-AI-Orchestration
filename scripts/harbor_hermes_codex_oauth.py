@@ -28,7 +28,7 @@ from harbor.models.agent.context import AgentContext
 
 
 class HermesCodexOAuthOptions(HermesOptions):
-    reasoning_effort: Literal["low", "medium", "high"] = Field(
+    reasoning_effort: Literal["low", "medium", "high", "xhigh"] = Field(
         default="high",
         description="Reasoning effort forwarded to Hermes openai-codex.",
     )

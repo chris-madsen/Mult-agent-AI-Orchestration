@@ -1,3 +1,5 @@
+import type { FeedbackReasoningEffort } from './feedback-harbor-config.js';
+
 export const hermesCodexAuthenticationRoute = 'Hermes openai-codex uses a dedicated host ~/.hermes/auth.json and synchronizes refreshed OAuth state back after each serial Harbor trial; credentials are not retained in benchmark artifacts';
 
 export type FeedbackVerifierReadinessStatus =
@@ -115,13 +117,13 @@ export interface FeedbackPreflightBindingInput {
   readonly jobAgent: 'hermes';
   readonly jobAgentVersion: string;
   readonly jobModel: string;
-  readonly jobReasoningEffort: 'low' | 'medium' | 'high';
+  readonly jobReasoningEffort: FeedbackReasoningEffort;
   readonly experiment: {
     readonly sourceCommit: string;
     readonly agent: 'hermes';
     readonly agentVersion: string;
     readonly model: string;
-    readonly reasoningEffort: 'low' | 'medium' | 'high';
+    readonly reasoningEffort: FeedbackReasoningEffort;
     readonly harborVersion: string;
     readonly authenticationRoute: string;
   };

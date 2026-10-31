@@ -1,6 +1,7 @@
 import { domainError, type DomainError } from './errors.js';
 import { err, ok, type Result } from './result.js';
 import type { HermesContextEvidence } from './hermes-context-evidence.js';
+import type { FeedbackReasoningEffort } from './feedback-harbor-config.js';
 
 export type FeedbackArm = 'native' | 'ace_optional';
 export type FeedbackQuality = 'pass' | 'fail' | 'unknown';
@@ -37,7 +38,7 @@ export interface FeedbackExperimentManifest {
   readonly agent: 'hermes';
   readonly agentVersion: string;
   readonly model: string;
-  readonly reasoningEffort: 'low' | 'medium' | 'high';
+  readonly reasoningEffort: FeedbackReasoningEffort;
   readonly harborVersion: string;
   /** Present for a single-image smoke; main runs use taskImages. */
   readonly imageDigest?: string;
@@ -330,7 +331,7 @@ export const validateFeedbackExperimentManifest = (value: unknown): Result<Feedb
   if (root.schemaVersion !== 1 || !nonEmpty(root.runId) || !revision(root.sourceCommit)
     || root.agent !== 'hermes' || !nonEmpty(root.agentVersion)
     || !sha256Hex(root.taskManifestSha256) || !nonEmpty(root.model) || !root.model.startsWith('openai-codex/')
-    || (effort !== 'low' && effort !== 'medium' && effort !== 'high') || !nonEmpty(root.harborVersion)
+    || (effort !== 'low' && effort !== 'medium' && effort !== 'high' && effort !== 'xhigh') || !nonEmpty(root.harborVersion)
     || !sha256Hex(root.agentAdapterSha256) || !sha256Hex(root.aceContextBridgeSha256) || !sha256Hex(root.contextPluginSha256)
     || !(seed === 'unknown' || nonEmpty(seed))
     || (root.mode !== 'cold' && root.mode !== 'warm') || root.nConcurrentTrials !== 1 || root.nAttempts !== 1
