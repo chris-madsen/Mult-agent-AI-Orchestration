@@ -375,9 +375,9 @@ test('local deterministic preflight makes external dataset registry access not r
   assert.match(preflight, /\['ready', 'not_required'\]/u);
 });
 
-test('Hermes paired arms have the same context-window configuration regardless of ACE selection', async () => {
+test('Hermes paired arms leave provider-owned context-window configuration untouched', async () => {
   const adapter = await readFile('scripts/harbor_hermes_codex_oauth.py', 'utf8');
   const beforeBranch = adapter.split('if ace_context_enabled:')[0];
-  assert.match(beforeBranch, /model_config\["context_length"\] = 128000/u);
-  assert.match(beforeBranch, /config\["model"\] = model_config/u);
+  assert.doesNotMatch(beforeBranch, /model_config\["context_length"\]\s*=/u);
+  assert.doesNotMatch(beforeBranch, /config\["model"\]\s*=\s*model_config/u);
 });
