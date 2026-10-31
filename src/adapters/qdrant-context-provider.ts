@@ -519,7 +519,7 @@ export const ensureQdrantCollection = (
   if (client === undefined) return err(domainError('NOT_READY', 'qdrant', 'official Qdrant SDK client is required'));
   const found = yield* qdrantSdkCall(() => client.getCollection(collection));
   if (found._tag === 'Ok') return verifyExisting(found.value);
-  if (!/\b404\b|not found/iu.test(found.error.message)) return found;
+  if (found.error.details?.httpStatus !== 404) return found;
   const created = yield* qdrantSdkBooleanMutation(
     () => client.createCollection(collection, {
       vectors: { dense: { size: dimension, distance: 'Cosine' } },
@@ -529,7 +529,7 @@ export const ensureQdrantCollection = (
   );
   const concurrentCreateConflict = created._tag === 'Err'
     && created.error.code === 'EXTERNAL_UNAVAILABLE'
-    && /\b409\b/u.test(created.error.message);
+    && created.error.details?.httpStatus === 409;
   if (created._tag === 'Err' && !concurrentCreateConflict) return created;
   // Acknowledged creation is not proof that the collection's actual schema
   // matches the configured vector mode. The same read-back check covers
@@ -537,7 +537,7 @@ export const ensureQdrantCollection = (
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const raced = yield* qdrantSdkCall(() => client.getCollection(collection));
     if (raced._tag === 'Ok') return verifyExisting(raced.value);
-    const transient = /\b404\b|\b409\b|\b500\b|internal server error/iu.test(raced.error.message);
+    const transient = [404, 409, 500].includes(Number(raced.error.details?.httpStatus));
     if (!transient || attempt === 4) return raced;
     yield* Effect.sleep('100 millis');
   }
