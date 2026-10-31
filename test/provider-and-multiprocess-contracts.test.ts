@@ -7,7 +7,8 @@ import test from 'node:test';
 import { Effect } from 'effect';
 import type { QdrantClient } from '@qdrant/js-client-rest';
 import { makeVertexRagRetrievalPort } from '../src/adapters/vertex-rag.js';
-import { makeQdrantCodeCandidatePort, validateLocalQdrantBaseUrl } from '../src/adapters/http-provider-boundaries.js';
+import { makeQdrantCodeCandidatePort } from '../src/adapters/http-provider-boundaries.js';
+import { validateLocalQdrantBaseUrl } from '../src/adapters/qdrant-sdk-adapter.js';
 import { makeFileArtifactStore } from '../src/adapters/file-artifact-store.js';
 import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
 import { makeQdrantContextProvider } from '../src/adapters/qdrant-context-provider.js';
@@ -18,6 +19,7 @@ import { makeWorkspaceId } from '../src/domain/workspace.js';
 import { ok, type Result } from '../src/domain/result.js';
 import type { HttpPort } from '../src/application/ports.js';
 import { makeMcpGateway } from '../src/gateway/mcp-gateway.js';
+import { makeQdrantSdkTestPort } from './helpers/qdrant-sdk-test-double.js';
 
 const value = <T, E>(result: Result<T, E>): T => {
   assert.equal(result._tag, 'Ok');
@@ -288,9 +290,8 @@ test('Qdrant code payload is local-only and rejects external HTTPS before every 
     },
   } as unknown as QdrantClient;
   const qdrant = makeQdrantCodeCandidatePort({
-    baseUrl: 'https://vector.example.com',
     collection: 'ace-code',
-    client,
+    sdk: makeQdrantSdkTestPort(client, 'https://vector.example.com'),
   });
   const results = [
     await Effect.runPromise(qdrant.search({

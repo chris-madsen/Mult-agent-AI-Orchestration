@@ -15,7 +15,8 @@ import { makeFileDecisionHistory } from '../adapters/file-decision-history.js';
 import { makeGraphitiMcpPort } from '../adapters/graphiti-mcp.js';
 import { makeGitHistoryPort } from '../adapters/git-history.js';
 import { makeHostWorkspacePort, makeMtlsHostHelperTransport } from '../adapters/host-worktree-helper.js';
-import { makeFetchHttpPort, makeQdrantCodeCandidatePort, validateLocalQdrantBaseUrl } from '../adapters/http-provider-boundaries.js';
+import { makeFetchHttpPort, makeQdrantCodeCandidatePort } from '../adapters/http-provider-boundaries.js';
+import { makeQdrantSdkAdapter, validateLocalQdrantBaseUrl } from '../adapters/qdrant-sdk-adapter.js';
 import { buildLocalCodeIndex, type LocalCodeIndexBuild } from '../adapters/local-code-index.js';
 import { makeNodeWorkspacePort } from '../adapters/node-workspace-port.js';
 import {
@@ -396,6 +397,11 @@ const main = async (): Promise<void> => {
       ...(qdrantApiKey === undefined || qdrantApiKey.length === 0 ? {} : { apiKey: qdrantApiKey }),
       checkCompatibility: false,
     });
+    const qdrantSdk = makeQdrantSdkAdapter({
+      baseUrl: qdrantUrl,
+      allowedHosts: qdrantAllowedHosts,
+      client: qdrantClient,
+    });
     const embeddingModel = process.env.ACE_EMBEDDING_MODEL?.trim() || defaultEmbeddingModel;
     const embeddingProvider = process.env.ACE_EMBEDDING_PROVIDER?.trim() || 'fastembed/onnx';
     const embeddingRevision = process.env.ACE_EMBEDDING_MODEL_REVISION?.trim() || defaultEmbeddingRevision;
@@ -519,12 +525,7 @@ const main = async (): Promise<void> => {
       readiness.unified_context = { state: 'not_ready', reason: 'qdrant_collection_unavailable' };
       process.stderr.write(`ace-mcp context NOT_READY: qdrant service unavailable (${errorCode})\n`);
     };
-    const qdrantReachable = await Effect.runPromise(probeQdrantService(
-      http,
-      qdrantUrl,
-      qdrantAllowedHosts,
-      qdrantClient,
-    ));
+    const qdrantReachable = await Effect.runPromise(probeQdrantService(qdrantSdk));
     if (qdrantReachable._tag === 'Err') {
       handleQdrantUnavailable(qdrantReachable.error.code);
     } else if (!commandBoundaryExists(embeddingWorker)
@@ -686,21 +687,15 @@ const main = async (): Promise<void> => {
             const sourceKey = codeIndexKey(build.index, build.coverage, retrievalFingerprint, build.fileManifest);
             const collection = qdrantCollectionName(workspaceKey, embeddingFingerprint, retrievalFingerprint);
             const inspected = await Effect.runPromise(ensureQdrantCollection(
-              http,
-              qdrantUrl,
               collection,
               effectiveEmbedding.dimension,
-              qdrantAllowedHosts,
-              qdrantApiKey,
-              qdrantClient,
+              qdrantSdk,
               retrievalStrategy === 'dense' ? 'dense' : 'hybrid',
             ));
             if (inspected._tag === 'Err') return inspected;
             const buildQdrant = makeQdrantCodeCandidatePort({
-              baseUrl: qdrantUrl,
               collection,
-              client: qdrantClient,
-              allowedHosts: qdrantAllowedHosts,
+              sdk: qdrantSdk,
               providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
               trace: providerTrace,
             });
@@ -903,20 +898,16 @@ const main = async (): Promise<void> => {
                 embeddingFingerprint,
                 sparseEmbeddings,
                 {
-                  http,
-                  baseUrl: qdrantUrl,
+                  sdk: qdrantSdk,
                   collection,
-                  allowedHosts: qdrantAllowedHosts,
-                  client: qdrantClient,
                 },
                 new Set(build.coverage.failures.map((failure) => failure.repoPath)),
               )
               : reuseOrPopulateQdrantSnapshot(
-                build.index, buildQdrant, embeddings, http, qdrantUrl, collection,
-                registered.value.workspaceId, sourceKey, qdrantAllowedHosts, true, undefined,
+                build.index, buildQdrant, embeddings, qdrantSdk, collection,
+                registered.value.workspaceId, sourceKey, true, undefined,
                 embeddingFingerprint, collection,
                 sparseEmbeddings,
-                qdrantClient,
                 true, // stable physical membership permits mixed index_key values after changed-path publication
               ));
             if (indexed._tag === 'Err') { semanticLease.release(); return indexed; }
@@ -939,10 +930,8 @@ const main = async (): Promise<void> => {
               }
             }
             const qdrant = makeQdrantCodeCandidatePort({
-              baseUrl: qdrantUrl,
               collection,
-              client: qdrantClient,
-              allowedHosts: qdrantAllowedHosts,
+              sdk: qdrantSdk,
               providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/1.19.2',
               trace: providerTrace,
             });
