@@ -279,6 +279,49 @@ test('Hermes feedback jobs and manifests preserve exact gpt-6-luna-xhigh and xhi
   }
 });
 
+test('unsupported feedback reasoning effort is blocked instead of normalized', () => {
+  const job = {
+    tasks: [{ path: '/frozen/unsupported-effort-task' }],
+    agents: [{
+      import_path: feedbackHermesAgentImportPath,
+      model_name: 'openai-codex/gpt-6-luna-xhigh',
+      kwargs: {
+        version: feedbackHermesVersion,
+        reasoning_effort: 'ultra',
+        ace_context_enabled: false,
+      },
+    }],
+    n_concurrent_trials: 1,
+    n_attempts: 1,
+  };
+  const invalidJob = validateFeedbackHarborJob(job);
+  assert.equal(invalidJob._tag, 'Err');
+  if (invalidJob._tag === 'Err') assert.equal(invalidJob.error.code, 'INVALID_BENCHMARK');
+
+  const invalidManifest = validateFeedbackExperimentManifest({
+    schemaVersion: 1,
+    runId: 'unsupported-effort',
+    sourceCommit: 'c'.repeat(40),
+    taskManifestSha256: 'd'.repeat(64),
+    agent: 'hermes',
+    agentVersion: feedbackHermesVersion,
+    model: 'openai-codex/gpt-6-luna-xhigh',
+    reasoningEffort: 'ultra',
+    harborVersion: 'harbor 0.24.0',
+    taskImages: [{ reference: 'registry.example/task:1', digest: `sha256:${'e'.repeat(64)}` }],
+    agentAdapterSha256: 'f'.repeat(64),
+    aceContextBridgeSha256: 'a'.repeat(64),
+    contextPluginSha256: 'b'.repeat(64),
+    seed: 'unknown',
+    mode: 'cold',
+    nConcurrentTrials: 1,
+    nAttempts: 1,
+    authenticationRoute: hermesCodexAuthenticationRoute,
+  });
+  assert.equal(invalidManifest._tag, 'Err');
+  if (invalidManifest._tag === 'Err') assert.equal(invalidManifest.error.code, 'INVALID_BENCHMARK');
+});
+
 test('explicit image digest cannot contradict experiment task-image provenance', () => {
   const module = feedbackPreflight as unknown as {
     readonly validateFeedbackImageOverride?: (
