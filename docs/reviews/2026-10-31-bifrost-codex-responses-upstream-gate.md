@@ -4,7 +4,7 @@
 
 ## Scope
 
-The target is the full Hermes agent using its existing `openai-codex` OAuth store, exact model `openai-codex/gpt-6-luna-xhigh`, and `reasoning_effort=xhigh`, routed through Bifrost Responses. API-key and Chat Completions fallback are excluded. ACE must own exactly one projection path, and private requests require `store:false` plus an attempt-bound final-egress/usage receipt.
+The target is the full Hermes agent using its existing `openai-codex` OAuth store, exact model `openai-codex/gpt-6-luna`, and `reasoning_effort=xhigh`, routed through Bifrost Responses. API-key and Chat Completions fallback are excluded. ACE must own exactly one projection path, and private requests require `store:false` plus an attempt-bound final-egress/usage receipt.
 
 No Bifrost code was copied or modified. No experimental upstream revision was pinned.
 
@@ -24,9 +24,9 @@ Relevant source boundaries:
 - In the ACE checkout, `integrations/bifrost/ace-connector/plugin/main.go:108-137` only projects `/v1/chat/completions` and labels it `openai.chat.completions`; `:195-196` leaves `PostLLMHook` as a no-op.
 - The retained ACE wire review `docs/reviews/2026-10-25-bifrost-gateway-wire-e2e.md` is `MOCK-PASS` for one Chat Completions route only; it explicitly does not certify Responses, streaming, or a real provider.
 
-Generic OpenAI Responses support is not proof of a Codex subscription OAuth route. The pinned Bifrost tree contains no exact `gpt-6-luna-xhigh` model entry. The Bifrost token-count endpoint is a candidate provider-native counter, but its compatibility with this exact model and caller OAuth route is unverified; it also does not establish the model's effective context window.
+Generic OpenAI Responses support is not proof of a Codex subscription OAuth route. The pinned Bifrost tree contains no exact `gpt-6-luna` model entry. The Bifrost token-count endpoint is a candidate provider-native counter, but its compatibility with this exact model and caller OAuth route is unverified; it also does not establish the model's effective context window.
 
-The pinned Hermes runtime is a separate boundary and must not be conflated with Bifrost readiness. Hermes tag `v0.22.3` resolves to commit `5b147ab036d6d19131bff8d20701b5001eab844a`. At that commit, `agent/reasoning_effort.py` declares `xhigh` in the Codex reasoning ladder, `hermes_cli/codex_models.py` lists `gpt-6-luna` in the static Codex catalog, and `agent/transports/codex.py` strips only the explicit Hermes `-900k` context alias before the wire. It does not define a special `gpt-6-luna-xhigh` alias or strip an `-xhigh` suffix. Therefore this PR may preserve an owner-selected exact slug for later provider validation, but it does **not** prove that slug is routable. Provider-wire acceptance remains blocked until the real authenticated route accepts the exact model identity.
+The pinned Hermes runtime is a separate boundary and must not be conflated with Bifrost readiness. Hermes tag `v0.22.3` resolves to commit `5b147ab036d6d19131bff8d20701b5001eab844a`. At that commit, `agent/reasoning_effort.py` declares `xhigh` in the Codex reasoning ladder, `hermes_cli/codex_models.py` lists `gpt-6-luna` in the static Codex catalog, and `agent/transports/codex.py` strips only the explicit Hermes `-900k` context alias before the wire. Hermes keeps the model slug and reasoning level separate; it does not define or strip an `-xhigh` model suffix. Therefore this PR preserves the upstream-recognized `gpt-6-luna` slug and the independent `xhigh` effort. Provider-wire acceptance still remains blocked until the real authenticated route accepts that exact model/effort pair.
 
 ACE also must not hard-code a guessed context window for this configuration. Hermes `v0.22.3` already owns provider-aware Codex context resolution (including live metadata and its own fallback/opt-in context variants), so the Harbor adapter leaves `context_length` unset instead of overriding it locally.
 
