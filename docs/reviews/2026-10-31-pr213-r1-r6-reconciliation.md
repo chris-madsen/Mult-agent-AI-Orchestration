@@ -35,7 +35,7 @@
 
 ### R6 — full Hermes through Bifrost Responses: blocked/incomplete
 
-- Counter/window: `src/bin/ace-mcp.ts` still constructs `makeContextAssembler()` without a verified model-compatible counter; `src/application/gateway-projection-service.ts` still derives the budget from the request deadline. The exact counter and effective context window for `openai-codex/gpt-6-luna-xhigh` remain unverified.
+- Counter/window: `src/bin/ace-mcp.ts` still constructs `makeContextAssembler()` without a verified model-compatible counter; `src/application/gateway-projection-service.ts` still derives the budget from the request deadline. The exact counter and effective context window for `openai-codex/gpt-6-luna` with separate `reasoning_effort=xhigh` remain unverified.
 - The current ACE gateway advertises only `openai.chat.completions`; `/internal/ace-gateway/v1/record-delivery` still returns 501; `PostLLMHook` still passes the response through without a final usage receipt. No Responses provider-wire or final-egress receipt has been proven.
 - The full Hermes CLI path through Bifrost `/v1/responses`, Hermes-owned Codex OAuth without an API key, exact `reasoning_effort=xhigh`, privacy-safe `store:false`, final-wire identity, and a matched Hermes pair remain unverified. Chat Completions is not an acceptable route or fallback.
 - As checked on 2026-10-31, Bifrost PRs #4548 (OAuth pass-through for Responses), #8008 (caller OAuth preservation), and #9142 (terminal Responses usage) remained open. The latest review evidence for #4548 reports a raw-body path that may bypass `store:false`; do not merge, pin, or use that path until the current implementation proves the privacy invariant. No experimental pin or private-code egress approval is recorded.
