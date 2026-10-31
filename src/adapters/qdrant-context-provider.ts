@@ -527,6 +527,10 @@ export const ensureQdrantCollection = (
     } as Parameters<QdrantClient['createCollection']>[1]),
     'collection creation',
   );
+  const concurrentCreateConflict = created._tag === 'Err'
+    && created.error.code === 'EXTERNAL_UNAVAILABLE'
+    && /\b409\b/u.test(created.error.message);
+  if (created._tag === 'Err' && !concurrentCreateConflict) return created;
   // Acknowledged creation is not proof that the collection's actual schema
   // matches the configured vector mode. The same read-back check covers
   // successful creation and concurrent creators without a second protocol path.

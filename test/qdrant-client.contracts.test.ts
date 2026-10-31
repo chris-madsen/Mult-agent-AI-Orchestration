@@ -234,6 +234,25 @@ test('Qdrant SDK lifecycle rejects false mutation results', async () => {
   assert.equal(switched._tag, 'Err', 'false alias update result must not be accepted as success');
 });
 
+test('Qdrant collection bootstrap does not hide non-conflict creation failures', async () => {
+  let collectionReads = 0;
+  const client = {
+    getCollection: async () => {
+      collectionReads += 1;
+      if (collectionReads === 1) throw new Error('404 Not Found');
+      return { config: { params: { vectors: { dense: { size: 384, distance: 'Cosine' } } } } };
+    },
+    createCollection: async () => { throw new Error('403 Forbidden'); },
+  } as unknown as QdrantClient;
+  const result = await Effect.runPromise(ensureQdrantCollection(
+    { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
+    'http://127.0.0.1:6333', 'ace-denied-create', 384, [], undefined, client, 'dense',
+  ));
+  assert.equal(result._tag, 'Err');
+  if (result._tag === 'Err') assert.equal(result.error.code, 'EXTERNAL_UNAVAILABLE');
+  assert.equal(collectionReads, 1, 'non-conflict create failure must not be converted to read-back success');
+});
+
 test('stable Qdrant mutation deletes only the changed workspace path through the SDK', async () => {
   const deletes: unknown[] = [];
   const client = {
