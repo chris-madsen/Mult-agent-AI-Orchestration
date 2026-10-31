@@ -32,6 +32,7 @@ import {
 } from '../src/adapters/http-provider-boundaries.js';
 import { makeHarborRunner, makeNodeCommandPort, type CommandPort } from '../src/adapters/harbor-runner.js';
 import { selectJevRouteOverHttp } from '../src/adapters/jev-route-provider.js';
+import { makeQdrantSdkTestPort } from './helpers/qdrant-sdk-test-double.js';
 import {
   beginProjection,
   decisionStateAt,
@@ -525,9 +526,8 @@ test('RTE-04 workspace status distinguishes ready, degraded, disabled and not-re
 
 test('EXT-01 Qdrant boundary maps valid points but never claims freshness', async () => {
   const port = makeQdrantCodeCandidatePort({
-    baseUrl: 'http://127.0.0.1:6333',
     collection: 'code',
-    client: {
+    sdk: makeQdrantSdkTestPort({
       query: async () => ({
         points: [{
           score: 0.91,
@@ -543,7 +543,7 @@ test('EXT-01 Qdrant boundary maps valid points but never claims freshness', asyn
           },
         }],
       }),
-    } as unknown as QdrantClient,
+    } as unknown as QdrantClient),
   });
   const result = mustOk(await Effect.runPromise(port.search({ workspaceId, vector: [0.1, 0.2], limit: 3 })));
   assert.equal(result[0]?.freshness, 'unknown');
