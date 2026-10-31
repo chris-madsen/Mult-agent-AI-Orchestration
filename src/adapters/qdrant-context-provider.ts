@@ -775,12 +775,21 @@ export const readQdrantSnapshotVectors = (
       return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior snapshot vector response requires points'));
     }
     for (const point of points) {
-      if (typeof point !== 'object' || point === null || Array.isArray(point)) continue;
+      if (typeof point !== 'object' || point === null || Array.isArray(point)) {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior snapshot point must be an object'));
+      }
       const record = point as { payload?: unknown; vector?: unknown };
-      if (typeof record.payload !== 'object' || record.payload === null || Array.isArray(record.payload)) continue;
+      if (typeof record.payload !== 'object' || record.payload === null || Array.isArray(record.payload)) {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior snapshot point requires a payload object'));
+      }
       const candidateId = (record.payload as { candidate_id?: unknown }).candidate_id;
       const embeddingKey = (record.payload as { embedding_key?: unknown }).embedding_key;
-      if (typeof candidateId !== 'string') continue;
+      if (typeof candidateId !== 'string' || candidateId.trim().length === 0) {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior snapshot point requires a non-empty candidate_id payload'));
+      }
+      if (embeddingKey !== undefined && (typeof embeddingKey !== 'string' || embeddingKey.trim().length === 0)) {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior snapshot point has an invalid embedding_key payload'));
+      }
       const denseVector = Array.isArray(record.vector)
         ? record.vector
         : typeof record.vector === 'object' && record.vector !== null && !Array.isArray(record.vector)
@@ -790,7 +799,14 @@ export const readQdrantSnapshotVectors = (
         || !denseVector.every((value) => typeof value === 'number' && Number.isFinite(value))) {
         return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_vector', 'prior snapshot contains an invalid dense vector'));
       }
-      vectors.set(typeof embeddingKey === 'string' ? embeddingKey : candidateId, denseVector as number[]);
+      const cacheKey = typeof embeddingKey === 'string' ? embeddingKey : candidateId;
+      const previous = vectors.get(cacheKey);
+      if (previous !== undefined
+        && (previous.length !== denseVector.length
+          || previous.some((value, index) => value !== denseVector[index]))) {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_vector', 'prior snapshot has conflicting vectors for the same cache key'));
+      }
+      vectors.set(cacheKey, denseVector as number[]);
     }
     if (nextPageOffset === undefined || nextPageOffset === null) break;
     offset = nextPageOffset;

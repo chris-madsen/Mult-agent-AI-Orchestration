@@ -435,3 +435,97 @@ test('snapshot verification and vector reuse stay on the authenticated Qdrant SD
     Array.isArray((request as { with_payload?: unknown }).with_payload)
     && (request as { with_payload: string[] }).with_payload.includes('embedding_key')));
 });
+
+test('Qdrant snapshot vector reuse rejects malformed SDK points instead of returning partial vectors', async () => {
+  const malformedPoints: unknown[] = [
+    null,
+    { payload: null, vector: [0.1, 0.2] },
+    { payload: { candidate_id: 42 }, vector: [0.1, 0.2] },
+  ];
+
+  for (const point of malformedPoints) {
+    const client = {
+      scroll: async () => ({ points: [point], next_page_offset: null }),
+    } as unknown as QdrantClient;
+    const result = await Effect.runPromise(readQdrantSnapshotVectors(
+      { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
+      'http://127.0.0.1:6333',
+      'ace-sdk',
+      workspaceId,
+      undefined,
+      [],
+      client,
+    ));
+
+    assert.equal(result._tag, 'Err', 'malformed SDK points must not become an empty successful snapshot');
+    if (result._tag === 'Err') assert.equal(result.error.code, 'INVALID_EXTERNAL_RESPONSE');
+  }
+});
+
+
+test('Qdrant snapshot vector reuse rejects empty or malformed cache identities', async () => {
+  const payloads: unknown[] = [
+    { candidate_id: '' },
+    { candidate_id: '   ' },
+    { candidate_id: candidate.candidateId, embedding_key: '' },
+    { candidate_id: candidate.candidateId, embedding_key: 42 },
+  ];
+  for (const payload of payloads) {
+    const client = {
+      scroll: async () => ({
+        points: [{ payload, vector: { dense: [0.1, 0.2] } }],
+        next_page_offset: null,
+      }),
+    } as unknown as QdrantClient;
+    const result = await Effect.runPromise(readQdrantSnapshotVectors(
+      { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
+      'http://127.0.0.1:6333', 'ace-sdk', workspaceId, undefined, [], client,
+    ));
+    assert.equal(result._tag, 'Err', 'empty or malformed cache identity must not be accepted');
+    if (result._tag === 'Err') assert.equal(result.error.code, 'INVALID_EXTERNAL_RESPONSE');
+  }
+});
+
+test('Qdrant snapshot vector reuse rejects conflicting vectors for the same embedding key', async () => {
+  const point = (id: string, vector: number[]) => ({
+    payload: { candidate_id: id, embedding_key: 'same-content-key' },
+    vector: { dense: vector },
+  });
+  const client = {
+    scroll: async () => ({
+      points: [
+        point('candidate-one', [0.1, 0.2]),
+        point('candidate-two', [0.9, 0.8]),
+      ],
+      next_page_offset: null,
+    }),
+  } as unknown as QdrantClient;
+  const result = await Effect.runPromise(readQdrantSnapshotVectors(
+    { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
+    'http://127.0.0.1:6333', 'ace-sdk', workspaceId, undefined, [], client,
+  ));
+  assert.equal(result._tag, 'Err', 'same content-address must not silently select conflicting dense vectors');
+  if (result._tag === 'Err') assert.equal(result.error.code, 'INVALID_EXTERNAL_RESPONSE');
+});
+
+
+test('Qdrant vector reuse allows identical vectors sharing a content key', async () => {
+  const client = {
+    scroll: async () => ({
+      points: [
+        { payload: { candidate_id: 'first', embedding_key: 'shared-content' }, vector: { dense: [0.1, 0.2] } },
+        { payload: { candidate_id: 'second', embedding_key: 'shared-content' }, vector: { dense: [0.1, 0.2] } },
+      ],
+      next_page_offset: null,
+    }),
+  } as unknown as QdrantClient;
+  const result = await Effect.runPromise(readQdrantSnapshotVectors(
+    { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
+    'http://127.0.0.1:6333', 'ace-sdk', workspaceId, undefined, [], client,
+  ));
+  assert.equal(result._tag, 'Ok', 'legitimate content-addressed duplicates must remain reusable');
+  if (result._tag === 'Ok') {
+    assert.equal(result.value.size, 1);
+    assert.deepEqual(result.value.get('shared-content'), [0.1, 0.2]);
+  }
+});
