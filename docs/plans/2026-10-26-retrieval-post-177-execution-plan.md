@@ -1046,7 +1046,7 @@ Inspected source references (pins are evidence references, not instructions to u
 
 **Modify:** src/adapters/http-provider-boundaries.ts; src/adapters/qdrant-context-provider.ts; src/bin/ace-mcp.ts; actual script callers. **Tests:** test/qdrant-client.contracts.test.ts, test/qdrant-alias.contracts.test.ts, test/qdrant-real-pipeline.contracts.test.ts, test/provider-and-multiprocess-contracts.test.ts.
 
-- [ ] Inventory every SDK/raw branch and authenticated caller. Define the existing CodeCandidatePort and collection/membership operations as the preserved boundary; keep ACE DTO validation.
+- [x] Inventory every SDK/raw branch and authenticated caller. Define the existing CodeCandidatePort and collection/membership operations as the preserved boundary; keep ACE DTO validation. Evidence: `docs/reviews/2026-10-31-qdrant-r1-sdk-owner-inventory.md`, source baseline `main@13a64a8fe4240d68ff7ef2d453a857354585b51d`.
 - [ ] Add matching SDK fixtures for query/upsert/delete/count/scroll/alias/collection failure and malformed responses. Preserve wrong-workspace rejection, empty-versus-outage distinction and credential handling.
 - [ ] Require the SDK in the real adapter; move protocol test doubles to a typed SDK seam. Remove REST envelope normalization, duplicate URL/body construction and count/scroll fallbacks.
 - [ ] Move Qdrant client operations into one focused adapter owner; moved implementations are deleted immediately from the large provider. Do not introduce a pass-through owner for every method.
