@@ -136,6 +136,57 @@ test('Qdrant SDK adapters reject raw REST envelopes and legacy array responses',
   if (collection._tag === 'Err') assert.equal(collection.error.code, 'INVALID_EXTERNAL_RESPONSE');
 });
 
+test('Qdrant SDK query rejects non-finite ranking scores', async () => {
+  for (const score of [NaN, Infinity, -Infinity]) {
+    const client = {
+      query: async () => ({
+        points: [{
+          score,
+          payload: {
+            candidate_id: candidate.candidateId,
+            workspace_id: workspaceId,
+            repo_path: candidate.repoPath,
+            start_line: 1,
+            end_line: 1,
+            text,
+            source_digest: candidate.sourceDigest,
+            generation: 1,
+          },
+        }],
+      }),
+    } as unknown as QdrantClient;
+    const port = makeQdrantCodeCandidatePort({
+      baseUrl: 'http://127.0.0.1:6333',
+      collection: 'ace-sdk-invalid-scores',
+      client,
+    });
+    const searched = await Effect.runPromise(port.search({
+      workspaceId, vector: [0.1, 0.2], strategy: 'dense', limit: 1,
+    }));
+    assert.equal(searched._tag, 'Err', 'non-finite scores must never enter ranking');
+    if (searched._tag === 'Err') assert.equal(searched.error.code, 'INVALID_EXTERNAL_RESPONSE');
+  }
+});
+
+test('Qdrant SDK collection creation verifies the published schema before returning ready', async () => {
+  let reads = 0;
+  const client = {
+    getCollection: async () => {
+      reads += 1;
+      if (reads === 1) throw new Error('404 Not Found');
+      return { config: { params: { vectors: { dense: { size: 256, distance: 'Cosine' } } } } };
+    },
+    createCollection: async () => true,
+  } as unknown as QdrantClient;
+  const http = { request: () => Effect.succeed(ok({ status: 500, body: {} })) };
+  const result = await Effect.runPromise(ensureQdrantCollection(
+    http, 'http://127.0.0.1:6333', 'ace-sdk-schema-race', 384, [], undefined, client, 'dense',
+  ));
+  assert.equal(result._tag, 'Err', 'creation acknowledgement is not collection schema verification');
+  if (result._tag === 'Err') assert.equal(result.error.code, 'INVALID_EXTERNAL_RESPONSE');
+  assert.ok(reads >= 2, 'collection metadata must be re-read after creation');
+});
+
 test('Qdrant SDK mutations require completed operation status', async () => {
   const client = {
     upsert: async () => ({ status: 'acknowledged' }),
