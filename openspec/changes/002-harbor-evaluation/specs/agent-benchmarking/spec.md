@@ -17,7 +17,7 @@ The system SHALL run a native Hermes baseline with normal shell, code-search and
 
 #### Scenario: Exact owner-selected model and reasoning effort
 
-- **WHEN** the owner selects `openai-codex/gpt-6-luna-xhigh` with `reasoning_effort=xhigh`
+- **WHEN** the owner selects `openai-codex/gpt-6-luna` with `reasoning_effort=xhigh`
 - **THEN** generated Hermes jobs, experiment manifests and preflight bindings preserve both values exactly
 - **AND** unsupported values are blocked rather than normalized or downgraded
 
