@@ -435,3 +435,29 @@ test('snapshot verification and vector reuse stay on the authenticated Qdrant SD
     Array.isArray((request as { with_payload?: unknown }).with_payload)
     && (request as { with_payload: string[] }).with_payload.includes('embedding_key')));
 });
+
+test('Qdrant snapshot vector reuse rejects malformed SDK points instead of returning partial vectors', async () => {
+  const malformedPoints: unknown[] = [
+    null,
+    { payload: null, vector: [0.1, 0.2] },
+    { payload: { candidate_id: 42 }, vector: [0.1, 0.2] },
+  ];
+
+  for (const point of malformedPoints) {
+    const client = {
+      scroll: async () => ({ points: [point], next_page_offset: null }),
+    } as unknown as QdrantClient;
+    const result = await Effect.runPromise(readQdrantSnapshotVectors(
+      { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
+      'http://127.0.0.1:6333',
+      'ace-sdk',
+      workspaceId,
+      undefined,
+      [],
+      client,
+    ));
+
+    assert.equal(result._tag, 'Err', 'malformed SDK points must not become an empty successful snapshot');
+    if (result._tag === 'Err') assert.equal(result.error.code, 'INVALID_EXTERNAL_RESPONSE');
+  }
+});

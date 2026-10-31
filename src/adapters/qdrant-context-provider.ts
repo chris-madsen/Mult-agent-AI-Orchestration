@@ -775,12 +775,18 @@ export const readQdrantSnapshotVectors = (
       return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior snapshot vector response requires points'));
     }
     for (const point of points) {
-      if (typeof point !== 'object' || point === null || Array.isArray(point)) continue;
+      if (typeof point !== 'object' || point === null || Array.isArray(point)) {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior snapshot point must be an object'));
+      }
       const record = point as { payload?: unknown; vector?: unknown };
-      if (typeof record.payload !== 'object' || record.payload === null || Array.isArray(record.payload)) continue;
+      if (typeof record.payload !== 'object' || record.payload === null || Array.isArray(record.payload)) {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior snapshot point requires a payload object'));
+      }
       const candidateId = (record.payload as { candidate_id?: unknown }).candidate_id;
       const embeddingKey = (record.payload as { embedding_key?: unknown }).embedding_key;
-      if (typeof candidateId !== 'string') continue;
+      if (typeof candidateId !== 'string') {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior snapshot point requires a candidate_id payload'));
+      }
       const denseVector = Array.isArray(record.vector)
         ? record.vector
         : typeof record.vector === 'object' && record.vector !== null && !Array.isArray(record.vector)
