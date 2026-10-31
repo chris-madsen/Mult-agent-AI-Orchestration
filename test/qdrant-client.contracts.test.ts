@@ -508,3 +508,24 @@ test('Qdrant snapshot vector reuse rejects conflicting vectors for the same embe
   if (result._tag === 'Err') assert.equal(result.error.code, 'INVALID_EXTERNAL_RESPONSE');
 });
 
+
+test('Qdrant vector reuse allows identical vectors sharing a content key', async () => {
+  const client = {
+    scroll: async () => ({
+      points: [
+        { payload: { candidate_id: 'first', embedding_key: 'shared-content' }, vector: { dense: [0.1, 0.2] } },
+        { payload: { candidate_id: 'second', embedding_key: 'shared-content' }, vector: { dense: [0.1, 0.2] } },
+      ],
+      next_page_offset: null,
+    }),
+  } as unknown as QdrantClient;
+  const result = await Effect.runPromise(readQdrantSnapshotVectors(
+    { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
+    'http://127.0.0.1:6333', 'ace-sdk', workspaceId, undefined, [], client,
+  ));
+  assert.equal(result._tag, 'Ok', 'legitimate content-addressed duplicates must remain reusable');
+  if (result._tag === 'Ok') {
+    assert.equal(result.value.size, 1);
+    assert.deepEqual(result.value.get('shared-content'), [0.1, 0.2]);
+  }
+});
