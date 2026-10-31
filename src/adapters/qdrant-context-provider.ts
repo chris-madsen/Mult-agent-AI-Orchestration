@@ -488,11 +488,8 @@ export const ensureQdrantCollection = (
     return err(domainError('INVALID_INPUT', 'vector_dimension', 'invalid embedding dimension'));
   }
   const verifyExisting = (body: unknown): Result<void, DomainError> => {
-    const outer = typeof body === 'object' && body !== null && !Array.isArray(body)
+    const direct = typeof body === 'object' && body !== null && !Array.isArray(body)
       ? body as Record<string, unknown> : {};
-    // SDK facade returns CollectionInfo directly; raw REST returns { result: CollectionInfo }.
-    const direct = typeof outer.result === 'object' && outer.result !== null && !Array.isArray(outer.result)
-      ? outer.result as Record<string, unknown> : outer;
     const config = typeof direct.config === 'object' && direct.config !== null && !Array.isArray(direct.config)
       ? direct.config as Record<string, unknown> : {};
     const params = typeof config.params === 'object' && config.params !== null && !Array.isArray(config.params)
@@ -530,7 +527,9 @@ export const ensureQdrantCollection = (
     } as Parameters<QdrantClient['createCollection']>[1]),
     'collection creation',
   );
-  if (created._tag === 'Ok') return created;
+  // Acknowledged creation is not proof that the collection's actual schema
+  // matches the configured vector mode. The same read-back check covers
+  // successful creation and concurrent creators without a second protocol path.
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const raced = yield* qdrantSdkCall(() => client.getCollection(collection));
     if (raced._tag === 'Ok') return verifyExisting(raced.value);
