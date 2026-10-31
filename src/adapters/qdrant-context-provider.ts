@@ -703,8 +703,11 @@ export const readQdrantSnapshotVectors = (
       }
       const candidateId = (record.payload as { candidate_id?: unknown }).candidate_id;
       const embeddingKey = (record.payload as { embedding_key?: unknown }).embedding_key;
-      if (typeof candidateId !== 'string') {
-        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior snapshot point requires a candidate_id payload'));
+      if (typeof candidateId !== 'string' || candidateId.trim().length === 0) {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior snapshot point requires a non-empty candidate_id payload'));
+      }
+      if (embeddingKey !== undefined && (typeof embeddingKey !== 'string' || embeddingKey.trim().length === 0)) {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior snapshot point has an invalid embedding_key payload'));
       }
       const denseVector = Array.isArray(record.vector)
         ? record.vector
@@ -715,7 +718,14 @@ export const readQdrantSnapshotVectors = (
         || !denseVector.every((value) => typeof value === 'number' && Number.isFinite(value))) {
         return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_vector', 'prior snapshot contains an invalid dense vector'));
       }
-      vectors.set(typeof embeddingKey === 'string' ? embeddingKey : candidateId, denseVector as number[]);
+      const cacheKey = typeof embeddingKey === 'string' ? embeddingKey : candidateId;
+      const previous = vectors.get(cacheKey);
+      if (previous !== undefined
+        && (previous.length !== denseVector.length
+          || previous.some((value, index) => value !== denseVector[index]))) {
+        return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_vector', 'prior snapshot has conflicting vectors for the same cache key'));
+      }
+      vectors.set(cacheKey, denseVector as number[]);
     }
     if (scrolled.value.nextPageOffset === undefined || scrolled.value.nextPageOffset === null) break;
     offset = scrolled.value.nextPageOffset;
