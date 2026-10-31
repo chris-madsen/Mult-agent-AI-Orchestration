@@ -461,7 +461,7 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
   const run = (output: string) => spawnSync(resolve('node_modules/.bin/tsx'), [
     'scripts/prepare-harbor-feedback-jobs.ts',
     '--task-manifest', manifestPath, '--source-root', source, '--ace-root', ace,
-    '--output', output, '--run-id', 'frozen-test', '--model', 'gpt-6-luna-xhigh',
+    '--output', output, '--run-id', 'frozen-test', '--model', 'gpt-6-luna',
     '--reasoning', 'xhigh', '--image-digest', 'sha256:' + 'a'.repeat(64),
   ], { cwd: resolve('.'), encoding: 'utf8', timeout: 120_000, env: { ...process.env, PATH: `${dockerBin}:${process.env.PATH ?? ''}` } });
   const firstOutput = join(root, 'first');
@@ -473,7 +473,7 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
   const job = JSON.parse(await readFile(join(firstOutput, 'ace-optional-job.json'), 'utf8'));
   assert.equal('mounts' in job.environment, false);
   assert.equal(job.agents[0].import_path, feedbackHermesAgentImportPath);
-  assert.equal(job.agents[0].model_name, 'openai-codex/gpt-6-luna-xhigh');
+  assert.equal(job.agents[0].model_name, 'openai-codex/gpt-6-luna');
   assert.equal(job.agents[0].kwargs.version, feedbackHermesVersion);
   assert.equal(job.agents[0].kwargs.reasoning_effort, 'xhigh');
   assert.equal(job.agents[0].kwargs.ace_context_enabled, true);
@@ -493,10 +493,10 @@ test('Harbor preparation binds actual clean Git blobs and blocks dirty source', 
   assert.equal(prepared.aceRuntimeSha256, prepared.aceContextBridgeSha256);
   assert.equal(prepared.contextPlugin, feedbackHermesContextPluginPath);
   assert.equal(prepared.verifiedSourceDigest, sourceDigest);
-  assert.equal(prepared.model, 'openai-codex/gpt-6-luna-xhigh');
+  assert.equal(prepared.model, 'openai-codex/gpt-6-luna');
   assert.equal(prepared.reasoningEffort, 'xhigh');
   const experiment = JSON.parse(await readFile(join(firstOutput, 'experiment-manifest.json'), 'utf8'));
-  assert.equal(experiment.model, 'openai-codex/gpt-6-luna-xhigh');
+  assert.equal(experiment.model, 'openai-codex/gpt-6-luna');
   assert.equal(experiment.reasoningEffort, 'xhigh');
   await writeFile(join(source, 'tasks', 'task-1', 'test.txt'), 'tampered task\n');
   const secondOutput = join(root, 'second');
