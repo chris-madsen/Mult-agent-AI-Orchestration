@@ -173,7 +173,7 @@ test('Qdrant SDK collection creation verifies the published schema before return
   const client = {
     getCollection: async () => {
       reads += 1;
-      if (reads === 1) throw new Error('404 Not Found');
+      if (reads === 1) throw new Error('Unexpected Response: 404 (Not Found)');
       return { config: { params: { vectors: { dense: { size: 256, distance: 'Cosine' } } } } };
     },
     createCollection: async () => true,
@@ -216,7 +216,7 @@ test('Qdrant SDK mutations require completed operation status', async () => {
 test('Qdrant SDK lifecycle rejects false mutation results', async () => {
   const http = { request: () => Effect.succeed(ok({ status: 500, body: {} })) };
   const createClient = {
-    getCollection: async () => { throw new Error('404 Not Found'); },
+    getCollection: async () => { throw new Error('Unexpected Response: 404 (Not Found)'); },
     createCollection: async () => false,
   } as unknown as QdrantClient;
   const created = await Effect.runPromise(ensureQdrantCollection(
@@ -232,6 +232,62 @@ test('Qdrant SDK lifecycle rejects false mutation results', async () => {
     http, 'http://127.0.0.1:6333', 'ace-current', 'ace-target', [], aliasClient,
   ));
   assert.equal(switched._tag, 'Err', 'false alias update result must not be accepted as success');
+});
+
+test('Qdrant collection bootstrap does not hide non-conflict creation failures', async () => {
+  let collectionReads = 0;
+  const client = {
+    getCollection: async () => {
+      collectionReads += 1;
+      if (collectionReads === 1) throw new Error('Unexpected Response: 404 (Not Found)');
+      return { config: { params: { vectors: { dense: { size: 384, distance: 'Cosine' } } } } };
+    },
+    createCollection: async () => { throw new Error('Unexpected Response: 403 (Forbidden)'); },
+  } as unknown as QdrantClient;
+  const result = await Effect.runPromise(ensureQdrantCollection(
+    { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
+    'http://127.0.0.1:6333', 'ace-denied-create', 384, [], undefined, client, 'dense',
+  ));
+  assert.equal(result._tag, 'Err');
+  if (result._tag === 'Err') assert.equal(result.error.code, 'EXTERNAL_UNAVAILABLE');
+  assert.equal(collectionReads, 1, 'non-conflict create failure must not be converted to read-back success');
+});
+
+
+test('Qdrant bootstrap does not mistake 409 in a 403 SDK error body for a create conflict', async () => {
+  let collectionReads = 0;
+  const client = {
+    getCollection: async () => {
+      collectionReads += 1;
+      if (collectionReads === 1) throw new Error('Unexpected Response: 404 (Not Found)');
+      return { config: { params: { vectors: { dense: { size: 384, distance: 'Cosine' } } } } };
+    },
+    createCollection: async () => {
+      throw new Error('Unexpected Response: 403 (Forbidden)\\nRaw response content:\\n{"request_id":"409"}');
+    },
+  } as unknown as QdrantClient;
+  const result = await Effect.runPromise(ensureQdrantCollection(
+    { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
+    'http://127.0.0.1:6333', 'ace-denied-with-409-in-body', 384, [], undefined, client, 'dense',
+  ));
+  assert.equal(result._tag, 'Err', 'HTTP 403 must not be converted to collection readiness');
+  assert.equal(collectionReads, 1, 'non-conflict errors must never perform schema read-back');
+});
+
+test('Qdrant bootstrap does not attempt creation for a 500 SDK response mentioning 404', async () => {
+  let creations = 0;
+  const client = {
+    getCollection: async () => {
+      throw new Error('Unexpected Response: 500 (Internal Server Error)\\nRaw response content:\\n{"reference":"404"}');
+    },
+    createCollection: async () => { creations += 1; return true; },
+  } as unknown as QdrantClient;
+  const result = await Effect.runPromise(ensureQdrantCollection(
+    { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
+    'http://127.0.0.1:6333', 'ace-500-with-404-in-body', 384, [], undefined, client, 'dense',
+  ));
+  assert.equal(result._tag, 'Err');
+  assert.equal(creations, 0, 'a non-404 lookup failure must not create a collection');
 });
 
 test('stable Qdrant mutation deletes only the changed workspace path through the SDK', async () => {
@@ -292,7 +348,7 @@ test('Qdrant SDK lifecycle accepts direct collection and alias shapes with dense
   const client = {
     getCollections: async () => ({ collections: [] }),
     getCollection: async (name: string) => {
-      if (!collections.has(name)) throw new Error('404 Not Found');
+      if (!collections.has(name)) throw new Error('Unexpected Response: 404 (Not Found)');
       return { config: { params: { vectors: { dense: { size: 384, distance: 'Cosine' } } } } };
     },
     createCollection: async (name: string, input: unknown) => {

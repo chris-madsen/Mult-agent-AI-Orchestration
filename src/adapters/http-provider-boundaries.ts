@@ -49,6 +49,18 @@ const externalFailure = (response: HttpResponse, provider: string): Result<never
 
 const successful = (response: HttpResponse): boolean => response.status >= 200 && response.status < 300;
 
+// Preserve HTTP status at the official SDK boundary; the textual error body
+// may contain unrelated numbers (including 404 and 409). The pinned Qdrant
+// REST SDK exposes either an ApiError.status or an Unexpected Response prefix.
+const qdrantSdkHttpStatus = (cause: unknown): number | undefined => {
+  const value = object(cause);
+  if (typeof value?.status === 'number' && Number.isSafeInteger(value.status)
+    && value.status >= 400 && value.status <= 599) return value.status;
+  if (!(cause instanceof Error)) return undefined;
+  const match = /^Unexpected Response: ([4-5][0-9]{2})(?:\s|$)/u.exec(cause.message);
+  return match === null ? undefined : Number(match[1]);
+};
+
 export const qdrantSdkCall = <Value>(
   action: () => Promise<Value>,
 ): Effect.Effect<Result<Value, DomainError>> => Effect.catchAll(
@@ -57,10 +69,12 @@ export const qdrantSdkCall = <Value>(
         try {
           return ok(await action());
         } catch (cause) {
+          const httpStatus = qdrantSdkHttpStatus(cause);
           return err(domainError(
             'EXTERNAL_UNAVAILABLE',
             'qdrant',
             cause instanceof Error ? cause.message : 'Qdrant SDK call failed',
+            httpStatus === undefined ? undefined : { httpStatus },
           ));
         }
       },
