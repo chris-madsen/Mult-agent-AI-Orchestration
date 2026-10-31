@@ -137,8 +137,8 @@ test('feedback jobs use Hermes openai-codex OAuth and native ContextEngine regis
   assert.match(adapter, /ace_workspace_root.*default="\/workspace"/u);
   assert.match(adapter, /ace_allowed_roots.*default="\/workspace"/u);
   assert.match(adapter, /config\["plugins"\]/u);
-  assert.match(adapter, /model_config.*default/u);
-  assert.match(adapter, /context_length.*128000/u);
+  assert.doesNotMatch(adapter, /model_config\["context_length"\]\s*=/u);
+  assert.doesNotMatch(adapter, /context_length\s*:\s*128000/u);
   assert.match(contextPlugin, /def register_context_engine\(context\)/u);
   assert.match(adapter, /status=\$\?/u);
   assert.match(adapter, /exit "\$status"/u);
