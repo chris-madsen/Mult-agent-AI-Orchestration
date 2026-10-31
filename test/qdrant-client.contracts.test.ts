@@ -173,7 +173,7 @@ test('Qdrant SDK collection creation verifies the published schema before return
   const client = {
     getCollection: async () => {
       reads += 1;
-      if (reads === 1) throw new Error('404 Not Found');
+      if (reads === 1) throw new Error('Unexpected Response: 404 (Not Found)');
       return { config: { params: { vectors: { dense: { size: 256, distance: 'Cosine' } } } } };
     },
     createCollection: async () => true,
@@ -216,7 +216,7 @@ test('Qdrant SDK mutations require completed operation status', async () => {
 test('Qdrant SDK lifecycle rejects false mutation results', async () => {
   const http = { request: () => Effect.succeed(ok({ status: 500, body: {} })) };
   const createClient = {
-    getCollection: async () => { throw new Error('404 Not Found'); },
+    getCollection: async () => { throw new Error('Unexpected Response: 404 (Not Found)'); },
     createCollection: async () => false,
   } as unknown as QdrantClient;
   const created = await Effect.runPromise(ensureQdrantCollection(
@@ -239,10 +239,10 @@ test('Qdrant collection bootstrap does not hide non-conflict creation failures',
   const client = {
     getCollection: async () => {
       collectionReads += 1;
-      if (collectionReads === 1) throw new Error('404 Not Found');
+      if (collectionReads === 1) throw new Error('Unexpected Response: 404 (Not Found)');
       return { config: { params: { vectors: { dense: { size: 384, distance: 'Cosine' } } } } };
     },
-    createCollection: async () => { throw new Error('403 Forbidden'); },
+    createCollection: async () => { throw new Error('Unexpected Response: 403 (Forbidden)'); },
   } as unknown as QdrantClient;
   const result = await Effect.runPromise(ensureQdrantCollection(
     { request: () => Effect.succeed(ok({ status: 500, body: {} })) },
@@ -348,7 +348,7 @@ test('Qdrant SDK lifecycle accepts direct collection and alias shapes with dense
   const client = {
     getCollections: async () => ({ collections: [] }),
     getCollection: async (name: string) => {
-      if (!collections.has(name)) throw new Error('404 Not Found');
+      if (!collections.has(name)) throw new Error('Unexpected Response: 404 (Not Found)');
       return { config: { params: { vectors: { dense: { size: 384, distance: 'Cosine' } } } } };
     },
     createCollection: async (name: string, input: unknown) => {
