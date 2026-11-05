@@ -91,6 +91,9 @@ Evidence used to close a gate must identify, as applicable, the **source commit,
 
 ## 8. Engineering workflow and change discipline
 
+For agent-neutral, single-agent Research → Design → Plan → Implement execution, use [`docs/operations/ai-assisted-sdlc.md`](docs/operations/ai-assisted-sdlc.md) as an **operational procedure**. It does not override the accepted ADR/OpenSpec, existing quality gates, branch/PR requirements or owner approval; it must not be mistaken for a tool-specific agent runner.
+
+
 Before changing code:
 
 1. inspect the **current implementation and runtime composition**;
