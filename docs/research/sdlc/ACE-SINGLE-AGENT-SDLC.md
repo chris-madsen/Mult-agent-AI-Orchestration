@@ -1,58 +1,159 @@
-# ACE Single-Agent AI-assisted SDLC — process specification
-**Status:** process specification for ACE. Supporting commands and templates are in this directory.
+# ACE — single-agent, agent-neutral SDLC architecture
 
-## Design principle
-Transfer the **rules inside the source prompts**, not just Research → Design → Plan → Implement. Do not copy Claude TeamCreate/TaskCreate/Delegate, Go conventions, or mandates for four agents. ONE agent handles sequential modes, while human approves material decisions and merge. The agent may imitate four REVIEW CHECKLISTS, but cannot claim four independent reviewers.
+## Purpose and authority
 
-## Source instructions → ACE mapping
-| Source | Rule preserved | ACE location |
-|---|---|---|
-| source/commands/research_codebase.md and codebase-researcher.md | Describe present code only; read directly cited files fully; capture exact file:line and commit; track entrypoints, dependencies and data flow; unknowns explicit | Existing OpenSpec research or one docs/research report |
-| source/commands/design_feature.md | Research only when needed; C4, DFD, sequence, decisions, testing coverage; conditional events/persistence/standards/API | Existing openspec/changes/<id>/design.md, link to ADR where needed |
-| source/examples/user-avatar/01-architecture.md | proposed vs current context/container/component and DI boundaries | Design architecture section only when boundaries change |
-| 02-behavior.md | normal, error and async sequences | Design behavior section |
-| 03-decisions.md | options, rationale, risks, unanswered owner choices | ADR if material, otherwise design table |
-| 04-testing.md | requirement / error / invariant → exact test mapping | OpenSpec specs and tasks |
-| 05-events.md, 06-repo-model.md, 08-api-contract.md | conditional artifacts: events, mapping and external contract | Include only if changed; explain N/A |
-| 07-standards.md, prompts/be/ | project-specific rules for implementer and reviewers | Refer to ACE root AGENTS.md + Accepted ADRs; DO NOT import Go rules |
-| plan/README.md, phase-01..08 | dependency-ordered small implementation slices, exact create/modify file map, verification and completion conditions | Existing OpenSpec tasks.md OR governing docs/plans file: one canonical plan |
-| implement_backend.md | phase gating; build/test/lint, architecture, security, plan completion; reject/rework; final cross-phase smoke | four sequential, separately reported self-check passes |
-| progress/checkpoint | persist state before compaction | brief report with SHA, PR, phase, outcomes, blocker and next action |
+The SDLC controls **how changes to ACE are developed**; it is not an AI runtime component. It works with any coding agent able to read repository files and run commands. The agent reads root AGENTS.md first and obeys the current accepted ADR/OpenSpec hierarchy.
 
-## Change risk tiers
-- **T0:** documentation/simple mechanical edits. No forced research or C4. Read owner rules; apply relevant checks; PR evidence.
-- **T1:** isolated bugfix. Fact-only mini-research, reproducible RED when feasible, minimal design, one small phase, GREEN plus four gates. For crash/race use deterministic failpoints instead of sleep.
-- **T2:** feature, architecture, public protocol, permissions, state ownership or egress. Full Research → Design → Plan → human decision → phases → gates → cross-phase review → real E2E where applicable → PR/CI/owner approval.
+Operational entrypoint: [docs/operations/ai-assisted-sdlc.md](../../operations/ai-assisted-sdlc.md).  
+Prompt router: [PROMPTS-ACE.md](PROMPTS-ACE.md).  
+Full workflows: [source/commands/](source/commands/).  
+Rules: [source/standards/](source/standards/).
 
-A one-line policy or authorization edit can be T2. Complexity is determined by risk, not diff size.
+## Critical distinction: SDLC vs ACE runtime
 
-## One-agent workflow contract
-1. INSPECT: root AGENTS, relevant accepted ADR/OpenSpec, existing code/tests, open PRs and exact HEAD; preserve unrelated edits.
-2. RESEARCH: only AS-IS facts with verified path:line; follow code entrypoints and full relevant reads, record gaps. NO unsolicited refactoring advice in this stage.
-3. DESIGN: distinguish observed AS-IS from intended TO-BE. Document necessary C4/dataflow/sequence, success/failure paths, alternatives, and impact on state/security/contracts. Human approval for new architectural owner choices.
-4. PLAN: smallest dependency-ordered phases with exact create/modify file map; tests and stop conditions for every phase. Use existing OpenSpec tasks or approved execution plan; do not create a duplicate parallel tracker.
-5. IMPLEMENT one unblocked slice: obtain RED for bug when practical, code minimal change, run affected tests.
-6. REVIEW same slice with four **separate prompts / passes**:
-   - G1 Build: record commands, exit status, lint/typecheck/tests and runtime evidence. No PASS without execution.
-   - G2 Architecture: typed boundaries, DDD direction, Accepted ADR, no shadow implementation, actual dependency injection.
-   - G3 Security: source trust, auth, input validation, secrets, privacy/egress, tool side effects, retries and error handling.
-   - G4 Plan: each requirement, named file, negative test, decision and contract mapped to delivered code/test.
-   Any FAIL → fix and re-run; UNKNOWN ≠ PASS. Record N/A with reason.
-7. COMMIT / PR: focused commit, push branch, verify PR head and CI. Before handoff use project npm run verify:pr once; during edits prefer npm run test:affected. Required external acceptance tests selected by affected capability.
-8. FINAL: combined cross-phase review, DI/wiring, orphan/dead code, API/error consistency, real provider smoke where relevant, docs and owner review. Do not merge or claim production readiness based on mocked tests.
+- ACE's TypeScript + Effect core remains an agent-neutral context/RAG engine.
+- LangGraph, Claude TeamCreate, Codex tasks or similar orchestrators are **not** requirements.
+- The SDLC is a Markdown workflow for the coding agent working on ACE's repo.
+- A single agent reads the relevant command and performs its steps sequentially.
+- Four different review passes are **not four independent reviewers**.
+- Existing OpenSpec, ADR, docs/plans, tests and GitHub Actions remain authoritative.
+- New process files must not become competing spec/test/runtime owners.
 
-## Evidence contract
-Each stage carries: source SHA, change identity, status, exact commands and exit, fixture/provider identity where relevant, file:line proofs, PR and CI links, limitations and owner decision. One agent's self-review is **not independent review**. A green deterministic CI is not real Graphiti, Vertex or Bifrost production acceptance.
+## Execution model
 
-## ACE-specific invariants
-- Verified current source outranks Qdrant index, Graphiti derived memory and docs.
-- Policy denial fails closed; no unauthorized private-code cloud egress.
-- MCP tool access is NOT model-bound Bifrost gateway injection.
-- Provider timeout, stale digest and malformed responses must never become false complete/current.
-- No claimed 5x token savings without paired, quality-gated actual agent measurements.
+```text
+User request
+  → preflight (repo, branch, HEAD, rules, active PRs, risk)
+  → Research (fact-only)                   [T1/T2 as needed]
+  → Design (C4/DFD/sequence/decisions)     [T2; T1 concise]
+  → Plan (canonical OpenSpec/tasks)        [T1/T2]
+  → owner decision if architecture/policy changes
+  → one unblocked implementation phase
+      → RED test / reproducible oracle
+      → minimal code change
+      → GREEN + affected checks
+      → BUILD gate
+      → ARCHITECTURE gate
+      → SECURITY gate
+      → PLAN COVERAGE gate
+      → any FAIL: same phase repair + recheck
+  → focused commit + push + open PR at exact SHA
+  → next phase OR cross-phase integration review
+  → real-provider/agent-E2E as applicable
+  → human approval and merge
+```
 
-## Context handling without Claude dependency
-If token usage is available, the video's 40/60/80% advice can guide when to prepare/commit a checkpoint. If not, checkpoint every phase boundary and before any handoff/compaction. Save branch, HEAD, PR, accepted design and plan, completed tests, statuses, outstanding blockers and next exact action. Re-read actual source after resuming.
+The stage transitions are logical; no separate orchestration server or hidden state machine is added.
 
-## No extra machinery
-No new agent runner, second framework, mandatory .claude folder, extra microservices, per-repo copy of 10 Go standards or separate duplicate spec tree. Start with docs/operations/ai-assisted-sdlc.md and existing ACE governance.
+## Scope classes
+
+| Tier | Use case | Research/Design | Tests & gates |
+|---|---|---|---|
+| T0 | documentation, formatting, mechanical safe edit | inspect only, minimal PR rationale | applicable diff/CI checks |
+| T1 | local defect, no material new contract | focused AS-IS and smallest repair design | RED/GREEN where feasible; four applicable gates |
+| T2 | new behavior, protocol, state, concurrency, security or egress | full source-grounded research, approved design/plan | all gates, explicit owner decisions and relevant real E2E |
+
+A one-line policy change may require T2; a large documentation cleanup may remain T0. Complexity is risk-based.
+
+## Input and output per stage
+
+| Stage | Required input | Deliverable | Explicit prohibition |
+|---|---|---|---|
+| Research | question, source SHA, code entrypoints | fact-only source map and evidence ledger | recommendations/implementation |
+| Design | verified facts, owner goals, ADR | behavioral and architecture contract | silent change of accepted ADR |
+| Plan | approved contract, current implementation | exact phased file/test map | vague "implement and test" |
+| Implement | approved slice, actual test owner | minimal code, RED/GREEN and gate report | uncontrolled extra scope |
+| Final review | complete PR diff, provider evidence | cross-phase verdict with limitations | mock-only production claim |
+
+## Detailed source instruction mapping
+
+### Research
+Use [research_codebase.md](source/commands/research_codebase.md) in full. It constrains the agent to documentation of present behavior, full reads of relevant definitions, exact path:line, current runtime composition and explicit unknowns.
+
+Use [codebase-researcher.md](source/agents/codebase-researcher.md) as a sequential investigative pass. A call to a planned adapter is not proof the adapter is actually bound in the runtime.
+
+Store research in a durable, existing research location. Keep as-is findings separate from any later design proposal.
+
+### Design
+Use [design_feature.md](source/commands/design_feature.md) with conditional research. Adapt the video's output types into existing OpenSpec design sections:
+1. Architecture: C4 context/container/component and actual proposed DI/ports.
+2. Behavior: normal/error/timeout/cancellation sequences; DFD and state transitions.
+3. Decisions: alternatives, rationale, risk, owner and ADR change if required.
+4. Testing: requirement/invariant → unit/contract/provider/agent E2E mapping.
+5. Events: only when event contracts change.
+6. Persistence: only for Qdrant/archive/Graphiti/other state mapping changes.
+7. Standards: link canonical ACE engineering rules.
+8. API: only when public HTTP/MCP/gateway-projection contract changes.
+
+Do not create eight files automatically. In T2, sections may be split if needed. In a limited T1 fix, a short design and test mapping suffice.
+
+### Plan
+The example sequence in the presentation (domain VO, ports, adapters, use case, mapping, controller, DI) is specific to its feature. In ACE use **vertical, independently verifiable slices**, not a mandatory Go layer order.
+
+Every slice has:
+- task ID and dependencies;
+- exact new/modified/deleted files;
+- observable acceptance condition and negative case;
+- approved architecture and data-policy constraints;
+- test command with expected RED/GREEN output;
+- rollback/migration/compatibility requirement;
+- targeted provider evidence when required;
+- four reviewer passes;
+- human decision stop point where needed.
+
+Use an existing governing OpenSpec tasks.md or docs/plans plan, not two trackers. Record phases in the [phase template](source/templates/phase-template.md).
+
+### Implement and review
+Use the **complete** [implement_backend.md](source/commands/implement_backend.md) for ACE code. The implementation loop includes:
+- current state/preflight and plan dependency read;
+- deterministic RED and minimal GREEN;
+- affected test selection;
+- build gate with actual command outputs;
+- architecture gate for TypeScript+Effect, DDD, reuse and runtime wiring;
+- security gate for trusted identity, prompt injection, egress, secrets, retry and side effects;
+- plan gate mapping every requirement, file and test;
+- rejection/repair/recheck loop;
+- focused PR delivery with HEAD SHA, CI results and source-linked artifacts;
+- final cross-phase review.
+
+Use backend bugfix [workflow](source/commands/fix_backend_bug.md) if the task starts from a failure report. Use frontend commands only when implementing a real UI; TypeScript itself does not imply frontend.
+
+## Standards relevant to ACE
+
+The 10 [standard files](source/standards/) are separate references and are read conditionally. Architecture Layers, Clean Architecture and Domain Model map to accepted TypeScript+Effect boundaries. Builder is a semantic invariant/factory discipline rather than required Go-style getter syntax. RepoModel maps to source truth, cache/persistence and safe migrations. Tests Style and Domain model test map to established Node test runner and deterministic tests. Base Mock never substitutes for provider acceptance. Go style applies only to actual Go connector code. LLM Integration adds model/provider, RAG, tool policy, reliability, observability and cost requirements.
+
+## ACE-specific non-negotiable gates
+
+1. Source bytes/current revision outrank stale index and derived memory.
+2. A successful empty result differs from unavailable, denied, stale and not-ready.
+3. A complete result requires required-source coverage and evidence.
+4. Actual LSP semantic evidence differs from textual symbol resemblance.
+5. MCP explicit tool success is not proof of Bifrost provider-bound injection.
+6. Hermes native request-time bridge is a separate owned integration.
+7. Private source must not leave local environment without approved policy.
+8. Vertex documentation egress must remain authorized and isolated.
+9. Graphiti derived claims must not silently become original/session truth.
+10. Tool actions need authorization and idempotency/replay safety where applicable.
+11. Real-provider and agent E2E statuses must be reported distinctly from mocks.
+12. 5× savings remains a benchmark hypothesis until measured on quality-gated paired tasks.
+13. Source SHA, provider identity, fixture and artifacts bind acceptance evidence.
+14. No unsupported new bespoke parser/cache/protocol/shadow implementation.
+
+## Context handling
+
+Before compaction, complete the [checkpoint](source/templates/progress-checkpoint.md): task/PR/HEAD, phase/dependencies, accepted decisions, test results and failures, blocked owner decisions and next exact action. On resume re-read source and check branch/remote PR. Numerical context-window thresholds are optional heuristics since not every client exposes usage.
+
+## Definition of done
+
+- Correct scope classification and source version.
+- Required fact-only research and approved design/plan available.
+- Every implemented slice passes applicable build/architecture/security/plan gates.
+- Actual tests and provider evidence reported honestly.
+- Cross-phase review covers the entire PR, not one last commit.
+- Committed and pushed branch with open PR to main and exact SHA/check statuses.
+- Human approval for material decisions and merge.
+- Separate release criteria for production claims.
+
+## Verification of this SDLC itself
+
+Use [PROMPT-ACCEPTANCE-SCENARIOS.md](PROMPT-ACCEPTANCE-SCENARIOS.md) to check whether prompts drive the intended behavior. Run controlled positive/negative cases, retain output, compare against a baseline where useful. A written prompt is not evidence that the process works; a real completed change with observed tests is the proof.
