@@ -1,8 +1,6 @@
-# Domain Model.txt — reconstructed reference
+# Domain Model
 
-> **Original filename:** `prompts/be/Domain Model.txt`. Source: [WebP IMG_5629](https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K). **Evidence: name and short requirements only; full original body is not visible.** The following standard is a newly written completion, **not** recovered wording. Original language and Go-specific requirements are preserved as observations only.
-
-## Proposed usable standard
+## Rules
 
 Use domain entities/value objects with explicit invariants, validate at construction or trusted boundaries, avoid impossible states and raw primitive confusion where domain meaning matters. Define public state transitions and typed failure. The original Go screen references private fields/getters; in ACE choose idiomatic TS readonly types and branded value objects when justified, not mandatory getters for every field.
 
@@ -12,5 +10,4 @@ Use domain entities/value objects with explicit invariants, validate at construc
 3. Produce PASS/FAIL/NOT-APPLICABLE/UNKNOWN with a reproducible line-level explanation.
 4. If any required evidence is absent, state what still must be measured; never report green based on expectation.
 
-## Applicability to ACE
-Only consult this historical reconstruction as research. The governing ACE sources remain root `AGENTS.md`, Accepted ADRs, OpenSpec and existing tests; do not activate this guide as a second conflicting policy.
+## Use in ACE

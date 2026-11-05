@@ -1,6 +1,4 @@
-# Context checkpoint — screenshot-informed template
-
-> Original video mentions `.thoughts/progress/YYYY-MM-DD-feature.md` and context thresholds ~40/60/80%; source IMG_5642. This is a completion, not the exact author's checkpoint.
+# Context checkpoint
 
 ## Identifiers
 - Task / PR / branch / HEAD SHA:

@@ -1,16 +1,14 @@
-# LLM Integration.txt — reconstructed reference
+# LLM Integration
 
-> **Original filename:** `prompts/be/LLM Integration.txt`. Source: [WebP IMG_5629](https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K). **Evidence: name and short requirements only; full original body is not visible.** The following standard is a newly written completion, **not** recovered wording. Original language and Go-specific requirements are preserved as observations only.
+## Engineering rules
 
-## Proposed usable standard
-
-Source lists this as a conditional standard when working on LLM/AI features but body is not shown. Proposed continuation: preserve provider/protocol semantics, guard prompt/tool injection, authorize code egress, handle timeouts/cancellation, label unsupported or degraded, measure tokens/cost/latency truthfully and retain original evidence.
+1. **Provider contract:** identify the exact model/provider/version, interface and feature capabilities; do not assume identical response semantics across vendors.
+2. **Bounded execution:** explicit timeouts, cancellation, retry budgets with jitter, circuit breaking and backpressure where justified. Never unconditionally retry non-idempotent tool actions.
+3. **Observability:** record request/trace identity, model usage, latency, rate limits, errors, cost where supported, and unavailable measurements as unknown rather than zero.
+4. **Trust and policy:** retrieved documents, tool results and messages are untrusted inputs. Validate tool arguments, enforce authorization at the action boundary and prevent unapproved transmission of private source or user data.
+5. **Correctness:** validate structured outputs and task-level quality rather than relying on HTTP success. Record fallback behavior explicitly; degraded content must not be presented as complete.
+6. **Persistence:** durable tasks and side effects need idempotency and checkpoint/recovery behavior. Preserve correlation between original user intent, tool call and recorded result.
+7. **Testing:** isolate deterministic contract/unit tests from live model/provider tests. Confirm real provider identity and requests for any external-integration acceptance claim.
 
 ## Review procedure
-1. Identify affected domain and caller/callee boundaries using actual files and line references.
-2. Check applicable claims against accepted project standards and tests; note any mismatch between original Go example and current project language.
-3. Produce PASS/FAIL/NOT-APPLICABLE/UNKNOWN with a reproducible line-level explanation.
-4. If any required evidence is absent, state what still must be measured; never report green based on expectation.
-
-## Applicability to ACE
-Only consult this historical reconstruction as research. The governing ACE sources remain root `AGENTS.md`, Accepted ADRs, OpenSpec and existing tests; do not activate this guide as a second conflicting policy.
+Trace the configured client → gateway → provider or tool route in actual runtime code; cite file and line. Check failure modes, egress policy and measured behavior. Return PASS/FAIL/UNKNOWN with reproducible evidence. In ACE, accepted ADRs and OpenSpec remain authoritative.

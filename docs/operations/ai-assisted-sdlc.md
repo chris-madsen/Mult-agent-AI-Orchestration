@@ -39,7 +39,7 @@ Use the existing OpenSpec `tasks or the governing docs/plans execution plan, not
 - Focused commits, push, PR to main and exact head SHA / check statuses are required by root AGENTS.md.
 
 ## Final cross-phase and context checkpoints
-Review end-to-end behavior, integration wiring, error/status consistency, orphan/duplicate code, rollback and relevant real provider acceptance. Owner reviews architectural choices and merges. Checkpoint at phase boundaries and before context compaction: branch, SHA, PR, plan, completed checks and logs, next step, blocked decisions. Video's percentage thresholds are **optional heuristic** because not every agent exposes context usage.
+Review end-to-end behavior, integration wiring, error/status consistency, orphan/duplicate code, rollback and relevant real provider acceptance. Owner reviews architectural choices and merges. Checkpoint at phase boundaries and before context compaction: branch, SHA, PR, plan, completed checks and logs, next step, blocked decisions. Context-window percentage thresholds are optional because not every agent exposes usage metrics.
 
 ## Report format
 | Phase / gate | PASS / FAIL / UNKNOWN / N/A / NOT-RUN | Exact evidence (SHA, command, CI, file:line) | Gaps |

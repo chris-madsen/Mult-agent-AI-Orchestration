@@ -1,6 +1,4 @@
-# Research evidence output — screenshot-informed template
-
-> From `.thoughts/research/YYYY-MM-DD-topic-name.md` pattern. WebP: 5597, 5598, 5599. This is a blank reusable template, not the original research content.
+# Research evidence output
 
 ---
 date: YYYY-MM-DD

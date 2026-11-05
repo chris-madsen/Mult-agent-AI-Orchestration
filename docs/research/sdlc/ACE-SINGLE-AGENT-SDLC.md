@@ -1,11 +1,10 @@
-# ACE Single-Agent AI-assisted SDLC — adaptation from video
-Status: PROPOSAL / authored adaptation, NOT a recovered original prompt.
-Sources: README.md, SOURCE-TRACEABILITY.md, source/commands/*.md and WebP screenshots in https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K
+# ACE Single-Agent AI-assisted SDLC — process specification
+**Status:** process specification for ACE. Supporting commands and templates are in this directory.
 
 ## Design principle
 Transfer the **rules inside the source prompts**, not just Research → Design → Plan → Implement. Do not copy Claude TeamCreate/TaskCreate/Delegate, Go conventions, or mandates for four agents. ONE agent handles sequential modes, while human approves material decisions and merge. The agent may imitate four REVIEW CHECKLISTS, but cannot claim four independent reviewers.
 
-## Video source → ACE mapping
+## Source instructions → ACE mapping
 | Source | Rule preserved | ACE location |
 |---|---|---|
 | source/commands/research_codebase.md and codebase-researcher.md | Describe present code only; read directly cited files fully; capture exact file:line and commit; track entrypoints, dependencies and data flow; unknowns explicit | Existing OpenSpec research or one docs/research report |

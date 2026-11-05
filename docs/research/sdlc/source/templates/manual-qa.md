@@ -1,6 +1,4 @@
-# Manual QA / smoke flow — screenshot-informed template
-
-> Source `manual_qa/{service}/{feature}/test-flow.md` referenced in end of `fix_backend_bug.md`, IMG_5642. The original steps are only partly visible; the following is an executable extension.
+# Manual QA / smoke flow
 
 ## Preconditions
 Environment, service version/SHA, base URL (non-secret), data-fixture setup, authentication method and scope.

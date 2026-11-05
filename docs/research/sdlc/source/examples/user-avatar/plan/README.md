@@ -1,7 +1,4 @@
-# Code Plan: User Avatar Upload — example reconstruction
-
-> **Illustrative reconstruction, NOT the author's file or an ACE implementation.** Original example: `user-service/docs/user-avatar/plan/README.md`. WebP screenshots: IMG_5619, IMG_5620, IMG_5621, IMG_5622. Evidence: overview, phases, dependencies and file map visible. The completion below is newly authored where the screenshot was cut.
-
+# Code Plan: User Avatar Upload
 
 ## Scope
 Implement upload/delete and get avatar URLs with S3 storage, image resizing, User avatarKey, boundary interfaces and adapter/controller wiring.
@@ -27,4 +24,3 @@ Bottom-up: Domain → Boundary → Adapters → UseCase → RepoModel/Response �
 - Carry forward identifiers, error codes and C4/sequence constraints; run final cross-phase review and smoke tests.
 
 ## Source map
-This plan is reconstructed from visible headings, not the author's complete per-file text. Source paths refer to Go's `domain/`, `boundary/`, `adapter/`, `init-services/`. Do not create those under ACE.

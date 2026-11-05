@@ -1,36 +1,37 @@
-# Implementation report — source reconstruction and ACE SDLC adaptation
+# SDLC для ACE — отчёт о внедрении документации
 
-Date: 2026-11-05. Repository: https://github.com/chris-madsen/Mult-agent-AI-Orchestration
-PR: https://github.com/chris-madsen/Mult-agent-AI-Orchestration/pull/222 (DRAFT, not merged).
+**Репозиторий:** [Mult-agent-AI-Orchestration](https://github.com/chris-madsen/Mult-agent-AI-Orchestration)  
+**Pull request:** [#222](https://github.com/chris-madsen/Mult-agent-AI-Orchestration/pull/222)  
+**Состояние:** документационные изменения находятся в отдельной ветке, до merge в `main`.
 
-## User request and scope
-1. Extract each useful shown Markdown/prompt file from WebP stills and complete clipped fragments.
-2. Save individual Markdown files in docs/research/sdlc/ in GitHub.
-3. Adapt the method to ACE, TypeScript+Effect, one agent and any AI coding client.
-4. Report evidence, uncertainty, Git state and limitations.
+## Что добавлено
 
-## Content written
-- source/commands/: 8 command files, each carries screenshot source and explicitly labeled reconstruction.
-- source/agents/: 4 named role files; only codebase-researcher's body visibly excerpted; other full prompts are **inferred substitutes**.
-- source/standards/: 10 original Go standard names converted to Markdown guidance; full .txt bodies were not available.
-- source/examples/user-avatar/: 9 design files and 9 plan files including 8 phases, maintained as **illustrative sample**, not ACE code.
-- source/templates/: 4 research/progress/manual-QA/phase templates.
-- README.md, SOURCE-TRACEABILITY.md (source evidence map), ACE-SINGLE-AGENT-SDLC.md, PROMPTS-ACE.md, ADOPTION-PLAN.md.
-- docs/operations/ai-assisted-sdlc.md is the minimal **active operator workflow**, still subordinate to root AGENTS / ADR / OpenSpec.
+- В `docs/research/sdlc/source/commands/` — восемь рабочих инструкций для исследования, проектирования и реализации.
+- В `source/agents/` — четыре специализированных проверочных/аналитических инструкции.
+- В `source/standards/` — десять предметных инженерных стандартов.
+- В `source/examples/user-avatar/` — пример пакета design artifacts и плана из восьми фаз.
+- В `source/templates/` — шаблоны исследования, контекстного checkpoint, ручного QA и фазы.
+- В `ACE-SINGLE-AGENT-SDLC.md` — адаптация под один агент, TypeScript/Effect и существующую архитектуру ACE.
+- В `PROMPTS-ACE.md` — готовые универсальные промпты.
+- В `ADOPTION-PLAN.md` — план дальнейшего применения.
+- В `docs/operations/ai-assisted-sdlc.md` — рабочая точка входа.
+- В корневой `AGENTS.md` — ссылка на процесс.
 
-## High-value source mechanics retained
-- Fact-only research with exact path:line evidence and commit identity.
-- Conditional, separate design responsibilities: C4, behavior and error flows, alternative decisions, verification, optional events/repo/API.
-- Dependency-ordered implementation phases with file map and acceptance criteria.
-- Four kinds of review; a single agent conducts four separate **self-checks**, not independent agent reviews.
-- Quality gate failures return for repair, followed by final cross-phase review.
-- Durable context checkpoints and honest evidence levels.
+## Что уже решено
 
-## Source limits
-There is **no full original repository** or complete file bytes in the screenshots. For name-only commands and standards, entire instructions were newly written and marked as reconstructed. Do not quote these as the video's author. Screenshot references are grouped by IMG number in SOURCE-TRACEABILITY.md; PNG duplicates deliberately excluded.
+- Один агент вместо команды с отдельными исполнителями и ревьюерами.
+- Работа без Claude-specific команд и API.
+- Использование существующих OpenSpec, ADR и CI вместо второй системы документов.
+- Четыре последовательных проверки после каждой фазы: build, architecture, security, plan.
+- Результаты проверок должны содержать наблюдаемые факты, а не неподтверждённые PASS.
 
-## Delivery and verification notes
-The content is documentation-only. No AI agent, LLM provider, real Qdrant, TypeScript tests or live runtime were executed for this task. PR branch/CI status must be checked against the final pushed HEAD before declaring any check passed. A later implementation PR is needed for the CV claim "applied workflow with verified acceptance".
+## Что ещё не выполнено
 
-## Next demonstrator
-Choose an **unresolved, verified** ACE reliability defect after checking current open PRs; perform Research/Design/Plan, RED→GREEN, four gates and targeted real-provider tests in a separate PR. Do not manufacture a new bug to make a portfolio example.
+- Не проведён отдельный реальный feature/bugfix PR в ACE по полному циклу нового SDLC.
+- Не проверены метрики экономии токенов или повышение качества за счёт нового процесса.
+- Не сделано независимое ревью кода дополнительным агентом (оно не требуется для текущей single-agent версии).
+- Документационный PR не означает готовность ACE к production; релизные проверки остаются самостоятельными.
+
+## Следующий шаг
+
+Выбрать действительную незакрытую задачу ACE, зафиксировать Research → Design → Plan, выполнить фазовую реализацию с RED/GREEN и четырьмя проверками, сохранить точный SHA и результаты GitHub Actions в отдельном PR.

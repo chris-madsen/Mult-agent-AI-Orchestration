@@ -1,37 +1,37 @@
-# ACE SDLC adoption plan, current-state-aware
+# План применения AI-assisted SDLC в ACE
 
-## Delivered in this documentation PR
-- Full source reconstruction under docs/research/sdlc/source: eight commands, four named persistent agents, ten standards converted to Markdown and screenshot-grounded feature-design/phase example.
-- Per-file provenance and visible-versus-reconstructed distinctions.
-- ACE one-agent adaptation, copy/paste prompts and canonical operational workflow.
-- No changes to agent runtime, LangGraph or production semantics. No claim of independent review, live-provider acceptance or token savings.
+## A. Подключение инструкций
 
-## Stage A — enable guidance without tool lock-in
-- Root AGENTS.md remains canonical; link, do not duplicate the operational workflow.
-- Existing accepted ADRs/OpenSpec supersede examples from the video.
-- Define T0/T1/T2 scope and evidence formats in docs/operations/ai-assisted-sdlc.md.
-- Manual invoke by an agent with ordinary natural language. No slash command dependency.
+1. Главным источником правил остаётся корневой `AGENTS.md`.
+2. Для выполнения задач используется `docs/operations/ai-assisted-sdlc.md`.
+3. Агент читает существующие OpenSpec и ADR, а не заводит второй набор архитектурных норм.
+4. Подробные команды для отдельных этапов доступны в `source/commands/`; готовые нейтральные промпты — в `PROMPTS-ACE.md`.
+5. Уровень процесса выбирается по риску изменения: T0, T1, T2.
 
-## Stage B — one real demonstration PR (separate future coding PR)
-- Pick one unclosed, source-verified ACE reliability bug; inspect open PRs before assigning task.
-- Record research with file:line evidence, design decision and T1/T2 plan.
-- Execute RED→GREEN and four sequential checks, capturing exact commands + CI run.
-- Run relevant real-provider acceptance rather than accepting mock-only pass; preserve logs.
-- Final cross-phase acceptance + human review. This is the evidence needed to mention the workflow in CV.
+## B. Сквозная проверка на реальной задаче
 
-## Stage C — tighten gates selectively
-- Audit missing controls (secret scanning, dependency/architecture/Markdown link checks) against the actual repository and existing workflow, do not assume any are absent without inspecting their active configuration.
-- Add low-cost checks only when their failure semantics and owners are clear. Tests are a curated portfolio, not an append-only pile.
-- For large T2 changes include conditional C4/DFD/sequence and strict phase-file mapping.
-- Keep expensive provider/k3s/Harbor checks capability-scoped; collect exact SHA and artifacts.
+1. Найти незакрытый баг или небольшую фичу, проверив свежую ветку, реализацию и открытые PR.
+2. Выполнить фактологический Research с ссылками `path:line`.
+3. Подготовить краткий Design и получить одобрение принципиальных решений.
+4. Записать фазы в существующем OpenSpec/исполнительном плане.
+5. Для багов воспроизвести RED, затем добиться GREEN после исправления.
+6. Выполнять четыре последовательные проверки: build, architecture, security, plan completeness.
+7. Запустить применимые real-provider проверки, отдельно зафиксировать тесты, которые не запускались.
+8. Запушить изменения в отдельный PR и получить точный SHA, результаты CI и человеческое ревью.
+9. После завершения провести cross-phase проверку всей доработки.
 
-## Explicit exclusions
-- Four runtime reviewers, TeamCreate and Claude-specific APIs.
-- Porting Go-style Builders, BaseMock, test packages into TS/Effect without evidence.
-- A second OpenSpec, CI runner or plan authority.
-- Automatic production sign-off, unverified cost/quality claims and direct-to-main changes.
+## C. Дополнительные quality gates
 
-## Definition of done
-- Documentation is discoverable and no existing normative rule is weakened.
-- At least one actual implementation PR is completed with RED/GREEN, four passes, exact CI SHA and owner review.
-- Only then consider CV statement about having *applied* the AI-assisted SDLC, citing the implementation PR.
+Исследовать текущие GitHub Actions, secret scanning, зависимости, соблюдение архитектурных границ и ссылки документации. Добавлять только недостающие проверки, которые дают измеримую пользу. Не копировать Go-oriented инструменты в TypeScript проект.
+
+## Не делать
+
+- Не вводить Claude TeamCreate/TaskCreate как зависимость.
+- Не создавать новый orchestrator для SDLC.
+- Не дублировать OpenSpec, ADR или CI.
+- Не выдавать самопроверку одного агента за независимое ревью.
+- Не выдавать mock-only тест за подтверждение реального provider-E2E.
+
+## Критерий завершения
+
+Минимум один реальный PR с прохождением необходимых стадий, воспроизводимыми тестами и наблюдаемыми результатами quality gates; затем можно подкреплять описание этого подхода в CV ссылкой на PR.

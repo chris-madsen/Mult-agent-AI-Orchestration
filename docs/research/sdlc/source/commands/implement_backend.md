@@ -1,9 +1,4 @@
-# Implement Backend — reconstructed team command
-
-> **Source reconstruction — not an original file.** Original path: `.claude/commands/implement_backend.md`. Evidence: https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K (WebP IMG_5627); https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K (WebP IMG_5628); https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K (WebP IMG_5629); https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K (WebP IMG_5630); https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K (WebP IMG_5631); https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K (WebP IMG_5632); https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K (WebP IMG_5633); https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K (WebP IMG_5634); https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K (WebP IMG_5635); https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K (WebP IMG_5636); https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K (WebP IMG_5637); https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K (WebP IMG_5638); https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K (WebP IMG_5639); https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K (WebP IMG_5641). Confidence: **most of its operational workflow visible, gaps bridged below**. 
->
-> Sections under **Reconstructed completion** are newly authored instructions inferred from visible fragments and engineering intent. They are **not quotations** from the creator. For exact source text use the screenshots.
-
+# Implement Backend
 
 ## Visible baseline of the author's workflow
 - Lead orchestrates; **Lead does not write implementation code**. No phase completes until its quality gate passes.
@@ -14,8 +9,7 @@
 - Four reviewers check build/test/lint, architecture/standards, security, plan completeness/design compliance. Rejects return to implementer; reviewers recheck the corrected phase.
 - Final cross-phase review checks shared error codes, orphan code, naming consistency, dependency/DI wiring and smoke behavior; exact progress is saved before compaction.
 
-## Reconstructed completion — runnable *single-agent* variant of the same logic
-This section is a **proposed translation**, not a claim that the original video uses one agent. AI provider-agnostic implementation belongs in `ACE-SINGLE-AGENT-SDLC.md`; preserve this file as source analysis.
+## Procedure
 
 1. Read the plan and all relevant phase files, design documents and standards. Identify done vs not-done by **actual checks/evidence**, not checkboxes alone.
 2. Choose the first unblocked phase. Record source SHA, task objective, file create/modify map, blocked dependencies, explicit invariants and tests.
@@ -41,9 +35,7 @@ This section is a **proposed translation**, not a claim that the original video 
 
 **Do not claim:** independent multi-agent review, real provider testing, or production readiness merely because the agent wrote PASS.
 
-## Detailed reconstructed reviewer procedures (not visible verbatim)
-
-The source's four reviewer roles were actual persistent teammates. For a single-agent adaptation, perform these **four distinct passes in sequence**, saving verdicts between passes. Do not label them independent.
+## Detailed procedure
 
 ### Pass 1 — rv-build
 Read full phase goal and modified files. Run relevant compile/typecheck, unit tests, lint and affected integration tests. Inspect actual command and exit status; do not accept agent-written prose as test evidence. Report BLOCKER for failing required command; UNKNOWN when command unavailable. Attach SHA, command, relevant output and fixture.

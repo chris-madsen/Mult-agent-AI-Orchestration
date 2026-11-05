@@ -1,6 +1,6 @@
 # Portable prompts: ACE one-agent SDLC
 
-These are NEW source-informed instructions, not recovered video text. Each can be pasted into Codex, Claude Code, OpenCode, Gemini CLI or another agent. Before execution read root AGENTS.md / accepted ADR / OpenSpec.
+Use these instructions with any compatible coding agent; follow the project authority hierarchy. Each can be pasted into Codex, Claude Code, OpenCode, Gemini CLI or another agent. Before execution read root AGENTS.md / accepted ADR / OpenSpec.
 
 ## Research
 > Inspect ACE AS-IS at this exact commit. Read directly implicated files completely; trace runtime entrypoint, imports, provider wiring and input→output. Produce fact-only findings, exact path:line citations, commit, branch, open questions. No improvements, criticism, plan or code modifications.

@@ -1,6 +1,4 @@
-# Implementation phase N — reconstructed schema
-
-> Inferred from screenshot `phase-01.md`, `phase-07.md` and `plan/README.md` (IMG_5619–5625). This is a generic template and not the source author's phase body.
+# Implementation phase N —  schema
 
 ## Goal
 One coherent observable behavior; explicitly state its dependencies.

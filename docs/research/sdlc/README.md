@@ -1,37 +1,24 @@
-# Video SDLC — source reconstruction, provenance, and ACE adaptation
+# AI-assisted SDLC: reusable instructions and ACE integration
 
-This directory records a **file-by-file reconstruction** of the methodology demonstrated in [the 52-minute video](https://www.youtube.com/watch?v=7oRBHxMvWxQ), grounded only in [user-supplied WebP screenshots](https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K) and video transcript summaries. PNG duplicates were not inspected.
+Этот каталог содержит рабочие Markdown-инструкции, подготовленные на основе [видео об AI-assisted SDLC](https://www.youtube.com/watch?v=7oRBHxMvWxQ) и дополненные для практического использования. Это **не официальный архив файлов автора**; материалы отредактированы и расширены. Все инструкции можно читать как самостоятельные рабочие документы.
 
-**DO NOT mistake this reconstruction for the author's actual repository or source files.** The screenshots are incomplete. Each reconstructed file lists source frames, what is actually visible, and separately authored continuation. Files whose name alone is visible contain an explicitly proposed substitute, not an allegedly recovered original prompt.
+## Навигация
 
-## Structure and migration
+- [source/commands/](source/commands/) — 8 команд: исследование, проектирование, исправление ошибок, реализация backend/frontend.
+- [source/agents/](source/agents/) — 4 инструкции по исследованию, архитектуре, рискам изменений и трассировке дефектов.
+- [source/standards/](source/standards/) — 10 прикладных стандартов; Go-специфичные детали не обязательны для ACE.
+- [source/examples/user-avatar/](source/examples/user-avatar/) — пример пакета документов фичи: архитектура, поведение, решения, тесты, события, модели, API.
+- [source/examples/user-avatar/plan/](source/examples/user-avatar/plan/) — пример 8 последовательных фаз с зависимостями и проверками.
+- [source/templates/](source/templates/) — reusable research report, context checkpoint, manual QA и phase template.
+- [ACE-SINGLE-AGENT-SDLC.md](ACE-SINGLE-AGENT-SDLC.md) — как перенести метод в ACE с **одним** агентом.
+- [PROMPTS-ACE.md](PROMPTS-ACE.md) — промпты Research/Design/Plan/Implement/Review/Checkpoint для любого coding agent.
+- [ADOPTION-PLAN.md](ADOPTION-PLAN.md) — последовательность внедрения без дублирования OpenSpec и CI.
+- [REPORT.md](REPORT.md) — фактический статус GitHub-изменений.
 
-- `source/commands/`: eight files named in the video. Research/design/implementation are reconstructed in detail; other command bodies are unshown, so substitutes are identified as such.
-- `source/agents/`: four named persistent agent prompts; only codebase-researcher has its own visible body.
-- `source/standards/`: ten Go-backend standards seen by name or brief description, restored as Markdown reference guides; full original .txt contents are **not** visible.
-- `source/examples/user-avatar/`: observed feature-design outputs and 8 implementation-phase templates; illustrative example, **not** claims about ACE architecture.
-- `source/templates/`: research, progress checkpoint, manual QA artifacts referenced by video prompts.
-- `ACE-SINGLE-AGENT-SDLC.md`: **new ACE adaptation**, distinct from source reconstruction and explicitly agent-neutral.
-- `ADOPTION-PLAN.md`: staged implementation guidance, compatibility and proof obligations.
+## Приоритеты ACE
 
-## Evidence and trust
-
-1. **Visible** — filename, title, rule or content is actually readable on a WebP frame.
-2. **Inferred** — subject matter is supported by directory tree, plan overview or named reviewer role, not the complete file text.
-3. **Reconstructed completion** — newly written executable guidance that fills gaps; never attribute this wording to the video.
-
-Citations inside each file use the user's Google Drive source folder and image number. No Go-specific rule is automatically applied to ACE. The source subtree is historical research, not root-level agent instructions and not executable production policy.
-
-## Source-group index
-
-| Screenshots | Subject |
-|---|---|
-| IMG_5595–5599 | research command, codebase-researcher, research artifact and agent directory |
-| IMG_5602–5606 | design_feature, conditional outputs and research synthesis |
-| IMG_5607–5611 | design deliverables: architecture, behavior, decisions |
-| IMG_5613–5616 | testing, persistence mapping, API contract |
-| IMG_5619–5625 | implementation plan, per-phase files, file maps |
-| IMG_5626–5639, 5641 | implementation command, reviewer prompts and iterative gates |
-| IMG_5642 | bugfix manual QA and context-window protocol |
-
-Read `SOURCE-TRACEABILITY.md` for an itemized evidence-to-file map and unavoidable unknowns.
+1. Корневой `AGENTS.md`, принятые ADR и OpenSpec — источник обязательных правил.
+2. Инструкции здесь — вспомогательный материал; они **не переопределяют** требования к безопасности, качеству или релизу ACE.
+3. Для работы используйте [операционный SDLC](../../operations/ai-assisted-sdlc.md); это единая точка входа.
+4. Одна модель выполняет роли последовательно; её самопроверка не заменяет независимую проверку человеком.
+5. Сохранены конкретные процедуры: фактическое исследование с `path:line`, C4/DFD/sequence при необходимости, фазы и четыре проверки build/architecture/security/plan.

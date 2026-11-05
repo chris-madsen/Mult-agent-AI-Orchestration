@@ -1,16 +1,10 @@
-# Go style.txt — reconstructed reference
+# Go style
 
-> **Original filename:** `prompts/be/Go style.txt`. Source: [WebP IMG_5629](https://drive.google.com/drive/folders/15sMM_A8Y649EEVz5v0RxwspLYiHVb25K). **Evidence: name and short requirements only; full original body is not visible.** The following standard is a newly written completion, **not** recovered wording. Original language and Go-specific requirements are preserved as observations only.
+## Rules for Go projects
+Use idiomatic Go naming, clear package ownership and explicit error handling. Prefer typed sentinel or wrapped errors where the existing project uses them. Avoid unexplained magic constants, ambiguous interfaces, hidden global state and comments that merely restate code. Tests must be deterministic and use the project's established runner and fixtures.
 
-## Proposed usable standard
+## Translation for ACE (TypeScript + Effect)
+Do **not** apply Go naming or Go-specific libraries to ACE. Preserve the intent: idiomatic TypeScript, explicit and typed Effect failure channels, minimal abstraction, clear module ownership, existing ESLint/typecheck conventions, stable configuration and reproducible tests.
 
-Original screen mentions Go naming conventions, typed errors, prohibition on magic strings and unnecessary comments. Go-only details do not transfer directly. For ACE use strict TypeScript, Effect typed errors, ESLint and current package conventions; never introduce Go-style package or builder boilerplate without need.
-
-## Review procedure
-1. Identify affected domain and caller/callee boundaries using actual files and line references.
-2. Check applicable claims against accepted project standards and tests; note any mismatch between original Go example and current project language.
-3. Produce PASS/FAIL/NOT-APPLICABLE/UNKNOWN with a reproducible line-level explanation.
-4. If any required evidence is absent, state what still must be measured; never report green based on expectation.
-
-## Applicability to ACE
-Only consult this historical reconstruction as research. The governing ACE sources remain root `AGENTS.md`, Accepted ADRs, OpenSpec and existing tests; do not activate this guide as a second conflicting policy.
+## Review
+Review actual changed files and the project rules. Identify concrete violations with exact file:line and proposed minimal repair. Do not create Go-style Builders or mock frameworks unless justified by a separately approved design.
