@@ -1,17 +1,66 @@
-# Manual QA / smoke flow
+# Manual QA / smoke test flow
+
+## Identity
+- Feature and requirement ID:
+- Tested source commit / PR:
+- Operator, date and environment:
+- Backend service / endpoint/tool version:
+- Real provider or test double:
+- Authorization identity/scope (no secrets):
+- Data classification and permitted outbound calls:
 
 ## Preconditions
-Environment, service version/SHA, base URL (non-secret), data-fixture setup, authentication method and scope.
+- Disposable fixture and cleanup:
+- Required services and health checks:
+- Provider/model/SDK and schema version:
+- Feature flag and configuration state:
+- Correlation/log location:
+- Reversible operations only; warn on any billable or destructive action.
 
-## Happy path
+## Test cases
+| ID | Scenario | Expected status | Expected state/side effect | Security property |
+|---|---|---|---|---|
+| QA-01 | normal input | ... | ... | authorized |
+| QA-02 | missing/invalid input | 4xx/typed | none | no leak |
+| QA-03 | denied principal | denied | zero provider calls | fail closed |
+| QA-04 | missing entity | 404/typed | none | no existence leak |
+| QA-05 | repeated mutation | stable response | one effect | idempotency |
+| QA-06 | provider unavailable | unavailable/partial | no false success | no forbidden fallback |
+| QA-07 | cancel midflight | typed cancel | no untracked effect | cleanup |
+| QA-08 | stale source | stale/changed | no false current | source integrity |
+
+## Request execution example
+Replace placeholders with an actual safe local endpoint and fixture; never claim commands below were run until observed.
+
 ```bash
-curl -i -X <METHOD> '<URL>' -H 'Content-Type: application/json' -d '<request>'
+curl --include --request POST \
+  --url 'http://127.0.0.1:<port>/<path>' \
+  --header 'Content-Type: application/json' \
+  --data '{"example":"replace-me"}'
 ```
-Expected HTTP status, JSON schema and persisted side effects.
 
-## Negative and edge paths
-- Missing/malformed payload, missing permissions, unknown identifier, repeated request and simulated dependency failure.
-- Expected status, stable application error code, no secret disclosure, recovery behavior.
+**Expected:** exact status, response schema, stable error code and persisted state.
+**Observed:** command/output/exit, redacted for secrets.
+
+## Side effect verification
+- Before state:
+- After state:
+- Provider requests/receipts:
+- Idempotency keys or correlation:
+- Retry attempts and backoff:
+- Cleanup/compensation:
+- Audit record:
+- Unexpected egress:
+- Crash/restart observation:
 
 ## Results
-Record real commands, responses redacted for secrets, SHA and operator. Unexecuted commands remain NOT-RUN.
+| Case | PASS/FAIL/NOT-RUN/UNKNOWN | Command/result evidence | Issue |
+|---|---|---|---|
+
+## Release notes
+- Unexecuted cases and reason:
+- Root cause for failures:
+- Related automated tests:
+- Compatibility/migration:
+- Owner approval:
+- Proof bound to exact source/runtime identity:

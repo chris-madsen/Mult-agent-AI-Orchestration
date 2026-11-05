@@ -1,37 +1,39 @@
-# SDLC для ACE — отчёт о внедрении документации
+# SDLC prompt library — delivery report
 
-**Репозиторий:** [Mult-agent-AI-Orchestration](https://github.com/chris-madsen/Mult-agent-AI-Orchestration)  
-**Pull request:** [#222](https://github.com/chris-madsen/Mult-agent-AI-Orchestration/pull/222)  
-**Состояние:** документационные изменения находятся в отдельной ветке, до merge в `main`.
+PR: https://github.com/chris-madsen/Mult-agent-AI-Orchestration/pull/222
+Status: documentation change on a feature branch; production implementation not implied.
 
-## Что добавлено
+## Repairs to the initial version
+The first deliverable contained prompts too short to drive an engineering workflow. They have now been expanded into independent instruction files with:
+- explicit input contracts, constraints and failure conditions;
+- current-revision research with code-level evidence;
+- conditional design artifacts and architecture/behavior/test matrices;
+- phase decomposition and specific RED/GREEN oracles;
+- four separate review passes with defect repair loops;
+- PR/CI evidence and durable context checkpoints;
+- TypeScript/Effect and ACE gateway/RAG/privacy rules;
+- runnable templates and prompt acceptance scenarios.
 
-- В `docs/research/sdlc/source/commands/` — восемь рабочих инструкций для исследования, проектирования и реализации.
-- В `source/agents/` — четыре специализированных проверочных/аналитических инструкции.
-- В `source/standards/` — десять предметных инженерных стандартов.
-- В `source/examples/user-avatar/` — пример пакета design artifacts и плана из восьми фаз.
-- В `source/templates/` — шаблоны исследования, контекстного checkpoint, ручного QA и фазы.
-- В `ACE-SINGLE-AGENT-SDLC.md` — адаптация под один агент, TypeScript/Effect и существующую архитектуру ACE.
-- В `PROMPTS-ACE.md` — готовые универсальные промпты.
-- В `ADOPTION-PLAN.md` — план дальнейшего применения.
-- В `docs/operations/ai-assisted-sdlc.md` — рабочая точка входа.
-- В корневой `AGENTS.md` — ссылка на процесс.
+## Primary runnable files
+- source/commands/research_codebase.md
+- source/commands/design_feature.md
+- source/commands/implement_backend.md
+- source/commands/fix_backend_bug.md
+- source/commands/design_bugfix.md
+- source/commands/design_frontend_feature.md
+- source/commands/implement_frontend.md
+- source/commands/fix_frontend_bug.md
 
-## Что уже решено
+Each commands file is independent of a particular AI client. The source/agents directory holds research, architecture-review, blast-radius and bug-trace procedures. The source/standards directory contains 10 distinct standards. PROMPTS-ACE.md is a routing/entrypoint layer that loads the full file for each stage, not a replacement for those files.
 
-- Один агент вместо команды с отдельными исполнителями и ревьюерами.
-- Работа без Claude-specific команд и API.
-- Использование существующих OpenSpec, ADR и CI вместо второй системы документов.
-- Четыре последовательных проверки после каждой фазы: build, architecture, security, plan.
-- Результаты проверок должны содержать наблюдаемые факты, а не неподтверждённые PASS.
+## Open source methods consulted
+See REFERENCE-PROJECTS.md. The most closely matching research material was located in HumanLayer's indexed research command and parcadei/continuous-claude-v3. The other projects contribute detailed planning, inline execution, code review, testing and pre-build gate techniques.
 
-## Что ещё не выполнено
+## Limitations
+The screenshots did not expose every original prompt from the presenter; descriptions were expanded using source-grounded behaviors and independently authored instructions. The materials must not be represented as recovered verbatim private source. The present PR does not demonstrate that an agent has followed these prompts successfully in an actual ACE coding task.
 
-- Не проведён отдельный реальный feature/bugfix PR в ACE по полному циклу нового SDLC.
-- Не проверены метрики экономии токенов или повышение качества за счёт нового процесса.
-- Не сделано независимое ревью кода дополнительным агентом (оно не требуется для текущей single-agent версии).
-- Документационный PR не означает готовность ACE к production; релизные проверки остаются самостоятельными.
-
-## Следующий шаг
-
-Выбрать действительную незакрытую задачу ACE, зафиксировать Research → Design → Plan, выполнить фазовую реализацию с RED/GREEN и четырьмя проверками, сохранить точный SHA и результаты GitHub Actions в отдельном PR.
+## Remaining validation
+- Verify PR file inventory and CI at exact pushed HEAD.
+- Review Markdown internal paths and stage references.
+- Run the prompt acceptance scenarios on a controlled example.
+- Apply complete SDLC to an unresolved ACE task in a separate PR and capture real tests and human review.

@@ -1,60 +1,131 @@
-# Agent-neutral AI-assisted SDLC for ACE
+# ACE — operational AI-assisted SDLC
 
-**Scope:** Durable operator workflow, usable by ONE coding agent through any supported client. Accepted ADRs, OpenSpec and root AGENTS.md outrank this workflow. Its research source and full evidence map live in [docs/research/sdlc/](../research/sdlc/README.md); details in [ACE-SINGLE-AGENT-SDLC.md](../research/sdlc/ACE-SINGLE-AGENT-SDLC.md). This file **does not authorize production readiness**.
+## Goal and scope
+This is a **single-agent, client-independent** development process for the ACE repository. It makes the Research → Design → Plan → Implement method executable through detailed prompts and gates. Full reusable procedures are in [docs/research/sdlc/](../research/sdlc/README.md); use [PROMPTS-ACE.md](../research/sdlc/PROMPTS-ACE.md) as the entrypoint and individual full files, not a five-line substitute.
 
-## Entrypoint / routing
-Classify a change by **risk**, not line count:
-- **T0:** docs, formatting, mechanical small change: inspect owner and applicable CI; no artificial diagrams/research.
-- **T1:** local defect: fact-only research, reproduce RED when possible, short design/plan, GREEN and checks.
-- **T2:** new feature, architecture, public contract, data policy, source/persistence ownership, concurrency/critical failure: full Research, Design, Plan, phased Implementation, owner decisions and applicable real E2E.
+**Authorities:** explicit owner instructions > Accepted ADR > applicable OpenSpec > root/nested AGENTS.md > current code/tests as present-state evidence > temporary plans. This procedure never weakens security, source provenance, runtime boundaries, PR delivery or production proof requirements.
 
-Before editing: check branch and active PRs for duplicate work; read root AGENTS.md, accepted ADR/OpenSpec, current code/test composition and source version. Follow repository rules for focused commit, push, PR, exact check status and no direct-to-main writes.
+## Pick route by risk
 
-## Research (fact-only)
-Read directly implicated files completely; start at actual runtime entrypoints, follow imports and provider injections. Record commit, question, path:line evidence, dataflow and unresolved unknowns. Do not propose changes in the Research artifact. Reuse recent verified research if still accurate, otherwise refresh it. See [research_codebase.md](../research/sdlc/source/commands/research_codebase.md).
-
-## Design (risk-proportionate)
-Separate verified current system from proposed design. In the **existing** OpenSpec change design file (or small bugfix PR description), add the applicable portions of:
-- C4 / boundary and DI graph;
-- DFD / sequence for success **and error** behavior;
-- decisions, alternatives, owner choices and risks;
-- requirement-to-test/negative-case mapping;
-- events, persistence mapping, standards, API/MCP/projection contracts ONLY when relevant.
-
-Do not create duplicate docs for their own sake; extract linked longer sections only if necessary. Accepted architecture changes require explicit owner decision.
-
-## Plan
-Use the existing OpenSpec `tasks or the governing docs/plans execution plan, not two sources of truth. Each slice: goal, prerequisite, exact create/modify paths, invariant/contract, tests and failure path, review evidence and exit criterion. Narrow phases with real dependencies are preferred over a long implementation prompt.
-
-## Implement one slice, review four times
-- Implement minimal approved slice, obtain deterministic RED for reproducible defects where practical.
-- Run `npm run test:affected` in the inner loop; do not run full suite after every edit.
-- Perform **four separate self-audits** with evidence:
-  1. **BUILD:** commands actually run, exits, typecheck/lint/unit/contract and relevant provider-E2E.
-  2. **ARCHITECTURE:** DDD and Effect boundaries, accepted design, actual DI, no bespoke duplicate algorithms.
-  3. **SECURITY:** authorization, untrusted provider data, safe errors, secrets, cloud egress, side effects, retries.
-  4. **PLAN:** exact requirements, file map, tests and error contracts all accounted for.
-- FAIL returns to same slice and the full set of applicable checks repeats; UNKNOWN is not PASS. An agent cannot certify its own review as independent human/agent review.
-- When ready for handoff run `npm run verify:pr`. The CI is scope-aware; provider/k3s/Harbor acceptance is independent of deterministic PR checks.
-- Focused commits, push, PR to main and exact head SHA / check statuses are required by root AGENTS.md.
-
-## Final cross-phase and context checkpoints
-Review end-to-end behavior, integration wiring, error/status consistency, orphan/duplicate code, rollback and relevant real provider acceptance. Owner reviews architectural choices and merges. Checkpoint at phase boundaries and before context compaction: branch, SHA, PR, plan, completed checks and logs, next step, blocked decisions. Context-window percentage thresholds are optional because not every agent exposes usage metrics.
-
-## Report format
-| Phase / gate | PASS / FAIL / UNKNOWN / N/A / NOT-RUN | Exact evidence (SHA, command, CI, file:line) | Gaps |
+| Tier | Trigger | Stages | Required evidence |
 |---|---|---|---|
-| Research | ... | ... | ... |
-| Design + owner decisions | ... | ... | ... |
-| Plan | ... | ... | ... |
-| Build/test/lint | ... | ... | ... |
-| Architecture | ... | ... | ... |
-| Security | ... | ... | ... |
-| Plan completeness | ... | ... | ... |
-| Integration/E2E | ... | ... | ... |
-| Final owner review | ... | ... | ... |
+| T0 | simple docs/edit, no runtime/API/policy change | inspect → edit → verify/PR | diff check, relevant CI, exact SHA |
+| T1 | contained bugfix with accepted behavior | focused research → minimal design/plan → RED/GREEN → four gates | root cause, regression, source/PR evidence |
+| T2 | feature, architecture, persistence, egress/auth, externally observable protocol, concurrency/crash | full Research → Design → Plan → owner choice → slices → four gates → cross-phase E2E | acceptance mapping, decisions, provider evidence and owner review |
 
-Report explicit blockers, real vs mock evidence and tests NOT RUN. For production: no false source freshness, no unauthorized private-code cloud egress, no inferred 5× reduction, no claim Bifrost provider-wire from MCP-only tests.
+One line in an authorization guard can be T2. Do not classify by diff size alone.
 
-## Start prompt
-“Follow docs/operations/ai-assisted-sdlc.md as a single agent, read root AGENTS.md first, classify task T0/T1/T2, show research/design/plan artifacts only when needed, run four separate check passes with evidence, create a PR with exact SHA and keep unapproved decisions open.”
+## 0. Universal preflight
+1. Confirm repository, current branch, base and HEAD SHA.
+2. Check dirty worktree; preserve all unrelated files.
+3. Read root/nested AGENTS.md.
+4. Read relevant accepted ADR/OpenSpec specs and current governing execution plan.
+5. Check open PRs/remote branches for work already implemented.
+6. Identify input data classification and allowed external resources.
+7. Decide T0/T1/T2 and what evidence is required.
+8. Confirm current actual code before trusting old unchecked tasks or negative reviews.
+
+### Stop when
+An owner decision or denied provider permission is mandatory. Record a blocker; do not silently invent a bypass.
+
+## 1. Research stage
+Full procedure: [research_codebase.md](../research/sdlc/source/commands/research_codebase.md).
+
+- Only describe current implementation.
+- Read relevant code and actual composition.
+- Trace all affected entrypoints and owner boundaries.
+- Record source SHA and path:line.
+- Separate test doubles from real providers.
+- Record open factual gaps and negative searches honestly.
+- Durable research memo is an output; no solution proposal is written here.
+
+**Exit:** source-grounded facts sufficient to decide design; else PARTIAL/BLOCKED.
+
+## 2. Design stage
+Full procedure: [design_feature.md](../research/sdlc/source/commands/design_feature.md) or [design_bugfix.md](../research/sdlc/source/commands/design_bugfix.md).
+
+- Preserve AS-IS/TO-BE distinction.
+- Define preconditions, postconditions, invariants, frame conditions and exceptional behavior.
+- Use C4 for changed boundaries/ownership; DFD and sequence for multi-step or cross-trust behavior.
+- Cover failure paths, idempotency/retry/cancellation, data egress and state recovery.
+- Record design alternatives and decision owner.
+- Map acceptance to test oracles.
+- Add events/persistence/API documents only when relevant.
+- Reuse existing OpenSpec design/ADR rather than duplicating an entire docs tree.
+- If owner decisions remain, do not continue as though approved.
+
+**Exit:** design with testable behavior and accepted material decisions.
+
+## 3. Plan stage
+Use canonical `openspec/changes/<id>/tasks.md` or governing `docs/plans/*.md`. Phase template is [phase-template.md](../research/sdlc/source/templates/phase-template.md).
+
+Each phase describes:
+- behavior and acceptance IDs;
+- predecessor phases and reusable interfaces;
+- new/modified/deleted file paths;
+- RED/GREEN test with exact expected outcome;
+- negative/error path, provider acceptance and security;
+- smallest implementation boundary and reuse of existing libraries;
+- build/arch/security/plan gates;
+- rollback and an owner decision gate where needed.
+
+**Exit:** a reviewer can reject or accept each phase independently; cross-phase interfaces agree.
+
+## 4. Implement stage
+Full procedure: [implement_backend.md](../research/sdlc/source/commands/implement_backend.md). This is a **complete detailed prompt**, not merely a 4-step mnemonic.
+
+- Read complete approved phase and current code again.
+- Obtain RED if appropriate; distinguish confirmed repro from hypothesis.
+- Implement smallest cohesive slice in TypeScript+Effect or approved boundary.
+- Run narrow relevant checks in the edit loop, normally `npm run test:affected`.
+- Preserve source identity and trust/security constraints.
+- **Gate A BUILD:** actual typecheck/lint/unit/contracts, required provider/test evidence.
+- **Gate B ARCH:** ownership, DDD/Effect, real DI, upstream reuse and no shadow paths.
+- **Gate C SEC:** input/auth, prompt injection, egress, idempotency, secrets and failure safety.
+- **Gate D PLAN:** every accepted requirement maps to changed code and test/proof.
+- On FAIL fix current phase, rerun; UNKNOWN is never silently a PASS.
+- Self-audits by the same model are not independent reviews.
+- Once the coherent slice is ready, run `npm run verify:pr` once and push focused commit/PR per AGENTS.md.
+
+## 5. Final integration / release evidence
+- Read all phases and entire PR diff against merge base.
+- Check cross-phase errors, DTO/schema, DI and public API consistency.
+- Check orphan code and superseded paths were deleted.
+- Check retry multiplicity, crash/recovery, authorization and cross-provider fallbacks.
+- Run capability-scoped real E2E when claiming it; mocks alone do not suffice.
+- Preserve benchmark raw trials and exact provider identities for token/cost claims.
+- Bind every evidence claim to the exact commit tested.
+- Human owner decides merge and production acceptance independently.
+
+## Context checkpoint
+Use [progress-checkpoint.md](../research/sdlc/source/templates/progress-checkpoint.md) at phase boundaries and before compaction. Do not rely on Claude-specific context APIs. Save exact HEAD/PR, plan/phase, accepted decisions, commands and outcomes, blockers, next operation. On resume re-inspect remote state and current source.
+
+## Report and verdict
+Accepted statuses: PASS, FAIL, NOT-RUN, UNKNOWN, NOT-APPLICABLE. Distinguish “command not available” from “command passed.”
+
+```markdown
+# SDLC evidence: <feature/phase>
+Source HEAD:
+PR/base:
+Tier:
+Canonical design / plan:
+Research observations (path:line):
+Owner decisions:
+Files changed:
+RED and GREEN:
+| Gate | Status | Exact command/paths | Findings |
+| BUILD | | | |
+| ARCH | | | |
+| SEC | | | |
+| PLAN | | | |
+Real provider E2E:
+CI at HEAD:
+Risks / test limitations:
+Next unblocked phase:
+```
+
+## Invocation
+
+Ask any coding agent:
+
+> Follow `docs/operations/ai-assisted-sdlc.md` and the full stage command from `docs/research/sdlc/PROMPTS-ACE.md`. Keep one agent, and preserve existing ACE authority, tests, PR discipline and the four detailed quality gates.
