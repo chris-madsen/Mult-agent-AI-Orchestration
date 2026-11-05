@@ -40,3 +40,38 @@ This section is a **proposed translation**, not a claim that the original video 
 | Plan completeness | PASS/FAIL/UNKNOWN | requirement-test map | ... |
 
 **Do not claim:** independent multi-agent review, real provider testing, or production readiness merely because the agent wrote PASS.
+
+## Detailed reconstructed reviewer procedures (not visible verbatim)
+
+The source's four reviewer roles were actual persistent teammates. For a single-agent adaptation, perform these **four distinct passes in sequence**, saving verdicts between passes. Do not label them independent.
+
+### Pass 1 — rv-build
+Read full phase goal and modified files. Run relevant compile/typecheck, unit tests, lint and affected integration tests. Inspect actual command and exit status; do not accept agent-written prose as test evidence. Report BLOCKER for failing required command; UNKNOWN when command unavailable. Attach SHA, command, relevant output and fixture.
+
+### Pass 2 — rv-arch
+Read changed files completely, accepted design, standards and relevant dependency owners. Inspect dependency direction (domain must not depend on infra), circular imports, duplicate/handwritten implementation of installed libraries, layer ownership, value object/domain invariants, repository mapping, explicit errors, DI/router wiring. Screenshot reviewer also checked use of consistent typed errors and discouraged giant functions; adapt such thresholds to the project rather than inventing hard Go file-size rules. Classify findings as BLOCKER/MAJOR/MINOR with file:line and actual rule.
+
+### Pass 3 — rv-sec
+Read changed entrypoints, auth, transport and provider boundaries. Check validation, authorization, trusted identity (do not take security identity directly from user payload), no exposed secrets/PII or stack traces, safe error handling, no unsafe assertions, no permissive wildcard CORS with credentials, route middleware coverage and path traversal. For ACE add untrusted retrieved instructions, model/tool action authorization and forbidden cloud egress. Include negative tests for meaningful concerns.
+
+### Pass 4 — rv-plan
+For every approved phase line: locate created/changed file, business rule, mapping, error code and verification. Compare the result with behavior diagrams and public contracts, not merely implementation checkboxes. **Additional scope** is documented for owner review; **reduced scope** or design contradiction is a failed gate. Classify DONE/PARTIAL/MISSING with evidence and list any requested deviation.
+
+### Reviewer result schema
+| Reviewer | PASS/FAIL/UNKNOWN | Evidence | File/line finding | Required correction |
+|---|---|---|---|---|
+| build | ... | ... | ... | ... |
+| arch | ... | ... | ... | ... |
+| sec | ... | ... | ... | ... |
+| plan | ... | ... | ... | ... |
+
+### Coordinator loop
+1. Assign one unblocked phase with full context and exact file map.
+2. Implement and run local tests; generate phase handoff with changed paths.
+3. Review with all four categories. If any FAIL, combine findings, return **same phase** to repair, then run the gates again.
+4. On all gates verified, record commit, mark phase complete and move to next unblocked dependent phase.
+5. After all phases, perform final cross-phase audit: stable error codes, API consistency, dependency wiring, missing/unused symbols, persistence state, security and real smoke test.
+6. Create PR/handoff report; owner, not agent prose, approves merge and production promotion.
+
+### Context handling
+Video bugfix prompt shows approximate 0–40/40–60/60–80/80–100% usage regions. Such percentages are heuristic and unavailable in some clients. Save a durable checkpoint before compaction: task, plan/phase and last accepted SHA, working files, gates performed, failed findings, exact next step. Re-read source after resuming.

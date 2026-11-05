@@ -24,3 +24,19 @@
 7. Save at the source version's research path; when applied to ACE use `docs/research/<topic>.md` or an existing OpenSpec research link, not a second hidden authority.
 
 **Gate:** report has source version, input question, file:line evidence, runtime wiring, open gaps. **Stop** if paths cannot be inspected; never fabricate citations.
+
+## Detailed reconstructed research protocol (not visible verbatim)
+
+### Request contract
+- Input: question, paths if known, scope exclusions and desired output.
+- If question is missing, ask for it; when supplied, do not ask for a second generic confirmation.
+- Derive up to four independent inquiry areas, **but one agent executes them sequentially** rather than launching video-specific subagents.
+- For each area: begin with precise entrypoint, read complete relevant files, trace imports and calls outward, map inputs/outputs, record every assertion with file/range.
+- Check multiple sources against one another and resolve contradictions by reading source again, not by majority vote of descriptions.
+- Limit follow-up investigations to open factual gaps. Note broad searches that did not find evidence as inconclusive rather than asserting absence.
+
+### Research memo content
+A. executive summary with source version; B. found runtime entrypoints; C. component-by-component exact code facts; D. dependencies and dataflows; E. code reference index with exact paths; F. existing conventions observed; G. unresolved unknowns. Use the original screenshot metadata shape (date, researcher, commit, branch, research question) but agent-neutral identity.
+
+### Stop conditions
+If a critical path is missing, file access is blocked, the source SHA changed, or only a test fake is accessible, mark partial research. NEVER include recommended refactoring in the factual memo. If suggestions are requested, make them in a **later Design artifact** explicitly based on this memo.

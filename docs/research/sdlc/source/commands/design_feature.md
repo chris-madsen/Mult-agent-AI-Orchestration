@@ -28,3 +28,31 @@
 10. Once approved, hand off to the plan stage with cross references from invariants to deliverables.
 
 **Gate:** every requirement is represented in expected behavior and test coverage; design decisions are traceable; no unresolved material decision auto-approved.
+
+## Detailed reconstructed design gate (not visible verbatim)
+
+### Stage 0: understand the environment
+Verify task statement and working revision; read governing project decisions and existing architecture. Decide whether new research is needed using the screenshot criteria: unfamiliar modules, unclear integration points, reusable prior implementation or unknown wiring.
+
+### Stage 1: discover concrete integration boundaries
+In the Go example, the screenshot enumerates the service container and init chain, routers/auth middleware, domain entity/use case and repository/adapter layers, external gateway clients, event bus, shared contracts and MongoDB collections. **When applying to ACE**, replace this with actual TS/Effect runtime composition, MCP/Bifrost/Hermes boundaries, Qdrant/Graphiti/Vertex only where relevant. Do not copy Go paths into ACE.
+
+Write a research memo: init order, routing and authorization, entity patterns, repository mapping, error-code ranges, next free error codes only if actually present, existing reusable patterns, key files and unanswered questions. Link every current-system claim to real source.
+
+### Stage 2: design as multiple views
+- 01 Architecture: C4 context/container/component, ports, dependency direction, data ownership, DI and chosen integration seam.
+- 02 Behavior: separate data flows and sequences for happy, failure, retries/cleanup paths; include concurrency implications.
+- 03 Decisions: tradeoffs, rejected options, rationale, open owner decisions, risks and mitigations.
+- 04 Testing: coverage mapping for requirements, invariants and error codes; test fixture, type and oracle.
+- 05 Events only if domain events; 06 repository model only if persistence change; 07 feature standards only if backend; 08 API contract only if public endpoint/protocol change.
+- README: objective, scope, references, open decisions and design acceptance.
+
+### Design readiness checklist
+[ ] Every planned public behavior has a failure path.
+[ ] Each material choice has rationale, owner and rejected alternatives.
+[ ] Each design requirement maps to a verification item; any mocked boundary is identified.
+[ ] Sensitive data egress and authorization paths are covered.
+[ ] No downstream implementation begins on unresolved accepted-ADR conflicts.
+[ ] Design is reviewed by human at the required risk tier.
+
+This is a reconstructed **continuation** of a partial screenshot, not a claim about exact source text.
