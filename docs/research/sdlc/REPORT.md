@@ -45,3 +45,11 @@ Added [QUALITY-GATES-VIDEO-SPHERICON-ACE.md](QUALITY-GATES-VIDEO-SPHERICON-ACE.m
 The Sphericon repository was inspected directly: actual task definitions, CI/nightly workflow division, ast-grep rule tests, package boundary configuration, schema and contract checks, secrets/Actions scanners, generated-code ownership and toolchain. Video summary evidence came from publicly accessible description and secondary summary; connected transcript unavailable due user account limit. No unverified transcript quotes or timestamps claimed.
 
 This is a **documentation/process change**, not installation of new automation. Existing ACE CI remains authoritative and future QG0–QG8 tool PRs are described in the plan. New G02 Design Consistency is a procedural requirement for T2 designs; no false CI PASS claimed.
+
+## Owner-driven revision — TypeSpec, functional DDD, Matt skills
+
+Added an explicit [architecture policy](ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md) for Event Storming → bounded contexts → readonly ADTs/pure business functions → Effect I/O, and TypeSpec-first public protocol contracts. Added [codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md), covering generated server/client interfaces, validators, DTO mappers, permission metadata, fixtures and docs, with fail-on-unmapped acceptance.
+
+Imported 23 **original Matt Pocock agent skills** from the release pinned by Sphericon (`v1.3.2`) into `.agents/skills`; preserved MIT license and [import manifest](MATT-POCOCK-SKILLS.md). Incompatible automatic multi-agent/spec-reset flows are not activated by ACE's workflow.
+
+This PR does not install TypeSpec emitters or run functional domain/codegen gates in CI. Those are staged implementation tasks with explicit validation requirements.

@@ -4,9 +4,9 @@
 Make architectural boundaries observable in code. The name of a folder does not prove a layer is clean; imports, runtime composition and data ownership do.
 
 ## Layer contract
-- **Domain:** entities, values, invariants, domain errors and deterministic rules. Does not depend on HTTP, SDKs, databases or model providers.
-- **Application:** use cases, authorization orchestration, typed ports, transactions and failure semantics. Depends on domain and abstract services.
-- **Adapters:** conversions between external protocol/provider DTOs and application contracts. Implements ports; no hidden domain policy.
+- **Domain:** readonly ADTs, pure domain transitions and deterministic invariants. Does not depend on Effect I/O, HTTP, SDKs, databases or model providers.
+- **Application:** Effect use cases, authorization orchestration, typed ports, CAS/transaction/cancellation and failure semantics. Depends on domain and abstract services.
+- **Adapters:** generated TypeSpec wire DTO, runtime schema and explicit domain ADT mappings, vendor SDK adapters. Implements ports; no hidden domain policy.
 - **Composition:** wiring, configuration, process lifecycle, health, deployment and dependency injection. May reference all layers solely to compose them.
 - **Test infrastructure:** fixtures and doubles never masquerade as real providers or production-selected adapters.
 
@@ -45,3 +45,7 @@ Rejected: domain entity constructs Qdrant client; adapter overwrites verified so
 ## Review report
 | Changed path | Layer | Inbound/outbound deps | Violated rule | Source reference | Fix |
 Verdict PASS/FAIL/UNKNOWN with evidence; undefined owner is UNKNOWN.
+
+## Functional / contract-first mapping
+
+Domain: pure state and transitions. Application: Effect shell. Adapter: generated TypeSpec-compatible protocol boundary plus runtime decoding and domain mapping. Composition: provider and authorization wiring. New generator output is not assumed available until installed, pinned and tested. Event Storming informs consistency boundaries, not deployment services.

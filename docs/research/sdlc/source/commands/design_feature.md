@@ -38,7 +38,7 @@ Skip a fresh report when existing research is current, evidence-backed and compl
 For each affected context:
 - find executable entry points and routing;
 - locate service / Effect provider construction / DI;
-- list domain entities, value objects, invariants and state transitions;
+- derive readonly ADTs, pure transition functions, aggregate consistency boundaries and invariants from Event Storming; no rich OO class requirement;
 - trace use cases, ports, adapters, persistence and external gateways;
 - identify existing contract and error-taxonomy conventions;
 - inspect auth middleware, roles and identity propagation;
@@ -206,3 +206,16 @@ Before handing T2 design to Plan/Implement, perform the read-only
 7. Return READY / NEEDS-RESEARCH / NEEDS-DECISION / BLOCKED with matrix, not a subjective paragraph.
 
 For T1 use the smallest root-cause → invariant → regression test mapping; T0 is N/A. New tool installs, TypeSpec generation and database-migration gates are not automatically required by this design command.
+
+## Functional domain and TypeSpec pre-implementation gate
+
+For T2 domain behavior:
+1. Conduct an owner-reviewed Event Storming pass (actors, commands, meaningful events, policies, aggregate/consistency boundaries, hot spots).
+2. Build bounded-context language and a context map, then derive `State | Command | Event | DomainError` ADTs.
+3. Define pure `transition(state, command)` / `decide` functions and pre/postconditions. Place rules in the owning domain module; keep provider/network calls outside.
+4. Specify Effect application orchestration, persistence CAS/transaction, cancellation, idempotency and authorization at execution.
+5. **Choose TypeSpec for new/migrated public wire shapes**. OpenSpec describes behavior, TypeSpec operation/DTO/error/versions. Include planned generated SDK/server/validation/mapping/permission metadata and a robust roundtrip.
+6. Require explicit tests proving unmapped field/enum failure and backward compatibility; a compiler success alone does not prove behavior or provider wiring.
+7. Do not propose anemic god services, mandatory class-based aggregate objects or full Event Sourcing without an actual need.
+
+Read [functional policy](../../ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md), [codegen coverage](../../TYPESPEC-CODEGEN-COVERAGE.md) and imported `.agents/skills/domain-modeling/SKILL.md`. This stage's pre-code G02 crosswalk includes Event Storming decisions, domain function owner, TypeSpec contract and real-provider oracle.

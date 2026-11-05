@@ -102,7 +102,7 @@
 
 **Parallelism / Heavy:** optional when two or more agent worktrees contend for real Qdrant, LSP, Postgres or large model downloads. A single agent gains no value from new daemon/orchestrator alone.
 
-## PR-QG8 — TypeSpec and SQL/schema tools (conditional, not default)
+## PR-QG8 — TypeSpec-first public contracts (owner-selected, staged)
 
 **TypeSpec:** only after a documented stable multi-client public HTTP API requirement. Pilot one operation and validate generated server+client schema ownership, compatibility, reproducibility and real consumers. If this duplicates MCP/Zod/OpenSpec, reject.
 
@@ -119,6 +119,11 @@ Sphericon currently requires immediate fixes/no baseline for its check rules. AC
 | P0 | approve gate policy and exemptions | QG0–QG3 PRs | bad fixture fails; clean passes; CI at HEAD |
 | P1 | approve dependency/compat scope | QG4–QG6 PRs | confirmed detection, measured cost and low false positives |
 | P2 | approve toolchain/architecture benchmark | QG7 only if needed | selected cheaper tool proves same or stronger invariants |
-| Conditional | approve new protocol/storage architecture | QG8 | canonical contract owner and reproducible codegen/migrations |
+| P0/P1 | owner-selected TypeSpec public protocol rollout | QG8 TypeSpec | pinned codegen, exhaustive mapping, wire compatibility and exact SHA proof |
+| Conditional | approve new SQL storage if introduced | SQL-only migration subplan | real schema and reversible migrations |
 
 **Non-goal of this documentation PR:** install all tools, enable their CI jobs, create unused configs or claim the real agent successfully passed these new gates. That requires separate small implementation PRs with actual binary/test outcomes.
+
+### Functional domain selection
+
+Before a material domain implementation require Event Storming outputs, bounded-context ownership, immutable ADTs and pure transition functions, with Effect at external effects and CAS boundaries. Import Matt's `domain-modeling` as an auxiliary skill, not as a substitute for ACE architecture. See [selected policy](ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md) and [skills import](MATT-POCOCK-SKILLS.md).

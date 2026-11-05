@@ -129,3 +129,11 @@ Owner approval:
 - "Architecture checked" when only a filename regex ran.
 - "CI is green" when checks belong to a different commit.
 - "The agent independently reviewed itself".
+
+## Owner-selected functional DDD and TypeSpec proof
+
+Read [Functional Domain Modeling](Functional%20Domain%20Modeling.md), [TypeSpec Contract First](TypeSpec%20Contract%20First.md) and [codegen coverage](../../TYPESPEC-CODEGEN-COVERAGE.md).
+
+For material domain changes require Event Storming commands/events/policies/hot spots, named bounded-context owner, readonly ADT states/commands/errors, pure transition/invariants and Effect-only I/O. Do **not** reject an immutable record for having no class methods. For public machine contracts TypeSpec is selected; proposed gates check pinned compiler/emitter, generated SDK/server interfaces/validators, exhaustive DTO mapping (including enum/optional/null), typed permission metadata, wire compatibility and actual send-time authorization. Until these scripts/tests are installed, record NOT-RUN rather than PASS.
+
+Imported Matt skills in `.agents/skills/` are auxiliary techniques; ACE's own single-agent SDLC/AGENTS/ADR/OpenSpec remain authoritative. In particular do not launch upstream `implement-spec` parallel subagents or allow `setup-matt-pocock-skills` to create competing specs.

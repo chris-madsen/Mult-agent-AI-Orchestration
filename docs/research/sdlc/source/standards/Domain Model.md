@@ -1,19 +1,19 @@
-# Domain Model — enforce invariants and meaningful state
+# Domain Model — ADT, pure functions and invariants
 
 ## Intent
-Represent concepts that have rules, identities and permitted transitions, rather than bags of primitive fields. Use idiomatic types and immutable values in each language.
+The ACE default is **readonly ADT/immutable data plus cohesive pure domain functions** enforcing invariants and permitted transitions. Rich mutable OO entities or domain service classes are not required; an aggregate is a consistency boundary. Read [Functional Domain Modeling](Functional%20Domain%20Modeling.md).
 
 ## Rules
 1. Define aggregate identity and equality semantics.
 2. Define invariant before choosing representation.
 3. Distinguish known-valid state from unchecked external input.
 4. Use value objects/branded types for values with domain constraints, not every integer/string.
-5. Validate constructor/factory input and prohibit impossible states.
+5. Validate untrusted input and pure constructors, model discriminated alternatives and reject illegal transitions.
 6. Defaults only where explicitly valid under business rules.
-7. State transitions encode preconditions and postconditions.
+7. Pure `transition(state, command)` functions encode preconditions, postconditions and failures within their owning bounded context.
 8. Separate "not provided", "empty" and explicit deletion.
 9. Prevent unvalidated persistence DTO from bypassing invariants.
-10. Avoid public setters that enable illegal state without checks.
+10. Avoid mutable entity setters; transform immutable state through validated domain functions.
 11. Preserve immutability where feasible, especially shared/read caches.
 12. Use structured domain errors, not arbitrary magic error strings.
 13. Use clocks/IDs as injected dependencies when deterministic test needs them.
@@ -47,3 +47,7 @@ Use this as a concept, not a mandate to retrofit existing ACE types. A construct
 
 ## Review verdict
 Identify every new invariant, where it is enforced, how it is tested, and where external data is validated. No unjustified primitive obsession or builder ritual.
+
+## Functional modeling ownership
+
+A domain record without methods is valid. Reject the *actual* anemic anti-pattern: rules duplicated in transport handlers, giant use-case services or other contexts. Every invariant must have an owning pure function, ADT outcome and test. Effect runs I/O; TypeSpec owns public wire representations, not internal domain state.

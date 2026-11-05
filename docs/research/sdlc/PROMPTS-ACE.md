@@ -221,3 +221,19 @@ paths, generated-code exclusions and baseline policy. Measure
 false positives, runtime and CI resource cost. Only after CI runs
 on a real PR head can the rule be marked ACTIVE.
 ```
+
+## Selected design defaults: Event Storming, functional DDD, TypeSpec
+
+**Current owner decision:** For material T2 domain work, begin with Event Storming. Name bounded contexts, commands, facts, policies, hot spots and actual consistency boundaries; implement **readonly ADTs and pure domain functions**, with Effect orchestrating I/O. Do not generate rich mutable OO entities or scatter invariants into controllers. Read [functional DDD policy](ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md) and [Functional Domain Modeling](source/standards/Functional%20Domain%20Modeling.md).
+
+For public machine contracts **TypeSpec is chosen**, not a conditional pilot. Read [codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md) and [TypeSpec Contract First](source/standards/TypeSpec%20Contract%20First.md). Use [ACE TypeSpec Codegen Skill](../../../.agents/skills/ace-typespec-codegen/SKILL.md) for generated API scaffolding, SDK, validators, mechanical mapping, permissions metadata and drift/compatibility. TypeSpec alone does not generate business decisions.
+
+## Imported Matt Pocock skills — actual files, not paraphrases
+
+Read [import manifest and project override](MATT-POCOCK-SKILLS.md). The original pinned skill files are in `.agents/skills/`, MIT-licensed. Suggested auxiliary read:
+- Design and ubiquitous language: `domain-modeling`, `grill-with-docs`, `codebase-design`.
+- Work decomposition: `to-spec`, `to-tickets`; **map to existing OpenSpec**.
+- Implement: `tdd`, `diagnosing-bugs`, `code-review`.
+- Completion: `pr`, `handoff`, `writing-for-agents`.
+
+Do NOT silently invoke the upstream `implement-spec` multi-agent/subagent procedure or `setup-matt-pocock-skills` repository reset. Use ACE's own single-agent stage commands and project authority. Matt skills supply techniques, not a second agent runner or a replacement for TypeSpec/OpenSpec.

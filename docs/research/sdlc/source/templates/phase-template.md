@@ -94,3 +94,15 @@ Relevant gate IDs from [catalog](../../QUALITY-GATES-CATALOG.md):
 - Expensive nightly/release checks (G12–G13; outside edit loop):
 
 For each enabled gate capture exact tool/version, command, exit, source SHA, evidence and decision owner. Do not mark an uninstalled tool PASS.
+
+## Mandatory domain / contract design check (T2)
+
+- Event Storming commands/events/policies/hot spots and bounded context owner:
+- Immutable `State`, `Command`, `DomainError`, optional `Event` ADTs:
+- Pure transition/decision function and invariant/property tests:
+- Effect orchestration, authorization, cancellation, CAS/idempotency:
+- Public TypeSpec operation/message/DTO/error version affected:
+- Generated API boilerplate and mapping completeness gate:
+- Existing old/new wire fixture and compatibility oracle:
+- TypeSpec compiler and emitters installed? actual commands or NOT-RUN:
+- Auxiliary Matt skill(s) read, if any:

@@ -112,3 +112,9 @@ Sphericon rules explicitly reject persistent baselines. A new ACE rule that find
 - Each Sphericon tool mentioned above corresponds to a file that was inspected.
 - Go/Postgres/frontend-specific checks are explicitly conditional rather than mandatory ACE requirements.
 - Suggestions preserve ACE's current test strategy and source-of-truth hierarchy.
+
+## Owner architectural decision after the initial audit (2026-11-05)
+
+The earlier comparison classified TypeSpec as a conditional pilot because it had not been selected yet. **That recommendation is superseded:** TypeSpec is now the chosen public machine contract language for ACE. Sphericon codegen inspection also shows generated server/client interfaces, runtime schema clients, converter implementations, enum completeness, permission tables, mocks/fixtures and docs — much more than type generation. See [ACE codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md). Its Go-specific generator (goverter/ogen/Ent) is not automatically ACE's TypeScript generator; choose maintained equivalents and require unmapped-field/enum negative tests.
+
+Sphericon's Matt skills are **runtime-vendored via mise**, not tracked under their final `.agents/skills` tree. ACE now includes a curated pinned copy of 23 original Matt skills, documented in [import manifest](MATT-POCOCK-SKILLS.md). They do not supersede ACE's one-agent workflow and OpenSpec/ADR authority.

@@ -51,3 +51,12 @@ Recommended order:
 Do not copy Sphericon's PostgreSQL/Go SQL testing, frontend bundle-size gate, worktree isolation daemon or TypeSpec generators as mandatory ACE checks. Existing ACE deterministic tests, real providers and release supply-chain proof remain independent authoritative checks.
 
 A future tool PR must show both a clean fixture and deliberately violating fixture, observed commands and GitHub CI result at the exact PR SHA. All proposed tools remain NOT INSTALLED until those PRs are completed.
+
+## Owner decision update — TypeSpec and functional domain
+
+- TypeSpec is **selected**, no longer a speculative P2 option. Introduce it through staged TS-00..06 tasks in [codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md).
+- For each material T2 design begin with Event Storming, derive readonly ADTs/pure invariants, and keep Effect use cases at I/O boundaries.
+- Codegen output target is wider than DTO types: client SDK, server handler/route interfaces, runtime validation, mechanical mappings, typed permission metadata, mocks/fixtures, docs and reproducibility.
+- Require fail-on-unmapped fields/enums, schema compatibility and actual wire roundtrip. No claim all targets are available from TypeSpec alone.
+- The curated original Matt Pocock skills have been copied from Sphericon's pinned v1.3.2 source selection; [manifest](MATT-POCOCK-SKILLS.md) records included/excluded and governing ACE overrides.
+- Don't invoke upstream `implement-spec` as a multi-agent executor. The one-agent ACE process remains canonical.

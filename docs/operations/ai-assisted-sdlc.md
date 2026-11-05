@@ -146,3 +146,11 @@ Next unblocked phase:
 Ask any coding agent:
 
 > Follow `docs/operations/ai-assisted-sdlc.md` and the full stage command from `docs/research/sdlc/PROMPTS-ACE.md`. Keep one agent, and preserve existing ACE authority, tests, PR discipline and the four detailed quality gates.
+
+## Functional DDD and TypeSpec contract-first (owner-selected, 2026-11-05)
+
+For a material domain change, the Design stage must include **Event Storming** (commands, meaningful domain events, policies, hot spots, bounded contexts and ownership), an immutable state/command/error ADT and pure transition/invariant functions. The **Effect shell** owns I/O, cancellation, authorization at send time, persistence CAS/retries and provider composition. Aggregate ≠ OO class, bounded context ≠ microservice, Event Storming ≠ mandatory Event Sourcing.
+
+For every new or migrated public machine contract, **TypeSpec is the canonical wire-contract source** and OpenSpec owns behavioral acceptance. Use [functional policy](../research/sdlc/ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md), [TypeSpec generated integration coverage](../research/sdlc/TYPESPEC-CODEGEN-COVERAGE.md) and [codegen skill](../../.agents/skills/ace-typespec-codegen/SKILL.md). Gradually generate SDK and server interfaces, runtime validators, mechanical DTO mappers, access metadata, fixtures and docs where selected maintained generators support them. Verify source→generated output clean, mapping exhaustiveness and actual authorization; do not generate business decisions.
+
+**Matt's original skills are now vendored as selected files** in [ACE's skill directory](../research/sdlc/MATT-POCOCK-SKILLS.md). Their prompts are optional helpers subordinate to AGENTS/ADR/OpenSpec. Use `domain-modeling`, `to-tickets`, `tdd` and `code-review` where relevant, never bypassing single-agent restrictions or creating another issue/spec owner.

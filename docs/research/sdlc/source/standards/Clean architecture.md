@@ -4,9 +4,9 @@
 Preserve domain and application testability without reflexive interface/abstraction proliferation. A port exists where an external contract or independently replaceable policy justifies it.
 
 ## Rules
-1. Map **use case → domain service/entity → port → adapter** per behavior.
+1. Map **Effect application use case → pure functions over readonly ADTs → typed port → adapter**; an OO service/entity class is not required.
 2. Define ports in application/domain-facing contracts, not alongside vendor SDK types.
-3. Keep external JSON, HTTP, MCP, SQL, Qdrant and provider DTOs at the adapter boundary.
+3. Keep generated TypeSpec wire DTOs and vendor JSON/HTTP/MCP/Qdrant/SQL DTOs at the adapter boundary; map explicitly to validated domain ADTs.
 4. Do input validation at trust boundary and domain validation at invariant boundary.
 5. Errors are explicit, typed, and mapped to public outcomes once.
 6. Application owns transaction/compensation orchestration, not low-level format.
@@ -40,3 +40,7 @@ Preserve domain and application testability without reflexive interface/abstract
 
 ## Review and proof
 Show an inbound and outbound dependency trace; explain why each interface exists; run typecheck and contract tests; call out untested provider wiring. Return PASS/FAIL/UNKNOWN.
+
+## Owner modeling preference
+
+Event Storming discovers commands/events/policies/bounded contexts. Functional domain functions and ADTs own business invariants, while Effect services own orchestration and external I/O. TypeSpec is canonical public wire contract source (after staged migration), OpenSpec remains behavioral acceptance. No rich OO entity, no microservice per context and no automatic Event Sourcing.

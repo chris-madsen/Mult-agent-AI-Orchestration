@@ -28,7 +28,7 @@
 | G06 | PR | architecture + dependency direction | T1/T2 | static + human | ACE contracts exist; static expansion proposed |
 | G07 | PR | security/workflow/dependency hygiene | all relevant | automated + review | release audit exists; earlier PR scans proposed |
 | G08 | PR | Markdown internal links / formatting | docs changed | automated | ACE diff check existing; links proposed |
-| G09 | PR | public schema/client/codegen drift | when contract changed | automated | proposal; no TypeSpec by default |
+| G09 | PR | **TypeSpec contract-first** generation and public wire compatibility | new or migrated public contract | automated once installed | selected policy; toolchain not yet installed |
 | G10 | PR | requirement↔code↔test↔provider proof | T1/T2 | review + tests | current checklist; stronger mapping proposed |
 | G11 | provider acceptance | real provider and restart/data safety | changed capability | integration | ACE existing selective |
 | G12 | nightly | advisories, CodeQL, fuzz, targeted mutation | selected packages | automated | proposed |
@@ -114,7 +114,7 @@ Candidate typed dependency tooling: **dependency-cruiser** (TS imports) as cheap
 Keep \`git diff --check\`. New proposed gate: \`lychee --offline\` with pinned version, validating **local Markdown links and anchors** for changed documents or whole doc tree in CI. Remote links are scheduled/report-only to avoid random website failures blocking a PR. Optional typos scanner must allow identifiers, code terms and Cyrillic/English content; do not auto-rewrite citations.
 
 ### G09 — Contract compatibility / codegen ownership
-ACE currently has OpenSpec, MCP, projection and typed boundaries. Only if a stable public HTTP/SDK surface emerges should TypeSpec be evaluated:
+ACE currently has OpenSpec, MCP, projection and typed boundaries. TypeSpec is the **owner-selected target** for new and migrated public machine contracts, including Gateway Projection and representable MCP/native JSON shapes. Implementation is staged, not automatic:
 - source contract owns endpoints and schemas once;
 - generated output never edited by hand;
 - generate then check clean diff;
@@ -122,7 +122,7 @@ ACE currently has OpenSpec, MCP, projection and typed boundaries. Only if a stab
 - client and server contract tests;
 - schema fuzz nightly, isolated disposable data.
 
-**Immediate ACE-specific check:** versioned schema/field compatibility across MCP tool input/output, context bundle/projection, typed errors and provider capability flags, under accepted specs. A TypeSpec file by itself is not a gate.
+**Immediate ACE-specific check:** versioned schema/field compatibility across MCP tool input/output, context bundle/projection, typed errors and provider capability flags, under accepted specs. Expanded codegen targets SDK, typed server interfaces/routes, validators, DTO mappers, scope/permission tables, fixtures/docs where maintained tooling supports them. New field/enum without a valid mapping MUST fail. See [codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md). A TypeSpec file by itself is not a gate.
 
 ### G10 — Evidence chain & plan compliance
 Gate D from original SDLC remains, but enforce a **machine-readable or markdown traceability matrix**:
@@ -208,3 +208,11 @@ Before saying a new gate is installed:
 7. The PR HEAD/check result has been observed.
 8. Existing ACE tests, gate and normative OpenSpec remain unchanged unless approved.
 9. Only after real execution mark status **ACTIVE** (not PLANNED).
+
+## G15 — Event Storming + functional domain gate
+
+For substantive T2 domain behavior trace Actor → Command → Domain Fact/Policy → bounded-context ownership → consistency boundary → immutable ADT → pure invariant/transition function → deterministic test. Effect owns I/O and authorization at actual execution. Event Storming does not automatically require Event Sourcing, rich OO class methods or one service per bounded context. Review for misplaced/dispersed rules, unmodeled invalid transitions and concurrency/CAS rather than condemning passive readonly records.
+
+## G16 — TypeSpec generated integration gate
+
+At new/migrated public contracts verify pinned TypeSpec compiler + emitter, generated SDK/typed server interface/validators, mechanical DTO mappers, tagged errors, field/enum exhaustiveness, permission metadata, reproducibility, old/new wire compatibility and real protocol roundtrip. Additional generated docs, mocks/fixtures and client helpers are selected when supported. Actual policy authorization and provider E2E are independent. This is **PLANNED until executable CI scripts and negative fixtures exist**, not an active gate.

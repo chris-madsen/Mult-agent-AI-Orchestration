@@ -255,3 +255,17 @@ For each phase:
 - Expensive nightly candidates (CodeQL, advisory refresh, fuzz/mutation) must not slow every edit.
 
 If proposing a new rule, require a stable rule ID, positive and negative tests, scope exclusions, concrete fix message, false-positive investigation and observed failing CI before declaring it active. Prefer TS/Effect architecture tests or ast-grep for syntax; use dependency-cruiser/SCIP only for rules that actually require it.
+
+## Functional DDD / TypeSpec-specific implementation contract
+
+The owner selected Event Storming + functional DDD for material domain work and TypeSpec for public machine contracts. Before code, read [functional policy](../../ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md), [codegen coverage](../../TYPESPEC-CODEGEN-COVERAGE.md), [Functional Domain Modeling](../standards/Functional%20Domain%20Modeling.md) and [TypeSpec Contract First](../standards/TypeSpec%20Contract%20First.md). For auxiliary techniques read the **imported original** Matt skills (tdd, code-review, diagnosing-bugs, domain-modeling) at `.agents/skills` — don't run `implement-spec` as a parallel subagent orchestrator.
+
+A phase changing a public interface must:
+- edit TypeSpec canonical source **after the toolchain is installed**; preserve current accepted protocol behavior during rollout;
+- generate the supported client/server shell, validators, typed mapping, metadata, fixtures and docs through version-pinned tools;
+- fail for unmapped new DTO fields and unknown enum variants; validate nullable/optional and tagged errors;
+- keep domain ADT, pure invariants and Effect orchestration **handwritten and owned**, never generated as boilerplate;
+- run deterministic generation/drift/compatibility/roundtrip checks, explicit permission negative tests and real provider protocol tests when affected;
+- report missing codegen tools as NOT-RUN/BLOCKED, not fake PASS.
+
+An architecture review must reject unnecessary mutable entity classes and god services where they spread invariants, but **not** reject readonly ADT + pure domain functions as "anemic".

@@ -66,3 +66,14 @@ Root AGENTS.md, Accepted ADRs, OpenSpec and existing CI retain full authority. N
 - [Portable gate-selection skill](skills/quality-gate-selection/SKILL.md)
 
 The operational SDLC routes Design G02 before code and directs the one-agent reviewer to apply actually installed checks. These documents do **not** mean the optional scanners are already enabled in GitHub Actions.
+
+## Functional DDD, TypeSpec and original Matt skills
+
+- [Owner-selected functional DDD + TypeSpec architecture](ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md): Event Storming, ADT, pure functions and Effect shell.
+- [Expanded TypeSpec codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md): server interfaces, SDK, validators, mapping, permission metadata, test fixtures/docs and fail-on-unmapped gates.
+- [Vendored Matt Pocock skills manifest](MATT-POCOCK-SKILLS.md): 23 selected original MIT skills from version v1.3.2 used by Sphericon, with single-agent/OpenSpec overrides.
+- [Functional Domain Modeling standard](source/standards/Functional%20Domain%20Modeling.md)
+- [TypeSpec Contract First standard](source/standards/TypeSpec%20Contract%20First.md)
+- [Project-owned ACE TypeSpec Codegen skill](../../../.agents/skills/ace-typespec-codegen/SKILL.md)
+
+TypeSpec generation and codegen CI are **selected future work**, not claims of an installed compiler. Domain business rules remain in cohesive pure functions, not generated handler bodies.
