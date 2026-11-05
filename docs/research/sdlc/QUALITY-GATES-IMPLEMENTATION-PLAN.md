@@ -98,9 +98,9 @@
 
 **Only if measured pain:** compare \`dependency-cruiser\` against \`easement + SCIP\` on a known true/false dependency violation; measure correctness, cold CI latency, cache behavior, maintenance effort and relation to TypeScript module resolution.
 
-**Mise:** pilot a small pinned tool set only if recurring Node/Python/Go/Rust environment drift is observed. Don't replace existing Makefile/npx/npm commands for fashion. Preserve reproducible CI installation and no hidden project secret access.
+**Service orchestration decision:** do **not** add `mise daemons`. ACE uses local k3s for reusable integration services and worktree/namespace isolation; lightweight fake HTTP/MCP dependencies remain in-process. Existing npm/lockfiles/CI continue to pin the software toolchain. Add a new toolchain manager only for a separately measured reproducibility problem.
 
-**Parallelism / Heavy:** optional when two or more agent worktrees contend for real Qdrant, LSP, Postgres or large model downloads. A single agent gains no value from new daemon/orchestrator alone.
+**Parallelism / resource isolation:** extend the existing k3s worktree/namespace pattern when concurrent integration environments contend for Qdrant, LSP or other real services; do not add a second daemon supervisor.
 
 ## PR-QG8 — TypeSpec-first public contracts (owner-selected, staged)
 

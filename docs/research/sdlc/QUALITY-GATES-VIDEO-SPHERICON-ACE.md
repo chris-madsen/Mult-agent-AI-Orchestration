@@ -101,8 +101,8 @@ Sphericon rules explicitly reject persistent baselines. A new ACE rule that find
 ### P2 — conditional engineering investments
 11. **Contract-first generation (TypeSpec)** only with a stable multi-client public API; measure reduced duplicate code and generation drift versus added complexity.
 12. **SCIP-based enterprise boundary analysis** only if simple rules miss meaningful violations and CI cost justified.
-13. **mise** or other pinned multi-language toolchain when cross-machine drift is recurring.
-14. **Heavy/worktree service partitioning** only with concurrent agent resource contention.
+13. **No `mise daemons` in ACE target architecture.** Local k3s owns reusable integration services and namespace/worktree isolation; small fake HTTP/MCP/provider dependencies stay in-process. Tool version pinning remains with existing lockfiles/CI unless a concrete gap appears.
+14. **Worktree resource partitioning in k3s** only where concurrent integration environments need isolation.
 15. **SQL schema lint/DB Cleaner** only if a relational SQL store is introduced; Qdrant/FalkorDB require different state-level contracts today.
 
 ## Acceptance of the research itself
@@ -118,3 +118,7 @@ Sphericon rules explicitly reject persistent baselines. A new ACE rule that find
 The earlier comparison classified TypeSpec as a conditional pilot because it had not been selected yet. **That recommendation is superseded:** TypeSpec is now the chosen public machine contract language for ACE. Sphericon codegen inspection also shows generated server/client interfaces, runtime schema clients, converter implementations, enum completeness, permission tables, mocks/fixtures and docs — much more than type generation. See [ACE codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md). Its Go-specific generator (goverter/ogen/Ent) is not automatically ACE's TypeScript generator; choose maintained equivalents and require unmapped-field/enum negative tests.
 
 Sphericon's Matt skills are **runtime-vendored via mise**, not tracked under their final `.agents/skills` tree. ACE documents a curated pinned selection of 23 original Matt skills in the [import plan](MATT-POCOCK-SKILLS.md), but **does not yet contain their source files**. They do not supersede ACE's one-agent workflow and OpenSpec/ADR authority.
+
+## Owner decision: no mise daemons for ACE
+
+ACE already has a local k3s path and real k3s worktree acceptance evidence. Therefore the Sphericon `mise daemons` pattern is **not adopted** as an ACE service orchestrator. Long-lived/reusable Qdrant, Graphiti/FalkorDB, ACE Gateway and other integration services should use k3s where container/runtime fidelity matters; tiny deterministic dependencies should use in-process fakes/stubs. This avoids two competing orchestration layers. Sphericon's use of mise remains useful reference material for task/gate design and pinned Matt-skill provenance only.

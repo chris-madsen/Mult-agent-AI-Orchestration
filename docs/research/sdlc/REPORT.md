@@ -53,3 +53,7 @@ Added an explicit [architecture policy](ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md)
 Verified the 23 selected original Matt Pocock skills from Sphericon's pinned release (`v1.3.2`) against upstream source, but **the GitHub import commit did not complete**. Retained MIT license and [import instructions](MATT-POCOCK-SKILLS.md); original files are not in this PR. Incompatible automatic multi-agent/spec-reset flows are not activated by ACE's workflow.
 
 This PR does not install TypeSpec emitters or run functional domain/codegen gates in CI. Those are staged implementation tasks with explicit validation requirements.
+
+## Service orchestration decision
+
+Owner chose not to adopt Sphericon's `mise daemons`. ACE keeps local k3s for reusable integration services/worktree isolation and in-process test doubles for lightweight dependencies; existing tool lockfiles/CI remain the toolchain authority.
