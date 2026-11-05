@@ -258,7 +258,7 @@ If proposing a new rule, require a stable rule ID, positive and negative tests, 
 
 ## Functional DDD / TypeSpec-specific implementation contract
 
-The owner selected Event Storming + functional DDD for material domain work and TypeSpec for public machine contracts. Before code, read [functional policy](../../ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md), [codegen coverage](../../TYPESPEC-CODEGEN-COVERAGE.md), [Functional Domain Modeling](../standards/Functional%20Domain%20Modeling.md) and [TypeSpec Contract First](../standards/TypeSpec%20Contract%20First.md). For auxiliary techniques read the **imported original** Matt skills (tdd, code-review, diagnosing-bugs, domain-modeling) at `.agents/skills` — don't run `implement-spec` as a parallel subagent orchestrator.
+The owner selected Event Storming + functional DDD for material domain work and TypeSpec for public machine contracts. Before code, read [functional policy](../../ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md), [codegen coverage](../../TYPESPEC-CODEGEN-COVERAGE.md), [Functional Domain Modeling](../standards/Functional%20Domain%20Modeling.md) and [TypeSpec Contract First](../standards/TypeSpec%20Contract%20First.md). For auxiliary techniques, Matt's original `tdd`, `code-review`, `diagnosing-bugs` and `domain-modeling` skills may be read **if installed and present**. Otherwise rely on the full ACE-owned commands. Do not run upstream `implement-spec` as a parallel subagent orchestrator.
 
 A phase changing a public interface must:
 - edit TypeSpec canonical source **after the toolchain is installed**; preserve current accepted protocol behavior during rollout;

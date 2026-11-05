@@ -204,4 +204,4 @@ All gates in this section are **policy targets** until real scripts/tests exist 
 
 ## Full codegen shell and skill import (implementation guidance)
 
-See [codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md) for the Sphericon-inspired expanded targets, typed metadata and fail-on-unmapped mapping gates. Our [Matt skills import](MATT-POCOCK-SKILLS.md) supplies original `domain-modeling`, `to-spec`, `to-tickets`, `tdd` and `code-review` prompts. Under ACE policy they are supporting techniques only: OpenSpec is already installed, single-agent execution stays primary, domain ADTs are immutable and business rules are pure.
+See [codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md) for the Sphericon-inspired expanded targets, typed metadata and fail-on-unmapped mapping gates. Our [reviewed Matt skills selection](MATT-POCOCK-SKILLS.md) identifies the original `domain-modeling`, `to-spec`, `to-tickets`, `tdd` and `code-review` prompts. Under ACE policy they are supporting techniques only: OpenSpec is already installed, single-agent execution stays primary, domain ADTs are immutable and business rules are pure.

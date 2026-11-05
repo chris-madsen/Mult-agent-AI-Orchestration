@@ -71,7 +71,7 @@ The operational SDLC routes Design G02 before code and directs the one-agent rev
 
 - [Owner-selected functional DDD + TypeSpec architecture](ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md): Event Storming, ADT, pure functions and Effect shell.
 - [Expanded TypeSpec codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md): server interfaces, SDK, validators, mapping, permission metadata, test fixtures/docs and fail-on-unmapped gates.
-- [Vendored Matt Pocock skills manifest](MATT-POCOCK-SKILLS.md): 23 selected original MIT skills from version v1.3.2 used by Sphericon, with single-agent/OpenSpec overrides.
+- [Matt Pocock skills pinned selection](MATT-POCOCK-SKILLS.md): 23 selected MIT-licensed upstream skills from version v1.3.2; **import pending**, with single-agent/OpenSpec overrides.
 - [Functional Domain Modeling standard](source/standards/Functional%20Domain%20Modeling.md)
 - [TypeSpec Contract First standard](source/standards/TypeSpec%20Contract%20First.md)
 - [Project-owned ACE TypeSpec Codegen skill](../../../.agents/skills/ace-typespec-codegen/SKILL.md)

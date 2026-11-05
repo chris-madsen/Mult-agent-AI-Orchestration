@@ -218,4 +218,4 @@ For T2 domain behavior:
 6. Require explicit tests proving unmapped field/enum failure and backward compatibility; a compiler success alone does not prove behavior or provider wiring.
 7. Do not propose anemic god services, mandatory class-based aggregate objects or full Event Sourcing without an actual need.
 
-Read [functional policy](../../ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md), [codegen coverage](../../TYPESPEC-CODEGEN-COVERAGE.md) and imported `.agents/skills/domain-modeling/SKILL.md`. This stage's pre-code G02 crosswalk includes Event Storming decisions, domain function owner, TypeSpec contract and real-provider oracle.
+Read [functional policy](../../ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md), [codegen coverage](../../TYPESPEC-CODEGEN-COVERAGE.md) and the upstream Matt `domain-modeling` skill **if actually installed**; otherwise use the ACE-native Functional Domain Modeling standard. This stage's pre-code G02 crosswalk includes Event Storming decisions, domain function owner, TypeSpec contract and real-provider oracle.

@@ -50,6 +50,6 @@ This is a **documentation/process change**, not installation of new automation. 
 
 Added an explicit [architecture policy](ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md) for Event Storming → bounded contexts → readonly ADTs/pure business functions → Effect I/O, and TypeSpec-first public protocol contracts. Added [codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md), covering generated server/client interfaces, validators, DTO mappers, permission metadata, fixtures and docs, with fail-on-unmapped acceptance.
 
-Imported 23 **original Matt Pocock agent skills** from the release pinned by Sphericon (`v1.3.2`) into `.agents/skills`; preserved MIT license and [import manifest](MATT-POCOCK-SKILLS.md). Incompatible automatic multi-agent/spec-reset flows are not activated by ACE's workflow.
+Verified the 23 selected original Matt Pocock skills from Sphericon's pinned release (`v1.3.2`) against upstream source, but **the GitHub import commit did not complete**. Retained MIT license and [import instructions](MATT-POCOCK-SKILLS.md); original files are not in this PR. Incompatible automatic multi-agent/spec-reset flows are not activated by ACE's workflow.
 
 This PR does not install TypeSpec emitters or run functional domain/codegen gates in CI. Those are staged implementation tasks with explicit validation requirements.

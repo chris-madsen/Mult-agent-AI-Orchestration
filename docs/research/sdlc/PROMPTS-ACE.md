@@ -228,9 +228,9 @@ on a real PR head can the rule be marked ACTIVE.
 
 For public machine contracts **TypeSpec is chosen**, not a conditional pilot. Read [codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md) and [TypeSpec Contract First](source/standards/TypeSpec%20Contract%20First.md). Use [ACE TypeSpec Codegen Skill](../../../.agents/skills/ace-typespec-codegen/SKILL.md) for generated API scaffolding, SDK, validators, mechanical mapping, permissions metadata and drift/compatibility. TypeSpec alone does not generate business decisions.
 
-## Imported Matt Pocock skills — actual files, not paraphrases
+## Matt Pocock skills — upstream selection reviewed, import pending
 
-Read [import manifest and project override](MATT-POCOCK-SKILLS.md). The original pinned skill files are in `.agents/skills/`, MIT-licensed. Suggested auxiliary read:
+Read [upstream manifest and project override](MATT-POCOCK-SKILLS.md). The original MIT-licensed skills are **not yet committed to ACE**; the verified pinned selection can be installed separately. Do not claim a skill was loaded unless its file exists locally. Suggested auxiliary read:
 - Design and ubiquitous language: `domain-modeling`, `grill-with-docs`, `codebase-design`.
 - Work decomposition: `to-spec`, `to-tickets`; **map to existing OpenSpec**.
 - Implement: `tdd`, `diagnosing-bugs`, `code-review`.

@@ -1,51 +1,54 @@
-# Matt Pocock Agent Skills — pinned ACE import
+# Matt Pocock skills — verified source and pending import
 
-## Provenance and license
+**Status:** the original skill sources are **not installed or committed into ACE**. The source files were retrieved and compared against the pinned upstream release, but the attempted GitHub commit of vendored skill content was not completed. Do not report the skills as installed or claim that ACE has run them.
 
-- Upstream: https://github.com/mattpocock/skills, tag **v1.3.2**, source tree \`d1478fcb140db0b93c0c8df17bcfd311844749d0\`.
-- Reference workflow: https://github.com/getsphericon/sphericon at tree \`2ba7879b511a970b16310a433d7092492f10dd29\`.
-- Actual Sphericon mechanism: \`.mise.toml\` and \`mise.lock\` pin Matt skills to **1.3.2**; \`mise/tasks.toml\` \`["skills"]\` selects named skill directories from Matt's packaged release, copies into \`.agents/skills\`, then links \`.claude/skills\` to \`.agents/skills\`. Sphericon also includes a separate Samber/Go-specific skill, not imported for ACE.
-- License: **MIT, Copyright (c) 2026 Matt Pocock**. A copy is retained at [license](../../../.agents/LICENSE-MATTPOCOCK-MIT.txt). Files beneath \`.agents/skills/<name>/\` preserve upstream content from pinned v1.3.2; additional ACE-owned skill files are separately authored. This is vendoring, not a claim we wrote Matt's prompts.
-- ACE method: tracked copy under \`.agents/skills\` (existing native OpenSpec skills remain intact), with no \`mise\` prerequisite or Claude-only symlink. The repository is not automatically subscribed to upstream updates.
+## Provenance
 
-## Imported subset
+- Matt's original repository: https://github.com/mattpocock/skills
+- Pinned source: **v1.3.2**; source Git tree `d1478fcb140db0b93c0c8df17bcfd311844749d0`.
+- Reference implementation: https://github.com/getsphericon/sphericon (commit/tree reference `2ba7879b511a970b16310a433d7092492f10dd29`).
+- Sphericon's `.mise.toml` and `mise.lock` pin the release; `mise/tasks.toml`, `["skills"]` copies selected directories into `.agents/skills`. The final skills are populated by setup and therefore did not appear in Sphericon's committed Git tree.
+- License: **MIT Copyright (c) 2026 Matt Pocock**, text retained in [license](../../../.agents/LICENSE-MATTPOCOCK-MIT.txt).
+- ACE already has its own OpenSpec skills in `.agents/skills`; they must not be overwritten.
 
-Curated from the 29 Matt skills selected by Sphericon. Full upstream skill files with supporting Markdown/YAML files where applicable are in \`.agents/skills/\`:
+## Reviewed selection (23 of Sphericon's 29 Matt skills)
 
-**Core engineering:** \`code-review\`, \`codebase-design\`, \`diagnosing-bugs\`, \`domain-modeling\`, \`grill-with-docs\`, \`implement\`, \`improve-codebase-architecture\`, \`pr\`, \`research\`, \`retro\`, \`tdd\`, \`to-spec\`, \`to-tickets\`.
+**Engineering:** `code-review`, `codebase-design`, `diagnosing-bugs`, `domain-modeling`, `grill-with-docs`, `implement`, `improve-codebase-architecture`, `pr`, `research`, `retro`, `tdd`, `to-spec`, `to-tickets`.
 
-**Other/reference workflows:** \`ask-matt\`, \`implement-spec\`, \`prototype\`, \`setup-matt-pocock-skills\`, \`grill-me\`, \`grilling\`, \`handoff\`, \`to-questionnaire\`, \`wait-what\`, \`writing-for-agents\`.
+**Supporting/optional:** `ask-matt`, `implement-spec`, `prototype`, `setup-matt-pocock-skills`, `grill-me`, `grilling`, `handoff`, `to-questionnaire`, `wait-what`, `writing-for-agents`.
 
-There are **23 imported named skills** in this snapshot. Some optional per-client metadata was omitted for late-selected productivity entries; each imported skill has its original \`SKILL.md\`, and referenced reference documents for its included implementation are copied. The import is **not the full 29-skill Sphericon selection**.
+The 57 corresponding original files were retrieved and their Git blob IDs matched the upstream tagged sources. **They remain uncommitted and are not part of PR #222.**
 
-**Not imported:** \`triage\`, \`wayfinder\`, \`wizard\`, \`teach\`, \`claude-handoff\`, \`loop-me\`. Reasons: repo-specific issue automation, broad exploration, executable shell scaffold, tutorial workflow, Claude-specific handoff, and potentially autonomous loops; none is necessary for current single-agent ACE SDLC. This list makes intentional omissions explicit.
+Not selected from Sphericon: `triage`, `wayfinder`, `wizard`, `teach`, `claude-handoff`, `loop-me`. The last two are especially ill-suited to a client-independent, one-agent workflow; issue-triage and wizard automation require a separate decision.
 
-## Project-level precedence: important
+## Reproducible future import
 
-Vendoring a skill **does not override** ACE root/nested \`AGENTS.md\`, approved ADRs, OpenSpec and the canonical SDLC. A Matt skill may provide a technique or optional command; it cannot introduce a different source of truth, approval policy or execution mode.
+Use either an agent-supported skills installer against the tagged release or a dedicated, human-reviewed vendor PR. Matt's README documents agent-specific installers; for a manual interactive install, the upstream general command is:
 
-| Imported skill | ACE integration | Override/constraint |
-|---|---|---|
-| \`domain-modeling\` | Event Storming, ubiquitous language, context map, glossary, ADR | prefer existing strategic DDD docs; preserve **functional DDD** with immutable ADTs and pure transitions; no rich OO entity mandate |
-| \`grill-with-docs\` / \`grill-me\` | resolve domain ambiguity and owner decisions at G02 | ask only genuinely unresolved material questions; never re-ask already answered decisions |
-| \`to-spec\` | OpenSpec behavioral specs/acceptance | do not create a second tracker/spec or override accepted ADR |
-| \`to-tickets\` | dependency-ordered OpenSpec tasks / governing plan | one agent, one phase at a time; existing PR/branch discipline |
-| \`tdd\` | focused RED/GREEN at agreed public seam | no redundant tests; real provider evidence separate |
-| \`code-review\` | additional review lens for G06/G10 | one-agent self-review is not independent; four named gates still required |
-| \`diagnosing-bugs\` | first violated invariant, smallest repair | deterministic failpoints for races and exact source provenance |
-| \`codebase-design\` / \`improve-codebase-architecture\` | review deep module seams and avoid god service | no OO class requirement or speculative microservices |
-| \`research\` | source-grounded research under ACE's own research command | no recommendation in Research, record exact revision; follow project artifact paths |
-| \`pr\` / \`handoff\` | PR summary and context checkpoint | commit/push, checks at exact SHA, no unauthorized merge |
-| \`writing-for-agents\` | improve prompts and AGENTS docs | avoid duplicate policy and token-heavy inline copies |
-| \`implement\` | code implementation after approved plan | use ACE stage command and provider-specific test portfolio |
-| \`implement-spec\` | reference **only**, not default executor | upstream asks for parallel/subagents; ACE remains ONE agent unless owner explicitly changes direction |
-| \`setup-matt-pocock-skills\` | reference **only**; not auto-run | could create/overwrite tracker and domain docs, requires owner-scoped plan |
-| \`ask-matt\` | optional upstream router | may refer to unimported skills; prefer ACE \`PROMPTS-ACE.md\` for automatic stage selection |
+```bash
+npx skills@latest add mattpocock/skills
+```
 
-## Maintenance and verification
+**Do not run that unpinned command as a CI install step.** For reproducible production use, select tag `v1.3.2`, verify upstream release checksum/tree, copy the approved skill directories into the existing `.agents/skills` folder, preserve the MIT notice, run a path/reference check and commit the exact bytes. Sphericon uses pinned `mise` release archives; ACE is not required to add mise solely to import skills.
 
-1. Pin release tag/tree and exact selected path manifest; no remote \`latest\` at runtime.
-2. Update through a dedicated PR, review source diff and MIT notice; retain or replace generated files deliberately.
-3. Verify each imported \`SKILL.md\` exists; check internal references to included supporting documents. Some cross-skill upstream links may lead to omitted skills — use the local ACE router instead.
-4. Ensure the coding client can discover \`.agents/skills\`; clients lacking native discovery can read files by path. Do not create a Claude-only symlink as a universal requirement.
-5. Execute project tests/CI and gate acceptance at exact PR SHA; these are **documentation/vendor files** and do not prove upstream skills worked successfully on a coding task.
+No automation should execute arbitrary scripts from a newly imported skill until owner review, and no skill installation should delete existing OpenSpec skills.
+
+## ACE compatibility overlay
+
+- Root `AGENTS.md`, accepted ADR/OpenSpec and our [operational SDLC](../../operations/ai-assisted-sdlc.md) outrank optional skills.
+- `domain-modeling`: retain Event Storming, bounded contexts and ubiquitous language; implement passive immutable ADTs + cohesive pure domain functions, not mandatory rich OO entities.
+- `to-spec`/`to-tickets`: map to existing OpenSpec behavioral specs and task graphs rather than a second issue/spec source.
+- `tdd`/`diagnosing-bugs`/`code-review`: augment current ACE RED/GREEN and four quality checks; provider acceptance remains separate.
+- `implement-spec`: upstream multi-agent execution is incompatible with the **current one-agent** decision; treat as reading/reference only until explicitly changed.
+- `setup-matt-pocock-skills`: may write repo config, glossary and tracker; do not auto-run without reviewing impact on existing ACE governance.
+- `ask-matt` may refer to intentionally unselected skills; use ACE `PROMPTS-ACE.md` as the default router.
+- `pr`/`handoff`: preserve focused commit, push, exact SHA/CI, human owner control and no direct-to-main behavior.
+
+## Required evidence before status becomes INSTALLED
+
+1. All selected `SKILL.md` files and referenced Markdown/resources exist at the intended paths.
+2. Confirm file bytes against pinned upstream tree; no extra instructions accidentally modified.
+3. MIT notice is retained; change reviewed as a software dependency.
+4. Repository-native skills are preserved.
+5. Agent discovery and single-agent process are tested; no second runner/issue tracker silently activated.
+6. GitHub PR head contains committed files and actual CI status, not an unattached Git tree.
