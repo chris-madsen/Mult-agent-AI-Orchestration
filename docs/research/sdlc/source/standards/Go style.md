@@ -1,10 +1,24 @@
-# Go style
+# Go Style — applicable only to isolated Go components
 
-## Rules for Go projects
-Use idiomatic Go naming, clear package ownership and explicit error handling. Prefer typed sentinel or wrapped errors where the existing project uses them. Avoid unexplained magic constants, ambiguous interfaces, hidden global state and comments that merely restate code. Tests must be deterministic and use the project's established runner and fixtures.
+## Go coding rules
+1. Follow package naming/Go idioms, not generic Java/C# patterns.
+2. Keep exported API minimal and documented where needed.
+3. Return errors explicitly; wrap with context without leaking secrets.
+4. Prefer typed/sentinel errors for stable decisions over string comparison.
+5. Manage context cancellation and deadlines across network boundaries.
+6. Close network/file resources and check Close errors when important.
+7. Avoid global mutable state and hidden init effects.
+8. Avoid magic constants and silent default values.
+9. Keep concurrency ownership clear, avoid goroutine leaks.
+10. Protect shared state with correct synchronization.
+11. Use table-driven test cases for variations.
+12. Exercise actual cancellation, retries and idempotency.
+13. Run gofmt, go test and go vet when relevant.
+14. Check module version and license for dependencies.
+15. Don't mandate comments that merely repeat code.
+16. Don't use a Builder where a simple constructor is clearer.
+17. Keep provider DTOs outside domain entities.
+18. Avoid fabricated PASS for tests not executed.
 
-## Translation for ACE (TypeScript + Effect)
-Do **not** apply Go naming or Go-specific libraries to ACE. Preserve the intent: idiomatic TypeScript, explicit and typed Effect failure channels, minimal abstraction, clear module ownership, existing ESLint/typecheck conventions, stable configuration and reproducible tests.
-
-## Review
-Review actual changed files and the project rules. Identify concrete violations with exact file:line and proposed minimal repair. Do not create Go-style Builders or mock frameworks unless justified by a separately approved design.
+## ACE scope
+The TypeScript + Effect core is **not** Go. Apply this reference only to `integrations/bifrost/ace-connector` or another explicitly approved Go component. The broader ideas translate to TS idioms, but Go-specific syntax/tools must never be mandatory for an unrelated TS change.

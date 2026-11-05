@@ -1,15 +1,53 @@
-# implement frontend
+# Implement Frontend — phased UI implementation with quality gates
 
-## Procedure
-Read the approved plan and design; implement small dependency-ordered phases; run unit/component/integration checks, accessibility, lint/build, security and plan-completeness reviews sequentially; correct and rerun. Report exact tested revision.
+## Entry conditions
+Approved frontend feature design, explicit acceptance criteria, current component tree/API contract, execution plan, branch and source SHA. Only run when an actual frontend capability is being developed.
 
-**Inputs:** user goal; code and existing test evidence; accepted constraints; target runtime. **Outputs:** smallest necessary design/plan/diff and verified evidence report.
+## Phase 0
+- Read entire approved plan and all dependent phase instructions.
+- Inspect related screen/components and real API contract.
+- Read accepted design system and accessibility conventions.
+- Locate tests, Storybook or browser harness if available.
+- Confirm which state/route is produced by current runtime.
+- Check open branches/PRs and preserve unrelated work.
 
-## Procedure
-This section is **not** attributed to the original video's prompt. It is a usable substitute with explicit inputs/outputs.
+## Phase loop
+1. Select smallest unblocked vertical slice.
+2. Record exact files to add/modify and required user journey.
+3. Write or update relevant test/interaction assertion; RED when practical.
+4. Implement minimal UI/state/API integration.
+5. Re-run focused test and check actual runtime output.
+6. Do not insert placeholder screenshots or claim visual comparison without evidence.
+7. Verify empty, slow, denied, invalid and network error states.
+8. Check keyboard and focus behavior with appropriate tools.
+9. Avoid hiding backend errors behind a generic success toast.
+10. Avoid duplicate submits and non-idempotent replay.
+11. Record known browser/platform limitations.
 
-**Inputs:** user goal, scope, current implementation, accepted design (if relevant), exact branch/commit, risk tier.
+## Four gates
+### Build
+Run project typecheck, lint, component/unit and applicable real/browser tests. Evidence includes command/output/exit and tested revision.
 
-**Process:** Read approved frontend feature design and phase dependencies. Implement one phase, run frontend build/typecheck/unit, browser checks when available, accessibility/security and complete design coverage. On any failed gate return to same phase. Complete with end-to-end smoke and exact PR/CI evidence.
+### Architecture
+Read component ownership, state, data loading, API DTO separation and design-system reuse. Reject duplicated unrelated state or API wrappers.
 
-**Deliverable:** Summary, Change plan, Code/test evidence, Four-gate review table, Open decisions/blockers, PR SHA and next action.
+### Security and accessibility
+Review untrusted HTML/URLs, auth/cookies/tokens, CSRF/XSS, unsafe redirects, private data in logs, semantic UI/focus/keyboard labels and permission checks.
+
+### Plan completeness
+Walk each accepted UI state, screen, accessibility criterion and test case. Match implementation and explicit evidence. Missing required state fails the gate.
+
+## On rejection
+Fix same slice; rerun relevant checks. Record exceptions with owner decisions; no silent scope reduction.
+
+## Final cross-phase pass
+- Navigation and permissions work together.
+- Backend error codes mapped consistently.
+- Loading and cancellation state doesn't leave stale UI.
+- All components are reachable and dead scaffolding removed.
+- Accessibility/keyboard and responsive behavior meet acceptance.
+- Browser testing and manual QA have observed results.
+- Every issue/PR check binds to exact SHA.
+
+## Handoff
+Committed and pushed focused PR with CI statuses, evidence links, owner review and known gaps. A successful build alone is not proof that UI interactions or browser support work.

@@ -1,18 +1,40 @@
-# Fix Frontend Bug
+# Fix Frontend Bug — reproduction, trace, minimal repair
 
-## Input
-Defect report, expected behavior, reproduction steps, browser/device context, affected frontend application, branch and commit. Treat UI and API observations as evidence; don't invent screenshots or browser results.
+## Inputs
+Reproduction route, steps, expected and actual DOM/UI behavior, browser/device, screenshot or error trace if provided, API responses if relevant, source SHA.
 
-## Procedure
-1. Reproduce the defect in the affected component or route; document expected vs actual behavior. Capture a deterministic RED test if practical.
-2. Trace the entire relevant component tree, state transitions, API client and backend contracts; inspect the owning code and its tests.
-3. Identify the first broken invariant or state transition. Search for related known regressions and open PRs.
-4. Assess the blast radius: other callers, shared components, navigation, error/loading/empty states, authorization, accessibility and compatibility.
-5. Choose the smallest fix that preserves accepted architecture and public API behavior. Obtain a human decision for a material design change.
-6. Implement the fix in a focused slice; run targeted tests, typecheck/lint/build as applicable, and browser or component checks when the environment supports them.
-7. Run separate review passes: BUILD (observed command results), ARCH (component/state/API ownership), SEC (auth, input, XSS, untrusted content), PLAN (requirements and regression cases).
-8. If a pass fails, repair the same slice and repeat the applicable checks.
-9. Save an exact PR HEAD, CI outcomes, manual verification evidence and open limitations. Do not claim that a browser test ran if it did not.
+## Diagnose
+1. Reproduce the exact interaction with deterministic fixture where possible.
+2. Record route, component state, user identity/permission and network conditions.
+3. Confirm whether the error is frontend rendering, state update, navigation, API schema or backend response.
+4. Trace the UI component tree and data ownership.
+5. Inspect event handlers, asynchronous race, stale closures and cancellation.
+6. Check browser console/network traces without exposing secrets.
+7. Compare current API payload and accepted contract.
+8. Check empty/loading/denied/error/offline cases.
+9. Inspect recent related changes and open PRs.
+10. Identify first invariant violated and the corresponding regression test.
+11. If visual defect cannot be observed in available tool, say NOT-VERIFIED.
 
-## Output
-Root cause, changed files, RED/GREEN evidence, tests run and not run, four-gate report, PR link/commit, remaining issues. Human approval controls merge.
+## Repair
+1. Select the smallest state/component/API boundary change.
+2. Avoid broad redesign or wholesale new state architecture.
+3. Obtain approval for UX changes beyond defect contract.
+4. Add RED test or reproducible manual assertion.
+5. Implement minimal fix, run GREEN.
+6. Check regression against nearby interactions.
+7. Verify focus/keyboard and accessible feedback.
+8. Check that authorization and privacy remain unchanged.
+9. Test repeated requests, cancellation and failed network where relevant.
+10. Run build/arch/security/plan passes individually.
+
+## Manual verification record
+- Browser/runtime and revision.
+- Steps to reproduce before/after.
+- Actual observed UI/DOM or screenshot reference when available.
+- Response payload or mock/real distinction.
+- Accessibility and keyboard findings.
+- Required browser/platform checks not run.
+
+## Handoff
+PR/head SHA, tests and statuses, known limitations, owner review. Never claim screenshot or browser verification if only the source code was inspected.

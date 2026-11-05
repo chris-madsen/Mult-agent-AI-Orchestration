@@ -1,13 +1,47 @@
-# Architecture Layers
+# Architecture Layers — ownership, direction, composition
 
-## Rules
+## Objective
+Make architectural boundaries observable in code. The name of a folder does not prove a layer is clean; imports, runtime composition and data ownership do.
 
-Document the allowed direction between HTTP/controller, application/use case, domain and infrastructure adapter boundaries. Review imports and runtime dependency injection, not just directory names. Domain types must not import adapters. Identify cycles and secret provider dependencies. For ACE use its accepted TypeScript/Effect DDD/ports contracts, not the Go package layout.
+## Layer contract
+- **Domain:** entities, values, invariants, domain errors and deterministic rules. Does not depend on HTTP, SDKs, databases or model providers.
+- **Application:** use cases, authorization orchestration, typed ports, transactions and failure semantics. Depends on domain and abstract services.
+- **Adapters:** conversions between external protocol/provider DTOs and application contracts. Implements ports; no hidden domain policy.
+- **Composition:** wiring, configuration, process lifecycle, health, deployment and dependency injection. May reference all layers solely to compose them.
+- **Test infrastructure:** fixtures and doubles never masquerade as real providers or production-selected adapters.
 
-## Review procedure
-1. Identify affected domain and caller/callee boundaries using actual files and line references.
-2. Check applicable claims against accepted project standards and tests; note any mismatch between original Go example and current project language.
-3. Produce PASS/FAIL/NOT-APPLICABLE/UNKNOWN with a reproducible line-level explanation.
-4. If any required evidence is absent, state what still must be measured; never report green based on expectation.
+## Mandatory review rules
+1. Identify entrypoint and actual runtime wiring.
+2. Assign every changed file to an owner/layer.
+3. Trace import direction; enforce domain inward independence.
+4. No protocol DTO in domain types.
+5. No business rule buried in transport/controller.
+6. No persistence query from domain entity.
+7. No unapproved global/singleton lifecycle hiding provider choice.
+8. Explicit port/adapter boundary for external provider.
+9. Avoid leaking vendor errors as public application errors.
+10. Confirm concurrency/state ownership at the correct layer.
+11. Verify real composition selects new implementation and no dead alternate path remains.
+12. Reuse installed mature SDK/protocol clients; no shadow implementation.
+13. Keep DDD bounded context logical; no per-context microservice default.
+14. Separate normal domain failure from infrastructure outage.
+15. Prevent circular dependencies and split oversized ownership when measured.
+16. For cross-context calls document contracts and source of truth.
+17. For ACE preserve TypeScript + Effect modular monolith.
+18. Do not introduce Rust/Python/native code without a documented boundary/need.
 
-## Use in ACE
+## ACE examples
+Allowed: HTTP/MCP adapter calls application service through typed Effect dependencies. Qdrant adapter returns indexed candidates with revision/provenance to application. Application verifies source freshness before reporting complete.
+
+Rejected: domain entity constructs Qdrant client; adapter overwrites verified source status to COMPLETE on timeout; MCP transport becomes a new general-purpose LLM gateway.
+
+## Verification
+- Source import and call graph.
+- Typecheck and architecture/contract tests.
+- Runtime composition check.
+- Negative test against forbidden fallback.
+- Documentation decision ID and exact SHA.
+
+## Review report
+| Changed path | Layer | Inbound/outbound deps | Violated rule | Source reference | Fix |
+Verdict PASS/FAIL/UNKNOWN with evidence; undefined owner is UNKNOWN.
