@@ -82,3 +82,15 @@
 - Owner approval:
 - Deferred follow-ups:
 - Next unblocked phase:
+
+## Quality Gate obligations for this phase
+
+Relevant gate IDs from [catalog](../../QUALITY-GATES-CATALOG.md):
+- Pre-code Design Consistency G02 (T2; for T1 brief; T0 N/A):
+- Current available deterministic commands (G03):
+- Installed architecture rules (G04) or planned rule (NOT-RUN):
+- Secrets, workflow, docs or dependency scope (G05–G09):
+- Real provider/agent E2E obligation (G11):
+- Expensive nightly/release checks (G12–G13; outside edit loop):
+
+For each enabled gate capture exact tool/version, command, exit, source SHA, evidence and decision owner. Do not mark an uninstalled tool PASS.

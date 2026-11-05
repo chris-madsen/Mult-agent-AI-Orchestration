@@ -241,3 +241,17 @@ Owner decisions: <approved/unapproved>
 Remaining risks: <...>
 Next dependent phase: <...>
 ```
+
+## Automated Quality Gate selection and proof (updated)
+
+Read the [Quality Gates standard](../standards/Quality%20Gates.md) and [catalog](../../QUALITY-GATES-CATALOG.md). These are *selections and procedures*, not assertions that every tool exists in ACE.
+
+For each phase:
+- After research and design (T2), verify **G02 Design Consistency** before code: all acceptance IDs have a contract owner, phase and oracle.
+- Inner loop: use installed ACE `npm run test:affected` and necessary existing type/lint scripts; run only **enabled** scoped architecture rules, never an imaginary `check:ast`.
+- PR: separate gate axes BUILD / ARCH / SEC / PLAN; consider offline Markdown links, workflow lint/secret scan, dependency check and contract compatibility based on changed scope. Record proposed-but-uninstalled tools as NOT-RUN.
+- Provider release: real Qdrant/LSP/Graphiti/Vertex/Bifrost/Hermes evidence is capability-scoped. A passing static rule cannot replace actual provider proof.
+- Final: bound results to exact commit SHA and PR check run. New security/egress/source-freshness violations cannot be suppressed by a generic baseline.
+- Expensive nightly candidates (CodeQL, advisory refresh, fuzz/mutation) must not slow every edit.
+
+If proposing a new rule, require a stable rule ID, positive and negative tests, scope exclusions, concrete fix message, false-positive investigation and observed failing CI before declaring it active. Prefer TS/Effect architecture tests or ast-grep for syntax; use dependency-cruiser/SCIP only for rules that actually require it.

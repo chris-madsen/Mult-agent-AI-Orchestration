@@ -35,3 +35,19 @@
 ## Критерий завершения
 
 Минимум один реальный PR с прохождением необходимых стадий, воспроизводимыми тестами и наблюдаемыми результатами quality gates; затем можно подкреплять описание этого подхода в CV ссылкой на PR.
+
+## Quality Gates extension — execute as small follow-up PRs
+
+See [research comparison](QUALITY-GATES-VIDEO-SPHERICON-ACE.md), [gate catalog](QUALITY-GATES-CATALOG.md), and [implementation plan](QUALITY-GATES-IMPLEMENTATION-PLAN.md).
+
+Recommended order:
+1. **QG0:** offline local Markdown links — no broad npm install for docs-only CI.
+2. **QG1:** source secret scanning and GitHub workflow syntax/security, pinned tools.
+3. **QG2:** two to four verified ACE-specific architecture rules with positive+negative fixtures and human-approved scope.
+4. **QG3:** read-only G02 Design Consistency with a real acceptance crosswalk; already introduced as a *manual procedural* gate in this SDLC.
+5. **QG4–QG6:** report-only Knip, compatibility checks and nightly vulnerability/mutation/property tests when justified.
+6. **QG7/8 conditional:** typed SCIP/easement, mise, TypeSpec or SQL schema tools only if an actual ACE contract/scale problem requires them.
+
+Do not copy Sphericon's PostgreSQL/Go SQL testing, frontend bundle-size gate, worktree isolation daemon or TypeSpec generators as mandatory ACE checks. Existing ACE deterministic tests, real providers and release supply-chain proof remain independent authoritative checks.
+
+A future tool PR must show both a clean fixture and deliberately violating fixture, observed commands and GitHub CI result at the exact PR SHA. All proposed tools remain NOT INSTALLED until those PRs are completed.

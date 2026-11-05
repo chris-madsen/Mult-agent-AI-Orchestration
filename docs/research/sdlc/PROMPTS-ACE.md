@@ -182,3 +182,42 @@ A stale summary never overrides the actual working tree.
 - Real-provider tests and benchmark acceptance are separate from unit mocks.
 - Preserve source, privacy and historical evidence.
 - All resulting documents use consistent paths and current SHA.
+
+## Entrypoint Q — select and execute Quality Gates
+
+```text
+Read the complete docs/research/sdlc/QUALITY-GATES-CATALOG.md and
+source/standards/Quality Gates.md. Inspect the actual current ACE
+package.json, CI and AGENTS.md at HEAD rather than trusting a plan.
+Classify the current change (T0/T1/T2) and select applicable gate IDs.
+
+BEFORE T2 implementation apply G02 Design Consistency: trace each
+acceptance criterion to its owner, contract, approved decision, phase,
+test oracle and required real-provider evidence. Stop for unresolved
+material decisions. During development use the existing ACE scripts
+and any ACTUALLY INSTALLED scoped static rules. In the PR stage
+perform separate BUILD, ARCH, SECURITY and PLAN passes, and check
+link/secret/dependency/contract categories only if applicable.
+
+For every selected gate report exact version/command/SHA, actual
+PASS/FAIL/UNKNOWN/NOT-RUN/N/A, and supporting artifacts. A proposed
+tool is never counted as a completed check. If a required gate fails,
+repair and rerun on the changed SHA. Never claim that one-agent
+self-review is independent validation.
+```
+
+See [QUALITY-GATES-IMPLEMENTATION-PLAN.md](QUALITY-GATES-IMPLEMENTATION-PLAN.md) for tools not yet installed and the rollout PR order.
+
+## Entrypoint Q-Author — create a new architecture rule
+
+```text
+Before adding a custom scanner, read accepted ADR/OpenSpec and
+source/standards/Quality Gates.md. Choose ONE verifiable invariant
+and the simplest mature tool suitable for its syntax/type semantics.
+Write a valid fixture, violating fixture and false-positive fixture.
+Demonstrate RED (detector catches violation) then GREEN (allowed code
+not flagged); label all rules with ID and concrete fix. Scope changed
+paths, generated-code exclusions and baseline policy. Measure
+false positives, runtime and CI resource cost. Only after CI runs
+on a real PR head can the rule be marked ACTIVE.
+```

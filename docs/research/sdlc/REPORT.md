@@ -37,3 +37,11 @@ The screenshots did not expose every original prompt from the presenter; descrip
 - Review Markdown internal paths and stage references.
 - Run the prompt acceptance scenarios on a controlled example.
 - Apply complete SDLC to an unresolved ACE task in a separate PR and capture real tests and human review.
+
+## Quality Gates research update (2026-11-05)
+
+Added [QUALITY-GATES-VIDEO-SPHERICON-ACE.md](QUALITY-GATES-VIDEO-SPHERICON-ACE.md), [QUALITY-GATES-CATALOG.md](QUALITY-GATES-CATALOG.md) and [QUALITY-GATES-IMPLEMENTATION-PLAN.md](QUALITY-GATES-IMPLEMENTATION-PLAN.md), plus a full Quality Gates reviewer standard and a portable skill. Updated operational SDLC, design/implementation prompts, phase template and documentation index.
+
+The Sphericon repository was inspected directly: actual task definitions, CI/nightly workflow division, ast-grep rule tests, package boundary configuration, schema and contract checks, secrets/Actions scanners, generated-code ownership and toolchain. Video summary evidence came from publicly accessible description and secondary summary; connected transcript unavailable due user account limit. No unverified transcript quotes or timestamps claimed.
+
+This is a **documentation/process change**, not installation of new automation. Existing ACE CI remains authoritative and future QG0–QG8 tool PRs are described in the plan. New G02 Design Consistency is a procedural requirement for T2 designs; no false CI PASS claimed.

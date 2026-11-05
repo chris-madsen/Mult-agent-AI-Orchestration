@@ -41,6 +41,23 @@ Full procedure: [research_codebase.md](../research/sdlc/source/commands/research
 
 **Exit:** source-grounded facts sufficient to decide design; else PARTIAL/BLOCKED.
 
+## Additional Quality Gates from the video/Sphericon audit
+
+Read the full [research comparison](../research/sdlc/QUALITY-GATES-VIDEO-SPHERICON-ACE.md), [gate catalog](../research/sdlc/QUALITY-GATES-CATALOG.md), and [detailed adoption plan](../research/sdlc/QUALITY-GATES-IMPLEMENTATION-PLAN.md). The working reviewer checklist is [Quality Gates](../research/sdlc/source/standards/Quality%20Gates.md).
+
+The new **G02 pre-code Design Consistency** check is mandatory for a T2 design: every acceptance criterion must have an owner, accepted decision, interface/state, implementation phase, deterministic oracle and real-provider oracle if needed. In a local T1 defect use a short criterion→invariant→RED/GREEN mapping; for T0 mark N/A. G02 is a *procedure* now, not a new CI command.
+
+Use existing fast ACE commands, then the four separate review passes from implement_backend.md. If a new automated check is not installed, record **PLANNED / NOT-RUN**, never PASS. The catalog distinguishes current scripts from proposed ast-grep rules, offline Markdown links, secret/workflow scanners, Knip, architecture dependency pilot and nightly tools.
+
+**Five execution layers, not five new mandatory tools:**
+1. G00/G01: source identity, factual evidence, scope.
+2. G02: Design Consistency **before implementation** (T2).
+3. G03–G05: actual fast inner-loop commands/rules/hooks only if present.
+4. G06–G10: scoped PR architecture/security/docs/contract/acceptance gates.
+5. G11–G14: applicable real providers, nightly, release provenance and final owner review.
+
+Do not run SQL/Ent/Squawk/Schemalens gates for ACE's non-relational stores. Do not add TypeSpec solely because Sphericon uses it. New architecture rules require tested valid and invalid fixtures, exact rule ID, repair hint and observed CI failure before they are called ACTIVE.
+
 ## 2. Design stage
 Full procedure: [design_feature.md](../research/sdlc/source/commands/design_feature.md) or [design_bugfix.md](../research/sdlc/source/commands/design_bugfix.md).
 

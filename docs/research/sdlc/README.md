@@ -56,3 +56,13 @@ Research documents **facts only**. Design proposes changed behavior and accepts 
 
 ## ACE constraints
 Root AGENTS.md, Accepted ADRs, OpenSpec and existing CI retain full authority. No automatic 5× savings claim, no model-bound Bifrost claim from MCP-only tests, no false source freshness, no unauthorized cloud egress, no Go-style runtime rewrite and no second agent orchestrator.
+
+## Quality Gates and reusable reviewer procedure
+
+- [Video + Sphericon evidence and ACE gap audit](QUALITY-GATES-VIDEO-SPHERICON-ACE.md)
+- [Complete Quality Gate catalog, G00–G14](QUALITY-GATES-CATALOG.md)
+- [Phased tool implementation plan](QUALITY-GATES-IMPLEMENTATION-PLAN.md)
+- [Quality Gates reviewer standard](source/standards/Quality%20Gates.md)
+- [Portable gate-selection skill](skills/quality-gate-selection/SKILL.md)
+
+The operational SDLC routes Design G02 before code and directs the one-agent reviewer to apply actually installed checks. These documents do **not** mean the optional scanners are already enabled in GitHub Actions.

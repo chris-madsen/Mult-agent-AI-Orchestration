@@ -192,3 +192,17 @@ feature/
 - [ ] A planner can identify exact module/file owners and dependencies.
 
 Return index paths, important alternatives, unresolved decisions, testing obligations and a clear state: READY-FOR-PLAN / NEEDS-DECISION / NEEDS-RESEARCH.
+
+## Pre-implementation Design Consistency Gate (G02)
+
+Before handing T2 design to Plan/Implement, perform the read-only
+[Design Consistency checklist](../../QUALITY-GATES-CATALOG.md):
+1. Build the acceptance → owner → contract/state → approved decision → phase → test oracle matrix.
+2. Identify any missing requirement, orphan component, contradicting ADR or duplicate source of truth.
+3. Require a negative/error path for each consequential external boundary.
+4. Identify whether a real provider must be exercised for the acceptance claim and who authorizes access.
+5. Check compatibility, migration and rollback for schema/contract changes.
+6. Resolve material human-owned architecture choices before allowing implementation.
+7. Return READY / NEEDS-RESEARCH / NEEDS-DECISION / BLOCKED with matrix, not a subjective paragraph.
+
+For T1 use the smallest root-cause → invariant → regression test mapping; T0 is N/A. New tool installs, TypeSpec generation and database-migration gates are not automatically required by this design command.
