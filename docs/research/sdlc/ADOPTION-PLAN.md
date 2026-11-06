@@ -46,10 +46,9 @@ Recommended order:
 3. **QG2:** two to four verified ACE-specific architecture rules with positive+negative fixtures and human-approved scope.
 4. **QG3:** read-only G02 Design Consistency with a real acceptance crosswalk; already introduced as a *manual procedural* gate in this SDLC.
 5. **QG4–QG6:** report-only Knip, compatibility checks and nightly vulnerability/mutation/property tests when justified.
-6. **QG7 conditional:** typed SCIP/easement or a new toolchain manager such as mise only if a measured ACE architecture/reproducibility problem requires them.
-7. **QG8 owner-selected:** TypeSpec rollout is required for new or migrated public machine contracts under the selected architecture, but the compiler/emitters/generators remain separate staged implementation work. SQL schema tooling remains conditional on ACE actually adopting SQL.
+6. **QG7/8 conditional:** typed SCIP/easement, mise, TypeSpec or SQL schema tools only if an actual ACE contract/scale problem requires them.
 
-Do not copy Sphericon's PostgreSQL/Go SQL testing, frontend bundle-size gate, worktree isolation daemon or its project-specific TypeSpec generators as mandatory ACE checks. ACE has selected TypeSpec contract ownership for in-scope public wire surfaces; the **specific generators** must still be maintained, pinned and proven fit before adoption. Existing ACE deterministic tests, real providers and release supply-chain proof remain independent authoritative checks.
+Do not copy Sphericon's PostgreSQL/Go SQL testing, frontend bundle-size gate, worktree isolation daemon or TypeSpec generators as mandatory ACE checks. Existing ACE deterministic tests, real providers and release supply-chain proof remain independent authoritative checks.
 
 A future tool PR must show both a clean fixture and deliberately violating fixture, observed commands and GitHub CI result at the exact PR SHA. All proposed tools remain NOT INSTALLED until those PRs are completed.
 
