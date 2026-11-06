@@ -36,8 +36,10 @@
 | 20 | E — уже установленный локальный Kubernetes; модульный монолит; без искусственных микросервисов | ADR-008 |
 | 21 | Пока только учёт токенов и обязательные security/failure logs; остальная observability отдельно | ADR-009, ADR-010 |
 | 22 | D — baseline + Serena на раннем этапе, Augment и графовые системы в итоговом сравнении | ADR-009 |
-| 23 | **Harbor** как выбранный framework; token usage из Codex, benchmarks с качественным gating | ADR-009 |\n| 24 | Cursor-like **hybrid context architecture principles**, но собственные maintained компоненты; универсальная MCP-граница; Qdrant остаётся local code store | ADR-014 |
+| 23 | **Harbor** как выбранный framework; token usage из Codex, benchmarks с качественным gating | ADR-009 |
+| 24 | Cursor-like **hybrid context architecture principles**, но собственные maintained компоненты; универсальная MCP-граница; Qdrant остаётся local code store | ADR-014 |
 | 25 | Для текущего Harbor feedback loop primary agent меняется с Codex на **Hermes**; GPT остаётся через ChatGPT/Codex OAuth (`openai-codex`), ACE подключается как native Hermes MCP; Codex остаётся comparison client | ADR-015 |
+| 26 | Event Storming + functional DDD как default modeling style; TypeSpec как source language для new/migrated public machine contracts | ADR-019 |
 
 ## Открытые исследования (не путать с несогласованными требованиями)
 
@@ -83,3 +85,8 @@
 - Native Hermes ContextEngine/JSONL bridge already exists (ADR-016), and must not double-project a Bifrost-transformed request.
 - MCP is the existing **explicit tools plane** (`ace_expand`, status, diagnostics, optional search), not a required route for automatic model-context injection. Previous MCP-first statements are retained only as dated historical records.
 - Multi-agent scheduling using LangGraph stays outside ACE.
+
+
+## Owner clarification — 2026-11-05: Functional DDD + TypeSpec public contracts
+
+- **ADR-019 Accepted.** This records the architecture choices already stated in PR #222 and does not change its SDLC stage/gate semantics.

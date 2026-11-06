@@ -2,18 +2,21 @@
 
 **Статус:** Proposed; модель выведена из PRD/ADR, именование и поля — новые проектные предложения. Следование этому документу не означает необходимость DDD framework, ORM или отдельной БД для каждого контекста.
 
+**Owner modeling preference (2026-11-05):** this document names **logical identities, aggregate consistency boundaries and domain invariants**. It does **not** prescribe rich mutable Entity/Aggregate classes. ACE implementation defaults to **readonly ADTs and pure domain transition functions**; application orchestration and side effects live in Effect. The explicit choice and TypeSpec wire-contract policy are in [Functional DDD + TypeSpec architecture](../../research/sdlc/ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md). Keep all existing source-truth and provider safety invariants; update their code representation incrementally, not with a big-bang refactor.
+
 ## 1. Соглашения
 
 - **Entity**: идентичность сохраняется при изменении атрибутов; уникальные IDs не равны путям и именам.
 - **Value Object (VO)**: сравнение по значениям, immutable; валидируется при создании.
 - **Aggregate**: consistency boundary, единственный транзакционный root; не делать агрегатами «весь workspace» или «всю историю» целиком.
-- **Domain Service**: доменная операция, которая не принадлежит естественно одной сущности (например, merge/relevance scoring).
+- **Domain function** (вместо OO Domain Service по умолчанию): чистая операция над immutable domain state/ADT, размещённая в модуле owning bounded context (например, merge/relevance scoring).
+- **Aggregate root**: логическая consistency/authorization/version boundary, а не требование mutable root object с методами. Команды могут обрабатываться чистыми функциями `transition(state, command)` и сохраняться через CAS/Effect.
 - **Port**: абстрактный интерфейс (например, `CodeCandidatePort`), без Qdrant/Vertex DTO в домене.
 - **Eventual consistency** между агрегатами допустима; `current=true` без проверки рабочего дерева запрещено.
 
 ## 2. BC-01 Workspace Truth
 
-**Aggregate root `Workspace` (Entity)**
+**Logical aggregate/consistency boundary `Workspace`** (identified immutable state; not an OO class requirement)
 
 | Поле | Тип | Семантика |
 |---|---|---|
@@ -151,9 +154,29 @@
 
 ## 12. Не переносить неверные DDD допущения на реализацию
 
-- Не создавать анемичный `RepositoryService` со всеми методами и без агрегатов.
+- Не создавать огромный `RepositoryService`, контроллер или Effect use-case, куда размазаны инварианты сразу нескольких bounded contexts. **Пассивные immutable ADT/records допустимы и предпочтительны**, когда их поведение сосредоточено в чистых доменных функциях соответствующего контекста. Агрегат остаётся consistency boundary, даже если нет класса `AggregateRoot`.
 - Не распределять систему на 8 Deployments только из-за 8 Bounded Contexts.
 - Не использовать Event Sourcing для всех агрегатов: raw archive immutable, но большинство состояний нормально хранятся как обычные записи + domain event/outbox.
 - Не моделировать все spans/references как синхронные дочерние сущности большого Workspace aggregate.
 - Не объявлять data-flow/static call graph «знанием runtime поведения».
 - Не требовать фиксированной верхней границы выдачи корректного 2000-строчного patch (ADR-006).
+
+## 13. Mapping: Event Storming → ADT and pure decisions
+
+Use the accepted/owner-reviewed Event Storming outputs to design each context without class-based modeling as a default:
+
+| Event Storming concept | Functional implementation artifact |
+|---|---|
+| Actor and command | validated immutable `Command` ADT with explicit origin and authorization context |
+| Domain event (past tense) | immutable `Event` ADT emitted by a successful transition *when a consumer/audit exists* |
+| Policy/business rule | pure `decide` / `transition` function in the owning bounded context |
+| Aggregate | state identity/version + invariant-preserving transition and CAS/outbox when persisted |
+| Hot spot / invariant | explicit error branch, property/transition test and concurrency case |
+| Read model | immutable projection (Qdrant/Graphiti/other) with source identity, never the source-of-truth domain record |
+| External system | Effect port/adapter with typed error, auth and cancellation; no domain SDK imports |
+
+For a new feature, document (a) `State` ADT, (b) `Command` ADT, (c) `DomainError` ADT, (d) function signature and transition table, (e) emitted events if warranted, (f) persistence boundary and (g) TypeSpec wire DTO mapping. Do not force Event Sourcing or an event bus without a real replay/process requirement.
+
+For example, `IndexGeneration` is a versioned state plus pure `canPublish/decidePublication` rules; the Effect application layer performs Qdrant publication and atomic pointer/CAS with crash/replay safeguards. `ContextRequest` is a typed result process, not a mutable domain object's lifecycle; operational request trace events are not necessarily durable domain events.
+
+**TypeSpec owns the external protocol contract, not internal state.** A context's discriminated union maps explicitly to generated JSON/HTTP/MCP DTOs, and adapters validate untrusted payloads. Source freshness, private-code policy and real provider selection remain enforced at I/O time, not by TypeSpec annotations alone.
