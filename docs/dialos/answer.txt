@@ -1,0 +1,408 @@
+# Инвентаризация diff, worktree и веток
+
+Снимок после `git fetch origin main`, 2026-10-31. Сверены файлы, refs, PR и index; никаких merge/branch/worktree cleanup не выполнялось. В этот файл записан пользовательский запрос и его полный ответ-таблица.
+
+## Короткий ответ
+
+- `git diff main --stat`: **225 tracked paths**; `main=fbfb3be7d143`, `origin/main=ec09f51d6e87`; local `main` отстаёт на 60 commits. Это не размер нового PR.
+- **208/225** индексных blob совпадают с `origin/main`; **17/225** различаются. Из них 15 — старая pending tree PR #211 против последующих upstream изменений, 2 — единственные staged локальные остатки. Ещё 4 origin-only пути не входят в 225 diff. Итого current index differs from origin/main по 21 path.
+- Текущий worktree: **82 staged**, 0 unstaged, **56 untracked**, 0 index conflicts. Из 82 staged, 80 совпадают с содержимым уже слитого `MERGE_HEAD` PR #211; 2 — локальные правки без commit/PR.
+- **13 worktrees**: 9 clean, 4 dirty. **76 local branches**: PR-state по branch head — 57 merged-only, 1 merged+closed, 2 closed-only, 3 open, 13 без PR (включая `main`).
+
+### Почему diff 225, а новые PR — около 500 строк
+
+PR #217–#219 — три последние узкие среза; их суммарный diff не предназначался покрывать всю историю относительно старого `main`. Локальный `main` — `fbfb3be`, актуальный fetched `origin/main` — `ec09f51` и на 60 commits впереди. Поэтому 208 строк таблицы A уже есть в `origin/main`; `git diff main` подхватил старую историю как будто она локальная. Это, однако, не оправдывает оставленный dirty state: в primary worktree остались staged merge и 56 untracked файлов, а ещё в двух worktree — generated files, в одном — настоящие conflict records. Я должен был сверить общий tree diff и закрыть/архивировать завершённые worktree до продолжения отдельных PR.
+
+### Почему merge не завершён
+
+В primary worktree `HEAD=65aec6f12027` — head PR #186, уже merged в main 2026-10-27; `MERGE_HEAD=1e4c9e6e1b15` — merge commit PR #211, merged в main 2026-10-30 и уже ancestor `origin/main`. `git ls-files -u` = 0, то есть текущих index conflicts нет; Git говорит, что merge ещё идёт, потому что merge commit не создан. Merge остановился после разрешения конфликтов, до `git merge --continue`/commit. Это уже не актуальная синхронизация: после #211 `origin/main` изменил 19 путей; плюс имеются 2 staged остатка. Не завершать этот merge вслепую и не создавать из него 225-file PR.
+
+В `retrieval-composed-followup` отдельно есть 7 `UU` путей и 21 stage entry, но нет `MERGE_HEAD`, `CHERRY_PICK_HEAD` или `REBASE_HEAD`: это orphaned unmerged index state, не активный Git merge. Поэтому `git merge --continue` там невозможен; сначала нужен file-level recovery/decision.
+
+## A. Все 225 путей из `git diff main`
+
+`latest origin/main commit/PR` — последний mainline commit для пути. `=` означает текущий index blob точно совпадает с origin. `staged` здесь — состояние index, не утверждение, что нужен новый PR. Действия: `U` — уже доставлено, PR не нужен; `R` — это старое дерево PR #211, нужно повторно синхронизировать от origin, не создавать новый PR; `C` — comment-only merge residue, вернуть/согласовать; `N` — staged NAPI tests, кандидат отдельного PR после исправления теста; `X` — отдельная ручная проверка.
+
+| # | Файл | Последний mainline commit / PR | В origin | Index | Связь с текущей веткой | Действие |
+|---:|---|---|---|---|---|---|
+| 1 | `.github/workflows/ace-contracts.yml` | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | same | staged | = | U |
+| 2 | `.gitignore` | `9a242ca24eef` Implement remaining retrieval safety slices (#196) / PR #196 | same | staged | = | U |
+| 3 | `AGENTS.md` | `e328aecf3a9b` docs(architecture): require licensed upstream source reuse before custom algorithms (#201) / PR #201 | same | staged | = | U |
+| 4 | `Dockerfile.ace` | `76776c81f4c3` fix: validate pinned embedding runtime artifacts (#193) / PR #193 | same | staged | = | U |
+| 5 | `README.md` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 6 | `benchmarks/harbor/ace-cloud-policy-impact/tests/test.sh` | `a71e20850a38` fix: harden Hermes ACE Harbor benchmark runtime (#164) / PR #164 | same | tracked/clean | = | U |
+| 7 | `benchmarks/harbor/ace-local-smoke-paired/task.toml` | `9f6726adb60b` feat: add fast fail-closed feedback benchmark loop (#169) / PR #169 | same | tracked/clean | = | U |
+| 8 | `benchmarks/harbor/ace-local-smoke-paired/tests/test.sh` | `9f6726adb60b` feat: add fast fail-closed feedback benchmark loop (#169) / PR #169 | same | tracked/clean | = | U |
+| 9 | `benchmarks/harbor/ace-retrieval-impact/tests/test.sh` | `a71e20850a38` fix: harden Hermes ACE Harbor benchmark runtime (#164) / PR #164 | same | tracked/clean | = | U |
+| 10 | `benchmarks/harbor/ace-shared-archive-impact/tests/test.sh` | `a71e20850a38` fix: harden Hermes ACE Harbor benchmark runtime (#164) / PR #164 | same | tracked/clean | = | U |
+| 11 | `benchmarks/reports/ace-retrieval-paired-3x3-final-indexkey/ace-retrieval-paired-3x3.md` | `dd70644d53ab` docs(benchmarks): remove misleading unvalidated Harbor retrieval report / GitHub associated PR: [] | same | tracked/clean | = | U |
+| 12 | `benchmarks/reports/real-qdrant-concurrency-34816d1.json` | `a444ed6cf16f` fix: make retrieval provider gates reproducible (#199) / PR #199 | same | staged | = | U |
+| 13 | `benchmarks/reports/real-retrieval-clean-9512.json` | `948cc2b0e884` fix: make generic LSP diagnostics capability-aware (#189) / PR #189 | same | staged | = | U |
+| 14 | `benchmarks/reports/real-retrieval-gates-34816d1.json` | `a444ed6cf16f` fix: make retrieval provider gates reproducible (#199) / PR #199 | same | staged | = | U |
+| 15 | `benchmarks/reports/real-retrieval-gates-9512.json` | `7e88b42000ec` docs: retain blocked retrieval observations (#195) / PR #195 | same | staged | = | U |
+| 16 | `benchmarks/reports/real-same-name-lsp-e2e.json` | `a444ed6cf16f` fix: make retrieval provider gates reproducible (#199) / PR #199 | same | staged | = | U |
+| 17 | `benchmarks/reports/real-semantic-retrieval-e2e.json` | `948cc2b0e884` fix: make generic LSP diagnostics capability-aware (#189) / PR #189 | same | staged | = | U |
+| 18 | `contracts/ace-gateway/v1/fixtures/blocked-hidden-history.json` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 19 | `contracts/ace-gateway/v1/projection-decision.schema.json` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 20 | `contracts/ace-gateway/v1/projection-request.schema.json` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 21 | `docs/README.md` | `26204a9a050a` docs: align strategic diagrams, decision register and OpenSpec with Bifrost gateway / GitHub associated PR: [] | same | tracked/clean | = | U |
+| 22 | `docs/docs/architecture/01-strategic-ddd.md` | `311c71b56cfa` docs: flag historical MCP-first contracts as superseded by Bifrost and Hermes / GitHub associated PR: [] | same | tracked/clean | = | U |
+| 23 | `docs/docs/architecture/05-contracts-and-deployment.md` | `26204a9a050a` docs: align strategic diagrams, decision register and OpenSpec with Bifrost gateway / GitHub associated PR: [] | same | tracked/clean | = | U |
+| 24 | `docs/docs/architecture/06-traceability-and-review.md` | `311c71b56cfa` docs: flag historical MCP-first contracts as superseded by Bifrost and Hermes / GitHub associated PR: [] | same | tracked/clean | = | U |
+| 25 | `docs/docs/architecture/07-architecture-fitness-contracts.md` | `311c71b56cfa` docs: flag historical MCP-first contracts as superseded by Bifrost and Hermes / GitHub associated PR: [] | same | tracked/clean | = | U |
+| 26 | `docs/docs/operations/retrieval-composition-readiness.md` | `a444ed6cf16f` fix: make retrieval provider gates reproducible (#199) / PR #199 | same | staged | = | U |
+| 27 | `docs/docs/references/ADR-000-decision-register.md` | `26204a9a050a` docs: align strategic diagrams, decision register and OpenSpec with Bifrost gateway / GitHub associated PR: [] | same | tracked/clean | = | U |
+| 28 | `docs/docs/references/ADR-001-agent-boundary-mcp.md` | `212817a20a24` docs: define Bifrost LLM projection separately from MCP tools / GitHub associated PR: [] | same | tracked/clean | = | U |
+| 29 | `docs/docs/references/ADR-014-hybrid-context-engine.md` | `212817a20a24` docs: define Bifrost LLM projection separately from MCP tools / GitHub associated PR: [] | same | tracked/clean | = | U |
+| 30 | `docs/docs/references/ADR-015-hermes-primary-feedback-agent.md` | `311c71b56cfa` docs: flag historical MCP-first contracts as superseded by Bifrost and Hermes / GitHub associated PR: [] | same | tracked/clean | = | U |
+| 31 | `docs/docs/references/ADR-016-hermes-context-engine-integration.md` | `30632de15642` feat: integrate ACE through Hermes ContextEngine (#159) / PR #159 | same | tracked/clean | = | U |
+| 32 | `docs/docs/references/ADR-017-ace-bifrost-gateway-protocol.md` | `a15723f284e4` docs(ace): specify agent-independent Bifrost LLM Gateway interface and acceptance plan (#165) / PR #165 | same | tracked/clean | = | U |
+| 33 | `docs/docs/references/ADR-017-bifrost-unified-llm-gateway.md` | `212817a20a24` docs: define Bifrost LLM projection separately from MCP tools / GitHub associated PR: [] | same | tracked/clean | = | U |
+| 34 | `docs/docs/references/ADR-018-ace-context-economics-audit.md` | `a71e20850a38` fix: harden Hermes ACE Harbor benchmark runtime (#164) / PR #164 | same | tracked/clean | = | U |
+| 35 | `docs/operations/testing-strategy.md` | `64183cca184c` fix: minimize affected tests across type-only edges (#192) / PR #192 | same | staged | = | U |
+| 36 | `docs/plans/2026-10-21-cursor-like-hybrid-context-completion-plan.md` | `311c71b56cfa` docs: flag historical MCP-first contracts as superseded by Bifrost and Hermes / GitHub associated PR: [] | same | tracked/clean | = | U |
+| 37 | `docs/plans/2026-10-24-bifrost-unified-llm-gateway-plan.md` | `4b40dafb688c` docs: verify Hermes compaction ownership before ACE Bifrost rollout (#166) / PR #166 | same | tracked/clean | = | U |
+| 38 | `docs/plans/2026-10-25-hermes-compaction-ownership-verification.md` | `4b40dafb688c` docs: verify Hermes compaction ownership before ACE Bifrost rollout (#166) / PR #166 | same | tracked/clean | = | U |
+| 39 | `docs/plans/2026-10-26-ace-hermes-economics-and-cleanup-plan.md` | `b0484c7b189e` docs(review): record ACE/Hermes economics audit and approvable execution plan (#172) / PR #172 | same | tracked/clean | = | U |
+| 40 | `docs/plans/2026-10-26-aider-claw-retrieval-composition-plan.md` | `a528aa780a68` docs: plan Aider + Claw retrieval composition (#176) / PR #176 | same | tracked/clean | = | U |
+| 41 | `docs/plans/2026-10-26-retrieval-post-177-execution-plan.md` | `81ec3b650b67` docs: inventory Qdrant SDK operation owners (#215) / PR #215 | diff | staged | старое дерево MERGE_HEAD PR #211; origin/main позже изменил файл | R |
+| 42 | `docs/plans/ACE_BIFROST_GATEWAY_PLAN.md` | `2d1a0cd68d63` docs(architecture): plan unified ACE context gateway on Bifrost (#162) / PR #162 | same | tracked/clean | = | U |
+| 43 | `docs/plans/README.md` | `22cff4b086d1` docs(plan): define post-177 retrieval execution queue (#178) / PR #178 | same | tracked/clean | = | U |
+| 44 | `docs/plans/ace-real-feedback-loop.md` | `30632de15642` feat: integrate ACE through Hermes ContextEngine (#159) / PR #159 | same | tracked/clean | = | U |
+| 45 | `docs/reviews/2026-10-25-bifrost-g0-static-spike.md` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 46 | `docs/reviews/2026-10-25-bifrost-gateway-wire-e2e.md` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 47 | `docs/reviews/2026-10-26-ace-hermes-token-economics-and-benchmark-bloat-review.md` | `b0484c7b189e` docs(review): record ACE/Hermes economics audit and approvable execution plan (#172) / PR #172 | same | tracked/clean | = | U |
+| 48 | `docs/reviews/2026-10-26-why-ace-retrieval-is-overengineered.md` | `aa76d0e150b8` docs(review): identify ACE retrieval overengineering root causes and minimal live recovery (#173) / PR #173 | same | tracked/clean | = | U |
+| 49 | `docs/reviews/2026-10-30-retrieval-current-head-reconciliation.md` | `34816d17fb51` fix(evidence): reconcile current-head provider identity (#197) / PR #197 | same | staged | = | U |
+| 50 | `docs/superpowers/plans/2026-10-23-hermes-context-engine-integration.md` | `30632de15642` feat: integrate ACE through Hermes ContextEngine (#159) / PR #159 | same | tracked/clean | = | U |
+| 51 | `docs/superpowers/plans/2026-10-29-retrieval-remaining-implementation.md` | `9a242ca24eef` Implement remaining retrieval safety slices (#196) / PR #196 | same | staged | = | U |
+| 52 | `integrations/bifrost/ace-connector/README.md` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 53 | `integrations/bifrost/ace-connector/connector.go` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 54 | `integrations/bifrost/ace-connector/connector_test.go` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 55 | `integrations/bifrost/ace-connector/go.mod` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 56 | `integrations/bifrost/ace-connector/plugin/main.go` | `1e4c9e6e1b15` refactor(gateway): delete legacy MCP framing; enforce Bifrost-only model plane; record current milestone (#211) / PR #211 | same | staged | = | U |
+| 57 | `integrations/hermes/ace_context_engine/__init__.py` | `9f6726adb60b` feat: add fast fail-closed feedback benchmark loop (#169) / PR #169 | same | tracked/clean | = | U |
+| 58 | `integrations/hermes/ace_context_engine/bridge.py` | `bc9d8a6a4fcd` fix: make Hermes ACE Harbor runtime relocatable (#161) / PR #161 | same | tracked/clean | = | U |
+| 59 | `integrations/hermes/ace_context_engine/engine.py` | `9f6726adb60b` feat: add fast fail-closed feedback benchmark loop (#169) / PR #169 | same | tracked/clean | = | U |
+| 60 | `integrations/hermes/ace_context_engine/ownership.py` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 61 | `integrations/hermes/ace_context_engine/plugin.yaml` | `30632de15642` feat: integrate ACE through Hermes ContextEngine (#159) / PR #159 | same | tracked/clean | = | U |
+| 62 | `integrations/hermes/ace_context_engine/receipt.py` | `30632de15642` feat: integrate ACE through Hermes ContextEngine (#159) / PR #159 | same | tracked/clean | = | U |
+| 63 | `integrations/hermes/ace_context_engine/test_bridge.py` | `bc9d8a6a4fcd` fix: make Hermes ACE Harbor runtime relocatable (#161) / PR #161 | same | tracked/clean | = | U |
+| 64 | `integrations/hermes/ace_context_engine/test_engine.py` | `9f6726adb60b` feat: add fast fail-closed feedback benchmark loop (#169) / PR #169 | same | tracked/clean | = | U |
+| 65 | `integrations/hermes/ace_context_engine/test_ownership.py` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 66 | `openspec/changes/007-hybrid-context-engine/design.md` | `26204a9a050a` docs: align strategic diagrams, decision register and OpenSpec with Bifrost gateway / GitHub associated PR: [] | same | tracked/clean | = | U |
+| 67 | `openspec/changes/008-hermes-context-integration/design.md` | `30632de15642` feat: integrate ACE through Hermes ContextEngine (#159) / PR #159 | same | tracked/clean | = | U |
+| 68 | `openspec/changes/008-hermes-context-integration/proposal.md` | `30632de15642` feat: integrate ACE through Hermes ContextEngine (#159) / PR #159 | same | tracked/clean | = | U |
+| 69 | `openspec/changes/008-hermes-context-integration/specs/hermes-context-integration/spec.md` | `30632de15642` feat: integrate ACE through Hermes ContextEngine (#159) / PR #159 | same | tracked/clean | = | U |
+| 70 | `openspec/changes/008-hermes-context-integration/tasks.md` | `30632de15642` feat: integrate ACE through Hermes ContextEngine (#159) / PR #159 | same | tracked/clean | = | U |
+| 71 | `openspec/changes/009-bifrost-hermes-ownership/design.md` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 72 | `openspec/changes/009-bifrost-hermes-ownership/proposal.md` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 73 | `openspec/changes/009-bifrost-hermes-ownership/specs/gateway-ownership/spec.md` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 74 | `openspec/changes/009-bifrost-hermes-ownership/tasks.md` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 75 | `openspec/config.yaml` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 76 | `package-lock.json` | `b8f17c8efb69` feat: establish NAPI AST and Qdrant SDK retrieval foundation (#177) / PR #177 | same | tracked/clean | = | U |
+| 77 | `package.json` | `b8f17c8efb69` feat: establish NAPI AST and Qdrant SDK retrieval foundation (#177) / PR #177 | same | tracked/clean | = | U |
+| 78 | `plan.md` | `b0484c7b189e` docs(review): record ACE/Hermes economics audit and approvable execution plan (#172) / PR #172 | same | tracked/clean | = | U |
+| 79 | `scripts/ace-container-runtime-smoke.mjs` | `91b9604ffa26` fix: harden ACE Harbor benchmark runtime (#163) / PR #163 | same | tracked/clean | = | U |
+| 80 | `scripts/ast-grep-provider-parity.ts` | `b0b0d0d236de` feat: complete retrieval composition runtime slices (#183) / PR #183 | same | tracked/clean | = | U |
+| 81 | `scripts/build-bifrost-ace-plugin.sh` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 82 | `scripts/build-harbor-ace-runtime.mjs` | `76776c81f4c3` fix: validate pinned embedding runtime artifacts (#193) / PR #193 | same | staged | = | U |
+| 83 | `scripts/collect-feedback-loop.ts` | `9f6726adb60b` feat: add fast fail-closed feedback benchmark loop (#169) / PR #169 | same | tracked/clean | = | U |
+| 84 | `scripts/embedding_artifact_verifier.py` | `76776c81f4c3` fix: validate pinned embedding runtime artifacts (#193) / PR #193 | same | staged | = | U |
+| 85 | `scripts/fastembed-sparse-worker.sh` | `a71e20850a38` fix: harden Hermes ACE Harbor benchmark runtime (#164) / PR #164 | same | tracked/clean | = | U |
+| 86 | `scripts/fastembed-worker.sh` | `a71e20850a38` fix: harden Hermes ACE Harbor benchmark runtime (#164) / PR #164 | same | tracked/clean | = | U |
+| 87 | `scripts/feedback-loop-preflight.ts` | `9f6726adb60b` feat: add fast fail-closed feedback benchmark loop (#169) / PR #169 | same | tracked/clean | = | U |
+| 88 | `scripts/feedback-task-image-overlay.ts` | `9f6726adb60b` feat: add fast fail-closed feedback benchmark loop (#169) / PR #169 | same | tracked/clean | = | U |
+| 89 | `scripts/freeze-feedback-task-manifest.ts` | `9f6726adb60b` feat: add fast fail-closed feedback benchmark loop (#169) / PR #169 | same | tracked/clean | = | U |
+| 90 | `scripts/freeze-local-feedback-task.ts` | `9f6726adb60b` feat: add fast fail-closed feedback benchmark loop (#169) / PR #169 | same | tracked/clean | = | U |
+| 91 | `scripts/generate-runtime-provenance.mjs` | `a71e20850a38` fix: harden Hermes ACE Harbor benchmark runtime (#164) / PR #164 | same | tracked/clean | = | U |
+| 92 | `scripts/harbor-ace-context-bridge.sh` | `bc9d8a6a4fcd` fix: make Hermes ACE Harbor runtime relocatable (#161) / PR #161 | same | tracked/clean | = | U |
+| 93 | `scripts/harbor-ace-runtime-probe.mjs` | `9f6726adb60b` feat: add fast fail-closed feedback benchmark loop (#169) / PR #169 | same | tracked/clean | = | U |
+| 94 | `scripts/harbor_hermes_codex_oauth.py` | `f6f4461aa308` feat(harbor): support xhigh Hermes reasoning (#212) / PR #212 | diff | tracked/clean | старое дерево MERGE_HEAD PR #211; origin/main позже изменил файл | R |
+| 95 | `scripts/index-scale-e2e.mjs` | `a444ed6cf16f` fix: make retrieval provider gates reproducible (#199) / PR #199 | same | staged | = | U |
+| 96 | `scripts/non-ts-lsp-conformance.ts` | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | same | staged | = | U |
+| 97 | `scripts/prepare-harbor-feedback-jobs.ts` | `f6f4461aa308` feat(harbor): support xhigh Hermes reasoning (#212) / PR #212 | diff | tracked/clean | старое дерево MERGE_HEAD PR #211; origin/main позже изменил файл | R |
+| 98 | `scripts/qdrant-hybrid-rank-probe.ts` | `6144ad863a2d` refactor: consolidate Qdrant runtime on official SDK (#186) / PR #186 | same | tracked/clean | = | U |
+| 99 | `scripts/qdrant-snapshot-concurrency-e2e.mjs` | `017cd360f2e6` fix: bind real-provider runners to verified runtime (#198) / PR #198 | same | staged | = | U |
+| 100 | `scripts/qdrant-snapshot-crash-e2e.mjs` | `017cd360f2e6` fix: bind real-provider runners to verified runtime (#198) / PR #198 | same | staged | = | U |
+| 101 | `scripts/qdrant-stale-count-e2e.mjs` | `6144ad863a2d` refactor: consolidate Qdrant runtime on official SDK (#186) / PR #186 | same | tracked/clean | = | U |
+| 102 | `scripts/real-provider-e2e.mjs` | `017cd360f2e6` fix: bind real-provider runners to verified runtime (#198) / PR #198 | same | staged | = | U |
+| 103 | `scripts/real-provider-evidence.mjs` | `017cd360f2e6` fix: bind real-provider runners to verified runtime (#198) / PR #198 | same | staged | = | U |
+| 104 | `scripts/real-provider-process.mjs` | `017cd360f2e6` fix: bind real-provider runners to verified runtime (#198) / PR #198 | same | staged | = | U |
+| 105 | `scripts/real-provider-restart-e2e.mjs` | `017cd360f2e6` fix: bind real-provider runners to verified runtime (#198) / PR #198 | same | staged | = | U |
+| 106 | `scripts/real-provider-runtime.mjs` | `017cd360f2e6` fix: bind real-provider runners to verified runtime (#198) / PR #198 | same | staged | = | U |
+| 107 | `scripts/real-same-name-lsp-e2e.ts` | `34816d17fb51` fix(evidence): reconcile current-head provider identity (#197) / PR #197 | same | staged | = | U |
+| 108 | `scripts/render-feedback-summary.ts` | `9f6726adb60b` feat: add fast fail-closed feedback benchmark loop (#169) / PR #169 | same | tracked/clean | = | U |
+| 109 | `scripts/run-affected-tests.mjs` | `64183cca184c` fix: minimize affected tests across type-only edges (#192) / PR #192 | same | staged | = | U |
+| 110 | `scripts/run-fast-feedback-loop.ts` | `f6f4461aa308` feat(harbor): support xhigh Hermes reasoning (#212) / PR #212 | diff | tracked/clean | старое дерево MERGE_HEAD PR #211; origin/main позже изменил файл | R |
+| 111 | `scripts/test_embedding_artifact_verifier.py` | `76776c81f4c3` fix: validate pinned embedding runtime artifacts (#193) / PR #193 | same | staged | = | U |
+| 112 | `src/adapters/ast-grep-napi.ts` | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | same | staged | = | U |
+| 113 | `src/adapters/ast-grep-structural.ts` | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | same | staged | = | U |
+| 114 | `src/adapters/file-artifact-store.ts` | `dbf9d4f04550` fix: harden archive, workspace concurrency, source privacy and exact expansion (#170) / PR #170 | same | tracked/clean | = | U |
+| 115 | `src/adapters/file-memory-archive.ts` | `dbf9d4f04550` fix: harden archive, workspace concurrency, source privacy and exact expansion (#170) / PR #170 | same | tracked/clean | = | U |
+| 116 | `src/adapters/harbor-four-arm-trial-evidence.ts` | `9f6726adb60b` feat: add fast fail-closed feedback benchmark loop (#169) / PR #169 | same | tracked/clean | = | U |
+| 117 | `src/adapters/hermes-context-evidence.ts` | `30632de15642` feat: integrate ACE through Hermes ContextEngine (#159) / PR #159 | same | tracked/clean | = | U |
+| 118 | `src/adapters/host-worktree-helper.ts` | `4929caf638d8` feat(retrieval): complete safe stable changed-path Qdrant mutation (#180) / PR #180 | same | tracked/clean | = | U |
+| 119 | `src/adapters/http-provider-boundaries.ts` | `39dfdbf25bc0` fix: verify Qdrant collection creation read-back (#214) / PR #214 | diff | tracked/clean | старое дерево MERGE_HEAD PR #211; origin/main позже изменил файл | R |
+| 120 | `src/adapters/local-code-index.ts` | `496992d2534f` feat: retain path-keyed structural analysis records (#188) / PR #188 | same | staged | = | U |
+| 121 | `src/adapters/lsp-semantic.ts` | `bd983e47a1a0` refactor(retrieval): consolidate Aider graph, verified tree context and Claw LSP discovery (#208) / PR #208 | same | staged | = | U |
+| 122 | `src/adapters/node-workspace-port.ts` | `12d80d965a74` fix: retrieval freshness, LSP lifecycle, and workspace Git scope (#187) / PR #187 | same | staged | = | U |
+| 123 | `src/adapters/qdrant-context-provider.ts` | `ec09f51d6e87` fix: reject malformed Qdrant snapshot scroll points (#216) / PR #216 | diff | staged | старое дерево MERGE_HEAD PR #211; origin/main позже изменил файл | R |
+| 124 | `src/adapters/repo-map-structural.ts` | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | same | staged | = | U |
+| 125 | `src/application/ace-runtime-bundle.ts` | `76776c81f4c3` fix: validate pinned embedding runtime artifacts (#193) / PR #193 | same | staged | = | U |
+| 126 | `src/application/ast-grep-parity.ts` | `b0b0d0d236de` feat: complete retrieval composition runtime slices (#183) / PR #183 | same | tracked/clean | = | U |
+| 127 | `src/application/context-assembler.ts` | `3d3cb3c846a1` feat(context): use model-bound host token counters for exact assembled budgets (#202) / PR #202 | same | staged | = | U |
+| 128 | `src/application/context-transform-service.ts` | `a65e07e2b1e7` fix(context): never mark estimated token budgets model-exact ready (#206) / PR #206 | same | staged | = | U |
+| 129 | `src/application/file-workspace-store.ts` | `8c0136269e36` fix: converge concurrent workspace observations (#184) / PR #184 | same | tracked/clean | = | U |
+| 130 | `src/application/gateway-projection-service.ts` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 131 | `src/application/lsp/claw-discovery.ts` | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | same | staged | = | U |
+| 132 | `src/application/lsp/routed-semantic.ts` | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | same | staged | = | U |
+| 133 | `src/application/lsp/server-registry.ts` | `9a242ca24eef` Implement remaining retrieval safety slices (#196) / PR #196 | same | staged | = | U |
+| 134 | `src/application/memory-import.ts` | `dbf9d4f04550` fix: harden archive, workspace concurrency, source privacy and exact expansion (#170) / PR #170 | same | tracked/clean | = | U |
+| 135 | `src/application/ports.ts` | `6144ad863a2d` refactor: consolidate Qdrant runtime on official SDK (#186) / PR #186 | same | tracked/clean | = | U |
+| 136 | `src/application/repo-map-service.ts` | `ab5e6b22c732` feat: add NAPI parity comparator and RepoMap core (#181) / PR #181 | same | tracked/clean | = | U |
+| 137 | `src/application/runtime-provenance.ts` | `bc9d8a6a4fcd` fix: make Hermes ACE Harbor runtime relocatable (#161) / PR #161 | same | tracked/clean | = | U |
+| 138 | `src/application/semantic-snapshot.ts` | `b0b0d0d236de` feat: complete retrieval composition runtime slices (#183) / PR #183 | same | tracked/clean | = | U |
+| 139 | `src/application/workspace-service.ts` | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | same | staged | = | U |
+| 140 | `src/application/workspace-sync.ts` | `4929caf638d8` feat(retrieval): complete safe stable changed-path Qdrant mutation (#180) / PR #180 | same | tracked/clean | = | U |
+| 141 | `src/bin/ace-context-bridge.ts` | `30632de15642` feat: integrate ACE through Hermes ContextEngine (#159) / PR #159 | same | tracked/clean | = | U |
+| 142 | `src/bin/ace-gateway-http.ts` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 143 | `src/bin/ace-mcp.ts` | `1e4c9e6e1b15` refactor(gateway): delete legacy MCP framing; enforce Bifrost-only model plane; record current milestone (#211) / PR #211 | diff | staged | локальный comment edit в merge resolution | C |
+| 144 | `src/domain/ace-runtime-bundle.ts` | `76776c81f4c3` fix: validate pinned embedding runtime artifacts (#193) / PR #193 | same | staged | = | U |
+| 145 | `src/domain/aider-tree-context.ts` | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | same | staged | = | U |
+| 146 | `src/domain/context-assembly.ts` | `3d3cb3c846a1` feat(context): use model-bound host token counters for exact assembled budgets (#202) / PR #202 | same | staged | = | U |
+| 147 | `src/domain/errors.ts` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 148 | `src/domain/feedback-harbor-config.ts` | `f6f4461aa308` feat(harbor): support xhigh Hermes reasoning (#212) / PR #212 | diff | tracked/clean | старое дерево MERGE_HEAD PR #211; origin/main позже изменил файл | R |
+| 149 | `src/domain/feedback-loop-experiment.ts` | `f6f4461aa308` feat(harbor): support xhigh Hermes reasoning (#212) / PR #212 | diff | tracked/clean | старое дерево MERGE_HEAD PR #211; origin/main позже изменил файл | R |
+| 150 | `src/domain/feedback-preflight.ts` | `f6f4461aa308` feat(harbor): support xhigh Hermes reasoning (#212) / PR #212 | diff | tracked/clean | старое дерево MERGE_HEAD PR #211; origin/main позже изменил файл | R |
+| 151 | `src/domain/gateway-projection.ts` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 152 | `src/domain/hermes-context-evidence.ts` | `9f6726adb60b` feat: add fast fail-closed feedback benchmark loop (#169) / PR #169 | same | tracked/clean | = | U |
+| 153 | `src/domain/memory.ts` | `dbf9d4f04550` fix: harden archive, workspace concurrency, source privacy and exact expansion (#170) / PR #170 | same | tracked/clean | = | U |
+| 154 | `src/domain/repo-map.ts` | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | same | staged | = | U |
+| 155 | `src/domain/retrieval-benchmark.ts` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 156 | `src/domain/retrieval.ts` | `b8f17c8efb69` feat: establish NAPI AST and Qdrant SDK retrieval foundation (#177) / PR #177 | same | tracked/clean | = | U |
+| 157 | `src/domain/runtime-provenance.ts` | `bc9d8a6a4fcd` fix: make Hermes ACE Harbor runtime relocatable (#161) / PR #161 | same | tracked/clean | = | U |
+| 158 | `src/domain/semantic.ts` | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | same | staged | = | U |
+| 159 | `src/domain/sensitive-path.ts` | `dbf9d4f04550` fix: harden archive, workspace concurrency, source privacy and exact expansion (#170) / PR #170 | same | tracked/clean | = | U |
+| 160 | `src/domain/sensitive-text.ts` | `dbf9d4f04550` fix: harden archive, workspace concurrency, source privacy and exact expansion (#170) / PR #170 | same | tracked/clean | = | U |
+| 161 | `src/domain/source-coverage.ts` | `12d80d965a74` fix: retrieval freshness, LSP lifecycle, and workspace Git scope (#187) / PR #187 | same | staged | = | U |
+| 162 | `src/domain/workspace-manifest.ts` | `4929caf638d8` feat(retrieval): complete safe stable changed-path Qdrant mutation (#180) / PR #180 | same | tracked/clean | = | U |
+| 163 | `src/domain/workspace.ts` | `4929caf638d8` feat(retrieval): complete safe stable changed-path Qdrant mutation (#180) / PR #180 | same | tracked/clean | = | U |
+| 164 | `src/index.ts` | `1e4c9e6e1b15` refactor(gateway): delete legacy MCP framing; enforce Bifrost-only model plane; record current milestone (#211) / PR #211 | same | staged | = | U |
+| 165 | `src/transport/context-bridge-stdio.ts` | `bc9d8a6a4fcd` fix: make Hermes ACE Harbor runtime relocatable (#161) / PR #161 | same | tracked/clean | = | U |
+| 166 | `src/transport/gateway-projection-http.ts` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 167 | `src/transport/mcp-stdio.ts` | `1e4c9e6e1b15` refactor(gateway): delete legacy MCP framing; enforce Bifrost-only model plane; record current milestone (#211) / PR #211 | same | staged | = | U |
+| 168 | `test/ace-runtime-bundle.contracts.test.ts` | `76776c81f4c3` fix: validate pinned embedding runtime artifacts (#193) / PR #193 | same | staged | = | U |
+| 169 | `test/architecture-regressions.test.ts` | `1e4c9e6e1b15` refactor(gateway): delete legacy MCP framing; enforce Bifrost-only model plane; record current milestone (#211) / PR #211 | same | staged | = | U |
+| 170 | `test/ast-grep-napi.contracts.test.ts` | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | diff | staged | локально staged, отсутствует в MERGE_HEAD и origin/main | N |
+| 171 | `test/ast-grep-parity.contracts.test.ts` | `b0b0d0d236de` feat: complete retrieval composition runtime slices (#183) / PR #183 | same | tracked/clean | = | U |
+| 172 | `test/ast-grep-structural.contracts.test.ts` | `62ed9d108571` feat(retrieval): finish shared ast-grep NAPI def/ref without a second parse (#209) / PR #209 | same | staged | = | U |
+| 173 | `test/bifrost-plugin.contracts.test.ts` | `1e4c9e6e1b15` refactor(gateway): delete legacy MCP framing; enforce Bifrost-only model plane; record current milestone (#211) / PR #211 | same | staged | = | U |
+| 174 | `test/context-assembler.contracts.test.ts` | `3d3cb3c846a1` feat(context): use model-bound host token counters for exact assembled budgets (#202) / PR #202 | same | staged | = | U |
+| 175 | `test/context-bridge.contracts.test.ts` | `bc9d8a6a4fcd` fix: make Hermes ACE Harbor runtime relocatable (#161) / PR #161 | same | tracked/clean | = | U |
+| 176 | `test/context-transform.contracts.test.ts` | `a65e07e2b1e7` fix(context): never mark estimated token budgets model-exact ready (#206) / PR #206 | same | staged | = | U |
+| 177 | `test/fast-feedback-loop.contracts.test.ts` | `f6f4461aa308` feat(harbor): support xhigh Hermes reasoning (#212) / PR #212 | diff | tracked/clean | старое дерево MERGE_HEAD PR #211; origin/main позже изменил файл | R |
+| 178 | `test/fastembed-shell-launchers.contracts.test.ts` | `a71e20850a38` fix: harden Hermes ACE Harbor benchmark runtime (#164) / PR #164 | same | tracked/clean | = | U |
+| 179 | `test/feedback-loop-experiment.contracts.test.ts` | `f6f4461aa308` feat(harbor): support xhigh Hermes reasoning (#212) / PR #212 | diff | tracked/clean | старое дерево MERGE_HEAD PR #211; origin/main позже изменил файл | R |
+| 180 | `test/feedback-preflight.contracts.test.ts` | `f6f4461aa308` feat(harbor): support xhigh Hermes reasoning (#212) / PR #212 | diff | tracked/clean | старое дерево MERGE_HEAD PR #211; origin/main позже изменил файл | R |
+| 181 | `test/fixtures/ast-grep-parity/representative.ts` | `ab5e6b22c732` feat: add NAPI parity comparator and RepoMap core (#181) / PR #181 | same | tracked/clean | = | U |
+| 182 | `test/fixtures/repo-map/aider-behavior.json` | `be2ef776a382` feat: deliver shared structural RepoMap composition (#191) / PR #191 | same | staged | = | U |
+| 183 | `test/fixtures/repo-map/aider-networkx-oracle.json` | `d189d592d4c9` fix(repomap): remove fabricated dangling scores using pinned Aider/NetworkX oracle (#203) / PR #203 | same | staged | = | U |
+| 184 | `test/foundation.test.ts` | `8c0136269e36` fix: converge concurrent workspace observations (#184) / PR #184 | same | tracked/clean | = | U |
+| 185 | `test/gateway-projection-http.contracts.test.ts` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 186 | `test/gateway-projection.contracts.test.ts` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 187 | `test/gateway-schema.contracts.test.ts` | `fcd537f1751d` feat: implement Bifrost gateway and Hermes ownership contracts (#168) / PR #168 | same | tracked/clean | = | U |
+| 188 | `test/harbor-four-arm-trial-evidence-adapter.contracts.test.ts` | `9f6726adb60b` feat: add fast fail-closed feedback benchmark loop (#169) / PR #169 | same | tracked/clean | = | U |
+| 189 | `test/harbor-task-adapter.contracts.test.ts` | `a71e20850a38` fix: harden Hermes ACE Harbor benchmark runtime (#164) / PR #164 | same | tracked/clean | = | U |
+| 190 | `test/helpers/qdrant-sdk-test-double.ts` | `39dfdbf25bc0` fix: verify Qdrant collection creation read-back (#214) / PR #214 | diff | tracked/clean | старое дерево MERGE_HEAD PR #211; origin/main позже изменил файл | R |
+| 191 | `test/hermes-context-evidence.contracts.test.ts` | `9f6726adb60b` feat: add fast fail-closed feedback benchmark loop (#169) / PR #169 | same | tracked/clean | = | U |
+| 192 | `test/host-worktree-helper.contracts.test.ts` | `4929caf638d8` feat(retrieval): complete safe stable changed-path Qdrant mutation (#180) / PR #180 | same | tracked/clean | = | U |
+| 193 | `test/index-scale-runner.contracts.test.ts` | `a444ed6cf16f` fix: make retrieval provider gates reproducible (#199) / PR #199 | same | staged | = | U |
+| 194 | `test/index-state.contracts.test.ts` | `496992d2534f` feat: retain path-keyed structural analysis records (#188) / PR #188 | same | staged | = | U |
+| 195 | `test/k3s-ace-runtime.contracts.test.ts` | `a71e20850a38` fix: harden Hermes ACE Harbor benchmark runtime (#164) / PR #164 | same | tracked/clean | = | U |
+| 196 | `test/lsp-semantic.contracts.test.ts` | `1ffc49a4e22e` fix(lsp): keep server truly lazy when source generation is refreshed (#205) / PR #205 | same | staged | = | U |
+| 197 | `test/lsp-server-registry.contracts.test.ts` | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | same | staged | = | U |
+| 198 | `test/mcp-stdio.contracts.test.ts` | `1e4c9e6e1b15` refactor(gateway): delete legacy MCP framing; enforce Bifrost-only model plane; record current milestone (#211) / PR #211 | same | staged | = | U |
+| 199 | `test/memory-admission.contracts.test.ts` | `dbf9d4f04550` fix: harden archive, workspace concurrency, source privacy and exact expansion (#170) / PR #170 | same | tracked/clean | = | U |
+| 200 | `test/outbound-secret-guards.contracts.test.ts` | `dbf9d4f04550` fix: harden archive, workspace concurrency, source privacy and exact expansion (#170) / PR #170 | same | tracked/clean | = | U |
+| 201 | `test/provider-and-multiprocess-contracts.test.ts` | `12d80d965a74` fix: retrieval freshness, LSP lifecycle, and workspace Git scope (#187) / PR #187 | same | staged | = | U |
+| 202 | `test/qdrant-alias.contracts.test.ts` | `6144ad863a2d` refactor: consolidate Qdrant runtime on official SDK (#186) / PR #186 | same | tracked/clean | = | U |
+| 203 | `test/qdrant-client.contracts.test.ts` | `ec09f51d6e87` fix: reject malformed Qdrant snapshot scroll points (#216) / PR #216 | diff | tracked/clean | старое дерево MERGE_HEAD PR #211; origin/main позже изменил файл | R |
+| 204 | `test/qdrant-concurrency-runner.contracts.test.ts` | `017cd360f2e6` fix: bind real-provider runners to verified runtime (#198) / PR #198 | same | staged | = | U |
+| 205 | `test/qdrant-crash-runner.contracts.test.ts` | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | same | staged | = | U |
+| 206 | `test/qdrant-hybrid-retrieval.contracts.test.ts` | `6144ad863a2d` refactor: consolidate Qdrant runtime on official SDK (#186) / PR #186 | same | tracked/clean | = | U |
+| 207 | `test/qdrant-real-pipeline.contracts.test.ts` | `39dfdbf25bc0` fix: verify Qdrant collection creation read-back (#214) / PR #214 | diff | staged | старое дерево MERGE_HEAD PR #211; origin/main позже изменил файл | R |
+| 208 | `test/real-provider-runner.contracts.test.ts` | `a444ed6cf16f` fix: make retrieval provider gates reproducible (#199) / PR #199 | same | staged | = | U |
+| 209 | `test/real-same-name-evidence.contracts.test.ts` | `34816d17fb51` fix(evidence): reconcile current-head provider identity (#197) / PR #197 | same | staged | = | U |
+| 210 | `test/repo-map-retrieval.contracts.test.ts` | `b0b0d0d236de` feat: complete retrieval composition runtime slices (#183) / PR #183 | same | tracked/clean | = | U |
+| 211 | `test/repo-map-service.contracts.test.ts` | `ab5e6b22c732` feat: add NAPI parity comparator and RepoMap core (#181) / PR #181 | same | tracked/clean | = | U |
+| 212 | `test/repo-map-structural.contracts.test.ts` | `bd983e47a1a0` refactor(retrieval): consolidate Aider graph, verified tree context and Claw LSP discovery (#208) / PR #208 | same | staged | = | U |
+| 213 | `test/repo-map.contracts.test.ts` | `bd983e47a1a0` refactor(retrieval): consolidate Aider graph, verified tree context and Claw LSP discovery (#208) / PR #208 | same | staged | = | U |
+| 214 | `test/retrieval-memory-routing.contracts.test.ts` | `6144ad863a2d` refactor: consolidate Qdrant runtime on official SDK (#186) / PR #186 | same | tracked/clean | = | U |
+| 215 | `test/runtime-provenance.contracts.test.ts` | `a71e20850a38` fix: harden Hermes ACE Harbor benchmark runtime (#164) / PR #164 | same | tracked/clean | = | U |
+| 216 | `test/semantic-snapshot.contracts.test.ts` | `b0b0d0d236de` feat: complete retrieval composition runtime slices (#183) / PR #183 | same | tracked/clean | = | U |
+| 217 | `test/sensitive-path.contracts.test.ts` | `dbf9d4f04550` fix: harden archive, workspace concurrency, source privacy and exact expansion (#170) / PR #170 | same | tracked/clean | = | U |
+| 218 | `test/source-coverage.contracts.test.ts` | `12d80d965a74` fix: retrieval freshness, LSP lifecycle, and workspace Git scope (#187) / PR #187 | same | staged | = | U |
+| 219 | `test/workspace-change-observation.contracts.test.ts` | `12d80d965a74` fix: retrieval freshness, LSP lifecycle, and workspace Git scope (#187) / PR #187 | same | staged | = | U |
+| 220 | `test/workspace-registration-race.contracts.test.ts` | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | same | staged | = | U |
+| 221 | `test/workspace-sync.contracts.test.ts` | `4929caf638d8` feat(retrieval): complete safe stable changed-path Qdrant mutation (#180) / PR #180 | same | tracked/clean | = | U |
+| 222 | `third_party/licenses/aider-Apache-2.0.txt` | `bd983e47a1a0` refactor(retrieval): consolidate Aider graph, verified tree context and Claw LSP discovery (#208) / PR #208 | same | staged | = | U |
+| 223 | `third_party/licenses/claw-MIT.txt` | `bd983e47a1a0` refactor(retrieval): consolidate Aider graph, verified tree context and Claw LSP discovery (#208) / PR #208 | same | staged | = | U |
+| 224 | `third_party/licenses/grep-ast-Apache-2.0.txt` | `bd983e47a1a0` refactor(retrieval): consolidate Aider graph, verified tree context and Claw LSP discovery (#208) / PR #208 | same | staged | = | U |
+| 225 | `third_party/licenses/networkx-BSD-3-Clause.txt` | `444e6699837f` refactor(repomap): translate licensed NetworkX PageRank iteration used by Aider (#207) / PR #207 | same | staged | = | U |
+
+## B. Дополнительные локальные пути
+
+Кроме 225 путей, перечислены **91** path occurrences: 4 origin-only tracked paths и dirty/untracked paths всех worktrees. Повторяющиеся `__pycache__` указаны отдельно по каждому worktree. Коды: `R` — синхронизировать с origin; `G` — удалить generated bytecode; `P` — сохранить локальную историю планов вне продуктового PR; `Q` — исходный вопрос, оставить; `A` — этот ответ, доставить отдельно; `B` — удалить временный PR body; `F` — оставить как R3 fixture до проверки pinned Aider и разрешения conflicts; `E` — историческое evidence, хранить вне checkout и не заявлять как current; `D` — локальный draft, сверить с accepted plan; `H` — HTML report с неправильным docs/docs путём, перенести в reviews только если нужен, иначе удалить; `C` — конфликтный код, не коммитить до восстановления/разделения.
+
+| Worktree | Branch | Путь | Статус | Commit/PR provenance | Action |
+|---|---|---|---|---|---|
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `docs/reviews/2026-10-31-bifrost-codex-responses-upstream-gate.md` | origin-only / отсутствует в pending tree | `f6f4461aa308` feat(harbor): support xhigh Hermes reasoning (#212) / PR #212 | R |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `docs/reviews/2026-10-31-pr213-r1-r6-reconciliation.md` | origin-only / отсутствует в pending tree | `39dfdbf25bc0` fix: verify Qdrant collection creation read-back (#214) / PR #214 | R |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `docs/reviews/2026-10-31-qdrant-r1-sdk-owner-inventory.md` | origin-only / отсутствует в pending tree | `81ec3b650b67` docs: inventory Qdrant SDK operation owners (#215) / PR #215 | R |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `openspec/changes/002-harbor-evaluation/specs/agent-benchmarking/spec.md` | origin-only / отсутствует в pending tree | `f6f4461aa308` feat(harbor): support xhigh Hermes reasoning (#212) / PR #212 | R |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-24_081821-ace-harbor-runtime-and-smoke-readiness.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-24_150403-ace-smoke-and-token-benchmark.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-24_153404-ace-harbor-smoke-and-benchmark.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-25_003744-default-skill-activation.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-25_013359-ace-harbor-benchmark-loop.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-25_090247-verifier-timeout-benchmark-loop.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-25_104534-hermes-oauth-local-ace-benchmark.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-25_105622-fix-hermes-adapter-local-benchmark.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-25_120454-pr-first-hermes-ace-benchmark.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-25_165338-bifrost-hermes-ownership.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-25_201512-fast-ace-harbor-benchmark-loop.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-26_081406-ace-fast-context-and-hermes-gateway.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-26_092132-final-provenance-benchmark.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-26_101947-aider-claw-retrieval-composition.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-26_142954-retrieval-composition-remaining.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-26_164028-retrieval-post-177-pr-a.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-26_181921-retrieval-pr-a-completion.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-26_195002-retrieval-pr-a-finalization.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-26_203715-retrieval-next-phases.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-26_221442-retrieval-plan-reconciled.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-27_083259-retrieval-remove-bicycles.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-27_125703-retrieval-follow-execution-plan.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-27_142559-r4-stable-collection-publication-fencing.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-27_160307-b1-napi-cli-parity.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-28_091444-retrieval-remaining-work-roadmap.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-28_101804-retrieval-remaining-after-pr187.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-28_200742-retrieval-critical-path-remaining.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-28_203728-retrieval-real-remaining.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-28_231343-retrieval-critical-path-next-gates.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-29_083925-retrieval-remaining.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-30_131414-retrieval-remaining-refresh.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-30_134804-laptop-power-monitor.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-30_145003-implement-plan-button.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-30_145003-retrieval-post-177-remaining.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-30_154556-retrieval-post-177-implement.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-31_000815-sync-upstream-main.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-31_083058-hermes-bifrost-responses-r6.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-31_160350-pr213-r1-r6-reconciliation.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/2026-10-31_185031-ace-r1-r6-resync-followup.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `.hermes/plans/approved/2026-10-25_105622-fix-hermes-adapter-local-benchmark-rev8-a5126ca1cc67.md` | untracked | нет commit/PR: untracked | P |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `benchmarks/reports/non-ts-lsp-conformance.json` | untracked | нет commit/PR: untracked | E |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `docs/dialos/answer.txt` | untracked | нет commit/PR: untracked | A |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `docs/dialos/question.txt` | untracked | нет commit/PR: untracked | Q |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `docs/docs/reports/agents-compartion.html` | untracked | нет commit/PR: untracked | H |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `docs/plans/plan.md` | untracked | нет commit/PR: untracked | D |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `docs/plans/plan2.md` | untracked | нет commit/PR: untracked | D |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `integrations/hermes/ace_context_engine/__pycache__/__init__.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `integrations/hermes/ace_context_engine/__pycache__/bridge.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `integrations/hermes/ace_context_engine/__pycache__/engine.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `integrations/hermes/ace_context_engine/__pycache__/ownership.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `integrations/hermes/ace_context_engine/__pycache__/receipt.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `integrations/hermes/ace_context_engine/__pycache__/test_bridge.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `integrations/hermes/ace_context_engine/__pycache__/test_engine.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `integrations/hermes/ace_context_engine/__pycache__/test_ownership.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `scripts/__pycache__/embedding_artifact_verifier.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/media/ilja/DATA/soft/consillium/harness` | `codex/retrieval-followup` | `scripts/__pycache__/test_embedding_artifact_verifier.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/home/ilja/.hermes/cache/scratch/retrieval-composed-followup` | `codex/retrieval-composed-followup` | `docs/docs/operations/retrieval-composition-readiness.md` | UU / index stages 1,2,3 | `a444ed6cf16f` fix: make retrieval provider gates reproducible (#199) / PR #199 | C |
+| `/home/ilja/.hermes/cache/scratch/retrieval-composed-followup` | `codex/retrieval-composed-followup` | `scripts/non-ts-lsp-conformance.ts` | staged | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | C |
+| `/home/ilja/.hermes/cache/scratch/retrieval-composed-followup` | `codex/retrieval-composed-followup` | `src/adapters/ast-grep-structural.ts` | staged | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | C |
+| `/home/ilja/.hermes/cache/scratch/retrieval-composed-followup` | `codex/retrieval-composed-followup` | `src/adapters/local-code-index.ts` | staged | `496992d2534f` feat: retain path-keyed structural analysis records (#188) / PR #188 | C |
+| `/home/ilja/.hermes/cache/scratch/retrieval-composed-followup` | `codex/retrieval-composed-followup` | `src/adapters/lsp-semantic.ts` | UU / index stages 1,2,3 | `bd983e47a1a0` refactor(retrieval): consolidate Aider graph, verified tree context and Claw LSP discovery (#208) / PR #208 | C |
+| `/home/ilja/.hermes/cache/scratch/retrieval-composed-followup` | `codex/retrieval-composed-followup` | `src/adapters/repo-map-structural.ts` | UU / index stages 1,2,3 | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | C |
+| `/home/ilja/.hermes/cache/scratch/retrieval-composed-followup` | `codex/retrieval-composed-followup` | `src/bin/ace-mcp.ts` | UU / index stages 1,2,3 | `1e4c9e6e1b15` refactor(gateway): delete legacy MCP framing; enforce Bifrost-only model plane; record current milestone (#211) / PR #211 | C |
+| `/home/ilja/.hermes/cache/scratch/retrieval-composed-followup` | `codex/retrieval-composed-followup` | `src/domain/repo-map.ts` | UU / index stages 1,2,3 | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | C |
+| `/home/ilja/.hermes/cache/scratch/retrieval-composed-followup` | `codex/retrieval-composed-followup` | `src/domain/semantic.ts` | staged | `f9e0a4c7fdba` feat(retrieval): complete one-pass AST, multi-LSP routing and real Qdrant race acceptance (#210) / PR #210 | C |
+| `/home/ilja/.hermes/cache/scratch/retrieval-composed-followup` | `codex/retrieval-composed-followup` | `test/ast-grep-structural.contracts.test.ts` | staged | `62ed9d108571` feat(retrieval): finish shared ast-grep NAPI def/ref without a second parse (#209) / PR #209 | C |
+| `/home/ilja/.hermes/cache/scratch/retrieval-composed-followup` | `codex/retrieval-composed-followup` | `test/fixtures/repo-map/aider-behavior.json` | untracked | нет commit/PR: untracked | F |
+| `/home/ilja/.hermes/cache/scratch/retrieval-composed-followup` | `codex/retrieval-composed-followup` | `test/index-state.contracts.test.ts` | staged | `496992d2534f` feat: retain path-keyed structural analysis records (#188) / PR #188 | C |
+| `/home/ilja/.hermes/cache/scratch/retrieval-composed-followup` | `codex/retrieval-composed-followup` | `test/repo-map-structural.contracts.test.ts` | UU / index stages 1,2,3 | `bd983e47a1a0` refactor(retrieval): consolidate Aider graph, verified tree context and Claw LSP discovery (#208) / PR #208 | C |
+| `/home/ilja/.hermes/cache/scratch/retrieval-composed-followup` | `codex/retrieval-composed-followup` | `test/repo-map.contracts.test.ts` | UU / index stages 1,2,3 | `bd983e47a1a0` refactor(retrieval): consolidate Aider graph, verified tree context and Claw LSP discovery (#208) / PR #208 | C |
+| `/home/ilja/.hermes/cache/scratch/retrieval-current-gates` | `codex/retrieval-current-gates` | `integrations/hermes/ace_context_engine/__pycache__/__init__.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/home/ilja/.hermes/cache/scratch/retrieval-current-gates` | `codex/retrieval-current-gates` | `integrations/hermes/ace_context_engine/__pycache__/bridge.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/home/ilja/.hermes/cache/scratch/retrieval-current-gates` | `codex/retrieval-current-gates` | `integrations/hermes/ace_context_engine/__pycache__/engine.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/home/ilja/.hermes/cache/scratch/retrieval-current-gates` | `codex/retrieval-current-gates` | `integrations/hermes/ace_context_engine/__pycache__/ownership.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/home/ilja/.hermes/cache/scratch/retrieval-current-gates` | `codex/retrieval-current-gates` | `integrations/hermes/ace_context_engine/__pycache__/receipt.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/home/ilja/.hermes/cache/scratch/retrieval-current-gates` | `codex/retrieval-current-gates` | `integrations/hermes/ace_context_engine/__pycache__/test_bridge.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/home/ilja/.hermes/cache/scratch/retrieval-current-gates` | `codex/retrieval-current-gates` | `integrations/hermes/ace_context_engine/__pycache__/test_engine.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/home/ilja/.hermes/cache/scratch/retrieval-current-gates` | `codex/retrieval-current-gates` | `integrations/hermes/ace_context_engine/__pycache__/test_ownership.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/home/ilja/.hermes/cache/scratch/retrieval-runner-hardening-pr` | `codex/retrieval-runner-hardening` | `integrations/hermes/ace_context_engine/__pycache__/__init__.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/home/ilja/.hermes/cache/scratch/retrieval-runner-hardening-pr` | `codex/retrieval-runner-hardening` | `integrations/hermes/ace_context_engine/__pycache__/bridge.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/home/ilja/.hermes/cache/scratch/retrieval-runner-hardening-pr` | `codex/retrieval-runner-hardening` | `integrations/hermes/ace_context_engine/__pycache__/engine.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/home/ilja/.hermes/cache/scratch/retrieval-runner-hardening-pr` | `codex/retrieval-runner-hardening` | `integrations/hermes/ace_context_engine/__pycache__/ownership.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/home/ilja/.hermes/cache/scratch/retrieval-runner-hardening-pr` | `codex/retrieval-runner-hardening` | `integrations/hermes/ace_context_engine/__pycache__/receipt.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/home/ilja/.hermes/cache/scratch/retrieval-runner-hardening-pr` | `codex/retrieval-runner-hardening` | `integrations/hermes/ace_context_engine/__pycache__/test_bridge.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/home/ilja/.hermes/cache/scratch/retrieval-runner-hardening-pr` | `codex/retrieval-runner-hardening` | `integrations/hermes/ace_context_engine/__pycache__/test_engine.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/home/ilja/.hermes/cache/scratch/retrieval-runner-hardening-pr` | `codex/retrieval-runner-hardening` | `integrations/hermes/ace_context_engine/__pycache__/test_ownership.cpython-310.pyc` | untracked | нет commit/PR: untracked | G |
+| `/home/ilja/.hermes/cache/scratch/retrieval-runner-hardening-pr` | `codex/retrieval-runner-hardening` | `pr-body.md` | untracked | нет commit/PR: untracked | B |
+
+### Расшифровка действий для untracked
+
+- `G`: все `.pyc` в `__pycache__` — generated caches; удалить, не коммитить.
+- `P`: `.hermes/plans/*.md` — локальные сессионные планы, не продуктовая документация; сохранить вне checkout/в профиле Hermes, не удалять автоматически.
+- `Q`: `docs/dialos/question.txt` — пользовательский исходник; оставить локально.
+- `A`: `docs/dialos/answer.txt` — текущий запрошенный отчёт; отдельный PR только с этим файлом, не с primary staged merge.
+- `B`: `pr-body.md` в merged runner worktree — временный текст для уже слитого PR #198; удалить после использования.
+- `F`: `test/fixtures/repo-map/aider-behavior.json` — потенциально полезный RepoMap fixture; сохранить, но не включать до верификации upstream oracle и разрешения конфликтов.
+- `E`: `benchmarks/reports/non-ts-lsp-conformance.json` — `sourceCommit=65aec6f`, `rust-analyzer 1.95.0`, `generatedAt=2026-10-28`; исторический artifact, не current-SHA evidence. Не удалять без архива, не использовать как current PASS.
+- `D`: `docs/plans/plan.md` и `plan2.md` — migration drafts; не коммитить как нормативный план, сверить с принятым планом и архивировать/удалить после выбора актуальной версии.
+- `H`: `docs/docs/reports/agents-compartion.html` — большой HTML export в ошибочном вложенном пути `docs/docs`; если report нужен, перенести и описать в `docs/reviews`, иначе удалить duplicate export.
+
+## C. Все 13 worktrees
+
+| Branch | HEAD | Состояние | Counts | PR | Next action |
+|---|---|---|---|---|---|
+| `codex/retrieval-followup` | `65aec6f12027` | dirty | 82 staged / 0 unstaged / 56 untracked / 0 conflict paths / 0 index entries | #186 MERGED head=65aec6f12027 | PR #186 merged; старый merge PR #211 не завершать вслепую; сохранить 2 остатка, пересобрать только нужное от актуального origin/main. |
+| `codex/hermes-bifrost-responses-r6` | `07b973532e51` | clean | 0 staged / 0 unstaged / 0 untracked / 0 conflict paths / 0 index entries | #212 MERGED head=ddc0b5ce101f | PR #212 merged и worktree clean; удалить после проверки, что на local head нет пост-PR изменений и уникального evidence. |
+| `codex/qdrant-readback-contract-20261031` | `1586c0c0ccd2` | clean | 0 staged / 0 unstaged / 0 untracked / 0 conflict paths / 0 index entries | #214 MERGED head=57d27361d240 | PR #214 merged и worktree clean; удалить после проверки, что на local head нет пост-PR изменений и уникального evidence. |
+| `codex/qdrant-r1-malformed-scroll-20261031` | `49df82d87265` | clean | 0 staged / 0 unstaged / 0 untracked / 0 conflict paths / 0 index entries | #216 MERGED head=765e86e99482 | PR #216 merged и worktree clean; удалить после проверки, что на local head нет пост-PR изменений и уникального evidence. |
+| `codex/qdrant-r1-owner-inventory-20261031` | `e9bee8ecb317` | clean | 0 staged / 0 unstaged / 0 untracked / 0 conflict paths / 0 index entries | #215 MERGED head=e9bee8ecb317 | PR #215 merged и worktree clean; удалить после проверки, что на local head нет пост-PR изменений и уникального evidence. |
+| `codex/qdrant-sdk-single-owner-20261031` | `3db40bd9e60a` | clean | 0 staged / 0 unstaged / 0 untracked / 0 conflict paths / 0 index entries | #217 OPEN head=3db40bd9e60a | Оставить: открытый PR. |
+| `codex/r4-qdrant-evidence-20261031` | `7ae5845c49f7` | clean | 0 staged / 0 unstaged / 0 untracked / 0 conflict paths / 0 index entries | #218 OPEN head=7ae5845c49f7 | Оставить: открытый PR. |
+| `codex/r6-responses-gate-review-20261031` | `b5cc2c850917` | clean | 0 staged / 0 unstaged / 0 untracked / 0 conflict paths / 0 index entries | #219 OPEN head=b5cc2c850917 | Оставить: открытый PR. |
+| `codex/retrieval-clean-provider-34816d1` | `34816d17fb51` | clean | 0 staged / 0 unstaged / 0 untracked / 0 conflict paths / 0 index entries | нет PR по headRefName | Clean ancestor origin/main, no PR and no uncommitted content; удалить как лишний worktree/ref после проверки evidence. |
+| `codex/retrieval-composed-followup` | `12d80d965a74` | dirty | 13 staged / 7 unstaged / 1 untracked / 7 conflict paths / 21 index entries | нет PR по headRefName | 7 UU путей, 21 index stages, но нет MERGE_HEAD/CHERRY_PICK_HEAD/REBASE_HEAD; сохранить, определить владельца и разрешить/отбросить только после file-level review. |
+| `codex/retrieval-current-gates` | `7940fdafb46d` | dirty | 0 staged / 0 unstaged / 8 untracked / 0 conflict paths / 0 index entries | #199 MERGED head=35b1ceb84b63 | PR #199 merged; удалить перечисленные generated/scratch files после сохранения нужного evidence, затем убрать worktree и ветку. |
+| `codex/qdrant-sdk-envelope-shape-20261031` | `7349f7e1e90c` | clean | 0 staged / 0 unstaged / 0 untracked / 0 conflict paths / 0 index entries | #213 MERGED head=49ba11c65bde | PR #213 merged и worktree clean; удалить после проверки, что на local head нет пост-PR изменений и уникального evidence. |
+| `codex/retrieval-runner-hardening` | `ee07312e5703` | dirty | 0 staged / 0 unstaged / 9 untracked / 0 conflict paths / 0 index entries | #198 MERGED head=b3582254c1ca | PR #198 merged; удалить перечисленные generated/scratch files после сохранения нужного evidence, затем убрать worktree и ветку. |
+
+## D. Локальные ветки без PR: отдельные решения
+
+| Branch | HEAD | Upstream | Действие |
+|---|---|---|---|
+| `codex/ace-final-main` | `d366f4a19a41` | `origin/main` | HEAD уже ancestor origin/main; удалить дублирующий local ref. |
+| `codex/fix-unified-plan-1227` | `0e6e4283933e` | `origin/codex/fix-unified-plan-1227` | HEAD уже ancestor origin/main; удалить дублирующий local ref. |
+| `codex/h6-cr-01-provenance` | `faacaca2d52e` | `—` | 11 branch-only commits, no PR; не открывать общий PR со старой базы. Проверить единственный нужный provenance delta против merged PR #137; иначе архивировать/удалить. |
+| `codex/h6-cr-02-reranker-safety` | `2b66ca577f53` | `—` | 11 branch-only commits, no PR; не открывать общий PR со старой базы. Проверить reranker telemetry delta против текущих contracts; иначе архивировать/удалить. |
+| `codex/h6-cr-03-harbor-binding` | `d0b19eefb313` | `—` | 11 branch-only commits, no PR; не открывать общий PR со старой базы. Проверить binding delta против merged PR #139; иначе архивировать/удалить. |
+| `codex/h6-cr-04-instrumentation` | `4bda223fa789` | `—` | 11 branch-only commits, no PR; не открывать общий PR со старой базы. Проверить telemetry delta против merged PR #140; иначе архивировать/удалить. |
+| `codex/multilingual-routing-20261021` | `ccde639db199` | `origin/main` | 2 branch-only commits; сравнить только их 4-file/42-line patch с merged PR #97. Если diff уже покрыт — удалить; иначе создать отдельный multilingual-routing follow-up PR. |
+| `codex/openspec-migration-20261021` | `c4619f211614` | `origin/pr-135-merge` | 10 branch-only commits based on deleted origin/pr-135-merge; сравнить migration delta с merged PR #136. Не PR весь branch; если нет уникальных specs — удалить. |
+| `codex/retrieval-clean-provider-34816d1` | `34816d17fb51` | `origin/main` | HEAD уже ancestor origin/main и worktree чист; удалить worktree/ref после проверки evidence. |
+| `codex/retrieval-composed-followup` | `12d80d965a74` | `origin/main` | HEAD ancestor origin/main, но worktree содержит 14 local paths и 7 UU conflicts; извлечь только нужные изменения; затем удалить старую ветку, если PR не создаётся. |
+| `codex/stage0-baseline` | `cebf48de798e` | `origin/codex/stage0-baseline` | 8 branch-only commits, включая rejected Harbor exploratory run; не публиковать как benchmark evidence. Сохранить пригодные artifacts вне checkout; удалить branch, если нет отдельного approved source slice. |
+| `main` | `fbfb3be7d143` | `—` | Fast-forward к origin/main после отдельного решения pending merge; сейчас отстаёт на 60 commits. |
+| `review/ace-contract-correctness` | `82dba8cf5a42` | `origin/fix/ace-contract-correctness` | 26 branch-only commits / 39 changed paths from merge-base, no PR; слишком смешанный review branch для PR. Выделять только конкретный подтверждённый contract defect; иначе архивировать/удалить. |
+
+Остальные branch refs: 57 имеют merged PR, 1 — merged+closed, 2 — closed-only, 3 — open. Open PR #217/#218/#219 оставить. Для merged/closed refs не делать вывод по `ahead/behind` commit count: проверить PR head и local tree delta перед удалением; если worktree clean и branch не несёт post-PR changes, удалить локальный worktree/ref, а не оставлять навсегда. Никакая ветка в этом аудите не удалялась.
+
+## Предлагаемый порядок восстановления
+
+1. Не создавать PR на 225 путей: они уже частично merged и частично лишь отсутствуют в старом merge tree.
+2. Сохранить/извлечь только 2 staged остатка: вернуть или отдельно обосновать comment-only правку в `src/bin/ace-mcp.ts`; для NAPI тестов исправить отрицательный путь (`Err`) и прогнать focused test, затем решить, открывать ли PR `test: cover NAPI import and interface-field parity` от свежего origin/main.
+3. Восстановить primary ветку от `origin/main` на отдельном delivery worktree после решения по двум остаткам; старый merge PR #211 не коммитить как синхронизацию.
+4. Для `retrieval-composed-followup` не выбирать ours/theirs массово: сохранить рабочее дерево, разрешить 7 unmerged records по файлам, разделить R2/R3/LSP slices и только затем решать PR или удаление.
+5. Удалять generated caches и устаревшие merged worktrees только после сохранения нужных evidence; открытые #217–#219 оставить.
