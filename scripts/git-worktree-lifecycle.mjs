@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
@@ -52,11 +53,23 @@ const canonicalPath = (value) => {
 
 const now = () => new Date().toISOString();
 
-const taskSlug = (taskId) => {
-  const normalized = taskId.trim().toLowerCase().replace(/[^a-z0-9._/-]+/gu, '-').replace(/\/+/gu, '/').replace(/(^[./-]+|[./-]+$)/gu, '');
+const taskIdentity = (taskId) => {
+  const canonical = taskId.trim().toLowerCase();
+  const normalized = canonical
+    .replace(/[^a-z0-9._/-]+/gu, '-')
+    .replace(/\/+/gu, '/')
+    .replace(/(^[./-]+|[./-]+$)/gu, '');
   if (!normalized) throw new LifecycleError('INVALID_TASK_ID', 'taskId must contain at least one alphanumeric character');
   if (normalized.includes('..')) throw new LifecycleError('INVALID_TASK_ID', 'taskId must not contain parent traversal');
-  return normalized.replaceAll('/', '-');
+  return { canonical, normalized };
+};
+
+const taskSlug = (taskId) => {
+  const { canonical, normalized } = taskIdentity(taskId);
+  const readable = normalized.replaceAll('/', '-');
+  if (canonical === readable) return readable;
+  const suffix = createHash('sha256').update(canonical).digest('hex').slice(0, 10);
+  return `${readable}-${suffix}`;
 };
 
 const branchForTask = (taskId) => `codex/${taskSlug(taskId)}`;
@@ -189,7 +202,21 @@ const readRecords = async (context) => {
   for (const name of names) {
     try {
       const record = JSON.parse(await readFile(join(context.stateDirectory, name), 'utf8'));
-      if (record?.schemaVersion !== SCHEMA_VERSION || typeof record.taskId !== 'string' || typeof record.branch !== 'string') {
+      let validTaskId = false;
+      if (typeof record?.taskId === 'string') {
+        try {
+          taskSlug(record.taskId);
+          validTaskId = true;
+        } catch {
+          validTaskId = false;
+        }
+      }
+      if (record?.schemaVersion !== SCHEMA_VERSION
+        || !validTaskId
+        || typeof record.branch !== 'string'
+        || record.branch.trim().length === 0
+        || typeof record.worktreePath !== 'string'
+        || record.worktreePath.trim().length === 0) {
         issues.push({ file: name, code: 'INVALID_RECORD', message: 'record schema or required fields are invalid' });
       } else records.push(record);
     } catch (error) {
@@ -246,7 +273,15 @@ const pullRequests = () => {
   }
 };
 
-const pullRequestForBranch = (prs, branch) => prs.items.find((item) => item.headRefName === branch) ?? null;
+const pullRequestsForBranch = (prs, branch) => prs.items.filter((item) => item.headRefName === branch);
+
+const pullRequestForBranch = (prs, branch) => {
+  const matches = pullRequestsForBranch(prs, branch);
+  return matches.find((item) => item.state === 'OPEN')
+    ?? matches.find((item) => item.state === 'MERGED' || item.mergedAt)
+    ?? matches[0]
+    ?? null;
+};
 
 const recordForWorktree = (records, worktree) => records.find((record) => canonicalPath(record.worktreePath) === canonicalPath(worktree.path))
   ?? records.find((record) => record.branch === worktree.branch)
@@ -339,6 +374,13 @@ const preflight = async (context, options) => {
   const pr = pullRequestForBranch(prs, branch);
 
   if (existing) {
+    if (record !== null && taskSlug(record.taskId) !== taskSlug(taskId)) {
+      throw new LifecycleError(
+        'TASK_ID_COLLISION',
+        `branch ${branch} is registered to a different task; refusing cross-task worktree reuse`,
+        { requestedTaskId: taskId, registeredTaskId: record.taskId, branch },
+      );
+    }
     return {
       ok: true,
       action: 'reuse',
@@ -462,14 +504,41 @@ const cleanup = async (context, options) => {
   if (!record) throw new LifecycleError('RECORD_NOT_FOUND', `no lifecycle record exists for task ${taskId}`);
   const prs = pullRequests();
   if (!prs.available) throw new LifecycleError('PR_LOOKUP_UNAVAILABLE', `cleanup requires PR lookup: ${prs.error}`);
-  const pr = pullRequestForBranch(prs, record.branch);
-  if (!pr || pr.state !== 'MERGED') throw new LifecycleError('PR_NOT_MERGED', `cleanup requires a merged PR for ${record.branch}`, { pr });
+
   const worktrees = listWorktrees(context);
   const worktree = worktrees.find((item) => canonicalPath(item.path) === canonicalPath(record.worktreePath));
+  const branchPrs = pullRequestsForBranch(prs, record.branch);
   if (!worktree) {
-    const updated = { ...record, status: 'orphaned', lastSeenAt: now(), prNumber: pr.number };
+    const knownPr = pullRequestForBranch(prs, record.branch);
+    const updated = { ...record, status: 'orphaned', lastSeenAt: now(), prNumber: knownPr?.number ?? record.prNumber ?? null };
     await writeRecord(context, updated);
     throw new LifecycleError('WORKTREE_NOT_FOUND', `registered worktree does not exist: ${record.worktreePath}`);
+  }
+
+  const openPr = branchPrs.find((item) => item.state === 'OPEN');
+  if (openPr) {
+    throw new LifecycleError('PR_NOT_MERGED', `cleanup refuses branch ${record.branch} while PR #${openPr.number} is open`, { pr: openPr });
+  }
+  if (typeof worktree.headSha !== 'string' || worktree.headSha.length === 0) {
+    throw new LifecycleError('WORKTREE_HEAD_UNKNOWN', `cannot prove HEAD identity for ${worktree.path}`);
+  }
+  const pr = branchPrs.find((item) =>
+    (item.state === 'MERGED' || item.mergedAt)
+    && typeof item.headRefOid === 'string'
+    && item.headRefOid === worktree.headSha);
+  if (!pr) {
+    const merged = branchPrs.filter((item) => item.state === 'MERGED' || item.mergedAt);
+    if (merged.length > 0) {
+      throw new LifecycleError(
+        'PR_HEAD_MISMATCH',
+        `clean worktree HEAD ${worktree.headSha} is not the exact head of a merged PR for ${record.branch}`,
+        { worktreeHead: worktree.headSha, mergedPrHeads: merged.map((item) => ({ number: item.number, headRefOid: item.headRefOid })) },
+      );
+    }
+    throw new LifecycleError('PR_NOT_MERGED', `cleanup requires a merged PR for ${record.branch}`, { prs: branchPrs });
+  }
+  if (pr.baseRefName !== 'main') {
+    throw new LifecycleError('PR_BASE_MISMATCH', `cleanup requires the merged PR to target main, got ${pr.baseRefName || 'unknown'}`, { pr });
   }
   if (!worktree.clean) {
     const updated = updateRecordFromInspection({ ...record, prNumber: pr.number }, worktree, pr);
@@ -477,20 +546,65 @@ const cleanup = async (context, options) => {
     throw new LifecycleError('WORKTREE_NOT_CLEAN', `refusing to delete merged worktree with local changes: ${worktree.path}`, { status: updated.status });
   }
   if (canonicalPath(worktree.path) === context.root) throw new LifecycleError('CURRENT_WORKTREE', 'refusing to remove the current worktree');
-  if (worktrees.filter((item) => item.branch === record.branch).length !== 1) throw new LifecycleError('BRANCH_IN_USE', `branch ${record.branch} is referenced by more than one worktree`);
+  if (worktree.branch !== record.branch) {
+    throw new LifecycleError(
+      'WORKTREE_BRANCH_MISMATCH',
+      `registered worktree is on ${worktree.branch ?? 'detached HEAD'}, not ${record.branch}`,
+      { expectedBranch: record.branch, actualBranch: worktree.branch },
+    );
+  }
+  if (worktrees.filter((item) => item.branch === record.branch).length !== 1) {
+    throw new LifecycleError('BRANCH_IN_USE', `branch ${record.branch} is referenced by more than one worktree`);
+  }
+
+  const expectedHead = worktree.headSha;
+  const branchRef = `refs/heads/${record.branch}`;
+  const branchHead = requireGit(['rev-parse', branchRef], context.root);
+  if (branchHead !== expectedHead) {
+    throw new LifecycleError(
+      'BRANCH_HEAD_MISMATCH',
+      `branch ${record.branch} moved after worktree inspection; refusing cleanup`,
+      { expectedHead, branchHead },
+    );
+  }
+
   git(['worktree', 'remove', worktree.path], context.root);
-  const branchDeletion = git(['branch', '-d', record.branch], context.root, { allowFailure: true });
+  // A merged PR may have been squash-merged, so ancestry-based `git branch -d`
+  // is not a valid deletion proof. Delete the local ref with an expected-old
+  // value instead: Git refuses if another process moved the branch meanwhile.
+  const branchDeletion = git(['update-ref', '-d', branchRef, expectedHead], context.root, { allowFailure: true });
+  if (branchDeletion.status !== 0) {
+    const updated = {
+      ...record,
+      status: 'merged-clean',
+      prNumber: pr.number,
+      lastSeenAt: now(),
+      headSha: expectedHead,
+      cleanupAt: now(),
+      cleanupWarning: (branchDeletion.stderr ?? '').trim() || `git update-ref exited ${branchDeletion.status}`,
+    };
+    await writeRecord(context, updated);
+    throw new LifecycleError(
+      'BRANCH_DELETE_FAILED',
+      `worktree was removed but local branch ${record.branch} was preserved because its ref could not be deleted with the expected HEAD`,
+      { expectedHead, warning: updated.cleanupWarning },
+    );
+  }
+  const branchStillExists = git(['show-ref', '--verify', '--quiet', branchRef], context.root, { allowFailure: true }).status === 0;
+  if (branchStillExists) {
+    throw new LifecycleError('BRANCH_DELETE_FAILED', `local branch ${record.branch} still exists after guarded ref deletion`, { expectedHead });
+  }
   const updated = {
     ...record,
     status: 'merged-clean',
     prNumber: pr.number,
     lastSeenAt: now(),
-    headSha: worktree.headSha,
+    headSha: expectedHead,
     cleanupAt: now(),
-    cleanupWarning: branchDeletion.status === 0 ? null : (branchDeletion.stderr ?? '').trim() || `git branch -d exited ${branchDeletion.status}`,
+    cleanupWarning: null,
   };
   await writeRecord(context, updated);
-  return { record: updated, removedWorktree: worktree.path, deletedLocalBranch: branchDeletion.status === 0, remoteBranchTouched: false };
+  return { record: updated, removedWorktree: worktree.path, deletedLocalBranch: true, remoteBranchTouched: false };
 };
 
 const textReport = (value) => {
