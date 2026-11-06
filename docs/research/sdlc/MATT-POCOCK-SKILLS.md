@@ -23,7 +23,7 @@ Not selected from Sphericon: `triage`, `wayfinder`, `wizard`, `teach`, `claude-h
 
 ## Reproducible future import
 
-Use a dedicated, human-reviewed vendor PR against the pinned upstream release. Matt's README may document convenience installers, but ACE must **not** use an unpinned `@latest` installer for this dependency, even interactively when preparing committed vendor content. Select tag `v1.3.2` / verified tree `d1478fcb140db0b93c0c8df17bcfd311844749d0`, verify the retrieved source against that identity, copy only the approved skill directories into the existing `.agents/skills` folder, preserve the MIT notice, run a path/reference check and commit the exact reviewed bytes. Sphericon uses pinned `mise` release archives; ACE is not required to add mise solely to import skills.
+Use a dedicated, human-reviewed vendor PR against the pinned upstream release. Matt's README may document convenience installers, but ACE must **not** use an unpinned `@latest` installer for this dependency, even interactively when preparing committed vendor content. Select tag `v1.3.2` / verified commit `d1478fcb140db0b93c0c8df17bcfd311844749d0` (tree `42b57b23ac2979fce601ce1d4b4d6c1d46471bbe`), verify the retrieved source against that identity, copy only the approved skill directories into the existing `.agents/skills` folder, preserve the MIT notice, run a path/reference check and commit the exact reviewed bytes. Sphericon uses pinned `mise` release archives; ACE is not required to add mise solely to import skills.
 
 No automation should execute arbitrary scripts from a newly imported skill until owner review, and no skill installation should delete existing OpenSpec skills.
 
