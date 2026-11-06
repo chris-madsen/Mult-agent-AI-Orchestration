@@ -3,119 +3,62 @@
 **Статус:** Accepted  
 **Дата:** 2026-11-05  
 **Проект:** Adaptive Context Engine (ACE)  
-**Связанные ADR:** ADR-014 (Hybrid Context Engine), ADR-016 (Hermes ContextEngine), ADR-017 `ADR-017-ace-bifrost-gateway-protocol.md` (ACE LLM Gateway Protocol v1 over Bifrost)  
+**Связанные ADR:** ADR-014, ADR-016, ADR-017  
 **Источник решения:** explicit project-owner decision recorded during the SDLC/architecture review on 2026-11-05.
 
 ## Контекст и проблема
 
-ACE needs durable rules for two related concerns that were previously scattered across design notes:
+PR #222 records two durable owner-selected architecture choices that already appear in the repository guidance:
 
-1. how material domain behavior is modeled in the TypeScript + Effect modular monolith;
-2. which source owns new and migrated public/versioned machine-wire contracts.
+1. material domain design uses Event Storming with a functional DDD implementation style;
+2. TypeSpec is the selected source language for new and migrated public/versioned ACE machine-wire contracts.
 
-Without one accepted decision, agents can alternate between rich mutable OO models and functional domain modules, or maintain competing handwritten MCP/HTTP/native JSON schemas after TypeSpec adoption.
-
-## Драйверы решения
-
-- Preserve ACE as one TypeScript + Effect modular monolith rather than a service per bounded context.
-- Keep business invariants testable without provider I/O.
-- Keep OpenSpec behavioral acceptance, ADR rationale and wire-schema ownership distinct.
-- Eliminate duplicate handwritten protocol-schema owners during staged migration.
-- Preserve official SDK transports, especially the maintained MCP TypeScript SDK.
-- Prefer maintained generators and upstream tooling over custom emitters.
-- Avoid big-bang rewrites of working contracts.
-
-## Рассмотренные варианты
-
-1. **Rich OO DDD by default.** Rejected as a mandatory implementation style; aggregate consistency does not require mutable classes.
-2. **Functional DDD with readonly ADTs and pure domain functions.** Accepted as the default modeling style.
-3. **Continue handwritten public schemas per adapter.** Rejected for new/migrated public contracts because it creates competing wire authorities.
-4. **TypeSpec-first public wire contracts with staged generated integration.** Accepted.
-5. **Generate domain behavior from wire contracts.** Rejected; business decisions remain handwritten domain logic.
-6. **Custom generators by default.** Rejected; official/maintained compiler, emitters and generators are evaluated first.
+Root `AGENTS.md` requires durable architecture decisions to live in ADRs, so this ADR records those existing choices. **It does not add or change an SDLC stage, gate, rollout sequence, migration deadline or implementation requirement.**
 
 ## Решение
 
-### Domain modeling
+### Functional DDD
 
-For material T2 domain changes, start design with Event Storming to identify commands, meaningful facts/events, policies, hot spots, bounded contexts and consistency boundaries.
+For substantive domain design, use Event Storming to identify commands, meaningful facts/events, policies, hot spots, bounded contexts and consistency boundaries.
 
-The default implementation is:
+Implementation remains functional:
 
-- immutable/read-only domain data and discriminated ADTs;
-- cohesive pure functions that own invariants and state transitions;
-- Effect in the application shell for I/O, authorization, cancellation, concurrency, persistence coordination and provider composition;
-- explicit runtime validation for untrusted wire/persisted input.
+- immutable/read-only ADTs and data;
+- cohesive pure domain functions for invariants and transitions;
+- Effect for application orchestration, I/O, cancellation, authorization and resource ownership.
 
-An aggregate is a consistency boundary, not a requirement for a mutable OO root object. Event Storming does not imply Event Sourcing, an event bus or one microservice per bounded context.
+An aggregate is a consistency boundary, not a mandatory mutable OO class or microservice. Event Storming does not imply Event Sourcing.
 
-Canonical functional rule IDs are FP-01..FP-12 in `docs/research/sdlc/source/standards/Functional Domain Modeling.md`.
+### TypeSpec
 
-### Public wire contracts
+TypeSpec is the selected source language for new and migrated public/versioned ACE wire contracts, including the Gateway Projection API and applicable MCP/native JSON messages.
 
-TypeSpec is the selected canonical source language for **new and migrated public/versioned ACE machine contracts**, beginning with Gateway Projection HTTP and extending to representable MCP/native JSON shapes.
+OpenSpec remains behavioral requirements/acceptance authority. ADRs record architectural rationale. The TypeSpec toolchain and generated artifacts are not made installed or active by this document.
 
-Authority is separated:
+All staged rollout, quality-gate and implementation semantics remain exactly as defined by the SDLC documents in PR #222.
 
-- OpenSpec: required behavior and acceptance;
-- ADRs: architectural rationale and durable decisions;
-- TypeSpec: migrated public wire operations, DTOs, errors and constraints;
-- domain ADTs/pure functions: business invariants.
+## Последствия
 
-Existing accepted runtime contracts remain the compatibility baseline until a surface's TypeSpec toolchain is installed, pinned, reproducible and parity-tested. An uncompiled `.tsp` file is not allowed to displace a working schema merely by existing.
-
-Use official/maintained emitters and downstream generators first. A custom emitter/checker requires an evidenced upstream gap, the smallest possible scope and explicit owner-approved rationale. TypeSpec must not replace the official MCP transport or become the only authorization boundary.
-
-Canonical generated-integration rule IDs are TSP-01..TSP-08 in `docs/research/sdlc/TYPESPEC-CODEGEN-COVERAGE.md`.
-
-## Компромиссы и последствия
-
-Benefits:
-
-- one durable modeling policy without forcing OO ceremony;
-- one migration target for public wire shapes;
-- clearer ownership between behavior, wire schema and runtime enforcement;
-- generated mechanical boilerplate can replace duplicated schema/DTO glue;
-- contract migration can be incremental and compatibility-tested.
-
-Costs:
-
-- TypeSpec compiler/emitter/generator tooling must be selected, pinned and maintained;
-- existing public schemas need explicit baseline/parity work before ownership transfers;
-- some protocol features may need a narrow adapter when TypeSpec cannot represent them faithfully;
-- Event Storming adds design work for material T2 changes.
+- The existing PR #222 architecture guidance now has a durable ADR record.
+- Existing runtime behavior and existing SDLC gate/stage semantics are unchanged.
+- No new CI command, gate, provider proof or rollout phase is introduced by ADR-019.
 
 ## Безопасность / локальность / лицензии
 
-- TypeSpec annotations or generated permission metadata never replace send-time authorization.
-- Private code/data egress remains governed by existing ACE policy ADRs.
-- Official SDK transports remain authoritative where selected.
-- Generator and skill dependencies require pinned versions, license review and reproducible provenance.
-- No custom protocol transport or generator is justified solely by convenience.
+Existing ACE security, egress, provider, SDK, provenance and upstream-reuse rules continue unchanged.
 
 ## Критерии проверки
 
-- Material T2 domain design records applicable G15/FP evidence.
-- New/migrated public contract work records G16/TSP-01..08 evidence or an explicit BLOCKED/DEFERRED state while toolchain work is absent.
-- Existing wire fixtures are captured before migration and compared against generated output.
-- Unknown fields/variants and unmapped DTO fields fail closed.
-- Authorization negative tests remain independent of generated metadata.
-- Real MCP/Hermes/Bifrost/provider evidence remains distinct from schema/codegen tests.
-- Superseded handwritten schema authority is removed only after compatibility proof.
+- `AGENTS.md` and the architecture policy point to ADR-019 as the durable decision record.
+- The original PR #222 SDLC flow and gate meanings remain unchanged.
+- TypeSpec tooling remains staged/not installed where the original PR says so.
 
 ## Условия пересмотра
 
-Revisit if:
-
-- TypeSpec cannot faithfully represent a required ACE public protocol despite a narrow maintained adapter;
-- a maintained alternative provides materially stronger generation/validation with lower ownership cost;
-- the TypeScript + Effect modular-monolith decision changes;
-- measured experience shows the functional modeling default materially harms correctness or maintainability.
+Revisit through an owner-reviewed ADR if the selected modeling style or public-contract source language changes.
 
 ## Источники
 
+- `AGENTS.md`
 - `docs/research/sdlc/ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md`
 - `docs/research/sdlc/TYPESPEC-CODEGEN-COVERAGE.md`
-- `docs/research/sdlc/source/standards/Functional Domain Modeling.md`
-- `docs/research/sdlc/source/standards/TypeSpec Contract First.md`
-- root `AGENTS.md`
