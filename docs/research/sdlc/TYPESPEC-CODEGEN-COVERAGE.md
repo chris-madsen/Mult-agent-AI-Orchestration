@@ -4,7 +4,7 @@
 
 ## Inspected concrete Sphericon pipeline
 
-Source: [getsphericon/sphericon/docs/agents/codegen.md](https://github.com/getsphericon/sphericon/blob/main/docs/agents/codegen.md), [mise/tasks.toml](https://github.com/getsphericon/sphericon/blob/main/mise/tasks.toml), [check-generated.ts](https://github.com/getsphericon/sphericon/blob/main/mise/scripts/check-generated.ts).
+Source: [getsphericon/sphericon/docs/agents/codegen.md](https://github.com/getsphericon/sphericon/blob/c9dc3fdd88f07ad815de0cf31b319be633fcde67/docs/agents/codegen.md), [mise/tasks.toml](https://github.com/getsphericon/sphericon/blob/c9dc3fdd88f07ad815de0cf31b319be633fcde67/mise/tasks.toml), [check-generated.ts](https://github.com/getsphericon/sphericon/blob/c9dc3fdd88f07ad815de0cf31b319be633fcde67/mise/scripts/check-generated.ts).
 
 Their \`mise run generate\` sequence covers:
 1. **TypeSpec** declarations for multiple service surfaces → **OpenAPI**.
