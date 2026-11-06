@@ -54,14 +54,18 @@ const runCli = (cwd: string, args: string[], pullRequests: unknown[] = []) => {
   return { ...result, json };
 };
 
-const branchPr = (branch: string, state: 'OPEN' | 'MERGED' = 'OPEN') => ({
+const branchPr = (
+  branch: string,
+  state: 'OPEN' | 'MERGED' = 'OPEN',
+  headRefOid: string | null = null,
+) => ({
   number: state === 'OPEN' ? 101 : 102,
   title: 'fixture PR',
   headRefName: branch,
   baseRefName: 'main',
   state,
   mergedAt: state === 'MERGED' ? '2026-11-01T00:00:00Z' : null,
-  headRefOid: null,
+  headRefOid,
 });
 
 test('audit is read-only and start reuses the deterministic task worktree', async (t) => {
@@ -115,6 +119,83 @@ test('preflight fails closed for a dirty checkout and an active merge operation'
   await rm(join(checkout, '.git', 'MERGE_HEAD'));
 });
 
+test('different task IDs that normalize to the same readable slug do not reuse one worktree', async (t) => {
+  const fixture = await createRepository();
+  t.after(async () => rm(fixture.root, { recursive: true, force: true }));
+  const checkout = join(fixture.root, 'checkout');
+  const firstPath = join(fixture.root, 'feature-slash');
+  const secondPath = join(fixture.root, 'feature-dash');
+
+  const first = runCli(checkout, ['start', '--task-id', 'feature/a', '--path', firstPath, '--json']);
+  assert.equal(first.status, 0, first.stderr);
+  const second = runCli(checkout, ['start', '--task-id', 'feature-a', '--path', secondPath, '--json']);
+  assert.equal(second.status, 0, second.stderr);
+
+  assert.notEqual(first.json.record.branch, second.json.record.branch);
+  assert.notEqual(first.json.record.worktreePath, second.json.record.worktreePath);
+  assert.equal(git(checkout, ['worktree', 'list', '--porcelain']).includes(firstPath), true);
+  assert.equal(git(checkout, ['worktree', 'list', '--porcelain']).includes(secondPath), true);
+});
+
+test('cleanup refuses a clean branch whose HEAD is newer than the merged PR head', async (t) => {
+  const fixture = await createRepository();
+  t.after(async () => rm(fixture.root, { recursive: true, force: true }));
+  const checkout = join(fixture.root, 'checkout');
+  const worktree = join(fixture.root, 'reused-after-merge');
+  const branch = 'codex/reused-after-merge';
+
+  const start = runCli(checkout, ['start', '--task-id', 'reused-after-merge', '--path', worktree, '--json']);
+  assert.equal(start.status, 0, start.stderr);
+  await writeFile(join(worktree, 'first.txt'), 'first PR change\n');
+  git(worktree, ['add', 'first.txt']);
+  git(worktree, ['commit', '-m', 'first PR']);
+  const mergedHead = git(worktree, ['rev-parse', 'HEAD']);
+
+  await writeFile(join(worktree, 'second.txt'), 'new work after merge\n');
+  git(worktree, ['add', 'second.txt']);
+  git(worktree, ['commit', '-m', 'new work after merge']);
+  const currentHead = git(worktree, ['rev-parse', 'HEAD']);
+  assert.notEqual(currentHead, mergedHead);
+
+  const cleanup = runCli(
+    checkout,
+    ['cleanup', '--task-id', 'reused-after-merge', '--json'],
+    [branchPr(branch, 'MERGED', mergedHead)],
+  );
+  assert.notEqual(cleanup.status, 0, 'cleanup must fail closed when local HEAD is not the merged PR head');
+  assert.equal(git(checkout, ['worktree', 'list', '--porcelain']).includes(worktree), true);
+  assert.equal(git(worktree, ['rev-parse', 'HEAD']), currentHead);
+});
+
+test('cleanup deletes an exact merged PR branch even when Git ancestry reflects a squash merge', async (t) => {
+  const fixture = await createRepository();
+  t.after(async () => rm(fixture.root, { recursive: true, force: true }));
+  const checkout = join(fixture.root, 'checkout');
+  const worktree = join(fixture.root, 'squash-merged');
+  const branch = 'codex/squash-merged';
+
+  const start = runCli(checkout, ['start', '--task-id', 'squash-merged', '--path', worktree, '--json']);
+  assert.equal(start.status, 0, start.stderr);
+  await writeFile(join(worktree, 'feature.txt'), 'same resulting content\n');
+  git(worktree, ['add', 'feature.txt']);
+  git(worktree, ['commit', '-m', 'feature commit']);
+  const prHead = git(worktree, ['rev-parse', 'HEAD']);
+
+  await writeFile(join(checkout, 'feature.txt'), 'same resulting content\n');
+  git(checkout, ['add', 'feature.txt']);
+  git(checkout, ['commit', '-m', 'squash result on main']);
+
+  const cleanup = runCli(
+    checkout,
+    ['cleanup', '--task-id', 'squash-merged', '--json'],
+    [branchPr(branch, 'MERGED', prHead)],
+  );
+  assert.equal(cleanup.status, 0, cleanup.stderr);
+  assert.equal(cleanup.json.deletedLocalBranch, true);
+  assert.equal(git(checkout, ['worktree', 'list', '--porcelain']).includes(worktree), false);
+  assert.notEqual(gitResult(checkout, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`]).status, 0);
+});
+
 test('merged clean cleanup removes only the local worktree and branch', async (t) => {
   const fixture = await createRepository();
   t.after(async () => rm(fixture.root, { recursive: true, force: true }));
@@ -124,7 +205,8 @@ test('merged clean cleanup removes only the local worktree and branch', async (t
 
   const start = runCli(checkout, ['start', '--task-id', 'clean-task', '--path', worktree, '--json']);
   assert.equal(start.status, 0, start.stderr);
-  const cleanup = runCli(checkout, ['cleanup', '--task-id', 'clean-task', '--json'], [branchPr(branch, 'MERGED')]);
+  const prHead = git(worktree, ['rev-parse', 'HEAD']);
+  const cleanup = runCli(checkout, ['cleanup', '--task-id', 'clean-task', '--json'], [branchPr(branch, 'MERGED', prHead)]);
   assert.equal(cleanup.status, 0, cleanup.stderr);
   assert.equal(cleanup.json.deletedLocalBranch, true);
   assert.equal(cleanup.json.remoteBranchTouched, false);
@@ -143,7 +225,8 @@ test('merged dirty cleanup preserves local work and records merged-dirty', async
   const start = runCli(checkout, ['start', '--task-id', 'dirty-task', '--path', worktree, '--json']);
   assert.equal(start.status, 0, start.stderr);
   await writeFile(join(worktree, 'uncommitted.txt'), 'must survive cleanup refusal\n');
-  const cleanup = runCli(checkout, ['cleanup', '--task-id', 'dirty-task', '--json'], [branchPr(branch, 'MERGED')]);
+  const prHead = git(worktree, ['rev-parse', 'HEAD']);
+  const cleanup = runCli(checkout, ['cleanup', '--task-id', 'dirty-task', '--json'], [branchPr(branch, 'MERGED', prHead)]);
   assert.notEqual(cleanup.status, 0);
   assert.equal(cleanup.stderr.includes('WORKTREE_NOT_CLEAN'), true);
   assert.equal(git(worktree, ['status', '--porcelain']).includes('uncommitted.txt'), true);
