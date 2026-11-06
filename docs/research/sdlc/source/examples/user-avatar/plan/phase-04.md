@@ -13,6 +13,7 @@ Adapter.
 Implement put/get/delete object handling and configuration with explicit authorization and retry/failure semantics. Test missing object, partial upload, transient error and idempotent cleanup.
 
 ## Files to create or modify
+**Illustrative placeholder only — exact repository paths are NOT-VERIFIED because the source project is not attached.** In a real plan this section must be populated from current source inspection before the phase may move from NOT-RUN to READY.
 
 ## Verification
 - Test positive and negative behavior, error contracts and boundary violations.
