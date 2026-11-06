@@ -24,3 +24,4 @@ Bottom-up: Domain → Boundary → Adapters → UseCase → RepoModel/Response �
 - Carry forward identifiers, error codes and C4/sequence constraints; run final cross-phase review and smoke tests.
 
 ## Source map
+**NOT-VERIFIED for this source-less case study.** A real plan must list exact repository paths, owning symbols and create/modify/delete intent before any phase becomes READY; do not infer paths from this illustrative Go/S3 example.
