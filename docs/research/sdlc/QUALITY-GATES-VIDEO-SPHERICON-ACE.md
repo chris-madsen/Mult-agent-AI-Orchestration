@@ -2,13 +2,13 @@
 
 **Status:** research and proposed adoption; no new Quality Gate is executable in ACE merely because it appears here.
 **Scope:** ACE developer SDLC (one agent, TypeScript + Effect, existing GitHub Actions/OpenSpec/ADRs).
-**Reviewed:** 2026-11-05. Source revision anchors: Sphericon \`main\` tree \`c9dc3fdd88f07ad815de0cf31b319be633fcde67\`; ACE \`main\` tree \`ec09f51d6e87b1b913ce6edb2674472d62e8b0c3\`; SDLC PR #222 is separate and not merged.
+**Reviewed:** 2026-11-05. Source revision anchors: Sphericon \`main\` commit \`c9dc3fdd88f07ad815de0cf31b319be633fcde67\` (tree \`3b6297128b9fbad5f77351eb9f442fcdde8dbe63\`); ACE \`main\` commit \`ec09f51d6e87b1b913ce6edb2674472d62e8b0c3\` (tree \`32304542e6980f9b442c8c5bd62195364f03946a\`); SDLC PR #222 is separate and not merged.
 
 ## Evidence and attribution
 
 **V (video):** [Quality Gates, архитектура и инструменты разработчика](https://www.youtube.com/watch?v=x-P_xC6No0I), *Организованное программирование*, published 2026-11-01. The public episode [description](https://podcasts.apple.com/ru/podcast/id1734325321?i=1000799228073) confirms Design First, TypeSpec, code generation, architecture/security/dependency/docs/schema gates, mise, worktrees and resource-isolation. The [public third-party summary](https://youtubesummary.com/summary/x-P_xC6No0I) describes more specific tools. **It is secondary evidence, not a verified verbatim transcript.** The linked video connector's transcript/question quota was exhausted, so no precise timestamps or word-for-word statements are claimed. Tool capabilities below are additionally verified from repository files.
 
-**S (repository):** [getsphericon/sphericon](https://github.com/getsphericon/sphericon) at the tree above; directly inspected its \`AGENTS.md\`, \`.mise.toml\`, \`mise/tasks.toml\`, \`.github/workflows/{ci,nightly,codeql,scorecard}.yml\`, \`hk.pkl\`, \`sgconfig.yml\`, \`ast-grep/rules/*\`, \`ast-grep/tests/*\`, \`easement.yml\`, \`knip.ts\`, \`vacuum.yaml\`, \`schemathesis.toml\`, \`schemalens.yml\`, \`docs/standards/review-rules.md\`, \`CODING_STANDARDS.md\`, \`docs/agents/codegen.md\`, \`docs/adr/0047-*.md\` and relevant configs. These files establish what Sphericon **declares and wires**; no Sphericon CI was executed here.
+**S (repository):** [getsphericon/sphericon](https://github.com/getsphericon/sphericon) at the commit above; directly inspected its \`AGENTS.md\`, \`.mise.toml\`, \`mise/tasks.toml\`, \`.github/workflows/{ci,nightly,codeql,scorecard}.yml\`, \`hk.pkl\`, \`sgconfig.yml\`, \`ast-grep/rules/*\`, \`ast-grep/tests/*\`, \`easement.yml\`, \`knip.ts\`, \`vacuum.yaml\`, \`schemathesis.toml\`, \`schemalens.yml\`, \`docs/standards/review-rules.md\`, \`CODING_STANDARDS.md\`, \`docs/agents/codegen.md\`, \`docs/adr/0047-*.md\` and relevant configs. These files establish what Sphericon **declares and wires**; no Sphericon CI was executed here.
 
 **A (ACE):** [ACE](https://github.com/chris-madsen/Mult-agent-AI-Orchestration) \`AGENTS.md\`, \`docs/AGENTS.md\`, \`.github/workflows/ace-contracts.yml\`, \`package.json\`, \`.eslintrc.cjs\`, \`docs/operations/{testing-strategy,supply-chain-release-evidence}.md\`, \`docs/docs/architecture/07-architecture-fitness-contracts.md\`. Existing ACE tests and provider gates are real project features; this comparison **does not infer** they passed for a given commit.
 
@@ -63,18 +63,18 @@ Legend: EXISTING = already present in ACE; ADOPT = suitable next implementation;
 ## Sphericon's implementation highlights worth imitating
 
 ### 1. One rule, one owner, one test
-See [review-rules.md](https://github.com/getsphericon/sphericon/blob/main/docs/standards/review-rules.md), [example ast-grep rule](https://github.com/getsphericon/sphericon/blob/main/ast-grep/rules/no-common-refusal-in-handlers.yml), [its fixture](https://github.com/getsphericon/sphericon/blob/main/ast-grep/tests/no-common-refusal-in-handlers-test.yml). The latter has **valid and invalid code examples**, preventing a weak rule from passing based on misleading regex syntax.
+See [review-rules.md](https://github.com/getsphericon/sphericon/blob/c9dc3fdd88f07ad815de0cf31b319be633fcde67/docs/standards/review-rules.md), [example ast-grep rule](https://github.com/getsphericon/sphericon/blob/c9dc3fdd88f07ad815de0cf31b319be633fcde67/ast-grep/rules/no-common-refusal-in-handlers.yml), [its fixture](https://github.com/getsphericon/sphericon/blob/c9dc3fdd88f07ad815de0cf31b319be633fcde67/ast-grep/tests/no-common-refusal-in-handlers-test.yml). The latter has **valid and invalid code examples**, preventing a weak rule from passing based on misleading regex syntax.
 
 ACE should require for every new static rule: a numbered requirement, meaning, explicit scope, negative and positive fixture, exception policy, severity, repair hint, and regression if the rule ever misfires.
 
 ### 2. Type-aware boundaries, no magic import-lint
-See [easement.yml](https://github.com/getsphericon/sphericon/blob/main/easement.yml) and [CI arch job](https://github.com/getsphericon/sphericon/blob/main/.github/workflows/ci.yml). It uses SCIP indexers and caching; a separate job avoids CPU starvation from language linters. ACE shouldn't install SCIP until a typed dependency/ownership rule genuinely requires it.
+See [easement.yml](https://github.com/getsphericon/sphericon/blob/c9dc3fdd88f07ad815de0cf31b319be633fcde67/easement.yml) and [CI arch job](https://github.com/getsphericon/sphericon/blob/c9dc3fdd88f07ad815de0cf31b319be633fcde67/.github/workflows/ci.yml). It uses SCIP indexers and caching; a separate job avoids CPU starvation from language linters. ACE shouldn't install SCIP until a typed dependency/ownership rule genuinely requires it.
 
 ### 3. Generated contract is owned once
-See [codegen.md](https://github.com/getsphericon/sphericon/blob/main/docs/agents/codegen.md) and [generated check](https://github.com/getsphericon/sphericon/blob/main/mise/scripts/check-generated.ts). In ACE generated clients and compiled artifacts require one source schema and exact generation verification **if introduced**, not duplicate manually kept TypeSpec/OpenAPI/MCP/Zod descriptions.
+See [codegen.md](https://github.com/getsphericon/sphericon/blob/c9dc3fdd88f07ad815de0cf31b319be633fcde67/docs/agents/codegen.md) and [generated check](https://github.com/getsphericon/sphericon/blob/c9dc3fdd88f07ad815de0cf31b319be633fcde67/mise/scripts/check-generated.ts). In ACE generated clients and compiled artifacts require one source schema and exact generation verification **if introduced**, not duplicate manually kept TypeSpec/OpenAPI/MCP/Zod descriptions.
 
 ### 4. Fast vs slow gates
-See [ci.yml](https://github.com/getsphericon/sphericon/blob/main/.github/workflows/ci.yml) and [nightly.yml](https://github.com/getsphericon/sphericon/blob/main/.github/workflows/nightly.yml). Sphericon schedules:
+See [ci.yml](https://github.com/getsphericon/sphericon/blob/c9dc3fdd88f07ad815de0cf31b319be633fcde67/.github/workflows/ci.yml) and [nightly.yml](https://github.com/getsphericon/sphericon/blob/c9dc3fdd88f07ad815de0cf31b319be633fcde67/.github/workflows/nightly.yml). Sphericon schedules:
 - **PR:** lint, arch, generated code, contract decorators, schema consistency, DB-backed tests, e2e, upgrade checks.
 - **Nightly:** coverage, race, mutation, API fuzzing, parser fuzz, vulnerabilities, external links, container smoke.
 ACE should **not** run expensive Qdrant embeddings on every docs-only commit merely because Sphericon runs DB-backed Go tests per PR; instead keep existing ACE provider matrix but rationalize scope.
