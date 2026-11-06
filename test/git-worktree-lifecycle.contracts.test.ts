@@ -251,6 +251,25 @@ test('status records PR ownership and preserves the observed worktree state', as
   assert.equal(status.json.record.sessionId, 'session-1');
 });
 
+test('audit treats structurally incomplete registry records as invalid instead of crashing', async (t) => {
+  const fixture = await createRepository();
+  t.after(async () => rm(fixture.root, { recursive: true, force: true }));
+  const checkout = join(fixture.root, 'checkout');
+  const state = join(checkout, '.git', 'ace-worktree-state');
+  await mkdir(state, { recursive: true });
+  await writeFile(join(state, 'incomplete.json'), JSON.stringify({
+    schemaVersion: 1,
+    taskId: 'incomplete',
+    branch: 'codex/incomplete',
+  }));
+
+  const audit = runCli(checkout, ['audit', '--json']);
+  assert.equal(audit.status, 0, audit.stderr);
+  assert.equal(audit.json.registryIssues.length, 1);
+  assert.equal(audit.json.registryIssues[0].code, 'INVALID_RECORD');
+  assert.equal(audit.json.worktrees.length, 1);
+});
+
 test('audit reports malformed registry records without touching worktrees', async (t) => {
   const fixture = await createRepository();
   t.after(async () => rm(fixture.root, { recursive: true, force: true }));
