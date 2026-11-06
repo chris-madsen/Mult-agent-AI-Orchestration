@@ -7,6 +7,7 @@ Use this before compaction, session switch or when execution spans multiple inte
 - Branch:
 - BASE SHA:
 - Current HEAD SHA:
+- Last CI tested checkout/merge SHA (if any):
 - Open PR URL/number:
 - Worktree status (dirty/untracked/unrelated):
 - Date and agent/client:
