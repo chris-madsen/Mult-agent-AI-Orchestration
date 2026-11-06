@@ -39,7 +39,7 @@
 | 23 | **Harbor** как выбранный framework; token usage из Codex, benchmarks с качественным gating | ADR-009 |
 | 24 | Cursor-like **hybrid context architecture principles**, но собственные maintained компоненты; универсальная MCP-граница; Qdrant остаётся local code store | ADR-014 |
 | 25 | Для текущего Harbor feedback loop primary agent меняется с Codex на **Hermes**; GPT остаётся через ChatGPT/Codex OAuth (`openai-codex`), ACE подключается как native Hermes MCP; Codex остаётся comparison client | ADR-015 |
-| 26 | Event Storming + functional DDD как default modeling style; TypeSpec как staged canonical source для new/migrated public machine contracts | ADR-019 |
+| 26 | Event Storming + functional DDD как default modeling style; TypeSpec как source language для new/migrated public machine contracts | ADR-019 |
 
 ## Открытые исследования (не путать с несогласованными требованиями)
 
@@ -89,6 +89,4 @@
 
 ## Owner clarification — 2026-11-05: Functional DDD + TypeSpec public contracts
 
-- **ADR-019 Accepted.** Material T2 domain design uses Event Storming, readonly ADTs and cohesive pure domain functions; Effect owns application I/O/orchestration.
-- **TypeSpec selected** for new and migrated public/versioned machine-wire contracts with staged toolchain/parity migration. Existing contracts remain authoritative until their migration is proven.
-- OpenSpec owns behavior/acceptance; TypeSpec owns migrated wire shape; ADR owns rationale. No duplicate handwritten schema authority after accepted migration.
+- **ADR-019 Accepted.** This records the architecture choices already stated in PR #222 and does not change its SDLC stage/gate semantics.
