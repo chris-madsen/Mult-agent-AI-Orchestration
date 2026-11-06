@@ -1,7 +1,7 @@
 # ACE architecture policy — Event Storming + functional DDD/ADT + TypeSpec
 
-**Decision source:** ADR-019, recording the explicit project-owner decision of 2026-11-05.
-**Status:** Accepted architecture; staged TypeSpec tooling/generated artifacts are still implementation work; TypeSpec toolchain and generated artifacts are **not implemented** by this document. No accepted ADR/OpenSpec may be silently contradicted: reconcile any conflict in an owner-reviewed ADR/spec change.
+**Decision source:** ADR-019, recording the explicit project-owner preference of 2026-11-05.
+**Status:** chosen target architecture for future SDLC work; TypeSpec toolchain and generated artifacts are **not implemented** by this document. ADR-019 records the decision without changing this staged status. No accepted ADR/OpenSpec may be silently contradicted: reconcile any conflict in an owner-reviewed ADR/spec change.
 **Applies to:** ACE's TypeScript + Effect modular monolith, its public tool/gateway protocols and related development process.
 
 ## Non-negotiable choices
@@ -179,15 +179,16 @@ For exhaustive matching prefer established TypeScript \`never\` checks, a mainta
 | Gate | Observable proof |
 |---|---|
 | DDD-ES | Commands, event facts, policies, hot spots and boundaries linked to acceptance; does not imply event sourcing |
-| FP-01..FP-12 | Use the **canonical meanings** in [Functional Domain Modeling](source/standards/Functional%20Domain%20Modeling.md); applicable rules must have path/test evidence. Do not redefine FP IDs in architecture summaries. |
-| TSP-01 | Pinned compiler/emitters and reproducible OpenAPI/JSON Schema output |
-| TSP-02 | Owned generated artifacts; no manual edits or untracked codegen drift |
-| TSP-03 | Generated typed SDK/server/protocol shell compiles and contract-matches |
-| TSP-04 | Exhaustive DTO mapping, including enum, optional/null, nested lists and errors; unknown/new fields fail |
-| TSP-05 | Typed permission/scope metadata roundtrip plus actual runtime authorization negative tests |
-| TSP-06 | Backward compatibility against base `main`; breaking changes are versioned and owner-approved |
-| TSP-07 | Invalid JSON/unknown variants rejected by runtime decoder; no fabricated defaults |
-| TSP-08 | Actual route/MCP/native adapter and provider E2E, distinct from pure codegen tests |
+| FP-01 | Domain functions are pure, deterministic, immutable and own named invariants |
+| FP-02 | Illegal states/commands captured by ADT + runtime decoder; transition tests reject them |
+| FP-03 | No provider I/O or direct adapter imports in domain code; application Effect owns I/O and cancellation |
+| FP-04 | Retry/replay does not duplicate state/effects; CAS/transaction or outbox where required |
+| FP-05 | Cross-context API stable; avoid direct reads of foreign aggregate storage |
+| TSP-01 | TypeSpec compiler emits expected OpenAPI/JSON schema at pinned version |
+| TSP-02 | No hand-maintained duplicate public wire shapes and no handwritten generated artifacts |
+| TSP-03 | Wire+domain mapping roundtrips tested for every supported variant |
+| TSP-04 | New contract compatible or explicitly versioned/breaking with owner approval |
+| TSP-05 | CI generated output clean, invalid schema fails, changed source triggers required check |
 | E2E | Actual MCP/Hermes/Bifrost and providers selected and observed as changed capability requires |
 
 All gates in this section are **policy targets** until real scripts/tests exist and are executed.
