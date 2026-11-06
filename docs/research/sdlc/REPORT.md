@@ -24,7 +24,7 @@ The first deliverable contained prompts too short to drive an engineering workfl
 - source/commands/implement_frontend.md
 - source/commands/fix_frontend_bug.md
 
-Each commands file is independent of a particular AI client. The source/agents directory holds research, architecture-review, blast-radius and bug-trace procedures. The source/standards directory contains 10 distinct standards. PROMPTS-ACE.md is a routing/entrypoint layer that loads the full file for each stage, not a replacement for those files.
+Each commands file is independent of a particular AI client. The source/agents directory holds research, architecture-review, blast-radius and bug-trace procedures. The source/standards directory contains 13 distinct standards. PROMPTS-ACE.md is a routing/entrypoint layer that loads the full file for each stage, not a replacement for those files.
 
 ## Open source methods consulted
 See REFERENCE-PROJECTS.md. The most closely matching research material was located in HumanLayer's indexed research command and parcadei/continuous-claude-v3. The other projects contribute detailed planning, inline execution, code review, testing and pre-build gate techniques.
@@ -50,7 +50,7 @@ This is a **documentation/process change**, not installation of new automation. 
 
 Added an explicit [architecture policy](ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md) for Event Storming → bounded contexts → readonly ADTs/pure business functions → Effect I/O, and TypeSpec-first public protocol contracts. Added [codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md), covering generated server/client interfaces, validators, DTO mappers, permission metadata, fixtures and docs, with fail-on-unmapped acceptance.
 
-Verified the 23 selected original Matt Pocock skills from Sphericon's pinned release (`v1.3.2`) against upstream source, but **the GitHub import commit did not complete**. Retained MIT license and [import instructions](MATT-POCOCK-SKILLS.md); original files are not in this PR. Incompatible automatic multi-agent/spec-reset flows are not activated by ACE's workflow.
+Re-verified the 23 selected Matt Pocock skill directories against upstream tag `v1.3.2`: the tag resolves to commit `d1478fcb140db0b93c0c8df17bcfd311844749d0` / tree `42b57b23ac2979fce601ce1d4b4d6c1d46471bbe`, and the selected directories contain 64 blobs. **The GitHub import commit did not complete**. Retained MIT license and [import instructions](MATT-POCOCK-SKILLS.md); original skill files are not in this PR. Incompatible automatic multi-agent/spec-reset flows are not activated by ACE's workflow.
 
 This PR does not install TypeSpec emitters or run functional domain/codegen gates in CI. Those are staged implementation tasks with explicit validation requirements.
 
