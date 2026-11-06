@@ -13,6 +13,7 @@ Controller.
 Wire multipart upload/delete endpoints, call use cases, verify auth and stable HTTP error/status mapping, never put business logic in controller. Define manual curl QA.
 
 ## Files to create or modify
+**Illustrative placeholder only — exact repository paths are NOT-VERIFIED because the source project is not attached.** In a real plan this section must be populated from current source inspection before the phase may move from NOT-RUN to READY.
 
 ## Verification
 - Test positive and negative behavior, error contracts and boundary violations.
