@@ -3,7 +3,7 @@
 ## Goal and scope
 This is a **single-agent, client-independent** development process for the ACE repository. It makes the Research → Design → Plan → Implement method executable through detailed prompts and gates. Full reusable procedures are in [docs/research/sdlc/](../research/sdlc/README.md); use [PROMPTS-ACE.md](../research/sdlc/PROMPTS-ACE.md) as the entrypoint and individual full files, not a five-line substitute.
 
-**Authorities:** for normative behavior, explicit owner instructions > Accepted ADR > applicable OpenSpec > root/nested AGENTS.md. For claims about **what is currently implemented**, current code/tests/retained evidence outrank stale plans and reviews. A current owner-approved governing execution plan still controls the requested task's scope, sequencing, replacement/deletion targets and named-upstream obligations unless it conflicts with a higher authority; it is not proof that its work is already implemented. This procedure never weakens security, source provenance, runtime boundaries, PR delivery or production proof requirements.
+**Authorities:** explicit owner instructions > Accepted ADR > applicable OpenSpec > root/nested AGENTS.md > current code/tests as present-state evidence > temporary plans. This procedure never weakens security, source provenance, runtime boundaries, PR delivery or production proof requirements.
 
 ## Pick route by risk
 
@@ -51,9 +51,9 @@ Use existing fast ACE commands, then the four separate review passes from implem
 
 **Five execution layers, not five new mandatory tools:**
 1. G00/G01: source identity, factual evidence, scope.
-2. G02: Design Consistency **before implementation** (T2), plus G15 for material domain behavior.
+2. G02: Design Consistency **before implementation** (T2).
 3. G03–G05: actual fast inner-loop commands/rules/hooks only if present.
-4. G06–G10: scoped PR architecture/security/docs/contract/acceptance gates, plus G16 for a new/migrated public contract once its TypeSpec toolchain slice exists (otherwise BLOCKED/NOT-RUN).
+4. G06–G10: scoped PR architecture/security/docs/contract/acceptance gates.
 5. G11–G14: applicable real providers, nightly, release provenance and final owner review.
 
 Do not run SQL/Ent/Squawk/Schemalens gates for ACE's non-relational stores. Do not add TypeSpec solely because Sphericon uses it. New architecture rules require tested valid and invalid fixtures, exact rule ID, repair hint and observed CI failure before they are called ACTIVE.
