@@ -1,7 +1,7 @@
 # ACE architecture policy — Event Storming + functional DDD/ADT + TypeSpec
 
-**Decision source:** explicit project-owner preference recorded on 2026-11-05.
-**Status:** chosen target architecture for future SDLC work; TypeSpec toolchain and generated artifacts are **not implemented** by this document. No accepted ADR/OpenSpec may be silently contradicted: reconcile any conflict in an owner-reviewed ADR/spec change.
+**Decision source:** ADR-019, recording the explicit project-owner decision of 2026-11-05.
+**Status:** Accepted architecture; staged TypeSpec tooling/generated artifacts are still implementation work; TypeSpec toolchain and generated artifacts are **not implemented** by this document. No accepted ADR/OpenSpec may be silently contradicted: reconcile any conflict in an owner-reviewed ADR/spec change.
 **Applies to:** ACE's TypeScript + Effect modular monolith, its public tool/gateway protocols and related development process.
 
 ## Non-negotiable choices
