@@ -152,6 +152,14 @@ Full merged-in-scope diff, not merely last phase:
 - Exact PR HEAD/CI and relevant real-provider evidence.
 - Human approval of material changes and separate readiness decision.
 
+### G15 — Event Storming + functional domain gate
+
+For substantive T2 domain behavior trace Actor → Command → Domain Fact/Policy → bounded-context ownership → consistency boundary → immutable ADT → pure invariant/transition function → deterministic test. Effect owns I/O and authorization at actual execution. Event Storming does not automatically require Event Sourcing, rich OO class methods or one service per bounded context. Review for misplaced/dispersed rules, unmodeled invalid transitions and concurrency/CAS rather than condemning passive readonly records.
+
+### G16 — TypeSpec generated integration gate
+
+At new/migrated public contracts apply the canonical `TSP-01..08` checks defined in [codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md): pinned/reproducible compilation, generated artifact ownership, typed client/server shell, exhaustive mappings, permission metadata plus real authorization negatives, compatibility, decoder rejection and actual adapter/provider E2E. Additional generated docs, mocks/fixtures and client helpers are selected when supported. Actual policy authorization and provider E2E remain independent evidence axes. This is **PLANNED until executable CI scripts and negative fixtures exist**, not an active gate.
+
 ## 2. When gates execute — cost-aware matrix
 
 | Changed scope | Inner edit cycle | PR gates | Nightly / release |
@@ -210,11 +218,3 @@ Before saying a new gate is installed:
 7. The PR HEAD/check result has been observed.
 8. Existing ACE tests, gate and normative OpenSpec remain unchanged unless approved.
 9. Only after real execution mark status **ACTIVE** (not PLANNED).
-
-### G15 — Event Storming + functional domain gate
-
-For substantive T2 domain behavior trace Actor → Command → Domain Fact/Policy → bounded-context ownership → consistency boundary → immutable ADT → pure invariant/transition function → deterministic test. Effect owns I/O and authorization at actual execution. Event Storming does not automatically require Event Sourcing, rich OO class methods or one service per bounded context. Review for misplaced/dispersed rules, unmodeled invalid transitions and concurrency/CAS rather than condemning passive readonly records.
-
-### G16 — TypeSpec generated integration gate
-
-At new/migrated public contracts apply the canonical `TSP-01..08` checks defined in [codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md): pinned/reproducible compilation, generated artifact ownership, typed client/server shell, exhaustive mappings, permission metadata plus real authorization negatives, compatibility, decoder rejection and actual adapter/provider E2E. Additional generated docs, mocks/fixtures and client helpers are selected when supported. Actual policy authorization and provider E2E remain independent evidence axes. This is **PLANNED until executable CI scripts and negative fixtures exist**, not an active gate.
