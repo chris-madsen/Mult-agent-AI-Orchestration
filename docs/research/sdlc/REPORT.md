@@ -48,7 +48,7 @@ This is a **documentation/process change**, not installation of new automation. 
 
 ## Owner-driven revision — TypeSpec, functional DDD, Matt skills
 
-Added an explicit [architecture policy](ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md) for Event Storming → bounded contexts → readonly ADTs/pure business functions → Effect I/O, and TypeSpec-first public protocol contracts. Added [codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md), covering generated server/client interfaces, validators, DTO mappers, permission metadata, fixtures and docs, with fail-on-unmapped acceptance.
+Recorded the durable owner decision in **ADR-019**, then added an explicit [architecture policy](ARCHITECTURE-FUNCTIONAL-DDD-TYPESPEC.md) for Event Storming → bounded contexts → readonly ADTs/pure business functions → Effect I/O, and TypeSpec-first public protocol contracts. Added [codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md), covering generated server/client interfaces, validators, DTO mappers, permission metadata, fixtures and docs, with fail-on-unmapped acceptance.
 
 Re-verified the 23 selected Matt Pocock skill directories against upstream tag `v1.3.2`: the tag resolves to commit `d1478fcb140db0b93c0c8df17bcfd311844749d0` / tree `42b57b23ac2979fce601ce1d4b4d6c1d46471bbe`, and the selected directories contain 64 blobs. **The GitHub import commit did not complete**. Retained MIT license and [import instructions](MATT-POCOCK-SKILLS.md); original skill files are not in this PR. Incompatible automatic multi-agent/spec-reset flows are not activated by ACE's workflow.
 
