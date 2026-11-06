@@ -120,7 +120,7 @@ Use backend bugfix [workflow](source/commands/fix_backend_bug.md) if the task st
 
 ## Standards relevant to ACE
 
-The 13 [standard files](source/standards/) are separate references and are read conditionally. Architecture Layers, Clean Architecture and Domain Model map to accepted TypeScript+Effect boundaries. Builder is a semantic invariant/factory discipline rather than required Go-style getter syntax. RepoModel maps to source truth, cache/persistence and safe migrations. Tests Style and Domain model test map to established Node test runner and deterministic tests. Base Mock never substitutes for provider acceptance. Go style applies only to actual Go connector code. LLM Integration adds model/provider, RAG, tool policy, reliability, observability and cost requirements. Functional Domain Modeling owns the canonical FP rule IDs, TypeSpec Contract First owns public-wire migration rules, and Quality Gates defines the developer verification procedure.
+The 13 [standard files](source/standards/) are separate references and are read conditionally. Architecture Layers, Clean Architecture and Domain Model map to accepted TypeScript+Effect boundaries. Builder is a semantic invariant/factory discipline rather than required Go-style getter syntax. RepoModel maps to source truth, cache/persistence and safe migrations. Tests Style and Domain model test map to established Node test runner and deterministic tests. Base Mock never substitutes for provider acceptance. Go style applies only to actual Go connector code. LLM Integration adds model/provider, RAG, tool policy, reliability, observability and cost requirements.
 
 ## ACE-specific non-negotiable gates
 
