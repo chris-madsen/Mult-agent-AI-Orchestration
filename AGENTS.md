@@ -123,6 +123,14 @@ For concurrency, crash, recovery and provider-boundary defects, prefer determini
 - For affected capabilities run typecheck, lint, unit/contract tests, OpenSpec validation, real-provider integration, SDK conformance and agent E2E **as applicable**. Report precisely what was run, skipped, unavailable and why.
 - Promote production capability only after applicable real evidence, security/permission checks, reproducible evaluation and explicit owner review. If a provider needs credentials or external services unavailable to the current runner, record a specific blocker rather than inventing success.
 
+### Git worktree lifecycle
+
+- For task work that needs isolation, run `npm run worktree:audit` or `npm run worktree:preflight -- --task-id <task-id>` before creating or reusing a branch/worktree.
+- Use `npm run worktree:start -- --task-id <task-id> --path <path>` instead of raw `git worktree add`. The task ID deterministically maps to one `codex/<task-id>` branch; an existing branch, worktree, or open PR must be reused rather than duplicated.
+- New task worktrees must be based on `origin/main`. A dirty checkout, unresolved index entries, `MERGE_HEAD`, `CHERRY_PICK_HEAD`, or `REBASE_HEAD` is a recovery state and must not be used as a creation base.
+- `npm run worktree:audit` is read-only: it must not stop agents, switch branches, mutate existing worktrees, or remove legacy worktrees. Existing unregistered worktrees are reported as `legacy-unclassified` for owner review.
+- Register progress with `npm run worktree:status -- --task-id <task-id>`. After a PR is merged, `npm run worktree:cleanup -- --task-id <task-id>` may remove only a verified clean worktree and its local branch. Never delete a remote branch automatically; never clean a dirty or conflicted worktree automatically.
+
 ## 9. Documentation placement and status discipline
 
 - Put **durable architecture decisions** in ADRs.
