@@ -80,7 +80,7 @@ Given TypeSpec defines \`indexGenerationId\` on response:
 3. The older client schema remains compatible if change is additive; deliberate removal or changed enum is blocked pending owner-approved versioning.
 4. Fixture roundtrip: client SDK request → decoded type → Effect use case → pure domain result → mapper → encoder → SDK response.
 5. Check exact invalid/unknown/denied/unavailable variants and authorization metadata.
-6. Regenerate from clean checkout and assert no diff or tracked output discrepancy; CI uses exact SHA.
+6. Regenerate from a clean checkout and assert no diff or tracked output discrepancy; record both the PR source HEAD and the exact commit CI checked out/tested (a synthetic merge SHA is valid but must be labeled as such).
 7. Provider E2E is independent: mock and schema codegen cannot prove real Bifrost/MCP/Hermes integration.
 
 ## Recommended staged implementation in ACE
