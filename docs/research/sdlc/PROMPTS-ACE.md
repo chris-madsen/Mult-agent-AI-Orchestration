@@ -118,7 +118,7 @@ A build/tests/lint, B architecture, C security/trust/reliability,
 D plan/acceptance completeness. For each, read the changed files, record
 actual evidence and findings. FAIL returns to repair; UNKNOWN is not PASS.
 One agent performs these sequentially; never claim independent reviewers.
-Commit, push, verify open PR/head and actual checks at exact SHA.
+Commit, push, verify the open PR/source HEAD, and record the actual SHA checked out by each CI result; a pull-request merge SHA is evidence for the merged candidate, not the source-branch HEAD.
 Do not merge or claim production readiness without owner approval.
 ```
 
