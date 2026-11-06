@@ -5,8 +5,8 @@
 ## Provenance
 
 - Matt's original repository: https://github.com/mattpocock/skills
-- Pinned source: **v1.3.2**; source Git tree `d1478fcb140db0b93c0c8df17bcfd311844749d0`.
-- Reference implementation: https://github.com/getsphericon/sphericon (commit/tree reference `2ba7879b511a970b16310a433d7092492f10dd29`).
+- Pinned source: **v1.3.2**; annotated tag resolves to commit `d1478fcb140db0b93c0c8df17bcfd311844749d0` and Git tree `42b57b23ac2979fce601ce1d4b4d6c1d46471bbe`.
+- Reference implementation: https://github.com/getsphericon/sphericon at commit `2ba7879b511a970b16310a433d7092492f10dd29` (tree `f67e313fe0ec9494b75368456b13c273fd774da0`).
 - Sphericon's `.mise.toml` and `mise.lock` pin the release; `mise/tasks.toml`, `["skills"]` copies selected directories into `.agents/skills`. The final skills are populated by setup and therefore did not appear in Sphericon's committed Git tree.
 - License: **MIT Copyright (c) 2026 Matt Pocock**, text retained in [license](../../../.agents/LICENSE-MATTPOCOCK-MIT.txt).
 - ACE already has its own OpenSpec skills in `.agents/skills`; they must not be overwritten.
@@ -17,7 +17,7 @@
 
 **Supporting/optional:** `ask-matt`, `implement-spec`, `prototype`, `setup-matt-pocock-skills`, `grill-me`, `grilling`, `handoff`, `to-questionnaire`, `wait-what`, `writing-for-agents`.
 
-The 57 corresponding original files were retrieved and their Git blob IDs matched the upstream tagged sources. **They remain uncommitted and are not part of PR #222.**
+At pinned `v1.3.2`, the 23 selected skill directories contain **64 upstream blobs**. This review verified the tag commit/tree identity and that every selected directory exists at that pin. **The upstream skill files remain uncommitted and are not part of PR #222.**
 
 Not selected from Sphericon: `triage`, `wayfinder`, `wizard`, `teach`, `claude-handoff`, `loop-me`. The last two are especially ill-suited to a client-independent, one-agent workflow; issue-triage and wizard automation require a separate decision.
 
