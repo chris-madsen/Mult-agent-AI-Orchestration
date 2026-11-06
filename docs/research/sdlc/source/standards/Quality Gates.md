@@ -60,7 +60,7 @@ These are four **self-checks** by one agent, not independent code reviews. Findi
 4. Dependency change: lockfile, license, production audit and eventual advisory scan.
 5. Protocol change: schema compatibility, generated artifact only if applicable.
 6. Provider change: targeted real-provider acceptance and explicit not-run if blocked.
-7. Confirm exact PR head SHA used in checks.
+7. Record the current source-branch PR HEAD and the actual checked-out/tested SHA. GitHub pull-request CI may test a synthetic merge commit; do not claim that commit is the branch HEAD.
 8. Preserve test artifacts; avoid pasting private user source/secrets into public logs.
 9. A failing required gate returns to repair. Report unknown capability separately from failed job.
 10. Owner controls merge and release promotion.
@@ -104,7 +104,7 @@ Never add a regex search as an alleged type-aware LSP/SCIP proof. Never infer eg
 \`\`\`markdown
 # Quality Gate report
 Task and scope:
-Git base / exact HEAD:
+Git base / PR HEAD / actual tested checkout SHA:
 Agent client:
 T0 / T1 / T2:
 Accepted decisions:
