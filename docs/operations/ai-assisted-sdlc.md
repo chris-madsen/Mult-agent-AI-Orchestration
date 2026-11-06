@@ -3,7 +3,7 @@
 ## Goal and scope
 This is a **single-agent, client-independent** development process for the ACE repository. It makes the Research → Design → Plan → Implement method executable through detailed prompts and gates. Full reusable procedures are in [docs/research/sdlc/](../research/sdlc/README.md); use [PROMPTS-ACE.md](../research/sdlc/PROMPTS-ACE.md) as the entrypoint and individual full files, not a five-line substitute.
 
-**Authorities:** explicit owner instructions > Accepted ADR > applicable OpenSpec > root/nested AGENTS.md > current code/tests as present-state evidence > temporary plans. This procedure never weakens security, source provenance, runtime boundaries, PR delivery or production proof requirements.
+**Authorities:** for normative behavior, explicit owner instructions > Accepted ADR > applicable OpenSpec > root/nested AGENTS.md. For claims about **what is currently implemented**, current code/tests/retained evidence outrank stale plans and reviews. A current owner-approved governing execution plan still controls the requested task's scope, sequencing, replacement/deletion targets and named-upstream obligations unless it conflicts with a higher authority; it is not proof that its work is already implemented. This procedure never weakens security, source provenance, runtime boundaries, PR delivery or production proof requirements.
 
 ## Pick route by risk
 
