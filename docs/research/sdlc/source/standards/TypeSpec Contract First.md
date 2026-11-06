@@ -68,13 +68,15 @@ adapter validation/mapping ↔ internal immutable ADT ↔ pure domain rules
 - Then migrate additional operations incrementally and update OpenSpec pointers.
 
 ## Quality gate candidates
-- \`TSP-01\`: compiler/emitters succeed with pinned versions and no errors.
-- \`TSP-02\`: generated artifacts reproduce exactly from clean checkout.
-- \`TSP-03\`: no generated file is manually edited; tracked manifest ownership.
-- \`TSP-04\`: additive/breaking compatibility checks against baseline, with explicit owner-approved change.
-- \`TSP-05\`: every public ADT variant survives TypeSpec → JSON → runtime decoder → domain → encoder roundtrip.
-- \`TSP-06\`: invalid/discriminant-missing/unknown-version cases fail closed.
-- \`TSP-07\`: MCP/HTTP/native adapter uses the compiled schema and real provider path when claimed.
+The ID meanings below are canonical and match [codegen coverage](../../TYPESPEC-CODEGEN-COVERAGE.md):
+- `TSP-01`: pinned compiler/emitters and reproducible OpenAPI/JSON Schema output.
+- `TSP-02`: owned generated artifacts, no manual edits or untracked codegen drift.
+- `TSP-03`: generated typed SDK/server/protocol shell compiles and contract-matches.
+- `TSP-04`: exhaustive DTO mapping including enum, optional/null, nested lists and errors; unknown/new fields fail.
+- `TSP-05`: typed permission/scope metadata roundtrip **and actual runtime authorization negative tests**.
+- `TSP-06`: backward compatibility against base `main`, with explicit versioning/owner decision for breaking changes.
+- `TSP-07`: invalid JSON/unknown variants are rejected by runtime decoder with no fabricated defaults.
+- `TSP-08`: actual route/MCP/native adapter and provider E2E, distinct from pure codegen tests.
 
 **Do not call these gates ACTIVE until scripts, pinned versions and positive+negative fixtures actually run in CI at the PR HEAD.**
 
