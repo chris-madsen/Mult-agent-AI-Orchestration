@@ -94,7 +94,7 @@ Never add a regex search as an alleged type-aware LSP/SCIP proof. Never infer eg
 | Secret scan | one maintained scanner, redacted | hand-written heuristic |
 | Workflow security | zizmor/actionlint, pinned | relying on model advice alone |
 | Dead exports/dependencies | Knip report-only then scoped gate | deleting dynamic entrypoints unreviewed |
-| API/OpenAPI | TypeSpec/Vacuum/Schemathesis only when actual versioned HTTP API | duplicating MCP/Zod ownership |
+| Public wire/API compatibility | selected TypeSpec path for new/migrated public contracts; Vacuum/Schemathesis where emitted OpenAPI applies | a second handwritten schema owner or custom protocol generator |
 | Qdrant/memory | state schema and real-provider contracts | Postgres/Ent schemalens |
 | Multiple agent resource contention | measured worktree isolation, optional Heavy | adding new daemon for one agent |
 | Multi-language toolchain | pinned existing CI, mise pilot if needed | unconditional rewrite of Makefile |
