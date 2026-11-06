@@ -7,7 +7,7 @@
 - Matt's original repository: https://github.com/mattpocock/skills
 - Pinned source: **v1.3.2**; annotated tag resolves to commit `d1478fcb140db0b93c0c8df17bcfd311844749d0` and Git tree `42b57b23ac2979fce601ce1d4b4d6c1d46471bbe`.
 - Reference implementation: https://github.com/getsphericon/sphericon at commit `2ba7879b511a970b16310a433d7092492f10dd29` (tree `f67e313fe0ec9494b75368456b13c273fd774da0`).
-- Sphericon's `.mise.toml` and `mise.lock` pin the release; `mise/tasks.toml`, `["skills"]` copies selected directories into `.agents/skills`. The final skills are populated by setup and therefore did not appear in Sphericon's committed Git tree.
+- Sphericon's `.mise.toml` defines the tagged-release source with `version = "latest"`; its committed `mise.lock` resolves and pins that source to **1.3.2** with archive checksum. `mise/tasks.toml`, `["skills"]` copies selected directories into `.agents/skills`. The final skills are populated by setup and therefore do not appear as vendored skill files in Sphericon's committed Git tree.
 - License: **MIT Copyright (c) 2026 Matt Pocock**, text retained in [license](../../../.agents/LICENSE-MATTPOCOCK-MIT.txt).
 - ACE already has its own OpenSpec skills in `.agents/skills`; they must not be overwritten.
 
