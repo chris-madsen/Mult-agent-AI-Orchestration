@@ -6,7 +6,7 @@
 
 - A gate is an **observable check** with input, owner, command/tool, decision, evidence and fail mode. "Agent thinks it looks fine" is not an automated PASS.
 - Gates never silently grant permission to cloud egress, model actions or expensive provider calls.
-- Source revision is explicit: PR HEAD SHA and relevant environment/provider identity are part of evidence.
+- Source identity is explicit: record the source-branch PR HEAD **and the actual checked-out/tested commit SHA**. On GitHub `pull_request` workflows this may be a synthetic merge commit; never relabel it as the branch HEAD. Relevant environment/provider identity is also part of evidence.
 - Required gate FAIL blocks phase/PR. Required gate UNKNOWN/NOT-RUN is an unresolved obligation, not green.
 - No permanent suppression of critical source integrity, auth, policy/egress, secret exposure or false-completeness failures.
 - Prefer the **smallest gate that can prove an invariant**, with higher levels reserved for unique wiring.
@@ -149,7 +149,7 @@ ACE already binds package-lock digest, SBOM, production npm audit, image and bas
 ### G14 — Final cross-phase
 Full merged-in-scope diff, not merely last phase:
 - Error/status names, contract versions, runtime injection, orphan paths, deleted shadow owner, cross-provider retries, source provenance and data-policy enforcement.
-- Exact PR HEAD/CI and relevant real-provider evidence.
+- Current PR HEAD, actual CI-tested checkout/merge SHA, and relevant real-provider evidence.
 - Human approval of material changes and separate readiness decision.
 
 ### G15 — Event Storming + functional domain gate
@@ -184,7 +184,8 @@ For each gate write:
   "gate_id": "G04",
   "version": "proposed-v1",
   "scope": ["src/..."],
-  "source_commit": "<full sha>",
+  "pr_head_sha": "<source branch full sha>",
+  "tested_commit_sha": "<actual checked-out CI/local full sha>",
   "tool": "<exact pinned executable and version>",
   "command": "<actual command or NOT-RUN>",
   "status": "PASS | FAIL | UNKNOWN | NOT-RUN | N/A",
@@ -215,6 +216,6 @@ Before saying a new gate is installed:
 4. It fails with a useful rule ID, exact path and remedy.
 5. False-positive/false-negative cases have documented owner decisions.
 6. Duration, resource consumption and affected-test interaction measured.
-7. The PR HEAD/check result has been observed.
+7. The current PR HEAD and the actual commit tested by CI have both been observed and recorded; if CI used a synthetic merge ref, keep both identities.
 8. Existing ACE tests, gate and normative OpenSpec remain unchanged unless approved.
 9. Only after real execution mark status **ACTIVE** (not PLANNED).
