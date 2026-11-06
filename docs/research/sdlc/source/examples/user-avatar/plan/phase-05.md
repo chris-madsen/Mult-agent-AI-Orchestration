@@ -13,6 +13,7 @@ Use case.
 Coordinate authorization, image processing and storage, update entity state, handle compensation on partial failure and preserve error contracts. Use dependency ports, not concrete S3 classes.
 
 ## Files to create or modify
+**Illustrative placeholder only — exact repository paths are NOT-VERIFIED because the source project is not attached.** In a real plan this section must be populated from current source inspection before the phase may move from NOT-RUN to READY.
 
 ## Verification
 - Test positive and negative behavior, error contracts and boundary violations.
