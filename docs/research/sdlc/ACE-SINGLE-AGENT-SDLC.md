@@ -150,7 +150,7 @@ Before compaction, complete the [checkpoint](source/templates/progress-checkpoin
 - Every implemented slice passes applicable build/architecture/security/plan gates.
 - Actual tests and provider evidence reported honestly.
 - Cross-phase review covers the entire PR, not one last commit.
-- Committed and pushed branch with open PR to main and exact SHA/check statuses.
+- Committed and pushed branch with open PR to main; record the source-branch HEAD, actual CI-tested checkout/merge SHA and check statuses.
 - Human approval for material decisions and merge.
 - Separate release criteria for production claims.
 
