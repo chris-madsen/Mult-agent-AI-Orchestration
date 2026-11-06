@@ -78,7 +78,7 @@ The ID meanings below are canonical and match [codegen coverage](../../TYPESPEC-
 - `TSP-07`: invalid JSON/unknown variants are rejected by runtime decoder with no fabricated defaults.
 - `TSP-08`: actual route/MCP/native adapter and provider E2E, distinct from pure codegen tests.
 
-**Do not call these gates ACTIVE until scripts, pinned versions and positive+negative fixtures actually run in CI at the PR HEAD.**
+**Do not call these gates ACTIVE until scripts, pinned versions and positive+negative fixtures actually run in CI for the current PR revision, with both the source-branch HEAD and actual tested checkout/merge SHA recorded.**
 
 ## Generated implementation shell — expanded scope
 
