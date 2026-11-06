@@ -36,6 +36,7 @@ export * from './application/memory-reconcile.js';
 export * from './adapters/local-code-index.js';
 export * from './adapters/evaluation-report-artifacts.js';
 export * from './adapters/http-provider-boundaries.js';
+export * from './adapters/qdrant-sdk-adapter.js';
 export * from './adapters/jev-route-provider.js';
 export * from './adapters/hermes-context-evidence.js';
 export * from './adapters/harbor-runner.js';

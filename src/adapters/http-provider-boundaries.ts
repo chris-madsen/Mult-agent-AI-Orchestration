@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { Effect } from 'effect';
-import { QdrantClient } from '@qdrant/js-client-rest';
 import { authorizeOutbound, type ProjectDataPolicy } from '../domain/policy.js';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
@@ -26,6 +25,12 @@ import type {
   ProviderTraceSink,
 } from '../application/ports.js';
 import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
+import type {
+  QdrantDeleteRequest,
+  QdrantQueryRequest,
+  QdrantSdkPort,
+  QdrantUpsertRequest,
+} from './qdrant-sdk-adapter.js';
 
 const object = (value: unknown): Record<string, unknown> | undefined =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
@@ -49,73 +54,6 @@ const externalFailure = (response: HttpResponse, provider: string): Result<never
 
 const successful = (response: HttpResponse): boolean => response.status >= 200 && response.status < 300;
 
-// Preserve HTTP status at the official SDK boundary; the textual error body
-// may contain unrelated numbers (including 404 and 409). The pinned Qdrant
-// REST SDK exposes either an ApiError.status or an Unexpected Response prefix.
-const qdrantSdkHttpStatus = (cause: unknown): number | undefined => {
-  const value = object(cause);
-  if (typeof value?.status === 'number' && Number.isSafeInteger(value.status)
-    && value.status >= 400 && value.status <= 599) return value.status;
-  if (!(cause instanceof Error)) return undefined;
-  const match = /^Unexpected Response: ([4-5][0-9]{2})(?:\s|$)/u.exec(cause.message);
-  return match === null ? undefined : Number(match[1]);
-};
-
-export const qdrantSdkCall = <Value>(
-  action: () => Promise<Value>,
-): Effect.Effect<Result<Value, DomainError>> => Effect.catchAll(
-    Effect.tryPromise<Result<Value, DomainError>, DomainError>({
-      try: async () => {
-        try {
-          return ok(await action());
-        } catch (cause) {
-          const httpStatus = qdrantSdkHttpStatus(cause);
-          return err(domainError(
-            'EXTERNAL_UNAVAILABLE',
-            'qdrant',
-            cause instanceof Error ? cause.message : 'Qdrant SDK call failed',
-            httpStatus === undefined ? undefined : { httpStatus },
-          ));
-        }
-      },
-      catch: () => domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'Qdrant SDK call failed'),
-    }),
-    (failure) => Effect.succeed(err(failure)),
-  );
-
-export const qdrantSdkCompletedMutation = (
-  action: () => Promise<unknown>,
-  operation: string,
-): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
-  const result = yield* qdrantSdkCall(action);
-  if (result._tag === 'Err') return result;
-  const update = object(result.value);
-  if (update?.status !== 'completed') {
-    return err(domainError(
-      'INVALID_EXTERNAL_RESPONSE',
-      'qdrant_update',
-      `Qdrant ${operation} did not report completed status`,
-    ));
-  }
-  return ok(undefined);
-});
-
-export const qdrantSdkBooleanMutation = (
-  action: () => Promise<unknown>,
-  operation: string,
-): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
-  const result = yield* qdrantSdkCall(action);
-  if (result._tag === 'Err') return result;
-  if (result.value !== true) {
-    return err(domainError(
-      'INVALID_EXTERNAL_RESPONSE',
-      'qdrant_update',
-      `Qdrant ${operation} did not report success`,
-    ));
-  }
-  return ok(undefined);
-});
-
 export const makeFetchHttpPort = (): HttpPort => ({
   request: (request: HttpRequest) => Effect.catchAll(Effect.tryPromise<Result<HttpResponse, DomainError>, DomainError>({
     try: async (signal) => {
@@ -136,38 +74,11 @@ export const makeFetchHttpPort = (): HttpPort => ({
 });
 
 interface QdrantConfig {
-  /** Policy identity for the SDK destination. Transport remains SDK-only. */
-  readonly baseUrl: string;
   readonly collection: string;
-  /** The official SDK is the only runtime Qdrant wire boundary. */
-  readonly client: QdrantClient;
-  /** Explicit local bridge aliases (for example a Docker host gateway). */
-  readonly allowedHosts?: readonly string[];
+  readonly sdk: QdrantSdkPort;
   readonly providerVersion?: string;
   readonly trace?: ProviderTraceSink;
 }
-
-export const validateLocalQdrantBaseUrl = (
-  baseUrl: string,
-  allowedHosts: readonly string[] = [],
-): Result<string, DomainError> => {
-  let url: URL;
-  try {
-    url = new URL(baseUrl);
-  } catch {
-    return err(domainError('INVALID_INPUT', 'qdrant_url', 'Qdrant URL must be a valid absolute URL'));
-  }
-  const hostname = url.hostname.toLocaleLowerCase().replace(/^\[|\]$/gu, '');
-  const allowed = new Set(['localhost', '127.0.0.1', '::1', ...allowedHosts.map((host) => host.trim().toLocaleLowerCase())]);
-  if (url.protocol !== 'http:' || !allowed.has(hostname) || url.username !== '' || url.password !== '') {
-    return err(domainError(
-      'POLICY_DENIED',
-      'qdrant_url',
-      'Qdrant code index is local-only: use loopback HTTP or an explicitly allowlisted local bridge host',
-    ));
-  }
-  return ok(url.origin);
-};
 
 const candidateFromPayload = (point: Record<string, unknown>, workspaceId: WorkspaceId): Result<CodeCandidate, DomainError> => {
   const payload = object(point.payload);
@@ -304,8 +215,6 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
   search: (input) => {
     const startedAtMs = Date.now();
     const operation = Effect.catchAll(Effect.gen(function* () {
-      const policy = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
-      if (policy._tag === 'Err') return policy;
       if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 1000) {
         return err(domainError('INVALID_INPUT', 'limit', 'Qdrant limit must be between 1 and 1000'));
       }
@@ -352,15 +261,10 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
             with_payload: true,
             with_vector: false,
           };
-      const queried = yield* qdrantSdkCall(() => config.client.query(
-        config.collection,
-        queryBody as Parameters<QdrantClient['query']>[1],
-      ));
+      const queried = yield* config.sdk.queryPoints(config.collection, queryBody as QdrantQueryRequest);
       if (queried._tag === 'Err') return queried;
-      const points = object(queried.value)?.points;
-      if (!Array.isArray(points)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'result', 'Qdrant result must be an array'));
       const output: RankedCandidate[] = [];
-      for (const raw of points) {
+      for (const raw of queried.value) {
         const point = object(raw);
         if (point === undefined || typeof point.score !== 'number' || !Number.isFinite(point.score)) {
           return err(domainError('INVALID_EXTERNAL_RESPONSE', 'score', 'Qdrant point score must be finite'));
@@ -389,15 +293,10 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
   upsert: (points) => {
     const startedAtMs = Date.now();
     const operation = Effect.catchAll(Effect.gen(function* () {
-      const policy = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
-      if (policy._tag === 'Err') return policy;
-      return yield* qdrantSdkCompletedMutation(
-        () => config.client.upsert(config.collection, {
-          wait: true,
-          points: points.map(qdrantPoint),
-        } as Parameters<QdrantClient['upsert']>[1]),
-        'upsert',
-      );
+      return yield* config.sdk.upsertPoints(config.collection, {
+        wait: true,
+        points: points.map(qdrantPoint),
+      } as QdrantUpsertRequest);
     }), (failure) => Effect.succeed(err(failure)));
     return Effect.map(operation, (result) => {
       providerTraceEvent(config.trace ?? noopProviderTrace, {
@@ -415,8 +314,6 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
   deletePaths: (input) => {
     const startedAtMs = Date.now();
     const operation = Effect.catchAll(Effect.gen(function* () {
-      const policy = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
-      if (policy._tag === 'Err') return policy;
       const paths = [...new Set(input.repoPaths)];
       for (const repoPath of paths) {
         const filter = {
@@ -428,13 +325,10 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
             must_not: [{ key: 'index_key', match: { value: input.exceptIndexKey } }],
           }),
         };
-        const deleted = yield* qdrantSdkCompletedMutation(
-          () => config.client.delete(config.collection, {
-            wait: true,
-            filter,
-          } as Parameters<QdrantClient['delete']>[1]),
-          'path delete',
-        );
+        const deleted = yield* config.sdk.deletePoints(config.collection, {
+          wait: true,
+          filter,
+        } as QdrantDeleteRequest);
         if (deleted._tag === 'Err') return deleted;
       }
       return ok(undefined);
@@ -455,8 +349,6 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
   deleteWorkspaceVersions: (input) => {
     const startedAtMs = Date.now();
     const operation = Effect.catchAll(Effect.gen(function* () {
-      const policy = validateLocalQdrantBaseUrl(config.baseUrl, config.allowedHosts);
-      if (policy._tag === 'Err') return policy;
       if (input.beforeGeneration !== undefined
         && (!Number.isSafeInteger(input.beforeGeneration) || input.beforeGeneration < 1)) {
         return err(domainError('INVALID_INPUT', 'generation', 'cleanup generation fence must be a positive integer'));
@@ -470,13 +362,10 @@ export const makeQdrantCodeCandidatePort = (config: QdrantConfig): CodeCandidate
         ],
         must_not: [{ key: 'index_key', match: { value: input.exceptIndexKey } }],
       };
-      const deleted = yield* qdrantSdkCompletedMutation(
-        () => config.client.delete(config.collection, {
-          wait: true,
-          filter,
-        } as Parameters<QdrantClient['delete']>[1]),
-        'workspace cleanup',
-      );
+      const deleted = yield* config.sdk.deletePoints(config.collection, {
+        wait: true,
+        filter,
+      } as QdrantDeleteRequest);
       if (deleted._tag === 'Err') return deleted;
       return ok(undefined);
     }), (failure) => Effect.succeed(err(failure)));

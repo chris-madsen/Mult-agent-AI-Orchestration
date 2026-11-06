@@ -1,6 +1,7 @@
 import { Effect } from 'effect';
 import type { QdrantClient } from '@qdrant/js-client-rest';
 import type { HttpPort } from '../../src/application/ports.js';
+import { makeQdrantSdkAdapter, type QdrantSdkPort } from '../../src/adapters/qdrant-sdk-adapter.js';
 
 const makeRequest = async (
   http: HttpPort,
@@ -79,3 +80,8 @@ export const makeQdrantSdkTestDouble = (
     }),
   } as unknown as QdrantClient;
 };
+
+export const makeQdrantSdkTestPort = (
+  client: QdrantClient,
+  baseUrl = 'http://127.0.0.1:6333',
+): QdrantSdkPort => makeQdrantSdkAdapter({ baseUrl, client });

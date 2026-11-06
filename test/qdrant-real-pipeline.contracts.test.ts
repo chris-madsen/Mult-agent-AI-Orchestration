@@ -33,7 +33,7 @@ import type {
   SemanticAnalysisPort,
   WorkspaceFilePort,
 } from '../src/application/ports.js';
-import { makeQdrantSdkTestDouble } from './helpers/qdrant-sdk-test-double.js';
+import { makeQdrantSdkTestDouble, makeQdrantSdkTestPort } from './helpers/qdrant-sdk-test-double.js';
 
 const mustOk = <T, E>(value: Result<T, E>): T => {
   assert.equal(value._tag, 'Ok');
@@ -41,7 +41,7 @@ const mustOk = <T, E>(value: Result<T, E>): T => {
   return value.value;
 };
 
-const sdk = (http: HttpPort) => makeQdrantSdkTestDouble(http);
+const sdk = (http: HttpPort) => makeQdrantSdkTestPort(makeQdrantSdkTestDouble(http));
 
 const workspaceId = mustOk(makeWorkspaceId('real-pipeline-fixture'));
 const source = Buffer.from('export function reconnect(): string { return "ok"; }\n');
@@ -68,24 +68,14 @@ test('Qdrant service probe is namespace-independent and fails before embedding s
       return Effect.succeed(ok({ status: 200, body: { result: { collections: [] } } }));
     },
   };
-  const ready = await Effect.runPromise(probeQdrantService(
-    reachable,
-    'http://127.0.0.1:6333',
-    [],
-    sdk(reachable),
-  ));
+  const ready = await Effect.runPromise(probeQdrantService(sdk(reachable)));
   assert.equal(ready._tag, 'Ok');
   assert.deepEqual(urls, ['http://127.0.0.1:6333/collections']);
 
   const unavailable: HttpPort = {
     request: () => Effect.succeed(err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'offline'))),
   };
-  const failed = await Effect.runPromise(probeQdrantService(
-    unavailable,
-    'http://127.0.0.1:6333',
-    [],
-    sdk(unavailable),
-  ));
+  const failed = await Effect.runPromise(probeQdrantService(sdk(unavailable)));
   assert.equal(failed._tag, 'Err');
 });
 
@@ -135,7 +125,7 @@ test('stable changed-path mutation publishes before pruning older path versions'
           }));
         },
       };
-      return { http: verificationHttp, baseUrl: 'http://127.0.0.1:6333', collection: 'ace-stable', client: sdk(verificationHttp) };
+      return { sdk: sdk(verificationHttp), collection: 'ace-stable' };
     })(),
   ));
   assert.equal(result._tag, 'Ok');
@@ -176,7 +166,7 @@ test('stable changed-path mutation verifies the new path version before pruning 
           body: { result: { points: [], next_page_offset: null } },
         })),
       };
-      return { http: verificationHttp, baseUrl: 'http://127.0.0.1:6333', collection: 'ace-stable', client: sdk(verificationHttp) };
+      return { sdk: sdk(verificationHttp), collection: 'ace-stable' };
     })(),
   ));
   assert.equal(result._tag, 'Err');
@@ -297,7 +287,7 @@ test('Qdrant collection bootstrap is additive and rejects mismatched dimensions'
     },
   };
   assert.equal((await Effect.runPromise(ensureQdrantCollection(
-    http, 'http://127.0.0.1:6333', 'ace-test', 2, [], undefined, sdk(http), 'hybrid',
+    'ace-test', 2, sdk(http), 'hybrid',
   )))._tag, 'Ok');
   assert.deepEqual(requests, ['GET', 'PUT', 'GET']);
 
@@ -305,7 +295,7 @@ test('Qdrant collection bootstrap is additive and rejects mismatched dimensions'
     request: () => Effect.succeed(ok({ status: 200, body: { result: { config: { params: { vectors: { size: 64 } } } } } })),
   };
   assert.equal((await Effect.runPromise(ensureQdrantCollection(
-    wrong, 'http://127.0.0.1:6333', 'ace-test', 2, [], undefined, sdk(wrong), 'hybrid',
+    'ace-test', 2, sdk(wrong), 'hybrid',
   )))._tag, 'Err');
 });
 
@@ -332,8 +322,7 @@ test('Qdrant collection bootstrap accepts a concurrent create winner only after 
     },
   };
   const ready = await Effect.runPromise(ensureQdrantCollection(
-    http, 'http://127.0.0.1:6333', 'ace-concurrent', 2,
-    [], undefined, sdk(http), 'hybrid',
+    'ace-concurrent', 2, sdk(http), 'hybrid',
   ));
   assert.equal(ready._tag, 'Ok');
   assert.deepEqual(requests.map((request) => request.split(':')[0]), ['GET', 'PUT', 'GET', 'GET']);
@@ -449,8 +438,8 @@ test('warm Qdrant snapshot reuse does not re-embed or upsert current source', as
   };
   const index = mustOk(createCodeIndex(1, [candidate]));
   const ready = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
-    index, qdrant, embeddings, http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'snapshot-digest',
-    [], true, undefined, undefined, undefined, undefined, sdk(http), false,
+    index, qdrant, embeddings, sdk(http), 'ace-test', workspaceId, 'snapshot-digest',
+    true, undefined, undefined, undefined, undefined, false,
   )));
   assert.deepEqual(ready, { count: 1, reused: true, reusedVectorCount: 1 });
   assert.equal(requests, 2);
@@ -499,12 +488,11 @@ test('full stable snapshot publishes current points before pruning stale workspa
     index,
     qdrant,
     { embedMany: (input: readonly string[]) => Effect.succeed(ok(input.map(() => [0.2, 0.7]))) },
-    http,
-    'http://127.0.0.1:6333',
+    sdk(http),
     'ace-stable',
     workspaceId,
     'current-index',
-    [], true, undefined, undefined, undefined, undefined, sdk(http), false,
+    true, undefined, undefined, undefined, undefined, false,
   ));
   assert.equal(result._tag, 'Ok', JSON.stringify(result));
   assert.deepEqual(events, ['upsert', 'cleanup:current-index']);
@@ -543,12 +531,11 @@ test('full stable rebuild preserves old workspace versions when new membership i
     index,
     qdrant,
     { embedMany: (input: readonly string[]) => Effect.succeed(ok(input.map(() => [0.2, 0.7]))) },
-    http,
-    'http://127.0.0.1:6333',
+    sdk(http),
     'ace-stable',
     workspaceId,
     'current-index',
-    [], true, undefined, undefined, undefined, undefined, sdk(http), false,
+    true, undefined, undefined, undefined, undefined, false,
   ));
   assert.equal(result._tag, 'Err');
   assert.deepEqual(events, ['upsert'], 'cleanup must wait for complete current membership proof');
@@ -576,8 +563,8 @@ test('Qdrant warm reuse rebuilds on different count and fails closed on count ou
     },
   };
   const rebuilt = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
-    index, qdrant, embeddings, http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'snapshot-digest',
-    [], true, undefined, undefined, undefined, undefined, sdk(http), false,
+    index, qdrant, embeddings, sdk(http), 'ace-test', workspaceId, 'snapshot-digest',
+    true, undefined, undefined, undefined, undefined, false,
   )));
   assert.deepEqual(rebuilt, { count: 1, reused: false, reusedVectorCount: 0 });
   assert.equal(upserts, 1);
@@ -585,8 +572,7 @@ test('Qdrant warm reuse rebuilds on different count and fails closed on count ou
   assert.match(qdrantRequests[1]?.url ?? '', /\/points\/scroll$/u);
   const offline: HttpPort = { request: () => Effect.succeed(err(domainError('EXTERNAL_UNAVAILABLE', 'qdrant', 'offline'))) };
   const failed = await Effect.runPromise(hasExactQdrantSnapshot(
-    offline, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'snapshot-digest', 1,
-    [], sdk(offline),
+    sdk(offline), 'ace-test', workspaceId, 'snapshot-digest', 1,
   ));
   assert.equal(failed._tag, 'Err');
 });
@@ -616,13 +602,11 @@ test('snapshot maintenance scrolls request only the payload fields they consume'
   };
 
   const membership = await Effect.runPromise(verifyQdrantSnapshotMembership(
-    http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'a'.repeat(64), [candidate.candidateId],
-    [], sdk(http),
+    sdk(http), 'ace-test', workspaceId, 'a'.repeat(64), [candidate.candidateId],
   ));
   assert.equal(mustOk(membership), true);
   const vectors = await Effect.runPromise(readQdrantSnapshotVectors(
-    http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'a'.repeat(64),
-    [], sdk(http),
+    sdk(http), 'ace-test', workspaceId, 'a'.repeat(64),
   ));
   assert.deepEqual([...mustOk(vectors).entries()], [['content-key', [0.1, 0.9]]]);
   assert.deepEqual(requests.map((body) => body.with_payload), [
@@ -938,15 +922,13 @@ test('Qdrant existing collection must use cosine distance even with matching vec
     } })),
   });
   const ready = (distance: string) => Effect.runPromise(ensureQdrantCollection(
-    check(distance), 'http://127.0.0.1:6333', 'ace-test', 384,
-    [], undefined, sdk(check(distance)),
+    'ace-test', 384, sdk(check(distance)),
   ));
   assert.equal((await ready('Cosine'))._tag, 'Ok');
   assert.equal((await ready('Dot'))._tag, 'Err');
   assert.equal((await ready('Euclid'))._tag, 'Err');
   assert.equal((await Effect.runPromise(ensureQdrantCollection(
-    check('Cosine', 'None'), 'http://127.0.0.1:6333', 'ace-test', 384,
-    [], undefined, sdk(check('Cosine', 'None')),
+    'ace-test', 384, sdk(check('Cosine', 'None')),
   )))._tag, 'Err');
 });
 
@@ -1071,8 +1053,7 @@ test('Qdrant snapshot membership rejects equal-count wrong candidates', async ()
     })),
   };
   const result = await Effect.runPromise(verifyQdrantSnapshotMembership(
-    http, 'http://127.0.0.1:6333', 'ace-test', workspaceId, 'snapshot-a', [candidate.candidateId],
-    [], sdk(http),
+    sdk(http), 'ace-test', workspaceId, 'snapshot-a', [candidate.candidateId],
   ));
   assert.equal(mustOk(result), false);
 });
@@ -1357,18 +1338,15 @@ test('new snapshot reuses vectors only for unchanged candidate IDs from a compat
     index,
     qdrant,
     embeddings,
-    http,
-    'http://127.0.0.1:6333',
+    sdk(http),
     'ace-test',
     workspaceId,
     'd'.repeat(64),
-    [],
     false,
     'e'.repeat(64),
     undefined,
     undefined,
     undefined,
-    sdk(http),
     false,
   )));
   assert.equal(result.reused, false);
@@ -1653,8 +1631,8 @@ test('stable warm restart reuses an exact mixed-key workspace without embeddings
   const result = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
     index, qdrant,
     { embedMany: () => { embeddings += 1; return Effect.succeed(ok([])); } },
-    http, 'http://127.0.0.1:6333', 'ace-stable', workspaceId, 'latest-key',
-    [], true, undefined, undefined, undefined, undefined, sdk(http), true,
+    sdk(http), 'ace-stable', workspaceId, 'latest-key',
+    true, undefined, undefined, undefined, undefined, true,
   )));
   assert.deepEqual(result, { count: 2, reused: true, reusedVectorCount: 2 });
   assert.equal(countRequests, 1);
@@ -1702,8 +1680,8 @@ test('stable warm restart republishes incomplete mixed-key membership before pru
   const result = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
     index, qdrant,
     { embedMany: (chunks: readonly string[]) => Effect.succeed(ok(chunks.map(() => [0.2, 0.7]))) },
-    http, 'http://127.0.0.1:6333', 'ace-stable', workspaceId, 'latest-key',
-    [], true, undefined, undefined, undefined, undefined, sdk(http), true,
+    sdk(http), 'ace-stable', workspaceId, 'latest-key',
+    true, undefined, undefined, undefined, undefined, true,
   )));
   assert.equal(result.reused, false);
   assert.equal(upserts, 1);
@@ -1744,7 +1722,7 @@ test('changed-path publication rejects a falsely successful stale-version delete
     { embedMany: (input: readonly string[]) => Effect.succeed(ok(input.map(() => [0.2, 0.7]))) },
     workspaceId, [candidate.repoPath], 'latest-key',
     undefined, undefined,
-    { http, baseUrl: 'http://127.0.0.1:6333', collection: 'ace-stable', client: sdk(http) },
+    { sdk: sdk(http), collection: 'ace-stable' },
   ));
   assert.equal(result._tag, 'Err');
   if (result._tag === 'Err') assert.equal(result.error.code, 'INVALID_EXTERNAL_RESPONSE');
@@ -1774,7 +1752,7 @@ test('deleted source must have zero remaining physical Qdrant points', async () 
     { embedMany: () => { throw new Error('deletion does not embed'); } },
     workspaceId, [candidate.repoPath], 'latest-key',
     undefined, undefined,
-    { http, baseUrl: 'http://127.0.0.1:6333', collection: 'ace-stable', client: sdk(http) },
+    { sdk: sdk(http), collection: 'ace-stable' },
   ));
   assert.equal(result._tag, 'Err');
   assert.equal(deletions, 1);
@@ -1813,8 +1791,8 @@ test('stable warm reuse verifies cleanup instead of trusting a successful acknow
   const result = await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
     index, qdrant,
     { embedMany: () => { throw new Error('current index is already fully published'); } },
-    http, 'http://127.0.0.1:6333', 'ace-stable', workspaceId, 'latest-key',
-    [], true, undefined, undefined, undefined, undefined, sdk(http), true,
+    sdk(http), 'ace-stable', workspaceId, 'latest-key',
+    true, undefined, undefined, undefined, undefined, true,
   ));
   assert.equal(result._tag, 'Err');
   assert.equal(cleanups, 1, 'exact current-key membership makes older workspace versions safe to prune');
@@ -1857,8 +1835,8 @@ test('stable cold rebuild removes stale workspace leftovers after full current p
   const result = mustOk(await Effect.runPromise(reuseOrPopulateQdrantSnapshot(
     index, qdrant,
     { embedMany: (chunks: readonly string[]) => Effect.succeed(ok(chunks.map(() => [0.2, 0.7]))) },
-    http, 'http://127.0.0.1:6333', 'ace-stable', workspaceId, 'latest-key',
-    [], true, undefined, undefined, undefined, undefined, sdk(http), true,
+    sdk(http), 'ace-stable', workspaceId, 'latest-key',
+    true, undefined, undefined, undefined, undefined, true,
   )));
   assert.equal(result.reused, false);
   assert.equal(cleanups, 1, 'after a full upsert, old index keys are stale and may be pruned safely');

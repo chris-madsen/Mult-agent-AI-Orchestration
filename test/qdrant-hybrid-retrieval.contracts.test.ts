@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { Effect } from 'effect';
 import { makeQdrantCodeCandidatePort } from '../src/adapters/http-provider-boundaries.js';
+import { makeQdrantSdkTestPort } from './helpers/qdrant-sdk-test-double.js';
 import { makeCandidateId, makeCodeCandidate } from '../src/domain/retrieval.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
 import type { Result } from '../src/domain/result.js';
@@ -43,13 +44,14 @@ const makeClient = (handlers: {
   },
 } as unknown as QdrantClient);
 
+const makePort = (collection: string, client: QdrantClient) => makeQdrantCodeCandidatePort({
+  collection,
+  sdk: makeQdrantSdkTestPort(client),
+});
+
 test('Qdrant upsert stores dense vector plus language-neutral BM25 document on the same point', async () => {
   let upsertRequest: unknown;
-  const qdrant = makeQdrantCodeCandidatePort({
-    baseUrl: 'http://127.0.0.1:6333',
-    collection: 'ace-hybrid',
-    client: makeClient({ upsert: (request) => { upsertRequest = request; } }),
-  });
+  const qdrant = makePort('ace-hybrid', makeClient({ upsert: (request) => { upsertRequest = request; } }));
   const result = await Effect.runPromise(qdrant.upsert([{
     candidate,
     vector: [0.1, 0.2, 0.3],
@@ -105,11 +107,7 @@ test('Qdrant search uses dense and BM25 prefetch branches with root RRF fusion',
       };
     },
   });
-  const qdrant = makeQdrantCodeCandidatePort({
-    baseUrl: 'http://127.0.0.1:6333',
-    collection: 'ace-hybrid-current',
-    client,
-  });
+  const qdrant = makePort('ace-hybrid-current', client);
   const result = await Effect.runPromise(qdrant.search({
     workspaceId,
     vector: [0.2, 0.8],
@@ -139,11 +137,9 @@ test('Qdrant search uses dense and BM25 prefetch branches with root RRF fusion',
 
 test('Qdrant search can still issue a named dense-only query for explicit ablation paths', async () => {
   let requestBody: Readonly<Record<string, unknown>> | undefined;
-  const qdrant = makeQdrantCodeCandidatePort({
-    baseUrl: 'http://127.0.0.1:6333',
-    collection: 'ace-hybrid-current',
-    client: makeClient({ query: (request) => { requestBody = request as Readonly<Record<string, unknown>>; return { points: [] }; } }),
-  });
+  const qdrant = makePort('ace-hybrid-current', makeClient({
+    query: (request) => { requestBody = request as Readonly<Record<string, unknown>>; return { points: [] }; },
+  }));
   const result = await Effect.runPromise(qdrant.search({
     workspaceId,
     vector: [0.2, 0.8],
@@ -163,11 +159,9 @@ test('Qdrant search can still issue a named dense-only query for explicit ablati
 
 test('Qdrant sparse-only strategy sends BM25 query without a dense vector', async () => {
   let requestBody: Readonly<Record<string, unknown>> | undefined;
-  const qdrant = makeQdrantCodeCandidatePort({
-    baseUrl: 'http://127.0.0.1:6333',
-    collection: 'ace-hybrid-current',
-    client: makeClient({ query: (request) => { requestBody = request as Readonly<Record<string, unknown>>; return { points: [] }; } }),
-  });
+  const qdrant = makePort('ace-hybrid-current', makeClient({
+    query: (request) => { requestBody = request as Readonly<Record<string, unknown>>; return { points: [] }; },
+  }));
   const result = await Effect.runPromise(qdrant.search({
     workspaceId,
     queryText: 'ACE_QDRANT_COLLECTION',
@@ -191,11 +185,9 @@ test('Qdrant sparse-only strategy sends BM25 query without a dense vector', asyn
 
 test('Qdrant explicit strategies fail before SDK calls when required query inputs are absent', async () => {
   let requests = 0;
-  const qdrant = makeQdrantCodeCandidatePort({
-    baseUrl: 'http://127.0.0.1:6333',
-    collection: 'ace-hybrid-current',
-    client: makeClient({ query: () => { requests += 1; return { points: [] }; } }),
-  });
+  const qdrant = makePort('ace-hybrid-current', makeClient({
+    query: () => { requests += 1; return { points: [] }; },
+  }));
   const dense = await Effect.runPromise(qdrant.search({
     workspaceId,
     strategy: 'dense',

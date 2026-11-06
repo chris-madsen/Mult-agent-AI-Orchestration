@@ -13,7 +13,7 @@ import { makeCodeCandidate, createCodeIndex } from '../src/domain/retrieval.js';
 import { makeWorkspaceId } from '../src/domain/workspace.js';
 import { ok } from '../src/domain/result.js';
 import type { CodeCandidatePort, HttpPort, VectorEmbeddingPort } from '../src/application/ports.js';
-import { makeQdrantSdkTestDouble } from './helpers/qdrant-sdk-test-double.js';
+import { makeQdrantSdkTestDouble, makeQdrantSdkTestPort } from './helpers/qdrant-sdk-test-double.js';
 
 const workspace = makeWorkspaceId('qdrant-alias-contract')._tag === 'Ok'
   ? makeWorkspaceId('qdrant-alias-contract').value
@@ -28,14 +28,11 @@ test('Qdrant alias publication deletes the old target and creates the verified c
       return Effect.succeed(ok({ status: 200, body: { result: true } }));
     },
   };
-  const client = makeQdrantSdkTestDouble(http);
+  const sdk = makeQdrantSdkTestPort(makeQdrantSdkTestDouble(http));
   const result = await Effect.runPromise(switchQdrantAlias(
-    http,
-    'http://127.0.0.1:6333',
     'ace_ws_emb_current',
     'ace_ws_emb_new-index',
-    [],
-    client,
+    sdk,
   ));
   assert.equal(result._tag, 'Ok');
   assert.equal(requests.length, 2);
@@ -66,13 +63,10 @@ test('Qdrant alias resolution returns the native current collection without inve
       }));
     },
   };
-  const client = makeQdrantSdkTestDouble(http);
+  const sdk = makeQdrantSdkTestPort(makeQdrantSdkTestDouble(http));
   const resolved = await Effect.runPromise(resolveQdrantAlias(
-    http,
-    'http://127.0.0.1:6333',
     'ace_ws_emb_current',
-    [],
-    client,
+    sdk,
   ));
   assert.deepEqual(resolved, { _tag: 'Ok', value: 'ace_ws_emb_old' });
 });

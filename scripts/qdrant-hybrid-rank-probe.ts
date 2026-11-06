@@ -5,7 +5,8 @@ import { performance } from 'node:perf_hooks';
 import { resolve } from 'node:path';
 import { Effect } from 'effect';
 import { QdrantClient } from '@qdrant/js-client-rest';
-import { makeQdrantCodeCandidatePort, validateLocalQdrantBaseUrl } from '../src/adapters/http-provider-boundaries.js';
+import { makeQdrantCodeCandidatePort } from '../src/adapters/http-provider-boundaries.js';
+import { makeQdrantSdkAdapter, validateLocalQdrantBaseUrl } from '../src/adapters/qdrant-sdk-adapter.js';
 import { makeProcessEmbeddingPort } from '../src/adapters/process-embedding.js';
 import { makeProcessSparseEmbeddingPort } from '../src/adapters/process-sparse-embedding.js';
 import type { CodeRetrievalStrategy } from '../src/domain/retrieval.js';
@@ -105,15 +106,15 @@ const sparseEmbeddings = makeProcessSparseEmbeddingPort({
 const qdrantEndpoint = validateLocalQdrantBaseUrl(qdrantUrl, allowedHosts);
 if (qdrantEndpoint._tag === 'Err') throw new Error(qdrantEndpoint.error.message);
 const qdrantApiKey = process.env.ACE_QDRANT_API_KEY?.trim();
+const qdrantClient = new QdrantClient({
+  url: qdrantEndpoint.value,
+  ...(qdrantApiKey === undefined || qdrantApiKey.length === 0 ? {} : { apiKey: qdrantApiKey }),
+  checkCompatibility: false,
+});
+const qdrantSdk = makeQdrantSdkAdapter({ baseUrl: qdrantUrl, allowedHosts, client: qdrantClient });
 const qdrant = makeQdrantCodeCandidatePort({
-  baseUrl: qdrantUrl,
   collection,
-  client: new QdrantClient({
-    url: qdrantEndpoint.value,
-    ...(qdrantApiKey === undefined || qdrantApiKey.length === 0 ? {} : { apiKey: qdrantApiKey }),
-    checkCompatibility: false,
-  }),
-  allowedHosts,
+  sdk: qdrantSdk,
   providerVersion: process.env.ACE_QDRANT_VERSION?.trim() || 'qdrant/unknown',
 });
 const strategies: readonly CodeRetrievalStrategy[] = ['dense', 'sparse', 'hybrid_rrf'];

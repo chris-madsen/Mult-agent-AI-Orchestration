@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { Effect } from 'effect';
-import { QdrantClient } from '@qdrant/js-client-rest';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import {
@@ -22,7 +21,6 @@ import type {
   CodePoint,
   DocumentationPort,
   GitHistoryPort,
-  HttpPort,
   MemorySearchPort,
   ProviderTraceSink,
   RerankerPort,
@@ -57,12 +55,8 @@ import {
   sourceIsRequested,
   type SourceRequirements,
 } from '../domain/source-coverage.js';
-import {
-  qdrantLexicalTextForCandidate,
-  qdrantSdkBooleanMutation,
-  qdrantSdkCall,
-  validateLocalQdrantBaseUrl,
-} from './http-provider-boundaries.js';
+import { qdrantLexicalTextForCandidate } from './http-provider-boundaries.js';
+import type { QdrantSdkPort } from './qdrant-sdk-adapter.js';
 import { noopProviderTrace, providerTraceEvent } from './provider-trace.js';
 import {
   diffWorkspaceManifests,
@@ -246,22 +240,16 @@ const recordBenchmarkStage = (
 };
 
 export const resolveQdrantAlias = (
-  http: HttpPort,
-  baseUrl: string,
   alias: string,
-  allowedHosts: readonly string[] = [],
-  client?: QdrantClient,
+  sdk?: QdrantSdkPort,
 ): Effect.Effect<Result<string | undefined, DomainError>> => Effect.gen(function* () {
-  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
-  if (endpoint._tag === 'Err') return endpoint;
   if (!/^[a-zA-Z0-9_.-]{1,255}$/u.test(alias)) {
     return err(domainError('INVALID_INPUT', 'qdrant_alias', 'Qdrant alias name is invalid'));
   }
-  if (client === undefined) return err(domainError('NOT_READY', 'qdrant_alias', 'official Qdrant SDK client is required'));
-  const listed = yield* qdrantSdkCall(() => client.getAliases());
+  if (sdk === undefined) return err(domainError('NOT_READY', 'qdrant_alias', 'official Qdrant SDK client is required'));
+  const listed = yield* sdk.getAliases();
   if (listed._tag === 'Err') return listed;
-  const aliases = (listed.value as { aliases?: unknown }).aliases;
-  if (!Array.isArray(aliases)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_alias', 'Qdrant SDK alias response is malformed'));
+  const aliases = listed.value;
   const target = aliases.find((item) =>
     typeof item === 'object' && item !== null && !Array.isArray(item)
     && (item as { alias_name?: unknown }).alias_name === alias);
@@ -351,11 +339,8 @@ export const mutateQdrantChangedPaths = (
   embeddingProviderIdentity?: string,
   sparseEmbeddings?: SparseEmbeddingPort,
   verification?: {
-    readonly http: HttpPort;
-    readonly baseUrl: string;
+    readonly sdk?: QdrantSdkPort;
     readonly collection: string;
-    readonly allowedHosts?: readonly string[];
-    readonly client?: QdrantClient;
   },
   failedPaths: ReadonlySet<RepoPath> = new Set(),
 ): Effect.Effect<Result<{ readonly count: number; readonly reused: boolean; readonly reusedVectorCount: number }, DomainError>> => Effect.gen(function* () {
@@ -404,14 +389,11 @@ export const mutateQdrantChangedPaths = (
         .filter((candidate) => candidate.repoPath === repoPath)
         .map((candidate) => candidate.candidateId);
       const verified = yield* verifyQdrantSnapshotMembership(
-        verification.http,
-        verification.baseUrl,
+        verification.sdk,
         verification.collection,
         workspaceId,
         indexKey,
         expectedCandidateIds,
-        verification.allowedHosts ?? [],
-        verification.client,
         repoPath,
       );
       if (verified._tag === 'Err') return verified;
@@ -443,8 +425,8 @@ export const mutateQdrantChangedPaths = (
         .filter((candidate) => candidate.repoPath === repoPath)
         .map((candidate) => candidate.candidateId);
       const checked = yield* verifyQdrantSnapshotMembership(
-        verification.http, verification.baseUrl, verification.collection,
-        workspaceId, undefined, expected, verification.allowedHosts ?? [], verification.client, repoPath,
+        verification.sdk, verification.collection,
+        workspaceId, undefined, expected, repoPath,
       );
       if (checked._tag === 'Err') return checked;
       if (!checked.value) return err(domainError(
@@ -457,33 +439,21 @@ export const mutateQdrantChangedPaths = (
 });
 
 export const probeQdrantService = (
-  http: HttpPort,
-  baseUrl: string,
-  allowedHosts: readonly string[] = [],
-  client?: QdrantClient,
+  sdk?: QdrantSdkPort,
 ): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
-  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
-  if (endpoint._tag === 'Err') return endpoint;
-  if (client === undefined) return err(domainError('NOT_READY', 'qdrant', 'official Qdrant SDK client is required'));
-  const listed = yield* qdrantSdkCall(() => client.getCollections());
-  return listed._tag === 'Ok' ? ok(undefined) : listed;
+  if (sdk === undefined) return err(domainError('NOT_READY', 'qdrant', 'official Qdrant SDK client is required'));
+  return yield* sdk.probeService();
 });
 
 // Collection bootstrap never replaces an existing collection. After a successful
 // rebuild, obsolete generations for the same workspace may be pruned explicitly.
 // Vector dimension must match the configured experimental embedding provider.
 export const ensureQdrantCollection = (
-  http: HttpPort,
-  baseUrl: string,
   collection: string,
   dimension: number,
-  allowedHosts: readonly string[] = [],
-  apiKey?: string,
-  client?: QdrantClient,
+  sdk?: QdrantSdkPort,
   mode: 'dense' | 'hybrid' = 'hybrid',
 ): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
-  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
-  if (endpoint._tag === 'Err') return endpoint;
   if (!Number.isSafeInteger(dimension) || dimension < 1) {
     return err(domainError('INVALID_INPUT', 'vector_dimension', 'invalid embedding dimension'));
   }
@@ -516,17 +486,14 @@ export const ensureQdrantCollection = (
           : 'collection schema must expose dense cosine vectors and IDF-modified sparse vectors',
       ));
   };
-  if (client === undefined) return err(domainError('NOT_READY', 'qdrant', 'official Qdrant SDK client is required'));
-  const found = yield* qdrantSdkCall(() => client.getCollection(collection));
+  if (sdk === undefined) return err(domainError('NOT_READY', 'qdrant', 'official Qdrant SDK client is required'));
+  const found = yield* sdk.getCollection(collection);
   if (found._tag === 'Ok') return verifyExisting(found.value);
   if (found.error.details?.httpStatus !== 404) return found;
-  const created = yield* qdrantSdkBooleanMutation(
-    () => client.createCollection(collection, {
-      vectors: { dense: { size: dimension, distance: 'Cosine' } },
-      ...(mode === 'dense' ? {} : { sparse_vectors: { sparse: { modifier: 'idf' } } }),
-    } as Parameters<QdrantClient['createCollection']>[1]),
-    'collection creation',
-  );
+  const created = yield* sdk.createCollection(collection, {
+    vectors: { dense: { size: dimension, distance: 'Cosine' } },
+    ...(mode === 'dense' ? {} : { sparse_vectors: { sparse: { modifier: 'idf' } } }),
+  });
   const concurrentCreateConflict = created._tag === 'Err'
     && created.error.code === 'EXTERNAL_UNAVAILABLE'
     && created.error.details?.httpStatus === 409;
@@ -535,7 +502,7 @@ export const ensureQdrantCollection = (
   // matches the configured vector mode. The same read-back check covers
   // successful creation and concurrent creators without a second protocol path.
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const raced = yield* qdrantSdkCall(() => client.getCollection(collection));
+    const raced = yield* sdk.getCollection(collection);
     if (raced._tag === 'Ok') return verifyExisting(raced.value);
     const transient = [404, 409, 500].includes(Number(raced.error.details?.httpStatus));
     if (!transient || attempt === 4) return raced;
@@ -550,23 +517,17 @@ export const ensureQdrantCollection = (
  * and point verification happen before this function is called.
  */
 export const switchQdrantAlias = (
-  http: HttpPort,
-  baseUrl: string,
   alias: string,
   collection: string,
-  allowedHosts: readonly string[] = [],
-  client?: QdrantClient,
+  sdk?: QdrantSdkPort,
 ): Effect.Effect<Result<void, DomainError>> => Effect.gen(function* () {
-  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
-  if (endpoint._tag === 'Err') return endpoint;
   if (!/^[a-zA-Z0-9_.-]{1,255}$/u.test(alias) || !/^[a-zA-Z0-9_.-]{1,255}$/u.test(collection)) {
     return err(domainError('INVALID_INPUT', 'qdrant_alias', 'Qdrant alias and collection names are invalid'));
   }
-  if (client === undefined) return err(domainError('NOT_READY', 'qdrant_alias', 'official Qdrant SDK client is required'));
-  const listed = yield* qdrantSdkCall(() => client.getAliases());
+  if (sdk === undefined) return err(domainError('NOT_READY', 'qdrant_alias', 'official Qdrant SDK client is required'));
+  const listed = yield* sdk.getAliases();
   if (listed._tag === 'Err') return listed;
-  const aliases = (listed.value as { aliases?: unknown }).aliases;
-  if (!Array.isArray(aliases)) return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_alias', 'Qdrant SDK alias response is malformed'));
+  const aliases = listed.value;
   const existing = aliases.some((item) =>
     typeof item === 'object' && item !== null && !Array.isArray(item)
     && (item as { alias_name?: unknown }).alias_name === alias);
@@ -574,12 +535,7 @@ export const switchQdrantAlias = (
     ...(existing ? [{ delete_alias: { alias_name: alias } }] : []),
     { create_alias: { collection_name: collection, alias_name: alias } },
   ];
-  return yield* qdrantSdkBooleanMutation(
-    () => client.updateCollectionAliases({
-      actions,
-    } as Parameters<QdrantClient['updateCollectionAliases']>[0]),
-    'alias update',
-  );
+  return yield* sdk.updateAliases({ actions });
 });
 
 /**
@@ -592,17 +548,12 @@ export const switchQdrantAlias = (
  * Every returned snippet is still re-read from the authoritative worktree.
  */
 export const hasExactQdrantSnapshot = (
-  http: HttpPort,
-  baseUrl: string,
+  sdk: QdrantSdkPort | undefined,
   collection: string,
   workspaceId: WorkspaceId,
   indexKey: string,
   expectedCount: number,
-  allowedHosts: readonly string[] = [],
-  client?: QdrantClient,
 ): Effect.Effect<Result<boolean, DomainError>> => Effect.gen(function* () {
-  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
-  if (endpoint._tag === 'Err') return endpoint;
   if (indexKey.length === 0 || !Number.isSafeInteger(expectedCount) || expectedCount <= 0) {
     return err(domainError('INVALID_INPUT', 'snapshot', 'snapshot identity and expected positive candidate count are required'));
   }
@@ -612,14 +563,10 @@ export const hasExactQdrantSnapshot = (
       { key: 'index_key', match: { value: indexKey } },
     ],
   };
-  if (client === undefined) return err(domainError('NOT_READY', 'qdrant_count', 'official Qdrant SDK client is required'));
-  const counted = yield* qdrantSdkCall(() => client.count(collection, { exact: true, filter }));
+  if (sdk === undefined) return err(domainError('NOT_READY', 'qdrant_count', 'official Qdrant SDK client is required'));
+  const counted = yield* sdk.countPoints(collection, { exact: true, filter });
   if (counted._tag === 'Err') return counted;
-  const count = (counted.value as { count?: unknown }).count;
-  if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) {
-    return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_count', 'invalid exact snapshot count'));
-  }
-  return ok(count === expectedCount);
+  return ok(counted.value === expectedCount);
 });
 
 export const codeIndexKey = (
@@ -678,45 +625,31 @@ export const codeIndexKey = (
 };
 
 export const verifyQdrantSnapshotMembership = (
-  http: HttpPort,
-  baseUrl: string,
+  sdk: QdrantSdkPort | undefined,
   collection: string,
   workspaceId: WorkspaceId,
   indexKey: string | undefined,
   expectedCandidateIds: readonly string[],
-  allowedHosts: readonly string[] = [],
-  client?: QdrantClient,
   repoPath?: RepoPath,
 ): Effect.Effect<Result<boolean, DomainError>> => Effect.gen(function* () {
-  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
-  if (endpoint._tag === 'Err') return endpoint;
   const observed: string[] = [];
-  let offset: unknown;
+  let offset: string | number | undefined;
   const filter = { must: [
     { key: 'workspace_id', match: { value: workspaceId } },
     ...(indexKey === undefined ? [] : [{ key: 'index_key', match: { value: indexKey } }]),
     ...(repoPath === undefined ? [] : [{ key: 'repo_path', match: { value: repoPath } }]),
   ] };
   for (let page = 0; page < 10_000; page += 1) {
-    let points: unknown;
-    let nextPageOffset: unknown;
-    if (client === undefined) return err(domainError('NOT_READY', 'qdrant_scroll', 'official Qdrant SDK client is required'));
-    const currentOffset = offset;
-    const scrolled = yield* qdrantSdkCall(() => client.scroll(collection, {
+    if (sdk === undefined) return err(domainError('NOT_READY', 'qdrant_scroll', 'official Qdrant SDK client is required'));
+    const scrolled = yield* sdk.scrollPoints(collection, {
       limit: 256,
       with_payload: ['candidate_id'],
       with_vector: false,
       filter,
-      ...(currentOffset === undefined ? {} : { offset: currentOffset }),
-    } as Parameters<QdrantClient['scroll']>[1]));
+      ...(offset === undefined ? {} : { offset }),
+    });
     if (scrolled._tag === 'Err') return scrolled;
-    const direct = scrolled.value as { points?: unknown; next_page_offset?: unknown };
-    points = direct.points;
-    nextPageOffset = direct.next_page_offset;
-    if (!Array.isArray(points)) {
-      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'snapshot membership response must contain points'));
-    }
-    for (const point of points) {
+    for (const point of scrolled.value.points) {
       if (typeof point !== 'object' || point === null || Array.isArray(point)) {
         return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'snapshot point must be an object'));
       }
@@ -727,8 +660,8 @@ export const verifyQdrantSnapshotMembership = (
       }
       observed.push((payload as { candidate_id: string }).candidate_id);
     }
-    if (nextPageOffset === undefined || nextPageOffset === null) break;
-    offset = nextPageOffset;
+    if (scrolled.value.nextPageOffset === undefined || scrolled.value.nextPageOffset === null) break;
+    offset = scrolled.value.nextPageOffset;
     if (page === 9_999) {
       return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'snapshot membership pagination did not terminate'));
     }
@@ -739,42 +672,28 @@ export const verifyQdrantSnapshotMembership = (
 });
 
 export const readQdrantSnapshotVectors = (
-  http: HttpPort,
-  baseUrl: string,
+  sdk: QdrantSdkPort | undefined,
   collection: string,
   workspaceId: WorkspaceId,
   indexKey?: string,
-  allowedHosts: readonly string[] = [],
-  client?: QdrantClient,
 ): Effect.Effect<Result<ReadonlyMap<string, readonly number[]>, DomainError>> => Effect.gen(function* () {
-  const endpoint = validateLocalQdrantBaseUrl(baseUrl, allowedHosts);
-  if (endpoint._tag === 'Err') return endpoint;
   const vectors = new Map<string, readonly number[]>();
-  let offset: unknown;
+  let offset: string | number | undefined;
   const filter = { must: [
     { key: 'workspace_id', match: { value: workspaceId } },
     ...(indexKey === undefined ? [] : [{ key: 'index_key', match: { value: indexKey } }]),
   ] };
   for (let page = 0; page < 10_000; page += 1) {
-    let points: unknown;
-    let nextPageOffset: unknown;
-    if (client === undefined) return err(domainError('NOT_READY', 'qdrant_scroll', 'official Qdrant SDK client is required'));
-    const currentOffset = offset;
-    const scrolled = yield* qdrantSdkCall(() => client.scroll(collection, {
+    if (sdk === undefined) return err(domainError('NOT_READY', 'qdrant_scroll', 'official Qdrant SDK client is required'));
+    const scrolled = yield* sdk.scrollPoints(collection, {
       limit: 256,
       with_payload: ['candidate_id', 'embedding_key'],
       with_vector: true,
       filter,
-      ...(currentOffset === undefined ? {} : { offset: currentOffset }),
-    } as Parameters<QdrantClient['scroll']>[1]));
+      ...(offset === undefined ? {} : { offset }),
+    });
     if (scrolled._tag === 'Err') return scrolled;
-    const direct = scrolled.value as { points?: unknown; next_page_offset?: unknown };
-    points = direct.points;
-    nextPageOffset = direct.next_page_offset;
-    if (!Array.isArray(points)) {
-      return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior snapshot vector response requires points'));
-    }
-    for (const point of points) {
+    for (const point of scrolled.value.points) {
       if (typeof point !== 'object' || point === null || Array.isArray(point)) {
         return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior snapshot point must be an object'));
       }
@@ -808,8 +727,8 @@ export const readQdrantSnapshotVectors = (
       }
       vectors.set(cacheKey, denseVector as number[]);
     }
-    if (nextPageOffset === undefined || nextPageOffset === null) break;
-    offset = nextPageOffset;
+    if (scrolled.value.nextPageOffset === undefined || scrolled.value.nextPageOffset === null) break;
+    offset = scrolled.value.nextPageOffset;
     if (page === 9_999) {
       return err(domainError('INVALID_EXTERNAL_RESPONSE', 'qdrant_scroll', 'prior vector pagination did not terminate'));
     }
@@ -821,29 +740,26 @@ export const reuseOrPopulateQdrantSnapshot = (
   index: CodeIndex,
   qdrant: CodeCandidatePort,
   embeddings: VectorEmbeddingPort,
-  http: HttpPort,
-  baseUrl: string,
+  sdk: QdrantSdkPort | undefined,
   collection: string,
   workspaceId: WorkspaceId,
   indexKey: string,
-  allowedHosts: readonly string[] = [],
   reuseAllowed = true,
   priorIndexKey?: string,
   embeddingProviderIdentity?: string,
   priorCollection?: string,
   sparseEmbeddings?: SparseEmbeddingPort,
-  client?: QdrantClient,
   stableCollection = false,
 ): Effect.Effect<Result<{ readonly count: number; readonly reused: boolean; readonly reusedVectorCount: number }, DomainError>> => Effect.gen(function* () {
   const expectedCandidateIds = index.candidates.map((candidate) => candidate.candidateId);
   if (reuseAllowed) {
     const checked = yield* hasExactQdrantSnapshot(
-      http, baseUrl, collection, workspaceId, indexKey, index.candidates.length, allowedHosts, client,
+      sdk, collection, workspaceId, indexKey, index.candidates.length,
     );
     if (checked._tag === 'Err') return checked;
     if (checked.value) {
       const membership = yield* verifyQdrantSnapshotMembership(
-        http, baseUrl, collection, workspaceId, indexKey, expectedCandidateIds, allowedHosts, client,
+        sdk, collection, workspaceId, indexKey, expectedCandidateIds,
       );
       if (membership._tag === 'Err') return membership;
       if (membership.value) {
@@ -860,7 +776,7 @@ export const reuseOrPopulateQdrantSnapshot = (
         }
         if (stableCollection) {
           const physical = yield* verifyQdrantSnapshotMembership(
-            http, baseUrl, collection, workspaceId, undefined, expectedCandidateIds, allowedHosts, client,
+            sdk, collection, workspaceId, undefined, expectedCandidateIds,
           );
           if (physical._tag === 'Err') return physical;
           if (!physical.value) return err(domainError(
@@ -880,7 +796,7 @@ export const reuseOrPopulateQdrantSnapshot = (
     // An exact set match proves there are no crash leftovers to prune. Never
     // deleteWorkspaceVersions here: that would erase still-current old-key points.
     const membership = yield* verifyQdrantSnapshotMembership(
-      http, baseUrl, collection, workspaceId, undefined, expectedCandidateIds, allowedHosts, client,
+      sdk, collection, workspaceId, undefined, expectedCandidateIds,
     );
     if (membership._tag === 'Err') return membership;
     if (membership.value) {
@@ -892,13 +808,10 @@ export const reuseOrPopulateQdrantSnapshot = (
   let seedVectors: ReadonlyMap<string, readonly number[]> = new Map();
   if (priorCollection !== undefined || priorIndexKey !== undefined) {
     const prior = yield* readQdrantSnapshotVectors(
-      http,
-      baseUrl,
+      sdk,
       priorCollection ?? collection,
       workspaceId,
       priorIndexKey === indexKey ? undefined : priorIndexKey,
-      allowedHosts,
-      client,
     );
     if (prior._tag === 'Err') return prior;
     const currentKeys = new Set<string>(index.candidates.map((candidate) => embeddingProviderIdentity === undefined
@@ -919,7 +832,7 @@ export const reuseOrPopulateQdrantSnapshot = (
   );
   if (indexed._tag === 'Err') return indexed;
   const verified = yield* verifyQdrantSnapshotMembership(
-    http, baseUrl, collection, workspaceId, indexKey, expectedCandidateIds, allowedHosts, client,
+    sdk, collection, workspaceId, indexKey, expectedCandidateIds,
   );
   if (verified._tag === 'Err') return verified;
   if (!verified.value) {
@@ -942,7 +855,7 @@ export const reuseOrPopulateQdrantSnapshot = (
   }
   if (stableCollection) {
     const physical = yield* verifyQdrantSnapshotMembership(
-      http, baseUrl, collection, workspaceId, undefined, expectedCandidateIds, allowedHosts, client,
+      sdk, collection, workspaceId, undefined, expectedCandidateIds,
     );
     if (physical._tag === 'Err') return physical;
     if (!physical.value) return err(domainError(
