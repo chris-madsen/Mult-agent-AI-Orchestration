@@ -181,7 +181,7 @@ If any mandatory gate FAILS:
 
 - Run `npm run verify:pr` once at handoff readiness, using the repository's current script.
 - Use focused commits per coherent verified slice.
-- Push branch and confirm PR to `main` contains each delivered commit; **do not push completed changes directly to `main`**. Follow the root AGENTS PR-to-main delivery rule; any owner decision to change that repository policy must be handled explicitly as a policy change, not as an ad-hoc bypass inside a task.
+- Push branch and confirm PR to `main` contains each delivered commit; no direct-to-main unless owner explicitly authorizes.
 - Record exact PR number and head SHA.
 - Report statuses for required checks at that SHA: pass / fail / pending / none configured / unknown.
 - Retain provider logs, fixture IDs and source-linked artifacts where needed.
@@ -247,7 +247,7 @@ Next dependent phase: <...>
 Read the [Quality Gates standard](../standards/Quality%20Gates.md) and [catalog](../../QUALITY-GATES-CATALOG.md). These are *selections and procedures*, not assertions that every tool exists in ACE.
 
 For each phase:
-- After research and design (T2), verify **G02 Design Consistency** before code: all acceptance IDs have a contract owner, phase and oracle. For material domain behavior also apply G15; for a new/migrated public contract apply G16 once the required TypeSpec toolchain exists, otherwise record BLOCKED/NOT-RUN.
+- After research and design (T2), verify **G02 Design Consistency** before code: all acceptance IDs have a contract owner, phase and oracle.
 - Inner loop: use installed ACE `npm run test:affected` and necessary existing type/lint scripts; run only **enabled** scoped architecture rules, never an imaginary `check:ast`.
 - PR: separate gate axes BUILD / ARCH / SEC / PLAN; consider offline Markdown links, workflow lint/secret scan, dependency check and contract compatibility based on changed scope. Record proposed-but-uninstalled tools as NOT-RUN.
 - Provider release: real Qdrant/LSP/Graphiti/Vertex/Bifrost/Hermes evidence is capability-scoped. A passing static rule cannot replace actual provider proof.
