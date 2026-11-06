@@ -3,7 +3,7 @@
 **Статус:** Accepted  
 **Дата:** 2026-11-05  
 **Проект:** Adaptive Context Engine (ACE)  
-**Связанные ADR:** ADR-014, ADR-016, ADR-017  
+**Связанные ADR:** ADR-014 (Hybrid Context Engine), ADR-016 (Hermes ContextEngine), ADR-017 `ADR-017-ace-bifrost-gateway-protocol.md` (ACE LLM Gateway Protocol v1 over Bifrost)  
 **Источник решения:** explicit project-owner decision recorded during the SDLC/architecture review on 2026-11-05.
 
 ## Контекст и проблема
