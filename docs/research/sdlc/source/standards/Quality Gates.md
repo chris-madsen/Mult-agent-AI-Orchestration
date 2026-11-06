@@ -31,7 +31,7 @@ Read:
 5. Reject orphan acceptance criteria.
 6. Reject hidden new architecture decisions.
 7. Reject conflicting sources of truth and duplicate maintained providers.
-8. For a new/migrated public contract in the selected TypeSpec scope, check the staged codegen plan even when the compiler/generator is not installed yet; a missing toolchain makes that migration slice BLOCKED/DEFERRED, not N/A. Do not force codegen onto unrelated internal surfaces.
+8. Check codegen plan only if a generator is already canonical for the changed surface.
 9. Check backward compatibility and rollback for public/data changes.
 10. Record READY / NEEDS-RESEARCH / NEEDS-DECISION / BLOCKED.
 No implementation of T2 until G02 READY and human-controlled material decisions resolved.
@@ -94,7 +94,7 @@ Never add a regex search as an alleged type-aware LSP/SCIP proof. Never infer eg
 | Secret scan | one maintained scanner, redacted | hand-written heuristic |
 | Workflow security | zizmor/actionlint, pinned | relying on model advice alone |
 | Dead exports/dependencies | Knip report-only then scoped gate | deleting dynamic entrypoints unreviewed |
-| Public wire/API compatibility | selected TypeSpec path for new/migrated public contracts; Vacuum/Schemathesis where emitted OpenAPI applies | a second handwritten schema owner or custom protocol generator |
+| API/OpenAPI | TypeSpec/Vacuum/Schemathesis only when actual versioned HTTP API | duplicating MCP/Zod ownership |
 | Qdrant/memory | state schema and real-provider contracts | Postgres/Ent schemalens |
 | Multiple agent resource contention | measured worktree isolation, optional Heavy | adding new daemon for one agent |
 | Multi-language toolchain | pinned existing CI, mise pilot if needed | unconditional rewrite of Makefile |
