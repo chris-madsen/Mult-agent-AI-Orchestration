@@ -104,7 +104,7 @@
 
 ## PR-QG8 — TypeSpec-first public contracts (owner-selected, staged)
 
-**TypeSpec:** owner-selected for new and migrated public machine contracts; it is **not** conditional on a future multi-client HTTP requirement. Start with one Gateway Projection HTTP operation, then cover MCP/native JSON surfaces only where TypeSpec can faithfully represent them. Validate generated server/client/schema ownership, compatibility, reproducibility and real consumers. Existing MCP/Zod/OpenSpec definitions are migration inputs, not a reason to reject the selected architecture: preserve accepted behavior, establish TypeSpec parity, then remove duplicate hand-maintained wire-schema ownership. If a surface cannot be represented or the required maintained compiler/emitter/generator is not yet available, mark that slice BLOCKED/DEFERRED rather than inventing a custom generator or claiming migration complete.
+**TypeSpec:** only after a documented stable multi-client public HTTP API requirement. Pilot one operation and validate generated server+client schema ownership, compatibility, reproducibility and real consumers. If this duplicates MCP/Zod/OpenSpec, reject.
 
 **SQL/Ent/Goose/Squawk/Schemalens/DB Cleaner:** not applicable to ACE's current Qdrant/Graphiti architecture. If ACE adopts SQL later, plan migration immutability, schema consistency and safe transaction test isolation then. Current storage gates must instead test Qdrant collection contracts, snapshots, revision/digest preservation and memory/archive compatibility.
 
