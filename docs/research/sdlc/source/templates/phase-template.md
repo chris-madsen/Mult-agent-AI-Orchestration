@@ -51,7 +51,7 @@
 9. Review four gates separately.
 10. Fix failed gate findings and repeat.
 11. Commit, push and update open PR.
-12. Reconfirm CI at exact head.
+12. Reconfirm the current PR head and record the actual commit SHA CI tested (including a synthetic merge SHA when applicable).
 13. Mark phase VERIFIED/DELIVERED only with evidence.
 
 ## Verification commands and expected proof
@@ -78,6 +78,7 @@
 - Source SHA:
 - PR:
 - CI required checks:
+- CI tested checkout/merge SHA:
 - Real provider proof:
 - Owner approval:
 - Deferred follow-ups:
