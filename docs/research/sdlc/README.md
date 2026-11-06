@@ -38,6 +38,9 @@ A single agent can run these as distinct sequential instruction sets. This does 
 - [Go style](source/standards/Go%20style.md) — only where Go applies; not ACE core.
 - [Base Mock](source/standards/Base%20Mock.md)
 - [LLM Integration](source/standards/LLM%20Integration.md)
+- [Functional Domain Modeling](source/standards/Functional%20Domain%20Modeling.md)
+- [TypeSpec Contract First](source/standards/TypeSpec%20Contract%20First.md)
+- [Quality Gates](source/standards/Quality%20Gates.md)
 
 ## Artifacts and examples
 - [Template: research](source/templates/research-output.md)
@@ -60,7 +63,7 @@ Root AGENTS.md, Accepted ADRs, OpenSpec and existing CI retain full authority. N
 ## Quality Gates and reusable reviewer procedure
 
 - [Video + Sphericon evidence and ACE gap audit](QUALITY-GATES-VIDEO-SPHERICON-ACE.md)
-- [Complete Quality Gate catalog, G00–G14](QUALITY-GATES-CATALOG.md)
+- [Complete Quality Gate catalog, G00–G16](QUALITY-GATES-CATALOG.md)
 - [Phased tool implementation plan](QUALITY-GATES-IMPLEMENTATION-PLAN.md)
 - [Quality Gates reviewer standard](source/standards/Quality%20Gates.md)
 - [Portable gate-selection skill](skills/quality-gate-selection/SKILL.md)
