@@ -34,6 +34,8 @@
 | G12 | nightly | advisories, CodeQL, fuzz, targeted mutation | selected packages | automated | proposed |
 | G13 | release | SBOM, license, provenance, vulnerabilities | releases | artifact validation | ACE existing |
 | G14 | end | complete PR cross-phase consistency | T1/T2 | human+agent | workflow existing |
+| G15 | before code / design review | Event Storming + functional-domain ownership | material T2 domain behavior | structured review | selected policy; procedural |
+| G16 | PR / contract migration | TypeSpec generated integration completeness | new or migrated public contract | automated once installed + integration | selected policy; toolchain not yet installed |
 
 ### G00 — Preflight
 **Inputs:** user task, current repo, HEAD/base, worktree, active PRs. **Commands:** git status/branch/diff, read AGENTS, accepted ADR/OpenSpec and actual code. **PASS:** source/owner identity recorded, no unacknowledged overlap, scope/tier decided. **FAIL/BLOCK:** unauthorized branch, material unapproved decision or untrusted instruction override. Do not create a new solution for code already delivered in another PR.
@@ -113,8 +115,8 @@ Candidate typed dependency tooling: **dependency-cruiser** (TS imports) as cheap
 ### G08 — Documentation integrity
 Keep \`git diff --check\`. New proposed gate: \`lychee --offline\` with pinned version, validating **local Markdown links and anchors** for changed documents or whole doc tree in CI. Remote links are scheduled/report-only to avoid random website failures blocking a PR. Optional typos scanner must allow identifiers, code terms and Cyrillic/English content; do not auto-rewrite citations.
 
-### G09 — Contract compatibility / codegen ownership
-ACE currently has OpenSpec, MCP, projection and typed boundaries. TypeSpec is the **owner-selected target** for new and migrated public machine contracts, including Gateway Projection and representable MCP/native JSON shapes. Implementation is staged, not automatic:
+### G09 — Contract compatibility / schema-source ownership
+G09 applies to public-contract compatibility and source ownership **even before** the TypeSpec toolchain is installed. ACE currently has OpenSpec, MCP, projection and typed boundaries. TypeSpec is the **owner-selected target** for new and migrated public machine contracts, including Gateway Projection and representable MCP/native JSON shapes. Implementation is staged, not automatic; G16 separately owns the generated-integration proof once that toolchain exists:
 - source contract owns endpoints and schemas once;
 - generated output never edited by hand;
 - generate then check clean diff;
@@ -209,10 +211,10 @@ Before saying a new gate is installed:
 8. Existing ACE tests, gate and normative OpenSpec remain unchanged unless approved.
 9. Only after real execution mark status **ACTIVE** (not PLANNED).
 
-## G15 — Event Storming + functional domain gate
+### G15 — Event Storming + functional domain gate
 
 For substantive T2 domain behavior trace Actor → Command → Domain Fact/Policy → bounded-context ownership → consistency boundary → immutable ADT → pure invariant/transition function → deterministic test. Effect owns I/O and authorization at actual execution. Event Storming does not automatically require Event Sourcing, rich OO class methods or one service per bounded context. Review for misplaced/dispersed rules, unmodeled invalid transitions and concurrency/CAS rather than condemning passive readonly records.
 
-## G16 — TypeSpec generated integration gate
+### G16 — TypeSpec generated integration gate
 
-At new/migrated public contracts verify pinned TypeSpec compiler + emitter, generated SDK/typed server interface/validators, mechanical DTO mappers, tagged errors, field/enum exhaustiveness, permission metadata, reproducibility, old/new wire compatibility and real protocol roundtrip. Additional generated docs, mocks/fixtures and client helpers are selected when supported. Actual policy authorization and provider E2E are independent. This is **PLANNED until executable CI scripts and negative fixtures exist**, not an active gate.
+At new/migrated public contracts apply the canonical `TSP-01..08` checks defined in [codegen coverage](TYPESPEC-CODEGEN-COVERAGE.md): pinned/reproducible compilation, generated artifact ownership, typed client/server shell, exhaustive mappings, permission metadata plus real authorization negatives, compatibility, decoder rejection and actual adapter/provider E2E. Additional generated docs, mocks/fixtures and client helpers are selected when supported. Actual policy authorization and provider E2E remain independent evidence axes. This is **PLANNED until executable CI scripts and negative fixtures exist**, not an active gate.
