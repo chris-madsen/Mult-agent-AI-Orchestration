@@ -15,15 +15,16 @@ Read root \`AGENTS.md\`, the accepted OpenSpec change, ADR and [full codegen pla
 
 ## Procedure
 1. Confirm existing source-of-truth and version; inspect actual runtime and current public wire fixtures.
-2. Event Storming and OpenSpec define semantics; TypeSpec owns public shape; immutable ADTs/pure functions own business behavior.
-3. Define/update TypeSpec operation and tagged result/errors with explicit required/optional/null and version semantics.
-4. Run pinned emitters (if installed) and verify emitted OpenAPI/JSON Schema.
-5. Regenerate supported SDK, server interface, schema validators, mock interfaces and docs **only where a maintained generator is selected**.
-6. Inspect mechanical mappings. Added fields and enum values MUST be covered; if there is no correct source mapping, fail generation or test, never emit a placeholder.
-7. Confirm generated access metadata and independently test actual send-time policy enforcement.
-8. Validate wire→decoder→domain ADT→pure function/Effect→encoder/SDK roundtrip, including invalid/denied/partial/unavailable and old client cases.
-9. Run generation→diff clean, compatibility check against base and any actual provider/agent E2E required.
-10. Report tool names/versions, commands/exits, generated files, mapping completeness, unsupported emitter features, exact SHA, real tests and NOT-RUN gates.
+2. Confirm the compiler, required emitter(s) and any selected downstream generator for this surface are actually installed, pinned and reproducible. If they are not, do **not** create or edit an uncompiled `.tsp` file and call it canonical. Implement the approved toolchain slice first or report the contract migration BLOCKED/DEFERRED.
+3. Event Storming and OpenSpec define semantics; TypeSpec owns public shape after the surface enters the staged migration; immutable ADTs/pure functions own business behavior.
+4. Define/update TypeSpec operation and tagged result/errors with explicit required/optional/null and version semantics.
+5. Run the pinned emitters and verify emitted OpenAPI/JSON Schema.
+6. Regenerate supported SDK, server interface, schema validators, mock interfaces and docs **only where a maintained generator is selected**.
+7. Inspect mechanical mappings. Added fields and enum values MUST be covered; if there is no correct source mapping, fail generation or test, never emit a placeholder.
+8. Confirm generated access metadata and independently test actual send-time policy enforcement.
+9. Validate wire→decoder→domain ADT→pure function/Effect→encoder/SDK roundtrip, including invalid/denied/partial/unavailable and old client cases.
+10. Run generation→diff clean, compatibility check against base and any actual provider/agent E2E required.
+11. Report tool names/versions, commands/exits, generated files, mapping completeness, unsupported emitter features, exact SHA, real tests and NOT-RUN gates.
 
 ## Don't
 - Don't write business invariants into generated handlers or generated mapping templates.
