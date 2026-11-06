@@ -51,25 +51,27 @@ Documentation and intended tests can be reviewed in this PR. Real agent executio
 
 ## Quality Gates extension — negative and positive fixtures
 
+Fixture IDs use the `QGF-` prefix so they cannot be confused with actual gate IDs `G00..G16`.
+
 | ID | Fixture / action | Expected gate |
 |---|---|---|
-| QG-01 | T2 design lacks acceptance test oracle | G02 BLOCKED; no implementation |
-| QG-02 | T0 Markdown typo | no needless C4/TypeSpec |
-| QG-03 | stale source vs Qdrant stored digest | source-integrity gate FAIL, not COMPLETE |
-| QG-04 | error handler silently returns successful empty context on provider timeout | runtime negative test FAIL (AST rule is insufficient alone) |
-| QG-05 | local Markdown link points to nonexistent file | proposed offline link checker fails once installed |
-| QG-06 | harmless synthetic secret-shaped fixture in changed diff | scanner detects and redacts without printing token |
-| QG-07 | GitHub Actions unsafe expression in PR workflow | zizmor/actionlint catches and blocks once installed |
-| QG-08 | staged docs change but no Node source changes | no irrelevant full TS build required |
-| QG-09 | new AST syntax rule: valid + invalid + false-positive fixtures | test harness rejects invalid, permits valid |
-| QG-10 | typed import boundary that naive text matches incorrectly | typed graph evidence or UNKNOWN, not fake PASS |
-| QG-11 | proposed Knip identifies dynamically loaded CLI | report-only, maintain real entrypoint exclusion |
-| QG-12 | Qdrant/Graphiti schema evolves | provider-specific state contract, no SQL/Ent migration tools |
-| QG-13 | MCP input field removed without versioning | compatibility review identifies breaking contract |
-| QG-14 | uninstalled `lychee` task named in plan | NOT-RUN, never PASS |
-| QG-15 | full PR statuses from earlier commit | cannot prove latest HEAD; reverify |
-| QG-16 | new tool flags hundreds of preexisting noncritical issues | report-only/frozen expiring baseline; no hidden broad ignore |
-| QG-17 | data egress policy violation flagged by scanner | BLOCK regardless of baseline |
-| QG-18 | nightly CodeQL finds old advisory after previous green | issue tied to scan timestamp; no historical false PASS |
+| QGF-01 | T2 design lacks acceptance test oracle | G02 BLOCKED; no implementation |
+| QGF-02 | T0 Markdown typo | no needless C4/TypeSpec |
+| QGF-03 | stale source vs Qdrant stored digest | source-integrity gate FAIL, not COMPLETE |
+| QGF-04 | error handler silently returns successful empty context on provider timeout | runtime negative test FAIL (AST rule is insufficient alone) |
+| QGF-05 | local Markdown link points to nonexistent file | proposed offline link checker fails once installed |
+| QGF-06 | harmless synthetic secret-shaped fixture in changed diff | scanner detects and redacts without printing token |
+| QGF-07 | GitHub Actions unsafe expression in PR workflow | zizmor/actionlint catches and blocks once installed |
+| QGF-08 | staged docs change but no Node source changes | no irrelevant full TS build required |
+| QGF-09 | new AST syntax rule: valid + invalid + false-positive fixtures | test harness rejects invalid, permits valid |
+| QGF-10 | typed import boundary that naive text matches incorrectly | typed graph evidence or UNKNOWN, not fake PASS |
+| QGF-11 | proposed Knip identifies dynamically loaded CLI | report-only, maintain real entrypoint exclusion |
+| QGF-12 | Qdrant/Graphiti schema evolves | provider-specific state contract, no SQL/Ent migration tools |
+| QGF-13 | MCP input field removed without versioning | compatibility review identifies breaking contract |
+| QGF-14 | uninstalled `lychee` task named in plan | NOT-RUN, never PASS |
+| QGF-15 | full PR statuses from earlier commit | cannot prove latest HEAD; reverify |
+| QGF-16 | new tool flags hundreds of preexisting noncritical issues | report-only/frozen expiring baseline; no hidden broad ignore |
+| QGF-17 | data egress policy violation flagged by scanner | BLOCK regardless of baseline |
+| QGF-18 | nightly CodeQL finds old advisory after previous green | issue tied to scan timestamp; no historical false PASS |
 
 For every installed gate use actual fixture, pinned tool version and command output. The matrix defines desired behavior; it is **not evidence those tools currently exist or that an agent has passed these tests**.
