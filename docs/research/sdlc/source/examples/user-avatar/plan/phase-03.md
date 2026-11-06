@@ -13,6 +13,7 @@ Adapter.
 Connect the chosen imaging library through the interface. Validate media type, size, memory pressure, dimensions and output formats. Test mocked adapter contract plus real provider when available.
 
 ## Files to create or modify
+**Illustrative placeholder only — exact repository paths are NOT-VERIFIED because the source project is not attached.** In a real plan this section must be populated from current source inspection before the phase may move from NOT-RUN to READY.
 
 ## Verification
 - Test positive and negative behavior, error contracts and boundary violations.
