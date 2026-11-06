@@ -4,8 +4,8 @@ These are public projects inspected to strengthen the runnable prompt library. T
 
 ## HumanLayer research command
 - Repository: https://github.com/humanlayer/humanlayer
-- Indexed file: https://github.com/humanlayer/humanlayer/blob/main/.claude/commands/research_codebase.md
-- Note: repository's current main no longer exposes that exact path via GitHub contents API; the public indexed preview remains useful.
+- Historical source file: https://github.com/humanlayer/humanlayer/blob/c2c31d656807cad9d389acfcbc19002733958218/.claude/commands/research_codebase.md
+- Note: current `main` removed that path in the later repository replacement; the commit-pinned link above remains directly retrievable and is the research source used here.
 - License of the repository: Apache-2.0.
 - Transferable: as-is codebase documentation, complete source reads, evidence-citing synthesis, separation of research from design.
 
