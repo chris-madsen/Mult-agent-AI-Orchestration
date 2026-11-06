@@ -51,9 +51,9 @@ Use existing fast ACE commands, then the four separate review passes from implem
 
 **Five execution layers, not five new mandatory tools:**
 1. G00/G01: source identity, factual evidence, scope.
-2. G02: Design Consistency **before implementation** (T2).
+2. G02: Design Consistency **before implementation** (T2), plus G15 for material domain behavior.
 3. G03–G05: actual fast inner-loop commands/rules/hooks only if present.
-4. G06–G10: scoped PR architecture/security/docs/contract/acceptance gates.
+4. G06–G10: scoped PR architecture/security/docs/contract/acceptance gates, plus G16 for a new/migrated public contract once its TypeSpec toolchain slice exists (otherwise BLOCKED/NOT-RUN).
 5. G11–G14: applicable real providers, nightly, release provenance and final owner review.
 
 Do not run SQL/Ent/Squawk/Schemalens gates for ACE's non-relational stores. Do not add TypeSpec solely because Sphericon uses it. New architecture rules require tested valid and invalid fixtures, exact rule ID, repair hint and observed CI failure before they are called ACTIVE.
