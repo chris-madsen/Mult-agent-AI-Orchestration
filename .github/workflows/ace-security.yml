@@ -2,6 +2,7 @@ name: ACE security gates
 
 on:
   pull_request:
+  workflow_dispatch:
   schedule:
     - cron: "17 4 * * 1"
 
@@ -9,12 +10,180 @@ permissions:
   contents: read
 
 jobs:
-  secret-red:
+  pr-secret-scan:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Determine secret-scan scope
+        id: scope
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          changed="${RUNNER_TEMP}/security-changed-paths.txt"
+          git diff --name-only --diff-filter=ACMRT "${PR_BASE_SHA}" "${PR_HEAD_SHA}" > "${changed}"
+          if grep -Eq '^\.github/workflows/ace-security\.yml$|^\.github/fixtures/security/|^scripts/install-security-tools\.sh$' "${changed}"; then
+            echo "self_test=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "self_test=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Install pinned Betterleaks
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="${RUNNER_TEMP}/ace-security-tools/bin"
+          scripts/install-security-tools.sh "${bin}" betterleaks
+          echo "${bin}" >> "${GITHUB_PATH}"
+
+      - name: Verify Betterleaks negative fixture and redaction
+        if: steps.scope.outputs.self_test == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture=".github/fixtures/security/fake-secret.txt"
+          synthetic_secret="$(tail -n 1 "${fixture}")"
+          set +e
+          output="$(betterleaks stdin --redact --no-banner < "${fixture}" 2>&1)"
+          code="$?"
+          set -e
+          printf '%s\n' "${output}"
+          if [[ "${code}" -eq 0 ]]; then
+            echo "Expected Betterleaks to reject the synthetic secret fixture." >&2
+            exit 1
+          fi
+          if grep -Fq -- "${synthetic_secret}" <<< "${output}"; then
+            echo "Betterleaks output exposed the synthetic secret instead of redacting it." >&2
+            exit 1
+          fi
+          echo "[security] synthetic secret rejected with exit code ${code}; output remained redacted"
+
+      - name: Blocking PR-diff secret scan
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git diff             --no-ext-diff             --no-textconv             --no-color             --src-prefix=a/             --dst-prefix=b/             "${PR_BASE_SHA}" "${PR_HEAD_SHA}"             -- . ':(exclude).github/fixtures/security/**'             | betterleaks stdin --git-diff --redact --no-banner
+
+  workflow-security:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Determine workflow-security scope
+        id: scope
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          changed="${RUNNER_TEMP}/security-changed-paths.txt"
+          workflows="${RUNNER_TEMP}/security-changed-workflows.txt"
+          git diff --name-only --diff-filter=ACMRT "${PR_BASE_SHA}" "${PR_HEAD_SHA}" > "${changed}"
+          grep -E '^\.github/workflows/.*\.ya?ml$' "${changed}" > "${workflows}" || true
+
+          if [[ -s "${workflows}" ]]; then
+            echo "has_workflows=true" >> "${GITHUB_OUTPUT}"
+            sed 's/^/[security] workflow: /' "${workflows}"
+          else
+            echo "has_workflows=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+          if grep -Eq '^\.github/workflows/ace-security\.yml$|^\.github/fixtures/security/|^scripts/install-security-tools\.sh$' "${changed}"; then
+            echo "self_test=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "self_test=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Install pinned workflow security tools
+        if: steps.scope.outputs.has_workflows == 'true' || steps.scope.outputs.self_test == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="${RUNNER_TEMP}/ace-security-tools/bin"
+          scripts/install-security-tools.sh "${bin}" actionlint zizmor
+          echo "${bin}" >> "${GITHUB_PATH}"
+
+      - name: Verify actionlint unsafe fixture is rejected
+        if: steps.scope.outputs.self_test == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          output="$(actionlint .github/fixtures/security/unsafe-workflow.yml 2>&1)"
+          code="$?"
+          set -e
+          printf '%s\n' "${output}"
+          if [[ "${code}" -eq 0 ]] || ! grep -Fq '[expression]' <<< "${output}"; then
+            echo "Expected actionlint to reject the unsafe expression fixture." >&2
+            exit 1
+          fi
+          echo "[security] actionlint rejected unsafe fixture with exit code ${code}"
+
+      - name: Verify zizmor unsafe fixture is rejected
+        if: steps.scope.outputs.self_test == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          output="$(zizmor --offline --persona=regular --color=never --show-audit-urls=never .github/fixtures/security/unsafe-workflow.yml 2>&1)"
+          code="$?"
+          set -e
+          printf '%s\n' "${output}"
+          if [[ "${code}" -eq 0 ]]             || ! grep -Fq 'dangerous-triggers' <<< "${output}"             || ! grep -Fq 'template-injection' <<< "${output}"; then
+            echo "Expected zizmor to reject the unsafe workflow fixture." >&2
+            exit 1
+          fi
+          echo "[security] zizmor rejected unsafe fixture with exit code ${code}"
+
+      - name: Verify clean workflow fixture
+        if: steps.scope.outputs.self_test == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          actionlint .github/fixtures/security/safe-workflow.yml
+          zizmor             --offline             --persona=regular             --color=never             --show-audit-urls=never             .github/fixtures/security/safe-workflow.yml
+
+      - name: Blocking actionlint check for changed workflows
+        if: steps.scope.outputs.has_workflows == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t workflows < "${RUNNER_TEMP}/security-changed-workflows.txt"
+          actionlint "${workflows[@]}"
+
+      - name: Blocking offline zizmor check for changed workflows
+        if: steps.scope.outputs.has_workflows == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t workflows < "${RUNNER_TEMP}/security-changed-workflows.txt"
+          zizmor             --offline             --persona=regular             --color=never             --show-audit-urls=never             "${workflows[@]}"
+
+  scheduled-secret-history:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout full history
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
@@ -28,86 +197,11 @@ jobs:
           scripts/install-security-tools.sh "${bin}" betterleaks
           echo "${bin}" >> "${GITHUB_PATH}"
 
-      - name: RED — synthetic secret must fail
+      - name: Report-only full-history secret audit
         shell: bash
-        run: |
-          set -o pipefail
-          cat .github/fixtures/security/fake-secret.txt             | betterleaks stdin --redact --no-banner
-
-  actionlint-red:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Install pinned actionlint
-        shell: bash
-        run: |
-          set -euo pipefail
-          bin="${RUNNER_TEMP}/ace-security-tools/bin"
-          scripts/install-security-tools.sh "${bin}" actionlint
-          echo "${bin}" >> "${GITHUB_PATH}"
-
-      - name: RED — unsafe workflow must fail actionlint
-        run: actionlint .github/fixtures/security/unsafe-workflow.yml
-
-  zizmor-red:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Install pinned zizmor
-        shell: bash
-        run: |
-          set -euo pipefail
-          bin="${RUNNER_TEMP}/ace-security-tools/bin"
-          scripts/install-security-tools.sh "${bin}" zizmor
-          echo "${bin}" >> "${GITHUB_PATH}"
-
-      - name: RED — unsafe workflow must fail zizmor
         run: >-
-          zizmor
-          --offline
-          --persona=regular
-          --color=never
-          --show-audit-urls=never
-          .github/fixtures/security/unsafe-workflow.yml
-
-  clean-fixture:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Install pinned workflow security tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          bin="${RUNNER_TEMP}/ace-security-tools/bin"
-          scripts/install-security-tools.sh "${bin}" actionlint zizmor
-          echo "${bin}" >> "${GITHUB_PATH}"
-
-      - name: Clean workflow passes actionlint
-        run: actionlint .github/fixtures/security/safe-workflow.yml
-
-      - name: Clean workflow passes zizmor
-        run: >-
-          zizmor
-          --offline
-          --persona=regular
-          --color=never
-          --show-audit-urls=never
-          .github/fixtures/security/safe-workflow.yml
+          betterleaks
+          git .
+          --redact
+          --no-banner
+          --exit-code=0
