@@ -2,11 +2,15 @@ id: ace-gateway-transport-no-mcp-import
 language: TypeScript
 rule:
   kind: string_fragment
-  regex: '^__ACE_QG2_RED__$'
+  regex: '^(?:@modelcontextprotocol/.*|\.\./gateway/mcp-gateway\.js|\./mcp-sdk-stdio\.js)$'
   inside:
     kind: import_statement
     stopBy: end
 severity: warning
 message: Gateway Projection transport must not import MCP SDK or MCP transport modules.
 note: |
-  ACE-ARCH-003. Preserve the model-bound Gateway Projection plane separately from MCP framing and explicit-tool transport.
+  ACE-ARCH-003. Keep model-bound Gateway Projection delivery separate from MCP framing and explicit tools.
+  Share only a lower neutral contract when behavior is genuinely common.
+metadata:
+  contract: ADR-014 / ADR-017 plane separation
+  repair: Remove MCP framing dependencies from Gateway Projection transport.
