@@ -63,7 +63,11 @@ jobs:
           git -C "${repo}" commit -qm "safe baseline"
           base="$(git -C "${repo}" rev-parse HEAD)"
 
-          betterleaks             git "${repo}"             --log-opts="${base}^! -- fixture.txt"             --redact             --no-banner
+          betterleaks \
+            git "${repo}" \
+            --log-opts="${base}^! -- fixture.txt" \
+            --redact \
+            --no-banner
 
           cp "${fixture}" "${repo}/fixture.txt"
           git -C "${repo}" add fixture.txt
@@ -172,7 +176,9 @@ jobs:
           code="$?"
           set -e
           printf '%s\n' "${output}"
-          if [[ "${code}" -eq 0 ]]             || ! grep -Fq 'dangerous-triggers' <<< "${output}"             || ! grep -Fq 'template-injection' <<< "${output}"; then
+          if [[ "${code}" -eq 0 ]] \
+            || ! grep -Fq 'dangerous-triggers' <<< "${output}" \
+            || ! grep -Fq 'template-injection' <<< "${output}"; then
             echo "Expected zizmor to reject the unsafe workflow fixture." >&2
             exit 1
           fi
@@ -184,7 +190,12 @@ jobs:
         run: |
           set -euo pipefail
           actionlint .github/fixtures/security/safe-workflow.yml
-          zizmor             --offline             --persona=regular             --color=never             --show-audit-urls=never             .github/fixtures/security/safe-workflow.yml
+          zizmor \
+            --offline \
+            --persona=regular \
+            --color=never \
+            --show-audit-urls=never \
+            .github/fixtures/security/safe-workflow.yml
 
       - name: Blocking actionlint check for changed workflows
         if: steps.scope.outputs.has_workflows == 'true'
@@ -200,7 +211,12 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t workflows < "${RUNNER_TEMP}/security-changed-workflows.txt"
-          zizmor             --offline             --persona=regular             --color=never             --show-audit-urls=never             "${workflows[@]}"
+          zizmor \
+            --offline \
+            --persona=regular \
+            --color=never \
+            --show-audit-urls=never \
+            "${workflows[@]}"
 
   scheduled-secret-history:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
