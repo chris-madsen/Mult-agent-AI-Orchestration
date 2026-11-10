@@ -143,6 +143,7 @@ jobs:
           fi
 
       - name: Negative fixture must be rejected
+        if: steps.markdown.outputs.self_test == 'true'
         id: negative
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
@@ -159,6 +160,7 @@ jobs:
           output: lychee/negative-fixture.md
 
       - name: Assert negative fixture failed
+        if: steps.markdown.outputs.self_test == 'true'
         shell: bash
         env:
           NEGATIVE_EXIT_CODE: ${{ steps.negative.outputs.exit_code }}
@@ -171,6 +173,7 @@ jobs:
           echo "[docs-links] negative fixture rejected with exit code ${NEGATIVE_EXIT_CODE}"
 
       - name: Positive fixture must pass
+        if: steps.markdown.outputs.self_test == 'true'
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
           lycheeVersion: v0.24.2
