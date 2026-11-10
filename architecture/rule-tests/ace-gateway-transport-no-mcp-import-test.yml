@@ -1,0 +1,13 @@
+id: ace-gateway-transport-no-mcp-import
+valid:
+  - |
+    import type { GatewayProjectionDecision } from '../domain/gateway-projection.js';
+  - |
+    const example = "import { McpServer } from '@modelcontextprotocol/server'";
+invalid:
+  - |
+    import { McpServer } from '@modelcontextprotocol/server';
+  - |
+    import type { GatewayResponse } from '../gateway/mcp-gateway.js';
+  - |
+    import { runMcpSdkStdio } from './mcp-sdk-stdio.js';

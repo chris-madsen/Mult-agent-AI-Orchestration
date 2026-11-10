@@ -1,0 +1,9 @@
+id: ace-domain-no-adapter-import
+valid:
+  - |
+    import type { Result } from '../domain/result.js';
+  - |
+    const example = "import type { Provider } from '../adapters/provider.js'";
+invalid:
+  - |
+    import type { Provider } from '../adapters/provider.js';

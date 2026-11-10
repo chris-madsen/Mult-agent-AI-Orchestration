@@ -1,0 +1,12 @@
+id: ace-domain-no-adapter-import
+language: TypeScript
+rule:
+  kind: string_fragment
+  regex: '^__ACE_QG2_RED__$'
+  inside:
+    kind: import_statement
+    stopBy: end
+severity: warning
+message: Domain code must not import concrete adapters.
+note: |
+  ACE-ARCH-001. Keep provider and I/O implementations outside domain; depend inward through domain/application contracts.

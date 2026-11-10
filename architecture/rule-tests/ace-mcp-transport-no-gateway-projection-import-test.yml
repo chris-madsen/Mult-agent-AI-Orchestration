@@ -1,0 +1,13 @@
+id: ace-mcp-transport-no-gateway-projection-import
+valid:
+  - |
+    import type { GatewayResponse } from '../gateway/mcp-gateway.js';
+  - |
+    const example = "import type { X } from '../domain/gateway-projection.js'";
+invalid:
+  - |
+    import type { GatewayProjectionDecision } from '../domain/gateway-projection.js';
+  - |
+    import type { GatewayProjectionService } from '../application/gateway-projection-service.js';
+  - |
+    import { runGatewayProjectionHttp } from './gateway-projection-http.js';

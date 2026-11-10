@@ -1,0 +1,12 @@
+id: ace-mcp-transport-no-gateway-projection-import
+language: TypeScript
+rule:
+  kind: string_fragment
+  regex: '^__ACE_QG2_RED__$'
+  inside:
+    kind: import_statement
+    stopBy: end
+severity: warning
+message: MCP explicit-tool transport must not import Gateway Projection implementation modules.
+note: |
+  ACE-ARCH-002. Preserve the explicit MCP tool plane separately from model-bound Gateway Projection delivery.
