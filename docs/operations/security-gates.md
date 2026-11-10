@@ -14,7 +14,7 @@ ACE pull requests use pinned local security tools from `.github/workflows/ace-se
 - credential validation, analysis and revocation are not enabled;
 - a detected new secret is blocking.
 
-The fixture self-test verifies both detection and that the synthetic secret is absent from scanner output. Stable Betterleaks v1.10.0 is intentionally invoked through its Git-range interface; ACE does not rely on the newer `stdin --git-diff` flag.
+The fixture self-test creates a temporary Git repository and verifies both a clean range and a secret-introducing range using the same `betterleaks git --log-opts` interface as production. It also verifies that the synthetic secret is absent from scanner output. Stable Betterleaks v1.10.0 is intentionally invoked through its Git-range interface; ACE does not rely on the newer `stdin --git-diff` flag.
 
 ### actionlint — workflow correctness
 
