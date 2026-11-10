@@ -135,7 +135,21 @@ jobs:
           changed="${RUNNER_TEMP}/lychee-changed-paths.txt"
           inputs="${RUNNER_TEMP}/lychee-changed-markdown.txt"
           git diff --name-only --diff-filter=ACMRT "${PR_BASE_SHA}" "${PR_HEAD_SHA}" > "${changed}"
-          grep -E '\.md
+          grep -E '\.md$' "${changed}" | grep -v '^\.github/fixtures/markdown-links/' > "${inputs}" || true
+
+          if grep -Eq '^\.github/workflows/ace-contracts\.yml$|^\.github/fixtures/markdown-links/' "${changed}"; then
+            echo "self_test=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "self_test=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+          if [[ -s "${inputs}" ]]; then
+            echo "has_markdown=true" >> "${GITHUB_OUTPUT}"
+            sed 's/^/[docs-links] changed: /' "${inputs}"
+          else
+            echo "has_markdown=false" >> "${GITHUB_OUTPUT}"
+            echo "[docs-links] no changed Markdown files"
+          fi
 
       - name: Negative fixture must be rejected
         if: steps.markdown.outputs.self_test == 'true'
