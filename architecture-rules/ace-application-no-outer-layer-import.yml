@@ -1,0 +1,16 @@
+id: ace-application-no-outer-layer-import
+language: TypeScript
+rule:
+  kind: string_fragment
+  regex: '^\.\./(?:adapters|transport|gateway|bin)/'
+  inside:
+    kind: import_statement
+    stopBy: end
+message: Application code must not import concrete adapters, transport, gateway, or process-entrypoint layers.
+severity: warning
+note: |
+  ARCH-FIT-002. Application owns Effect use cases and typed ports; concrete outer-layer types point dependency direction outward.
+  Move shared contracts to domain/application ports and let composition wire concrete implementations.
+metadata:
+  owner: Architecture Layers
+  repair: Introduce/reuse an application port or domain contract and invert the concrete dependency.

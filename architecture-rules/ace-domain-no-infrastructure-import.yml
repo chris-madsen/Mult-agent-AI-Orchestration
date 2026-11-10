@@ -1,0 +1,16 @@
+id: ace-domain-no-infrastructure-import
+language: TypeScript
+rule:
+  kind: string_fragment
+  regex: '^(?:effect|@modelcontextprotocol/|@qdrant/|zod(?:/.*)?|node:(?:fs(?:/promises)?|http|https|net|tls|child_process)|\.\./(?:application|adapters|gateway|transport|bin)/)'
+  inside:
+    kind: import_statement
+    stopBy: end
+message: Domain code must not import Effect I/O, provider/transport SDKs, I/O builtins, or outward ACE layers.
+severity: warning
+note: |
+  ARCH-FIT-001. Keep domain code as readonly data plus deterministic invariants/transitions.
+  Move I/O and vendor concerns behind application ports and concrete adapters/composition.
+metadata:
+  owner: Architecture Layers
+  repair: Move infrastructure dependency to an application port or adapter; keep the domain import inward/pure.
