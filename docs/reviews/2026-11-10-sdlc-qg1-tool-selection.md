@@ -170,7 +170,7 @@ Before QG1 is called ACTIVE:
 - controlled secret fixture is observed failing;
 - controlled unsafe workflow fixture is observed failing;
 - clean workflow fixture is observed passing;
-- a real PR-diff scan passes with no fixture leakage into production scope;
+- a real PR-range scan passes with no fixture leakage into production scope;
 - tool versions/checksums are visible in repository configuration;
 - final source PR HEAD and actual tested checkout/merge SHA are recorded separately;
 - BUILD / ARCH / SEC / PLAN checks are recorded in the PR.
