@@ -45,27 +45,46 @@ jobs:
           scripts/install-security-tools.sh "${bin}" betterleaks
           echo "${bin}" >> "${GITHUB_PATH}"
 
-      - name: Verify Betterleaks negative fixture and redaction
+      - name: Verify Betterleaks Git-range detection and redaction
         if: steps.scope.outputs.self_test == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          fixture=".github/fixtures/security/fake-secret.txt"
+          fixture="${GITHUB_WORKSPACE}/.github/fixtures/security/fake-secret.txt"
           synthetic_secret="$(tail -n 1 "${fixture}")"
+          repo="${RUNNER_TEMP}/betterleaks-range-fixture"
+          mkdir -p "${repo}"
+          git -C "${repo}" init -q
+          git -C "${repo}" config user.name "ACE security fixture"
+          git -C "${repo}" config user.email "ace-security-fixture@example.invalid"
+
+          printf '%s\n' "safe fixture" > "${repo}/fixture.txt"
+          git -C "${repo}" add fixture.txt
+          git -C "${repo}" commit -qm "safe baseline"
+          base="$(git -C "${repo}" rev-parse HEAD)"
+
+          betterleaks             git "${repo}"             --log-opts="${base}^! -- fixture.txt"             --redact             --no-banner
+
+          cp "${fixture}" "${repo}/fixture.txt"
+          git -C "${repo}" add fixture.txt
+          git -C "${repo}" commit -qm "synthetic secret"
+          head="$(git -C "${repo}" rev-parse HEAD)"
+
           set +e
-          output="$(betterleaks stdin --redact --no-banner < "${fixture}" 2>&1)"
+          output="$(betterleaks git "${repo}" --log-opts="${base}..${head} -- fixture.txt" --redact --no-banner 2>&1)"
           code="$?"
           set -e
           printf '%s\n' "${output}"
+
           if [[ "${code}" -eq 0 ]]; then
-            echo "Expected Betterleaks to reject the synthetic secret fixture." >&2
+            echo "Expected Betterleaks Git-range scan to reject the synthetic secret fixture." >&2
             exit 1
           fi
           if grep -Fq -- "${synthetic_secret}" <<< "${output}"; then
             echo "Betterleaks output exposed the synthetic secret instead of redacting it." >&2
             exit 1
           fi
-          echo "[security] synthetic secret rejected with exit code ${code}; output remained redacted"
+          echo "[security] Git-range synthetic secret rejected with exit code ${code}; output remained redacted"
 
       - name: Blocking PR-range secret scan
         shell: bash
