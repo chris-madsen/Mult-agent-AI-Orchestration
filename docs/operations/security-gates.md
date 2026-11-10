@@ -34,7 +34,7 @@ Do not replace these pins with `latest`, unpinned package-manager installation o
 
 ## Scheduled history scan
 
-A weekly/manual Betterleaks history audit is initially **report-only for findings** by using `--exit-code=0`. Tool/install/runtime errors can still fail the job.
+A weekly/manual Betterleaks history audit is initially **report-only for findings** by using `--exit-code=0`. Tool/install/runtime errors can still fail the job. The controlled fixture directory is excluded from the full-history Git scope so the intentionally fake secret cannot create permanent scheduled noise.
 
 This deliberately separates:
 
@@ -49,7 +49,7 @@ Provider validation remains disabled in the scheduled audit.
 - `.github/fixtures/security/unsafe-workflow.yml` — intentionally insecure workflow; must fail actionlint/zizmor self-tests;
 - `.github/fixtures/security/safe-workflow.yml` — clean local workflow; must pass both tools.
 
-Fixture self-tests run when the security workflow, installer or fixture directory changes. Fixture files are not production scan inputs.
+Fixture self-tests run when the security workflow, installer or fixture directory changes. Fixture files are not production scan inputs. A dedicated history-scope self-test also proves that the controlled fixture directory remains excluded from the scheduled full-history scan.
 
 ## Evidence boundaries
 
