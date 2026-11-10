@@ -1,0 +1,13 @@
+name: Safe security fixture
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  safe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Static command
+        run: echo "safe"

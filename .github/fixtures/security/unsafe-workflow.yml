@@ -1,0 +1,13 @@
+name: Unsafe security fixture
+
+on:
+  pull_request_target:
+
+permissions: write-all
+
+jobs:
+  unsafe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Unsafe interpolation
+        run: echo "${{ github.event.pull_request.title }}"

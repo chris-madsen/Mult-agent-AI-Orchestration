@@ -1,0 +1,113 @@
+name: ACE security gates
+
+on:
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  secret-red:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pinned Betterleaks
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="${RUNNER_TEMP}/ace-security-tools/bin"
+          scripts/install-security-tools.sh "${bin}" betterleaks
+          echo "${bin}" >> "${GITHUB_PATH}"
+
+      - name: RED — synthetic secret must fail
+        shell: bash
+        run: |
+          set -o pipefail
+          cat .github/fixtures/security/fake-secret.txt             | betterleaks stdin --redact --no-banner
+
+  actionlint-red:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install pinned actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="${RUNNER_TEMP}/ace-security-tools/bin"
+          scripts/install-security-tools.sh "${bin}" actionlint
+          echo "${bin}" >> "${GITHUB_PATH}"
+
+      - name: RED — unsafe workflow must fail actionlint
+        run: actionlint .github/fixtures/security/unsafe-workflow.yml
+
+  zizmor-red:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install pinned zizmor
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="${RUNNER_TEMP}/ace-security-tools/bin"
+          scripts/install-security-tools.sh "${bin}" zizmor
+          echo "${bin}" >> "${GITHUB_PATH}"
+
+      - name: RED — unsafe workflow must fail zizmor
+        run: >-
+          zizmor
+          --offline
+          --persona=regular
+          --color=never
+          --show-audit-urls=never
+          .github/fixtures/security/unsafe-workflow.yml
+
+  clean-fixture:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install pinned workflow security tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="${RUNNER_TEMP}/ace-security-tools/bin"
+          scripts/install-security-tools.sh "${bin}" actionlint zizmor
+          echo "${bin}" >> "${GITHUB_PATH}"
+
+      - name: Clean workflow passes actionlint
+        run: actionlint .github/fixtures/security/safe-workflow.yml
+
+      - name: Clean workflow passes zizmor
+        run: >-
+          zizmor
+          --offline
+          --persona=regular
+          --color=never
+          --show-audit-urls=never
+          .github/fixtures/security/safe-workflow.yml
