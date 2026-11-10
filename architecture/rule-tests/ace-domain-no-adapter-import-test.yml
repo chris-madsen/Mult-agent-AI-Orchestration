@@ -7,3 +7,5 @@ valid:
 invalid:
   - |
     import type { Provider } from '../adapters/provider.js';
+  - |
+    import type { NestedProvider } from '../../adapters/provider.js';
