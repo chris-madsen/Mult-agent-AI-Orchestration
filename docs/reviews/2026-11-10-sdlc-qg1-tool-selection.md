@@ -38,10 +38,10 @@ Inspected stable release:
 - Linux x64 archive SHA-256: `9d9ad503cd5d80d18a939352266c3fcca52f10da9b83cd5cfe646989b13940fe`;
 - release date: 2026-11-04;
 - maintained by the team that created Gitleaks, including the original author;
-- supports Git history, filesystem, stdin and Git-diff scans;
+- supports Git history, filesystem and stdin scans, plus custom Git log ranges and pre-commit/staged diff modes;
 - provider validation is opt-in; ordinary scans do not make credential-provider requests;
 - supports full output redaction with `--redact`;
-- supports custom Git log ranges and pre-commit/staged diffs.
+- stable v1.10.0 does **not** expose the newer `stdin --git-diff` flag; CI verification therefore uses its supported `git --log-opts` interface.
 
 The upstream `main` branch is already v2 development, so ACE will deliberately pin the stable **v1.10.0 release artifact**, not install from `main` or `@latest`.
 
@@ -53,7 +53,7 @@ Reasoning:
 
 - actively maintained successor path;
 - stable release exists with published artifact digest;
-- supports the exact PR-diff/stdin model ACE needs;
+- supports the exact PR base→head Git-range model ACE needs without scanning unrelated history;
 - scans do not require provider validation or a GitHub token;
 - full redaction is available;
 - avoids adding a second home-grown secret parser.
@@ -110,13 +110,15 @@ For all three tools:
 
 ### Secret scan
 
-Input is the PR base→head patch, excluding only the controlled security fixture directory.
+Input is the PR base→head Git commit range, excluding only the controlled security fixture directory.
 
-The patch is piped to Betterleaks using Git-diff parsing:
+Stable Betterleaks v1.10.0 is invoked through its supported Git scanner:
 
 ```text
-git diff <base> <head> ... | betterleaks stdin --git-diff --redact
+betterleaks git . --log-opts="<base>..<head> -- . ':(exclude).github/fixtures/security/**'" --redact
 ```
+
+An attempted `stdin --git-diff` implementation was rejected by the actual v1.10.0 binary in CI as an unknown flag. ACE therefore uses the verified stable-v1 interface rather than documenting or depending on the newer CLI.
 
 Properties:
 
