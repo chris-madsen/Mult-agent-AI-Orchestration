@@ -102,8 +102,9 @@
     "test:hermes-context-plugin": "python3 -m unittest discover -s integrations/hermes/ace_context_engine -p 'test_*.py'",
     "test:affected": "node scripts/run-affected-tests.mjs",
     "test:impact:self": "node scripts/run-affected-tests.mjs --self-test",
-    "verify:pr": "npm run check && npm test && npm run test:hermes-context-plugin && npm run lint && npm run build",
-    "verify:pr:affected": "npm run check && npm run test:affected && npm run lint && npm run build"
+    "arch:fitness:scan": "ast-grep scan --color=never --report-style=medium --rule architecture-rules/ace-domain-no-infrastructure-import.yml src/domain && ast-grep scan --color=never --report-style=medium --rule architecture-rules/ace-application-no-outer-layer-import.yml src/application",
+    "verify:pr": "npm run check && npm test && npm run test:hermes-context-plugin && npm run lint && npm run build && npm run arch:fitness:scan",
+    "verify:pr:affected": "npm run check && npm run test:affected && npm run lint && npm run build && npm run arch:fitness:scan"
   },
   "dependencies": {
     "@ast-grep/cli": "0.51.0",

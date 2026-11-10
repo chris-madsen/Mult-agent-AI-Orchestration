@@ -69,13 +69,6 @@ jobs:
       - name: Install locked dependencies once
         if: steps.scope.outputs.mode != 'docs'
         run: npm ci --ignore-scripts
-      - name: Architecture fitness RED fixture
-        if: steps.scope.outputs.mode != 'docs'
-        run: >-
-          node_modules/.bin/ast-grep scan
-          --rule architecture-rules/ace-domain-no-infrastructure-import.yml
-          --error=ace-domain-no-infrastructure-import
-          test/fixtures/architecture/domain-bad.ts
       - name: Embedding artifact and evaluator regressions
         if: steps.scope.outputs.mode != 'docs'
         env:

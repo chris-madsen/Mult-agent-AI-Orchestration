@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -149,3 +150,49 @@ test('Bifrost model projection and native context bridge never construct an MCP 
   assert.doesNotMatch(runtime.slice(httpStart, nativeStart), /runMcpSdkStdio/u);
   assert.match(runtime, /mutually exclusive context-delivery owners/u);
 });
+
+test('architecture fitness ast-grep rules distinguish violating, valid, and false-positive fixtures', () => {
+  const astGrep = join(process.cwd(), 'node_modules', '.bin', 'ast-grep');
+  const cases = [
+    {
+      id: 'ace-domain-no-infrastructure-import',
+      rule: 'architecture-rules/ace-domain-no-infrastructure-import.yml',
+      bad: 'test/fixtures/architecture/domain-bad.ts',
+      good: [
+        'test/fixtures/architecture/domain-good.ts',
+        'test/fixtures/architecture/domain-false-positive.ts',
+      ],
+    },
+    {
+      id: 'ace-application-no-outer-layer-import',
+      rule: 'architecture-rules/ace-application-no-outer-layer-import.yml',
+      bad: 'test/fixtures/architecture/application-bad.ts',
+      good: [
+        'test/fixtures/architecture/application-good.ts',
+        'test/fixtures/architecture/application-false-positive.ts',
+      ],
+    },
+  ] as const;
+
+  const scan = (rule: string, id: string, fixture: string) => spawnSync(
+    astGrep,
+    ['scan', '--color=never', '--report-style=medium', '--rule', rule, `--error=${id}`, fixture],
+    { cwd: process.cwd(), encoding: 'utf8' },
+  );
+
+  for (const fixtureCase of cases) {
+    const bad = scan(fixtureCase.rule, fixtureCase.id, fixtureCase.bad);
+    const badOutput = `${bad.stdout ?? ''}\n${bad.stderr ?? ''}`;
+    assert.equal(bad.error, undefined, badOutput);
+    assert.equal(bad.status, 1, `${fixtureCase.id} must reject its violating fixture:\n${badOutput}`);
+    assert.match(badOutput, new RegExp(fixtureCase.id, 'u'));
+
+    for (const goodFixture of fixtureCase.good) {
+      const good = scan(fixtureCase.rule, fixtureCase.id, goodFixture);
+      const goodOutput = `${good.stdout ?? ''}\n${good.stderr ?? ''}`;
+      assert.equal(good.error, undefined, goodOutput);
+      assert.equal(good.status, 0, `${fixtureCase.id} produced a false positive for ${goodFixture}:\n${goodOutput}`);
+    }
+  }
+});
+
