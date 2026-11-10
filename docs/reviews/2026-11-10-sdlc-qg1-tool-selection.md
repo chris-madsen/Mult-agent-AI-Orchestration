@@ -161,7 +161,7 @@ A weekly Betterleaks full-history scan may run **report-only** initially:
 - no provider validation;
 - exit code forced to zero after findings are emitted.
 
-This surfaces legacy debt without silently turning unknown historical findings into a new merge blocker. New PR-introduced findings remain blocking from day one.
+This surfaces legacy debt without silently turning unknown historical findings into a new merge blocker. The controlled security fixture directory is excluded from that full-history scope so intentionally fake fixtures do not become permanent scheduled findings. New PR-introduced findings remain blocking from day one.
 
 ## Expected SDLC evidence
 
@@ -171,6 +171,7 @@ Before QG1 is called ACTIVE:
 - controlled unsafe workflow fixture is observed failing;
 - clean workflow fixture is observed passing;
 - a real PR-range scan passes with no fixture leakage into production scope;
+- the full-history scope self-test proves the controlled fixture directory is excluded;
 - tool versions/checksums are visible in repository configuration;
 - final source PR HEAD and actual tested checkout/merge SHA are recorded separately;
 - BUILD / ARCH / SEC / PLAN checks are recorded in the PR.
