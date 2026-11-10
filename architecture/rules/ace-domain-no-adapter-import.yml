@@ -2,7 +2,7 @@ id: ace-domain-no-adapter-import
 language: TypeScript
 rule:
   kind: string_fragment
-  regex: '^\.\./adapters/'
+  regex: '^(?:\.\./)+adapters/'
   inside:
     kind: import_statement
     stopBy: end
