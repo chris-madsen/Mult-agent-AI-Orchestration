@@ -90,6 +90,30 @@ jobs:
           fi
           echo "[security] Git-range synthetic secret rejected with exit code ${code}; output remained redacted"
 
+      - name: Verify full-history fixture exclusion
+        if: steps.scope.outputs.self_test == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="${RUNNER_TEMP}/betterleaks-history-fixture"
+          mkdir -p "${repo}/.github/fixtures/security"
+          git -C "${repo}" init -q
+          git -C "${repo}" config user.name "ACE security fixture"
+          git -C "${repo}" config user.email "ace-security-fixture@example.invalid"
+
+          printf '%s\n' "safe tracked file" > "${repo}/README.md"
+          cp "${GITHUB_WORKSPACE}/.github/fixtures/security/fake-secret.txt"             "${repo}/.github/fixtures/security/fake-secret.txt"
+          git -C "${repo}" add README.md .github/fixtures/security/fake-secret.txt
+          git -C "${repo}" commit -qm "history fixture"
+
+          output="$(betterleaks             git "${repo}"             --log-opts="--full-history --all --diff-filter=tuxdb -- . ':(exclude).github/fixtures/security/**'"             --redact             --no-banner 2>&1)"
+          printf '%s\n' "${output}"
+          if grep -Fq 'leaks found:' <<< "${output}"; then
+            echo "Controlled security fixture leaked into scheduled history scope." >&2
+            exit 1
+          fi
+          echo "[security] full-history scope excludes controlled fixture directory"
+
       - name: Blocking PR-range secret scan
         shell: bash
         env:
@@ -242,6 +266,7 @@ jobs:
         run: >-
           betterleaks
           git .
+          --log-opts="--full-history --all --diff-filter=tuxdb -- . ':(exclude).github/fixtures/security/**'"
           --redact
           --no-banner
           --exit-code=0
