@@ -55,7 +55,7 @@ These are intentionally narrow import-edge rules. They do not claim that no shar
 
 ### ACE-ARCH-001 — domain-no-adapter-import
 
-**Invariant:** `src/domain/**` must not import `../adapters/**`.
+**Invariant:** `src/domain/**` must not import an outward relative path resolving into `adapters/**`; the rule accepts one or more parent traversals so a future nested domain folder cannot evade the boundary with `../../adapters/**`.
 
 **Owner source:** FP-03 + root AGENTS adapter/domain boundary.
 
