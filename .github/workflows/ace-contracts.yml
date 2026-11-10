@@ -112,6 +112,51 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: git diff --check "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
 
+
+  docs-links:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Collect changed Markdown files
+        id: markdown
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
+          inputs="${RUNNER_TEMP}/lychee-changed-markdown.txt"
+          git diff --name-only --diff-filter=ACMRT "${PR_BASE_SHA}" "${PR_HEAD_SHA}" -- '*.md' > "${inputs}"
+          if [[ -s "${inputs}" ]]; then
+            echo "has_markdown=true" >> "${GITHUB_OUTPUT}"
+            sed 's/^/[docs-links] changed: /' "${inputs}"
+          else
+            echo "has_markdown=false" >> "${GITHUB_OUTPUT}"
+            echo "[docs-links] no changed Markdown files"
+          fi
+
+      - name: Offline Markdown link verification
+        if: steps.markdown.outputs.has_markdown == 'true'
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          lycheeVersion: v0.24.2
+          args: >-
+            --offline
+            --include-fragments=anchor-only
+            --no-progress
+            --root-dir "${{ github.workspace }}"
+            --files-from "$RUNNER_TEMP/lychee-changed-markdown.txt"
+          fail: true
+          failIfEmpty: false
+          output: lychee/changed-markdown.md
+
   bifrost-connector:
     runs-on: ubuntu-latest
     timeout-minutes: 5
