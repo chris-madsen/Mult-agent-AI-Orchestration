@@ -67,14 +67,19 @@ jobs:
           fi
           echo "[security] synthetic secret rejected with exit code ${code}; output remained redacted"
 
-      - name: Blocking PR-diff secret scan
+      - name: Blocking PR-range secret scan
         shell: bash
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          git diff             --no-ext-diff             --no-textconv             --no-color             --src-prefix=a/             --dst-prefix=b/             "${PR_BASE_SHA}" "${PR_HEAD_SHA}"             -- . ':(exclude).github/fixtures/security/**'             | betterleaks stdin --git-diff --redact --no-banner
+          log_opts="${PR_BASE_SHA}..${PR_HEAD_SHA} -- . ':(exclude).github/fixtures/security/**'"
+          betterleaks \
+            git . \
+            --log-opts="${log_opts}" \
+            --redact \
+            --no-banner
 
   workflow-security:
     if: github.event_name == 'pull_request'
