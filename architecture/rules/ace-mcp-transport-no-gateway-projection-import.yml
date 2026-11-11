@@ -4,7 +4,9 @@ rule:
   kind: string_fragment
   regex: '^(?:\.\./domain/gateway-projection\.js|\.\./application/gateway-projection-service\.js|\./gateway-projection-http\.js)$'
   inside:
-    kind: import_statement
+    any:
+      - kind: import_statement
+      - kind: export_statement
     stopBy: end
 severity: warning
 message: MCP explicit-tool transport must not import Gateway Projection implementation modules.
