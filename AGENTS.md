@@ -93,6 +93,17 @@ Evidence used to close a gate must identify, as applicable, the **source commit,
 
 ## 8. Engineering workflow and change discipline
 
+**Operational SDLC for every repository change:** follow
+`docs/operations/ai-assisted-sdlc.md`. Choose T0/T1/T2 by risk, route through
+`docs/research/sdlc/PROMPTS-ACE.md` and read the complete stage command.
+For material T2 changes, obtain the G02 Design Consistency crosswalk and
+explicit owner decisions **before implementation**; for implementation perform
+four distinct BUILD/ARCH/SEC/PLAN reviews backed by observed evidence.
+This is the established one-agent process, not a new orchestrator or authority
+over accepted ADR/OpenSpec. The optional local diagnostic
+`npm run sdlc:preflight` records facts and possible blockers only;
+it never certifies G02 approval, tests, CI or production readiness.
+
 Before changing code:
 
 1. inspect the **current implementation and runtime composition**;
