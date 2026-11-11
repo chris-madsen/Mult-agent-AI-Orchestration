@@ -1,0 +1,338 @@
+name: ACE security gates
+
+on:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  pr-secret-scan:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Determine secret-scan scope
+        id: scope
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          changed="${RUNNER_TEMP}/security-changed-paths.txt"
+          nul_paths="${RUNNER_TEMP}/security-changed-paths.nul"
+          : > "${changed}"
+          git diff --name-only --diff-filter=ACMRT -z "${PR_BASE_SHA}" "${PR_HEAD_SHA}" > "${nul_paths}"
+          while IFS= read -r -d '' path; do
+            if [[ "${path}" == *$'\n'* || "${path}" == *$'\r'* ]]; then
+              echo "[security] unsupported newline in changed filename" >&2
+              exit 1
+            fi
+            printf '%s\n' "${path}" >> "${changed}"
+          done < "${nul_paths}"
+          if grep -Eq '^\.github/workflows/ace-security\.yml$|^\.github/fixtures/security/|^scripts/install-security-tools\.sh$' "${changed}"; then
+            echo "self_test=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "self_test=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Install pinned Betterleaks
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="${RUNNER_TEMP}/ace-security-tools/bin"
+          scripts/install-security-tools.sh "${bin}" betterleaks
+          echo "${bin}" >> "${GITHUB_PATH}"
+
+      - name: Verify excluded fixture is the exact reviewed synthetic input
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' \
+            '61b671d883bc435c4e44aa9dfb362d33210a06ba084e200201054ee953da6a62' \
+            '.github/fixtures/security/fake-secret.txt' | sha256sum --check --status
+
+      - name: Verify Betterleaks Git-range detection and redaction
+        if: steps.scope.outputs.self_test == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture="${GITHUB_WORKSPACE}/.github/fixtures/security/fake-secret.txt"
+          synthetic_secret="$(tail -n 1 "${fixture}")"
+          repo="${RUNNER_TEMP}/betterleaks-range-fixture"
+          mkdir -p "${repo}"
+          git -C "${repo}" init -q
+          git -C "${repo}" config user.name "ACE security fixture"
+          git -C "${repo}" config user.email "ace-security-fixture@example.invalid"
+
+          printf '%s\n' "safe fixture" > "${repo}/fixture.txt"
+          git -C "${repo}" add fixture.txt
+          git -C "${repo}" commit -qm "safe baseline"
+          base="$(git -C "${repo}" rev-parse HEAD)"
+
+          betterleaks \
+            git "${repo}" \
+            --log-opts="${base}^! -- fixture.txt" \
+            --redact \
+            --no-banner
+
+          cp "${fixture}" "${repo}/fixture.txt"
+          git -C "${repo}" add fixture.txt
+          git -C "${repo}" commit -qm "synthetic secret"
+          head="$(git -C "${repo}" rev-parse HEAD)"
+
+          set +e
+          output="$(betterleaks git "${repo}" --log-opts="${base}..${head} -- fixture.txt" --redact --no-banner 2>&1)"
+          code="$?"
+          set -e
+          printf '%s\n' "${output}"
+
+          if [[ "${code}" -eq 0 ]]; then
+            echo "Expected Betterleaks Git-range scan to reject the synthetic secret fixture." >&2
+            exit 1
+          fi
+          if grep -Fq -- "${synthetic_secret}" <<< "${output}"; then
+            echo "Betterleaks output exposed the synthetic secret instead of redacting it." >&2
+            exit 1
+          fi
+          echo "[security] Git-range synthetic secret rejected with exit code ${code}; output remained redacted"
+
+      - name: Verify full-history fixture exclusion
+        if: steps.scope.outputs.self_test == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="${RUNNER_TEMP}/betterleaks-history-fixture"
+          mkdir -p "${repo}/.github/fixtures/security"
+          git -C "${repo}" init -q
+          git -C "${repo}" config user.name "ACE security fixture"
+          git -C "${repo}" config user.email "ace-security-fixture@example.invalid"
+
+          printf '%s\n' "safe tracked file" > "${repo}/README.md"
+          cp "${GITHUB_WORKSPACE}/.github/fixtures/security/fake-secret.txt"             "${repo}/.github/fixtures/security/fake-secret.txt"
+          git -C "${repo}" add README.md .github/fixtures/security/fake-secret.txt
+          git -C "${repo}" commit -qm "history fixture"
+
+          output="$(betterleaks             git "${repo}"             --log-opts="--full-history --all --diff-filter=tuxdb -- . ':(exclude).github/fixtures/security/fake-secret.txt'"             --redact             --no-banner 2>&1)"
+          printf '%s\n' "${output}"
+          if grep -Fq 'leaks found:' <<< "${output}"; then
+            echo "Controlled security fixture leaked into scheduled history scope." >&2
+            exit 1
+          fi
+          echo "[security] full-history scope excludes only the reviewed synthetic fixture"
+
+          # A second file in the same directory must NOT inherit the exclusion.
+          cp "${GITHUB_WORKSPACE}/.github/fixtures/security/fake-secret.txt" \
+            "${repo}/.github/fixtures/security/unexpected-token.txt"
+          git -C "${repo}" add .github/fixtures/security/unexpected-token.txt
+          git -C "${repo}" commit -qm "unreviewed adjacent secret fixture"
+          set +e
+          adjacent_output="$(betterleaks git "${repo}" \
+            --log-opts="--full-history --all -- . ':(exclude).github/fixtures/security/fake-secret.txt'" \
+            --redact --no-banner 2>&1)"
+          adjacent_exit="$?"
+          set -e
+          if [[ "${adjacent_exit}" -eq 0 ]]; then
+            echo "Unreviewed adjacent secret was incorrectly excluded from scanning." >&2
+            exit 1
+          fi
+          if grep -Fq -- "$(tail -n 1 "${GITHUB_WORKSPACE}/.github/fixtures/security/fake-secret.txt")" <<< "${adjacent_output}"; then
+            echo "Betterleaks emitted synthetic secret without redaction." >&2
+            exit 1
+          fi
+          echo "[security] adjacent fixture detected and redacted"
+
+
+      - name: Blocking PR-range secret scan
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          log_opts="${PR_BASE_SHA}..${PR_HEAD_SHA} -- . ':(exclude).github/fixtures/security/fake-secret.txt'"
+          betterleaks \
+            git . \
+            --log-opts="${log_opts}" \
+            --redact \
+            --no-banner
+
+  workflow-security:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Determine workflow-security scope
+        id: scope
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          changed="${RUNNER_TEMP}/security-changed-paths.txt"
+          workflows="${RUNNER_TEMP}/security-changed-workflows.txt"
+          nul_paths="${RUNNER_TEMP}/security-changed-paths.nul"
+          : > "${changed}"
+          : > "${workflows}"
+          # -z preserves non-ASCII workflow filenames that Git otherwise quotes.
+          git diff --name-only --diff-filter=ACMRT -z "${PR_BASE_SHA}" "${PR_HEAD_SHA}" > "${nul_paths}"
+          while IFS= read -r -d '' path; do
+            if [[ "${path}" == *$'\n'* || "${path}" == *$'\r'* ]]; then
+              echo "[security] unsupported newline in changed filename" >&2
+              exit 1
+            fi
+            printf '%s\n' "${path}" >> "${changed}"
+            case "${path}" in
+              .github/workflows/*.yml|.github/workflows/*.yaml)
+                if [[ ! -f "${path}" || -L "${path}" ]]; then
+                  echo "[security] workflow missing or symlinked: ${path}" >&2
+                  exit 1
+                fi
+                printf '%s\n' "${path}" >> "${workflows}"
+                ;;
+            esac
+          done < "${nul_paths}"
+
+          if [[ -s "${workflows}" ]]; then
+            echo "has_workflows=true" >> "${GITHUB_OUTPUT}"
+            sed 's/^/[security] workflow: /' "${workflows}"
+          else
+            echo "has_workflows=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+          if grep -Eq '^\.github/workflows/ace-security\.yml$|^\.github/fixtures/security/|^scripts/install-security-tools\.sh$' "${changed}"; then
+            echo "self_test=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "self_test=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Install pinned workflow security tools
+        if: steps.scope.outputs.has_workflows == 'true' || steps.scope.outputs.self_test == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="${RUNNER_TEMP}/ace-security-tools/bin"
+          scripts/install-security-tools.sh "${bin}" actionlint zizmor
+          echo "${bin}" >> "${GITHUB_PATH}"
+
+      - name: Verify actionlint unsafe fixture is rejected
+        if: steps.scope.outputs.self_test == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          output="$(actionlint .github/fixtures/security/unsafe-workflow.yml 2>&1)"
+          code="$?"
+          set -e
+          printf '%s\n' "${output}"
+          if [[ "${code}" -eq 0 ]] || ! grep -Fq '[expression]' <<< "${output}"; then
+            echo "Expected actionlint to reject the unsafe expression fixture." >&2
+            exit 1
+          fi
+          echo "[security] actionlint rejected unsafe fixture with exit code ${code}"
+
+      - name: Verify zizmor unsafe fixture is rejected
+        if: steps.scope.outputs.self_test == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          output="$(zizmor --offline --persona=regular --color=never --show-audit-urls=never .github/fixtures/security/unsafe-workflow.yml 2>&1)"
+          code="$?"
+          set -e
+          printf '%s\n' "${output}"
+          if [[ "${code}" -eq 0 ]] \
+            || ! grep -Fq 'dangerous-triggers' <<< "${output}" \
+            || ! grep -Fq 'template-injection' <<< "${output}"; then
+            echo "Expected zizmor to reject the unsafe workflow fixture." >&2
+            exit 1
+          fi
+          echo "[security] zizmor rejected unsafe fixture with exit code ${code}"
+
+      - name: Verify clean workflow fixture
+        if: steps.scope.outputs.self_test == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          actionlint .github/fixtures/security/safe-workflow.yml
+          zizmor \
+            --offline \
+            --persona=regular \
+            --color=never \
+            --show-audit-urls=never \
+            .github/fixtures/security/safe-workflow.yml
+
+      - name: Blocking actionlint check for changed workflows
+        if: steps.scope.outputs.has_workflows == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t workflows < "${RUNNER_TEMP}/security-changed-workflows.txt"
+          actionlint "${workflows[@]}"
+
+      - name: Blocking offline zizmor check for changed workflows
+        if: steps.scope.outputs.has_workflows == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t workflows < "${RUNNER_TEMP}/security-changed-workflows.txt"
+          zizmor \
+            --offline \
+            --persona=regular \
+            --color=never \
+            --show-audit-urls=never \
+            "${workflows[@]}"
+
+  scheduled-secret-history:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pinned Betterleaks
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="${RUNNER_TEMP}/ace-security-tools/bin"
+          scripts/install-security-tools.sh "${bin}" betterleaks
+          echo "${bin}" >> "${GITHUB_PATH}"
+
+      - name: Verify excluded fixture is the exact reviewed synthetic input
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' \
+            '61b671d883bc435c4e44aa9dfb362d33210a06ba084e200201054ee953da6a62' \
+            '.github/fixtures/security/fake-secret.txt' | sha256sum --check --status
+
+      - name: Report-only full-history secret audit
+        shell: bash
+        run: >-
+          betterleaks
+          git .
+          --log-opts="--full-history --all --diff-filter=tuxdb -- . ':(exclude).github/fixtures/security/fake-secret.txt'"
+          --redact
+          --no-banner
+          --exit-code=0
