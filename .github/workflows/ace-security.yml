@@ -30,7 +30,16 @@ jobs:
         run: |
           set -euo pipefail
           changed="${RUNNER_TEMP}/security-changed-paths.txt"
-          git diff --name-only --diff-filter=ACMRT "${PR_BASE_SHA}" "${PR_HEAD_SHA}" > "${changed}"
+          nul_paths="${RUNNER_TEMP}/security-changed-paths.nul"
+          : > "${changed}"
+          git diff --name-only --diff-filter=ACMRT -z "${PR_BASE_SHA}" "${PR_HEAD_SHA}" > "${nul_paths}"
+          while IFS= read -r -d '' path; do
+            if [[ "${path}" == *$'\n'* || "${path}" == *$'\r'* ]]; then
+              echo "[security] unsupported newline in changed filename" >&2
+              exit 1
+            fi
+            printf '%s\n' "${path}" >> "${changed}"
+          done < "${nul_paths}"
           if grep -Eq '^\.github/workflows/ace-security\.yml$|^\.github/fixtures/security/|^scripts/install-security-tools\.sh$' "${changed}"; then
             echo "self_test=true" >> "${GITHUB_OUTPUT}"
           else
