@@ -152,3 +152,16 @@ QG2 pilot is implemented when:
 - rule IDs and repair hints are visible;
 - CI evidence is bound to exact PR source head + tested checkout SHA;
 - owner approval for blocking promotion remains explicitly pending unless separately given.
+
+## Semantic review follow-up (2026-11-11)
+
+A direct `export ... from` statement can introduce the same forbidden
+dependency without a literal `import` statement. The initial rules limited
+the AST parent to `import_statement` and would silently miss that case.
+
+All three rule parents now accept either `import_statement` or
+`export_statement`, with a new negative re-export fixture for each rule.
+This is a bounded strengthening of the same accepted import-edge invariants,
+not a new rule or a type-aware dependency graph. The scoped project scan
+continues to be advisory (`severity: warning`). Native ast-grep fixtures
+and the exact PR HEAD/CI checkout must be revalidated before merge.
