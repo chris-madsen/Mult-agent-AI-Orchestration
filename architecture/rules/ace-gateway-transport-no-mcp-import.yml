@@ -4,7 +4,9 @@ rule:
   kind: string_fragment
   regex: '^(?:@modelcontextprotocol/.*|\.\./gateway/mcp-gateway\.js|\./mcp-sdk-stdio\.js)$'
   inside:
-    kind: import_statement
+    any:
+      - kind: import_statement
+      - kind: export_statement
     stopBy: end
 severity: warning
 message: Gateway Projection transport must not import MCP SDK or MCP transport modules.
