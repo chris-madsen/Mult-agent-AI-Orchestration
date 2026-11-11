@@ -237,3 +237,55 @@ Minimum milestone:
 **Active task:** `SDLC-QG0` + `SDLC-DOGFOOD-1`.
 
 Next implementation step: add a pinned offline Lychee check to the docs-only branch of `.github/workflows/ace-contracts.yml`, with controlled RED/GREEN fixtures and retained evidence.
+
+## Adoption closure crosswalk (reviewed 2026-11-11)
+
+This section is a delivery checklist under the existing SDLC, not a second
+specification or a claim that unmerged checks are active. Check current PR
+HEADs, exact merge candidates, and CI again before accepting any row.
+
+| ID | Dependency | Completion evidence | State at review |
+|---|---|---|---|
+| AC-SDLC-01 | #223 | QG0 merged; normal changed-Markdown PR rejects a broken relative file/anchor; Unicode paths are included; docs-only checks avoid npm/provider installs; source SHA and checkout SHA retained | #223 draft; review fixes committed, final acceptance pending |
+| AC-SDLC-02 | AC-SDLC-01, #224 | QG1 merged; synthetic new secret blocks, output redacted, clean input passes; a secret adjacent to the excluded reviewed fixture is detected; actionlint/zizmor reject unsafe workflow and accept clean workflow | #224 draft; review fixes committed, final acceptance pending |
+| AC-SDLC-03 | AC-SDLC-02, #225 | QG2 merged; each native ast-grep rule passes valid/invalid/false-positive and re-export cases; production scan remains report-only until owner authorizes blocking promotion | #225 draft; review fixes committed, final acceptance pending |
+| AC-SDLC-04 | AC-SDLC-01..03 | One combined fresh PR verifies all three gates together on the post-merge main; no existing runtime or provider gate is weakened | NOT-RUN |
+| AC-SDLC-05 | AC-SDLC-01..04 | Branch/rules policy makes required checks and human approval enforceable; do not claim protection from an inaccessible GitHub endpoint | UNKNOWN — requires repository owner confirmation |
+| AC-SDLC-06 | AC-SDLC-01, owner merge | T1 dogfood evidence for #223 archived at merged SHA, with real RED/GREEN, four distinct gate passes and human review | PENDING merge/owner |
+| AC-SDLC-07 | Appropriate real T2 task | G02 acceptance→owner→decision→state/contract→phase→RED/GREEN→provider-proof crosswalk accepted **before code**, then implemented, tested, reviewed and merged | NOT-RUN |
+| AC-SDLC-08 | AC-SDLC-01..07 | Two further independent real tasks (one contained T1 bugfix, one material T2 change) demonstrate repeatable process and honest provider/agent E2E; human audits quality rather than merely checking template fields | NOT-RUN |
+
+### Required integration after merge
+
+Merge order is QG0 (#223), QG1 (#224), QG2 (#225), each rechecked
+against the **current main** rather than treating green isolated PR runs as
+integration proof. Preserve separate branch HEAD and actual tested checkout
+SHA. Use a disposable test PR to show a genuinely broken local Markdown link,
+synthetic newly introduced credential, and unsafe workflow are independently
+rejected by their relevant checks. A clean changed-document PR must pass.
+QG2 is intentionally advisory/report-only until an owner-approved promotion;
+do not count its warnings as blocking.
+
+GitHub branch protection or ruleset configuration is a repository-owner action.
+Do not label checks mandatory merely because their workflows exist. Validate
+the effective merge policy and required checks using a non-production test PR.
+
+### Beyond minimum operational adoption
+
+- **P1:** QG4 Knip/OSV report-only pilots, QG5 public contract compatibility
+  with positive and breaking fixtures, QG6 scoped nightly CodeQL/advisory/
+  property or mutation checks after measuring their noise and cost.
+- **Risk-driven:** QG7 typed import/SCIP pilot only where the native TS graph or
+  ast-grep cannot prove an accepted invariant.
+- **Separate approved architecture track:** TypeSpec TS-00..TS-06 with generated
+  API SDK/server/validators/mapping and negative wire compatibility, source
+  identity and actual provider tests. It is selected policy but no installed
+  code generator is asserted.
+- **Optional:** pinned Matt Pocock skills vendor import; never activate a
+  second agent orchestrator or alternative OpenSpec authority.
+
+Operational SDLC adoption does **not** retroactively prove every existing ACE
+runtime module is architecturally compliant. Existing code concerns should be
+prioritized by incident/security impact, checked against accepted ADR/OpenSpec
+and maintained upstreams, and repaired as small RED/GREEN PRs with removal of
+superseded implementations.
