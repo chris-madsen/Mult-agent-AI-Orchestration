@@ -11,6 +11,7 @@
     "gateway:http": "npm run build && ACE_GATEWAY_HTTP_MODE=true node dist/bin/ace-gateway-http.js",
     "check": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src test --ext .ts --max-warnings=0",
+    "analyze:dependencies": "knip --no-progress --reporter compact --no-exit-code",
     "probe:providers": "node scripts/provider-capability-probe.mjs",
     "preflight:amplifier-graphiti": "tsx scripts/amplifier-graphiti-preflight.ts",
     "report:harbor-smoke": "tsx scripts/render-harbor-smoke-report.ts",
@@ -129,6 +130,7 @@
     "eslint-config-airbnb-typescript": "18.0.0",
     "eslint-import-resolver-typescript": "3.7.0",
     "eslint-plugin-import": "2.31.0",
+    "knip": "6.45.1",
     "tsx": "4.23.15"
   }
 }
