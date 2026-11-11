@@ -115,3 +115,17 @@ test('unknown tier or stage fails before reporting false readiness', () => fixtu
   assert.equal(result.status, 2);
   assert.match(result.stderr, /explicit --tier/);
 }));
+
+test('untrusted task ID is never rendered as a shell command suggestion', () => fixture((root) => {
+  run('git', ['switch', '-q', '-c', 'codex/local-1'], root);
+  const injected = '$(touch /tmp/should-never-execute)';
+  const { code, data } = preflight(root, [
+    '--tier', 'T1', '--stage', 'implement', '--task-id', injected,
+    '--plan', 'docs/plans/fixture-plan.md',
+  ]);
+  assert.equal(code, 0);
+  assert.equal(data.selection.taskId, injected);
+  assert.equal(data.verdict, 'REVIEW_REQUIRED');
+  assert.equal(data.next.join(' ').includes(injected), false);
+  assert.equal(data.checks.map((c) => c.reason).join(' ').includes(injected), false);
+}));
