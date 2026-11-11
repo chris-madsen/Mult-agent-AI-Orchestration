@@ -1,0 +1,18 @@
+id: ace-mcp-transport-no-gateway-projection-import
+language: TypeScript
+rule:
+  kind: string_fragment
+  regex: '^(?:\.\./domain/gateway-projection\.js|\.\./application/gateway-projection-service\.js|\./gateway-projection-http\.js)$'
+  inside:
+    any:
+      - kind: import_statement
+      - kind: export_statement
+    stopBy: end
+severity: warning
+message: MCP explicit-tool transport must not import Gateway Projection implementation modules.
+note: |
+  ACE-ARCH-002. Keep the explicit MCP tool plane separate from model-bound Gateway Projection delivery.
+  Share only a lower neutral contract when behavior is genuinely common.
+metadata:
+  contract: ADR-014 / ADR-017 plane separation
+  repair: Keep MCP framing on MCP contracts; move shared behavior below both delivery planes.

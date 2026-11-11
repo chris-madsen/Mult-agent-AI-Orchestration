@@ -1,0 +1,18 @@
+id: ace-domain-no-adapter-import
+language: TypeScript
+rule:
+  kind: string_fragment
+  regex: '^(?:\.\./)+adapters/'
+  inside:
+    any:
+      - kind: import_statement
+      - kind: export_statement
+    stopBy: end
+severity: warning
+message: Domain code must not import concrete adapters.
+note: |
+  ACE-ARCH-001. Keep provider and I/O implementations outside domain.
+  Move the dependency behind a domain/application contract and concrete adapter/composition.
+metadata:
+  contract: Architecture Layers / FP-03
+  repair: Move provider or I/O implementation behind an inward-facing contract.
