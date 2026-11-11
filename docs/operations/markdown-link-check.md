@@ -7,14 +7,15 @@ ACE checks local links in changed Markdown files with pinned Lychee during pull-
 The `docs-links` job in `.github/workflows/ace-contracts.yml`:
 
 - runs on pull requests;
-- derives Markdown inputs from the PR base/head diff;
+- derives Markdown inputs from the PR base/head diff using NUL-delimited Git filenames (including Unicode paths);
 - checks only added/copied/modified/renamed/type-changed `*.md` paths;
+- fails closed on newline/carriage-return filenames and changed Markdown symlinks instead of silently skipping them;
 - excludes only `.github/fixtures/markdown-links/`, because that directory deliberately contains a broken negative fixture;
 - runs Lychee with `--offline`, so HTTP/HTTPS targets are not requested;
 - enables local anchor-fragment checking;
 - does not install the Node dependency tree or provider/model dependencies.
 
-The action is pinned by full commit SHA and the Lychee binary version is pinned explicitly.
+The action is pinned by full commit SHA and the Lychee binary version is pinned explicitly. Git's default quoted `--name-only` output is avoided because it silently omitted changed Unicode Markdown filenames.
 
 ## Controlled fixtures
 
