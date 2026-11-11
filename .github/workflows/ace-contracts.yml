@@ -134,8 +134,428 @@ jobs:
           git fetch --no-tags --depth=1 origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
           changed="${RUNNER_TEMP}/lychee-changed-paths.txt"
           inputs="${RUNNER_TEMP}/lychee-changed-markdown.txt"
-          git diff --name-only --diff-filter=ACMRT "${PR_BASE_SHA}" "${PR_HEAD_SHA}" > "${changed}"
-          grep -E '\.md$' "${changed}" | grep -v '^\.github/fixtures/markdown-links/' > "${inputs}" || true
+          nul_paths="${RUNNER_TEMP}/lychee-changed-paths.nul"
+          : > "${changed}"
+          : > "${inputs}"
+          # -z avoids Git's quoted Unicode filenames, which bypassed the old grep.
+          git diff --name-only --diff-filter=ACMRT -z "${PR_BASE_SHA}" "${PR_HEAD_SHA}" > "${nul_paths}"
+          while IFS= read -r -d '' path; do
+            # Lychee --files-from is line-delimited. Fail closed on ambiguous paths.
+            if [[ "${path}" == *
+          if grep -Eq '^\.github/workflows/ace-contracts\.yml$|^\.github/fixtures/markdown-links/' "${changed}"; then
+            echo "self_test=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "self_test=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+          if [[ -s "${inputs}" ]]; then
+            echo "has_markdown=true" >> "${GITHUB_OUTPUT}"
+            sed 's/^/[docs-links] changed: /' "${inputs}"
+          else
+            echo "has_markdown=false" >> "${GITHUB_OUTPUT}"
+            echo "[docs-links] no changed Markdown files"
+          fi
+
+      - name: Negative fixture must be rejected
+        if: steps.markdown.outputs.self_test == 'true'
+        id: negative
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          lycheeVersion: v0.24.2
+          token: ""
+          args: >-
+            --offline
+            --include-fragments=anchor-only
+            --no-progress
+            --root-dir "${{ github.workspace }}"
+            ".github/fixtures/markdown-links/broken.md"
+          fail: false
+          failIfEmpty: true
+          jobSummary: false
+          output: lychee/negative-fixture.md
+
+      - name: Assert negative fixture failed
+        if: steps.markdown.outputs.self_test == 'true'
+        shell: bash
+        env:
+          NEGATIVE_EXIT_CODE: ${{ steps.negative.outputs.exit_code }}
+        run: |
+          set -euo pipefail
+          if [[ "${NEGATIVE_EXIT_CODE}" == "0" ]]; then
+            echo "Expected broken Markdown fixture to fail, but Lychee returned success." >&2
+            exit 1
+          fi
+          echo "[docs-links] negative fixture rejected with exit code ${NEGATIVE_EXIT_CODE}"
+
+      - name: Positive fixture must pass
+        if: steps.markdown.outputs.self_test == 'true'
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          lycheeVersion: v0.24.2
+          token: ""
+          args: >-
+            --offline
+            --include-fragments=anchor-only
+            --no-progress
+            --root-dir "${{ github.workspace }}"
+            ".github/fixtures/markdown-links/valid.md"
+          fail: true
+          failIfEmpty: true
+          jobSummary: false
+          output: lychee/positive-fixture.md
+
+      - name: Offline Markdown link verification
+        if: steps.markdown.outputs.has_markdown == 'true'
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          lycheeVersion: v0.24.2
+          token: ""
+          args: >-
+            --offline
+            --include-fragments=anchor-only
+            --no-progress
+            --root-dir "${{ github.workspace }}"
+            --files-from "$RUNNER_TEMP/lychee-changed-markdown.txt"
+          fail: true
+          failIfEmpty: false
+          output: lychee/changed-markdown.md
+
+  bifrost-connector:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Go 1.23
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+          cache: false
+      - name: Test isolated ACE connector
+        working-directory: integrations/bifrost/ace-connector
+        env:
+          GOWORK: "off"
+        run: go test -count=1 ./...
+      - name: Vet isolated ACE connector
+        working-directory: integrations/bifrost/ace-connector
+        env:
+          GOWORK: "off"
+        run: go vet ./...
+
+  real-qdrant:
+    # Real Qdrant service + real FastEmbed model, not mocked provider wires.
+    # Keep a single shared cache for the composed provider/crash acceptance.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.19.2
+        ports:
+          - 6333:6333
+    env:
+      ACE_QDRANT_URL: http://127.0.0.1:6333
+      ACE_RETRIEVAL_STRATEGY: dense
+      ACE_EMBEDDING_PYTHON: python
+      PYTHONDONTWRITEBYTECODE: "1"
+      FASTEMBED_CACHE_PATH: /tmp/ace-fastembed-cache
+      HF_HOME: /tmp/ace-huggingface-cache
+    steps:
+      - name: Checkout full clean repository identity
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Python 3.13 for pinned FastEmbed
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install locked Node and embedding dependencies
+        run: |
+          npm ci --ignore-scripts
+          python -m pip install --disable-pip-version-check -r requirements-embedding-fast.txt
+      - name: Verify live Qdrant server
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..45}; do
+            if curl --fail --silent "http://127.0.0.1:6333/collections" >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "BLOCKED: Qdrant live server unavailable" >&2
+          exit 1
+      - name: Build source-identified production runtime
+        run: npm run build
+      - name: Run actual provider and restart acceptance
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/ace-provider-evidence
+          npm run test:real-provider | tee /tmp/ace-provider-evidence/provider.log
+          npm run test:real-provider-restart | tee /tmp/ace-provider-evidence/restart.log
+      - name: Run real two-writer and crash publication acceptance
+        run: |
+          npm run test:real-qdrant-concurrency -- --output /tmp/ace-provider-evidence/concurrency.json
+          npm run test:real-qdrant-crash -- /tmp/ace-provider-evidence/crash.json
+      - name: Retain source-linked real provider reports and traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ace-real-qdrant-${{ github.run_id }}
+          path: /tmp/ace-provider-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+  real-non-ts-lsp:
+    # Real rust-analyzer protocol conformance, no fake LSP or fixture server.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Install native rust-analyzer component
+        run: rustup component add rust-analyzer
+      - name: Real non-TypeScript LSP definition/reference/hover/diagnostics
+        env:
+          ACE_NON_TS_LSP_COMMAND: rust-analyzer
+          ACE_NON_TS_LSP_TIMEOUT_MS: "60000"
+          ACE_NON_TS_LSP_SETTLE_MS: "8000"
+        run: npm run test:real-non-ts-lsp -- /tmp/ace-real-non-ts-lsp.json
+      - name: Retain real rust-analyzer and TypeScript routing evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ace-real-lsp-${{ github.run_id }}
+          path: /tmp/ace-real-non-ts-lsp.json
+          if-no-files-found: warn
+          retention-days: 14
+\n'* || "${path}" == *
+          if grep -Eq '^\.github/workflows/ace-contracts\.yml$|^\.github/fixtures/markdown-links/' "${changed}"; then
+            echo "self_test=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "self_test=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+          if [[ -s "${inputs}" ]]; then
+            echo "has_markdown=true" >> "${GITHUB_OUTPUT}"
+            sed 's/^/[docs-links] changed: /' "${inputs}"
+          else
+            echo "has_markdown=false" >> "${GITHUB_OUTPUT}"
+            echo "[docs-links] no changed Markdown files"
+          fi
+
+      - name: Negative fixture must be rejected
+        if: steps.markdown.outputs.self_test == 'true'
+        id: negative
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          lycheeVersion: v0.24.2
+          token: ""
+          args: >-
+            --offline
+            --include-fragments=anchor-only
+            --no-progress
+            --root-dir "${{ github.workspace }}"
+            ".github/fixtures/markdown-links/broken.md"
+          fail: false
+          failIfEmpty: true
+          jobSummary: false
+          output: lychee/negative-fixture.md
+
+      - name: Assert negative fixture failed
+        if: steps.markdown.outputs.self_test == 'true'
+        shell: bash
+        env:
+          NEGATIVE_EXIT_CODE: ${{ steps.negative.outputs.exit_code }}
+        run: |
+          set -euo pipefail
+          if [[ "${NEGATIVE_EXIT_CODE}" == "0" ]]; then
+            echo "Expected broken Markdown fixture to fail, but Lychee returned success." >&2
+            exit 1
+          fi
+          echo "[docs-links] negative fixture rejected with exit code ${NEGATIVE_EXIT_CODE}"
+
+      - name: Positive fixture must pass
+        if: steps.markdown.outputs.self_test == 'true'
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          lycheeVersion: v0.24.2
+          token: ""
+          args: >-
+            --offline
+            --include-fragments=anchor-only
+            --no-progress
+            --root-dir "${{ github.workspace }}"
+            ".github/fixtures/markdown-links/valid.md"
+          fail: true
+          failIfEmpty: true
+          jobSummary: false
+          output: lychee/positive-fixture.md
+
+      - name: Offline Markdown link verification
+        if: steps.markdown.outputs.has_markdown == 'true'
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          lycheeVersion: v0.24.2
+          token: ""
+          args: >-
+            --offline
+            --include-fragments=anchor-only
+            --no-progress
+            --root-dir "${{ github.workspace }}"
+            --files-from "$RUNNER_TEMP/lychee-changed-markdown.txt"
+          fail: true
+          failIfEmpty: false
+          output: lychee/changed-markdown.md
+
+  bifrost-connector:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Go 1.23
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+          cache: false
+      - name: Test isolated ACE connector
+        working-directory: integrations/bifrost/ace-connector
+        env:
+          GOWORK: "off"
+        run: go test -count=1 ./...
+      - name: Vet isolated ACE connector
+        working-directory: integrations/bifrost/ace-connector
+        env:
+          GOWORK: "off"
+        run: go vet ./...
+
+  real-qdrant:
+    # Real Qdrant service + real FastEmbed model, not mocked provider wires.
+    # Keep a single shared cache for the composed provider/crash acceptance.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.19.2
+        ports:
+          - 6333:6333
+    env:
+      ACE_QDRANT_URL: http://127.0.0.1:6333
+      ACE_RETRIEVAL_STRATEGY: dense
+      ACE_EMBEDDING_PYTHON: python
+      PYTHONDONTWRITEBYTECODE: "1"
+      FASTEMBED_CACHE_PATH: /tmp/ace-fastembed-cache
+      HF_HOME: /tmp/ace-huggingface-cache
+    steps:
+      - name: Checkout full clean repository identity
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Python 3.13 for pinned FastEmbed
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install locked Node and embedding dependencies
+        run: |
+          npm ci --ignore-scripts
+          python -m pip install --disable-pip-version-check -r requirements-embedding-fast.txt
+      - name: Verify live Qdrant server
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..45}; do
+            if curl --fail --silent "http://127.0.0.1:6333/collections" >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "BLOCKED: Qdrant live server unavailable" >&2
+          exit 1
+      - name: Build source-identified production runtime
+        run: npm run build
+      - name: Run actual provider and restart acceptance
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/ace-provider-evidence
+          npm run test:real-provider | tee /tmp/ace-provider-evidence/provider.log
+          npm run test:real-provider-restart | tee /tmp/ace-provider-evidence/restart.log
+      - name: Run real two-writer and crash publication acceptance
+        run: |
+          npm run test:real-qdrant-concurrency -- --output /tmp/ace-provider-evidence/concurrency.json
+          npm run test:real-qdrant-crash -- /tmp/ace-provider-evidence/crash.json
+      - name: Retain source-linked real provider reports and traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ace-real-qdrant-${{ github.run_id }}
+          path: /tmp/ace-provider-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+  real-non-ts-lsp:
+    # Real rust-analyzer protocol conformance, no fake LSP or fixture server.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Install native rust-analyzer component
+        run: rustup component add rust-analyzer
+      - name: Real non-TypeScript LSP definition/reference/hover/diagnostics
+        env:
+          ACE_NON_TS_LSP_COMMAND: rust-analyzer
+          ACE_NON_TS_LSP_TIMEOUT_MS: "60000"
+          ACE_NON_TS_LSP_SETTLE_MS: "8000"
+        run: npm run test:real-non-ts-lsp -- /tmp/ace-real-non-ts-lsp.json
+      - name: Retain real rust-analyzer and TypeScript routing evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ace-real-lsp-${{ github.run_id }}
+          path: /tmp/ace-real-non-ts-lsp.json
+          if-no-files-found: warn
+          retention-days: 14
+\r'* ]]; then
+              echo "[docs-links] unsupported newline in changed filename" >&2
+              exit 1
+            fi
+            printf '%s\n' "${path}" >> "${changed}"
+            if [[ "${path}" == *.md && "${path}" != .github/fixtures/markdown-links/* ]]; then
+              if [[ ! -f "${path}" || -L "${path}" ]]; then
+                echo "[docs-links] changed Markdown is missing or a symlink: ${path}" >&2
+                exit 1
+              fi
+              printf '%s\n' "${path}" >> "${inputs}"
+            fi
+          done < "${nul_paths}"
 
           if grep -Eq '^\.github/workflows/ace-contracts\.yml$|^\.github/fixtures/markdown-links/' "${changed}"; then
             echo "self_test=true" >> "${GITHUB_OUTPUT}"
