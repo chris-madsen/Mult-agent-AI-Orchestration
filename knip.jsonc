@@ -1,0 +1,35 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+  // The compiled CLI files are launched by npm scripts, containers, or host agents.
+  "entry": [
+    "src/bin/ace-context-bridge.ts",
+    "src/bin/ace-gateway-http.ts",
+    "src/bin/ace-mcp.ts",
+    "src/bin/ace-memory.ts",
+    "src/bin/ace-worktree-helper.ts",
+    // These operator tools are invoked directly or through dynamic child-process paths.
+    "scripts/ast-grep-provider-parity.ts",
+    "scripts/baseline-verification.mjs",
+    "scripts/graphiti-crash-worker.mjs",
+    "scripts/harbor-ace-runtime-probe.mjs",
+    "scripts/memory-process-worker.mjs",
+    "scripts/provider-trace-receipt.ts"
+  ],
+  // Analyze the npm-managed TS runtime, scripts, and tests; benchmark fixtures,
+  // generated output, and separate Python/Go/Rust integrations are not this package.
+  "project": [
+    "src/**/*.ts",
+    "scripts/**/*.ts",
+    "scripts/**/*.mjs",
+    "test/**/*.ts"
+  ],
+  "ignoreDependencies": [
+    // ACE starts this package's CLI binary by command/path, not as a JS import.
+    "typescript-language-server"
+  ],
+  "ignoreBinaries": [
+    // Installed by the operator/evaluation environment, not by npm.
+    "gcloud",
+    "harbor"
+  ]
+}

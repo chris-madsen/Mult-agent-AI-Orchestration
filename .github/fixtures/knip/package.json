@@ -1,0 +1,8 @@
+{
+  "name": "ace-knip-pilot-fixture",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "unused-fixture-dependency": "1.0.0"
+  }
+}
