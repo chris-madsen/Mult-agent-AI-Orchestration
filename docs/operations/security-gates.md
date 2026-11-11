@@ -9,7 +9,7 @@ ACE pull requests use pinned local security tools from `.github/workflows/ace-se
 - version: Betterleaks `v1.10.0`;
 - installation: verified Linux x64 release archive from `scripts/install-security-tools.sh`;
 - input: PR base→head Git commit range via `betterleaks git --log-opts`;
-- controlled fixture directory is excluded from production input;
+- only the exact `.github/fixtures/security/fake-secret.txt` file is excluded from production input; adjacent files remain scannable;
 - output uses full `--redact`;
 - credential validation, analysis and revocation are not enabled;
 - a detected new secret is blocking.
@@ -34,7 +34,7 @@ Do not replace these pins with `latest`, unpinned package-manager installation o
 
 ## Scheduled history scan
 
-A weekly/manual Betterleaks history audit is initially **report-only for findings** by using `--exit-code=0`. Tool/install/runtime errors can still fail the job. The controlled fixture directory is excluded from the full-history Git scope so the intentionally fake secret cannot create permanent scheduled noise.
+A weekly/manual Betterleaks history audit is initially **report-only for findings** by using `--exit-code=0`. Tool/install/runtime errors can still fail the job. Only the reviewed synthetic fixture file is excluded from the full-history Git scope so the intentionally fake secret cannot create permanent scheduled noise.
 
 This deliberately separates:
 
@@ -49,7 +49,7 @@ Provider validation remains disabled in the scheduled audit.
 - `.github/fixtures/security/unsafe-workflow.yml` — intentionally insecure workflow; must fail actionlint/zizmor self-tests;
 - `.github/fixtures/security/safe-workflow.yml` — clean local workflow; must pass both tools.
 
-Fixture self-tests run when the security workflow, installer or fixture directory changes. Fixture files are not production scan inputs. A dedicated history-scope self-test also proves that the controlled fixture directory remains excluded from the scheduled full-history scan.
+Fixture self-tests run when the security workflow, installer or fixture directory changes. Fixture files are not production scan inputs. A dedicated history-scope self-test proves the reviewed fixture is excluded while an unreviewed adjacent synthetic secret is detected and redacted.
 
 ## Evidence boundaries
 
