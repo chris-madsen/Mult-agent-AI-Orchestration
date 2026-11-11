@@ -137,6 +137,26 @@ See [`docs/operations/ace-configuration-and-readiness-matrix.md`](docs/operation
 
 Full code + documentation + memory release readiness is evaluated by `npm run release:preflight -- ...`; there is no environment flag that turns an unverified provider set into a production-approved system.
 
+## Local single-agent SDLC trial
+
+For Codex and other repository-aware coding agents, use the thin ACE SDLC skill
+at `.agents/skills/ace-sdlc/SKILL.md` (Codex alias:
+`.codex/skills/ace-sdlc/SKILL.md`). It always loads the authoritative
+`AGENTS.md`, existing ADR/OpenSpec, and the **complete** SDLC stage prompts.
+Start with a read-only local preflight and its offline negative tests:
+
+```bash
+npm run test:sdlc-preflight
+npm run sdlc:preflight -- --tier T0 --stage research --json
+```
+
+Before implementation on a task branch, provide explicit `--task-id` and an
+existing `--plan`; for T2 also provide the existing `--g02` evidence path.
+The tool blocks missing T2 evidence but cannot replace **human** G02 approval.
+It never performs network access, commits, CI, provider E2E or automatic merge.
+Follow [local agent SDLC trial](docs/operations/local-agent-sdlc-trial.md)
+for an isolated worktree exercise, negative G02 scenario and evidence checklist.
+
 ## Development
 
 ```bash
