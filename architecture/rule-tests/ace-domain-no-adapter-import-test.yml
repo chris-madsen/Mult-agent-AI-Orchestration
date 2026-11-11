@@ -6,6 +6,8 @@ valid:
     const example = "import type { Provider } from '../adapters/provider.js'";
 invalid:
   - |
+    export type { Provider } from '../adapters/provider.js';
+  - |
     import type { Provider } from '../adapters/provider.js';
   - |
     import type { NestedProvider } from '../../adapters/provider.js';
