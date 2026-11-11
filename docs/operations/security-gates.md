@@ -18,7 +18,7 @@ The fixture self-test creates a temporary Git repository and verifies both a cle
 
 ### actionlint — workflow correctness
 
-For changed `.github/workflows/*.yml|yaml` files, actionlint `v1.7.12` checks workflow syntax, expressions and action inputs.
+For changed `.github/workflows/*.yml|yaml` files, actionlint `v1.7.12` checks workflow syntax, expressions and action inputs. Git paths are collected with NUL delimiters so Unicode workflow filenames cannot bypass this selection; ambiguous newline-containing or symlinked workflow paths fail closed.
 
 ### zizmor — workflow security
 
