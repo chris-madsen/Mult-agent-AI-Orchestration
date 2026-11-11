@@ -2,7 +2,7 @@
 // Read-only evidence collection for a local coding agent. Not an SDLC runner or a G02 approver.
 import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, realpathSync, readFileSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 
 const REQUIRED = [
   'AGENTS.md',
@@ -125,7 +125,7 @@ export const inspect = (options) => {
 
   if (options.stage === 'implement') {
     if (!options.taskId) add('G00-TASK', 'BLOCKED', 'Implementation requires explicit --task-id and worktree preflight');
-    else add('G00-TASK', 'REVIEW_REQUIRED', `Run npm run worktree:preflight -- --task-id ${JSON.stringify(options.taskId)} --json; do not infer safe branch from this check`);
+    else add('G00-TASK', 'REVIEW_REQUIRED', 'Run npm run worktree:preflight -- --task-id <approved-task-id> --json; do not infer safe branch from this check');
     if (evidence.source.branch === null || evidence.source.branch === 'main' || evidence.source.branch === 'master') {
       add('G00-BRANCH', 'BLOCKED', 'Implementation on default/detached branch is not permitted');
     }
@@ -152,7 +152,7 @@ export const inspect = (options) => {
   }
   evidence.next.push('Read AGENTS.md, docs/operations/ai-assisted-sdlc.md and the entire stage command selected through PROMPTS-ACE.md');
   evidence.next.push('Check accepted ADR/OpenSpec, current runtime composition and active overlapping PRs; this script does not check remote PRs');
-  if (options.taskId) evidence.next.push(`Run npm run worktree:preflight -- --task-id ${JSON.stringify(options.taskId)} --json before worktree mutation`);
+  if (options.taskId) evidence.next.push('Run npm run worktree:preflight -- --task-id <approved-task-id> --json before worktree mutation');
   evidence.next.push('Keep BUILD/ARCH/SEC/PLAN and actual provider evidence separate; a declaration is never a test PASS');
   evidence.verdict = evidence.checks.some((x) => x.status === 'BLOCKED') ? 'BLOCKED'
     : evidence.checks.some((x) => x.status === 'REVIEW_REQUIRED') ? 'REVIEW_REQUIRED'
