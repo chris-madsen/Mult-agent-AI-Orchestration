@@ -110,7 +110,7 @@ For all three tools:
 
 ### Secret scan
 
-Input is the PR base→head Git commit range, excluding only the controlled security fixture directory.
+Input is the PR base→head Git commit range, excluding only the exact reviewed synthetic `.github/fixtures/security/fake-secret.txt` file, whose SHA-256 is checked. Adjacent files remain in scope.
 
 Stable Betterleaks v1.10.0 is invoked through its supported Git scanner:
 
@@ -150,7 +150,7 @@ An intentionally unsafe workflow must be rejected by at least the relevant workf
 
 A minimal workflow with explicit empty permissions and no untrusted interpolation must pass both actionlint and offline zizmor.
 
-Fixture paths are excluded from production inputs. Self-tests run only when the security gate implementation or fixtures themselves change.
+Only the exact reviewed synthetic token file is excluded from production inputs, with an immutable checksum check. An adversarial adjacent-path fixture must remain detectable. Self-tests run only when the security gate implementation or fixtures themselves change.
 
 ## Scheduled history audit
 
@@ -161,7 +161,7 @@ A weekly Betterleaks full-history scan may run **report-only** initially:
 - no provider validation;
 - exit code forced to zero after findings are emitted.
 
-This surfaces legacy debt without silently turning unknown historical findings into a new merge blocker. The controlled security fixture directory is excluded from that full-history scope so intentionally fake fixtures do not become permanent scheduled findings. New PR-introduced findings remain blocking from day one.
+This surfaces legacy debt without silently turning unknown historical findings into a new merge blocker. Only the single reviewed synthetic security fixture is excluded from that full-history scope so intentionally fake fixtures do not become permanent scheduled findings. New PR-introduced findings remain blocking from day one.
 
 ## Expected SDLC evidence
 
