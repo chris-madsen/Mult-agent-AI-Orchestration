@@ -234,9 +234,9 @@ Minimum milestone:
 
 ## Current slice
 
-**Active task:** `SDLC-QG0` + `SDLC-DOGFOOD-1`.
+**Historical active task at plan start:** `SDLC-QG0` + `SDLC-DOGFOOD-1` (subsequently merged in #223).
 
-Next implementation step: add a pinned offline Lychee check to the docs-only branch of `.github/workflows/ace-contracts.yml`, with controlled RED/GREEN fixtures and retained evidence.
+Original next step (completed via #223): add a pinned offline Lychee check with controlled RED/GREEN fixtures and retained evidence.
 
 ## Adoption closure crosswalk (reviewed 2026-11-11)
 
@@ -246,12 +246,12 @@ HEADs, exact merge candidates, and CI again before accepting any row.
 
 | ID | Dependency | Completion evidence | State at review |
 |---|---|---|---|
-| AC-SDLC-01 | #223 | QG0 merged; normal changed-Markdown PR rejects a broken relative file/anchor; Unicode paths are included; docs-only checks avoid npm/provider installs; source SHA and checkout SHA retained | #223 draft; review fixes committed, final acceptance pending |
-| AC-SDLC-02 | AC-SDLC-01, #224 | QG1 merged; synthetic new secret blocks, output redacted, clean input passes; a secret adjacent to the excluded reviewed fixture is detected; actionlint/zizmor reject unsafe workflow and accept clean workflow | #224 draft; review fixes committed, final acceptance pending |
-| AC-SDLC-03 | AC-SDLC-02, #225 | QG2 merged; each native ast-grep rule passes valid/invalid/false-positive and re-export cases; production scan remains report-only until owner authorizes blocking promotion | #225 draft; review fixes committed, final acceptance pending |
+| AC-SDLC-01 | #223 | QG0 merged; normal changed-Markdown PR rejects a broken relative file/anchor; Unicode paths are included; docs-only checks avoid npm/provider installs; source SHA and checkout SHA retained | MERGED #223; ordinary separate post-merge negative PR still not demonstrated |
+| AC-SDLC-02 | AC-SDLC-01, #224 | QG1 merged; synthetic new secret blocks, output redacted, clean input passes; a secret adjacent to the excluded reviewed fixture is detected; actionlint/zizmor reject unsafe workflow and accept clean workflow | MERGED #224; independent post-merge negative PR still not demonstrated |
+| AC-SDLC-03 | AC-SDLC-02, #225 | QG2 merged; each native ast-grep rule passes valid/invalid/false-positive and re-export cases; production scan remains report-only until owner authorizes blocking promotion | MERGED #225; advisory only, not blocking |
 | AC-SDLC-04 | AC-SDLC-01..03 | One combined fresh PR verifies all three gates together on the post-merge main; no existing runtime or provider gate is weakened | NOT-RUN |
 | AC-SDLC-05 | AC-SDLC-01..04 | Branch/rules policy makes required checks and human approval enforceable; do not claim protection from an inaccessible GitHub endpoint | UNKNOWN — requires repository owner confirmation |
-| AC-SDLC-06 | AC-SDLC-01, owner merge | T1 dogfood evidence for #223 archived at merged SHA, with real RED/GREEN, four distinct gate passes and human review | PENDING merge/owner |
+| AC-SDLC-06 | AC-SDLC-01, owner merge | T1 dogfood evidence for #223 archived at merged SHA, with real RED/GREEN, four distinct gate passes and human review | MERGED #223; owner accepted merge, additional local agent dogfood still pending |
 | AC-SDLC-07 | Appropriate real T2 task | G02 acceptance→owner→decision→state/contract→phase→RED/GREEN→provider-proof crosswalk accepted **before code**, then implemented, tested, reviewed and merged | NOT-RUN |
 | AC-SDLC-08 | AC-SDLC-01..07 | Two further independent real tasks (one contained T1 bugfix, one material T2 change) demonstrate repeatable process and honest provider/agent E2E; human audits quality rather than merely checking template fields | NOT-RUN |
 
@@ -289,3 +289,44 @@ runtime module is architecturally compliant. Existing code concerns should be
 prioritized by incident/security impact, checked against accepted ADR/OpenSpec
 and maintained upstreams, and repaired as small RED/GREEN PRs with removal of
 superseded implementations.
+
+## SDLC-LOCAL-1 — first local agent execution readiness slice (2026-11-11)
+
+**Risk tier:** T1 developer tooling (no ACE runtime/API/provider-policy change).
+**Owner:** this governing adoption plan; decisions remain subject to root AGENTS.md and Accepted ADR/OpenSpec.
+**Source baseline:** merged `main@62b8ae4fd563ec0241f25a4db6c0f36f076c7128`.
+**Task branch/PR:** `codex/sdlc-local-agent-readiness`, PR #227 (draft until CI/owner review).
+
+Observed post-merge integration evidence: GitHub Actions run
+`42991280434` failed on its **first attempt** with 715/716 tests,
+the single failure being `LSP semantic queries are serialized through one
+vscode-jsonrpc session` (received `Err` instead of `Ok`). Retrying the
+failed job **at the same commit** passed 716/716 and run attempt 2 succeeded.
+This is evidence of a possible test/environment timing issue, not proof of a
+production LSP defect or a reason to weaken the source-integrity contracts.
+
+### Scope and acceptance
+
+| ID | Acceptance | Evidence/proof owner |
+|---|---|---|
+| SDLC-LOCAL-01 | A local agent can find the existing complete stage prompts without creating a second orchestrator or rule owner | Thin `.agents/skills/ace-sdlc` + `.codex/skills/ace-sdlc` routes; human inspection |
+| SDLC-LOCAL-02 | Read-only preflight records exact local branch/HEAD, cached origin/main and dirty/operation state without any remote fetch, code mutation or fake PASS | `scripts/sdlc-preflight.mjs` and standalone Node contract tests |
+| SDLC-LOCAL-03 | Implementation on `main`, absent task ID/plan, missing T2 G02 evidence and out-of-scope evidence files fail closed | Deterministic temp-Git negative fixture tests |
+| SDLC-LOCAL-04 | A present G02 document remains REVIEW_REQUIRED (not PASS) pending owner decision, and declared commands do not count as executed | Positive/negative preflight fixtures |
+| SDLC-LOCAL-05 | One-command local test and clear operator walk-through for Research, T1 implementation and T2 pre-code negative case | `npm run test:sdlc-preflight`, `docs/operations/local-agent-sdlc-trial.md` |
+| SDLC-LOCAL-06 | Current merged CI gates remain independently intact; PR evidence binds source SHA to actual checkout/tested SHA | CI on #227 and owner review |
+
+**Out of scope:** mass refactoring of ACE domain modules, installing TypeSpec
+or Matt Pocock tools, changing accepted G02 semantics, promoting ast-grep pilot
+warnings to blocking, adding a second agent runner, executing private-provider
+E2E, or calling this an already-completed T2 dogfood test.
+
+**Local proof, not an independent review:** standalone Node fixture suite
+was observed as 10/10 PASS before branch submission. Full repository CI on
+the exact final PR SHA and the user's actual interactive agent trial are
+separate requirements.
+
+After merging this slice, the remaining operational acceptance is a
+real local agent T1 PR and a material T2 task demonstrating human-approved
+G02 **before code**, plus genuinely combined post-merge negative gate
+coverage. P1 QG4–QG6 and TypeSpec TS-00..06 remain separately staged.

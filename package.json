@@ -104,8 +104,10 @@
     "test:impact:self": "node scripts/run-affected-tests.mjs --self-test",
     "test:arch-rules": "ast-grep test --config architecture/sgconfig.yml --skip-snapshot-tests --color=never",
     "check:arch": "ast-grep scan --color=never --rule architecture/rules/ace-domain-no-adapter-import.yml src/domain && ast-grep scan --color=never --rule architecture/rules/ace-mcp-transport-no-gateway-projection-import.yml src/transport/mcp-sdk-stdio.ts && ast-grep scan --color=never --rule architecture/rules/ace-gateway-transport-no-mcp-import.yml src/transport/gateway-projection-http.ts",
-    "verify:pr": "npm run check && npm test && npm run test:hermes-context-plugin && npm run lint && npm run build && npm run test:arch-rules && npm run check:arch",
-    "verify:pr:affected": "npm run check && npm run test:affected && npm run lint && npm run build && npm run test:arch-rules && npm run check:arch"
+    "verify:pr": "npm run check && npm test && npm run test:hermes-context-plugin && npm run lint && npm run build && npm run test:arch-rules && npm run check:arch && npm run test:sdlc-preflight",
+    "verify:pr:affected": "npm run check && npm run test:affected && npm run lint && npm run build && npm run test:arch-rules && npm run check:arch && npm run test:sdlc-preflight",
+    "sdlc:preflight": "node scripts/sdlc-preflight.mjs",
+    "test:sdlc-preflight": "node --test test/sdlc-preflight.test.mjs"
   },
   "dependencies": {
     "@ast-grep/cli": "0.51.0",
