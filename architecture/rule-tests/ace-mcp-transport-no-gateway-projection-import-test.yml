@@ -6,6 +6,8 @@ valid:
     const example = "import type { X } from '../domain/gateway-projection.js'";
 invalid:
   - |
+    export { runGatewayProjectionHttp } from './gateway-projection-http.js';
+  - |
     import type { GatewayProjectionDecision } from '../domain/gateway-projection.js';
   - |
     import type { GatewayProjectionService } from '../application/gateway-projection-service.js';
