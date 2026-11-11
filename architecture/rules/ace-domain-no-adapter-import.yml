@@ -4,7 +4,9 @@ rule:
   kind: string_fragment
   regex: '^(?:\.\./)+adapters/'
   inside:
-    kind: import_statement
+    any:
+      - kind: import_statement
+      - kind: export_statement
     stopBy: end
 severity: warning
 message: Domain code must not import concrete adapters.
