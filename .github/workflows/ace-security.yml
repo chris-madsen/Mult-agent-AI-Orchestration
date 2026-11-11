@@ -45,6 +45,14 @@ jobs:
           scripts/install-security-tools.sh "${bin}" betterleaks
           echo "${bin}" >> "${GITHUB_PATH}"
 
+      - name: Verify excluded fixture is the exact reviewed synthetic input
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' \
+            '61b671d883bc435c4e44aa9dfb362d33210a06ba084e200201054ee953da6a62' \
+            '.github/fixtures/security/fake-secret.txt' | sha256sum --check --status
+
       - name: Verify Betterleaks Git-range detection and redaction
         if: steps.scope.outputs.self_test == 'true'
         shell: bash
@@ -282,6 +290,14 @@ jobs:
           bin="${RUNNER_TEMP}/ace-security-tools/bin"
           scripts/install-security-tools.sh "${bin}" betterleaks
           echo "${bin}" >> "${GITHUB_PATH}"
+
+      - name: Verify excluded fixture is the exact reviewed synthetic input
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' \
+            '61b671d883bc435c4e44aa9dfb362d33210a06ba084e200201054ee953da6a62' \
+            '.github/fixtures/security/fake-secret.txt' | sha256sum --check --status
 
       - name: Report-only full-history secret audit
         shell: bash
