@@ -6,6 +6,8 @@ valid:
     const example = "import { McpServer } from '@modelcontextprotocol/server'";
 invalid:
   - |
+    export type { McpGatewayLike } from './mcp-sdk-stdio.js';
+  - |
     import { McpServer } from '@modelcontextprotocol/server';
   - |
     import type { GatewayResponse } from '../gateway/mcp-gateway.js';
