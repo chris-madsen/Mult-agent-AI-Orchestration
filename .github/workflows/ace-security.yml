@@ -106,13 +106,35 @@ jobs:
           git -C "${repo}" add README.md .github/fixtures/security/fake-secret.txt
           git -C "${repo}" commit -qm "history fixture"
 
-          output="$(betterleaks             git "${repo}"             --log-opts="--full-history --all --diff-filter=tuxdb -- . ':(exclude).github/fixtures/security/**'"             --redact             --no-banner 2>&1)"
+          output="$(betterleaks             git "${repo}"             --log-opts="--full-history --all --diff-filter=tuxdb -- . ':(exclude).github/fixtures/security/fake-secret.txt'"             --redact             --no-banner 2>&1)"
           printf '%s\n' "${output}"
           if grep -Fq 'leaks found:' <<< "${output}"; then
             echo "Controlled security fixture leaked into scheduled history scope." >&2
             exit 1
           fi
-          echo "[security] full-history scope excludes controlled fixture directory"
+          echo "[security] full-history scope excludes only the reviewed synthetic fixture"
+
+          # A second file in the same directory must NOT inherit the exclusion.
+          cp "${GITHUB_WORKSPACE}/.github/fixtures/security/fake-secret.txt" \
+            "${repo}/.github/fixtures/security/unexpected-token.txt"
+          git -C "${repo}" add .github/fixtures/security/unexpected-token.txt
+          git -C "${repo}" commit -qm "unreviewed adjacent secret fixture"
+          set +e
+          adjacent_output="$(betterleaks git "${repo}" \
+            --log-opts="--full-history --all -- . ':(exclude).github/fixtures/security/fake-secret.txt'" \
+            --redact --no-banner 2>&1)"
+          adjacent_exit="$?"
+          set -e
+          if [[ "${adjacent_exit}" -eq 0 ]]; then
+            echo "Unreviewed adjacent secret was incorrectly excluded from scanning." >&2
+            exit 1
+          fi
+          if grep -Fq -- "$(tail -n 1 "${GITHUB_WORKSPACE}/.github/fixtures/security/fake-secret.txt")" <<< "${adjacent_output}"; then
+            echo "Betterleaks emitted synthetic secret without redaction." >&2
+            exit 1
+          fi
+          echo "[security] adjacent fixture detected and redacted"
+
 
       - name: Blocking PR-range secret scan
         shell: bash
@@ -121,7 +143,7 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          log_opts="${PR_BASE_SHA}..${PR_HEAD_SHA} -- . ':(exclude).github/fixtures/security/**'"
+          log_opts="${PR_BASE_SHA}..${PR_HEAD_SHA} -- . ':(exclude).github/fixtures/security/fake-secret.txt'"
           betterleaks \
             git . \
             --log-opts="${log_opts}" \
@@ -266,7 +288,7 @@ jobs:
         run: >-
           betterleaks
           git .
-          --log-opts="--full-history --all --diff-filter=tuxdb -- . ':(exclude).github/fixtures/security/**'"
+          --log-opts="--full-history --all --diff-filter=tuxdb -- . ':(exclude).github/fixtures/security/fake-secret.txt'"
           --redact
           --no-banner
           --exit-code=0
