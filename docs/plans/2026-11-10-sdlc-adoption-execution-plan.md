@@ -250,7 +250,7 @@ HEADs, exact merge candidates, and CI again before accepting any row.
 | AC-SDLC-02 | AC-SDLC-01, #224 | QG1 merged; synthetic new secret blocks, output redacted, clean input passes; a secret adjacent to the excluded reviewed fixture is detected; actionlint/zizmor reject unsafe workflow and accept clean workflow | MERGED #224; independent post-merge negative PR still not demonstrated |
 | AC-SDLC-03 | AC-SDLC-02, #225 | QG2 merged; each native ast-grep rule passes valid/invalid/false-positive and re-export cases; production scan remains report-only until owner authorizes blocking promotion | MERGED #225; advisory only, not blocking |
 | AC-SDLC-04 | AC-SDLC-01..03 | One combined fresh PR verifies all three gates together on the post-merge main; no existing runtime or provider gate is weakened | NOT-RUN |
-| AC-SDLC-05 | AC-SDLC-01..04 | Branch/rules policy makes required checks and human approval enforceable; do not claim protection from an inaccessible GitHub endpoint | UNKNOWN — requires repository owner confirmation |
+| AC-SDLC-05 | AC-SDLC-01..04 | Branch/rules policy makes required checks and human approval enforceable; do not claim protection from an inaccessible GitHub endpoint | NO REPO-LEVEL RULESET/BRANCH PROTECTION observed by GitHub API on 2026-11-11 (`rulesets=[]`; branch-protection endpoint returned 404). Effective organization/owner policy remains UNKNOWN and requires owner confirmation |
 | AC-SDLC-06 | AC-SDLC-01, owner merge | T1 dogfood evidence for #223 archived at merged SHA, with real RED/GREEN, four distinct gate passes and human review | MERGED #223; owner accepted merge, additional local agent dogfood still pending |
 | AC-SDLC-07 | Appropriate real T2 task | G02 acceptance→owner→decision→state/contract→phase→RED/GREEN→provider-proof crosswalk accepted **before code**, then implemented, tested, reviewed and merged | NOT-RUN |
 | AC-SDLC-08 | AC-SDLC-01..07 | Two further independent real tasks (one contained T1 bugfix, one material T2 change) demonstrate repeatable process and honest provider/agent E2E; human audits quality rather than merely checking template fields | NOT-RUN |
@@ -295,7 +295,7 @@ superseded implementations.
 **Risk tier:** T1 developer tooling (no ACE runtime/API/provider-policy change).
 **Owner:** this governing adoption plan; decisions remain subject to root AGENTS.md and Accepted ADR/OpenSpec.
 **Source baseline:** merged `main@62b8ae4fd563ec0241f25a4db6c0f36f076c7128`.
-**Task branch/PR:** `codex/sdlc-local-agent-readiness`, PR #227 (draft until CI/owner review).
+**Task branch/PR:** `codex/sdlc-local-agent-readiness`, PR #227; merged 2026-11-11 at `29c09a79c2d821bea926ae2de72df3ce5da55582`. PR head was `69d0019e0d8a3f852cf42a1d8d70538a9d28b10b`; CI run `42994334958` passed contracts, `verify:pr`, docs links, Bifrost connector, real Qdrant provider/restart/two-writer/crash, and real non-TS LSP. The retained provider reports identify tested checkout `09de1bf7d52a9ae44ece83b15201644c2461f590`, whose tree equals the merge tree. Secret scan and workflow security checks also passed; scheduled secret-history was skipped.
 
 Observed post-merge integration evidence: GitHub Actions run
 `42991280434` failed on its **first attempt** with 715/716 tests,
@@ -330,3 +330,24 @@ After merging this slice, the remaining operational acceptance is a
 real local agent T1 PR and a material T2 task demonstrating human-approved
 G02 **before code**, plus genuinely combined post-merge negative gate
 coverage. P1 QG4–QG6 and TypeSpec TS-00..06 remain separately staged.
+
+## ACE-ARCH-1 — Phase A current-main architecture inventory (2026-11-11)
+
+**Risk tier:** T1 research/documentation; no runtime, provider-policy, or public API change.
+**Source tree:** `main@29c09a79c2d821bea926ae2de72df3ce5da55582`, tree `a4361517075afbe5f5dc51d6fa7b04e3acb71a3c`.
+**Report:** [`docs/reviews/2026-11-11-ace-current-main-architecture-inventory.md`](../reviews/2026-11-11-ace-current-main-architecture-inventory.md).
+**Scope:** inspect current runtime composition, contracts, SDLC gates, retained current-tree CI evidence, and stale plan/index statements. No implementation claim is inferred from an unchecked OpenSpec task or historical review.
+
+| ID | Acceptance | Evidence | State |
+|---|---|---|---|
+| ACE-ARCH-01 | Current-main entrypoints, layers, integrations, provider roles, and dataflow are mapped to source | Phase A report, sections 3–4, tied to the source tree above | COMPLETE |
+| ACE-ARCH-02 | Runtime/provider, agent-E2E, benchmark, and owner-approval stages remain separate | Phase A report, sections 2, 3, and 5; PR #227 artifacts and explicit limitations | COMPLETE |
+| ACE-ARCH-03 | Existing SDLC/ADR/OpenSpec statements are reconciled against current source and current CI | Phase A report, sections 6–7; PR #227 and branch-protection API readback | COMPLETE |
+| ACE-ARCH-04 | No production code is changed as part of the inventory slice | Task tree diff contains only this plan and the review report; `git diff --check` passed; `npm run verify:pr` passed (716 TypeScript tests, 20 Hermes tests, lint/build, three architecture rules, 11 SDLC-preflight tests). Final edits after the run were documentation-only wording refinements | COMPLETE |
+| ACE-ARCH-05 | Gateway contract/auth gaps, NAPI default/parity mismatch, model-aware budget, Graphiti egress, and TypeSpec migration are promoted only through an owner-reviewed T2 G02 decision and their existing capability contracts | G02 crosswalk and separate capability PRs required; no owner decision is recorded by this research | NOT RUN / BLOCKED before implementation |
+
+**Current-main provider evidence:** PR #227's real Qdrant and rust-analyzer artifacts are bound to checkout `09de1bf...`; its tree is identical to the merge tree. Qdrant provider, restart, two-writer, and crash scenarios plus rust-analyzer definitions/references/hover/diagnostics passed. These bounded scenarios do not approve production or token savings.
+
+**Separate branch state:** `origin/codex/retrieval-followup@65aec6f12027b06955629ddcc40f59dfb70855d1` remains unmerged with no open PR. It is 41 commits behind and 55 ahead of `origin/main` (net 23 files, +693/−619 lines); its own readiness report marks real NAPI parity and the latest local Qdrant concurrency run blocked. It was not merged, rewritten, or included in this Phase A slice.
+
+**Next gate:** before a T2 runtime fix, complete a human-approved G02 acceptance-to-owner/decision/contract/phase/oracle/provider crosswalk. Preserve the existing retrieval order; resolve the gateway auth/schema contract and AST default/parity as separate reviewable slices. Keep TypeSpec TS-00 staged until its contract-migration task is approved. No production or benchmark status changes in ACE-ARCH-1.
