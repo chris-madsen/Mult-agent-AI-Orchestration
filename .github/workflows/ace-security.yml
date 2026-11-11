@@ -179,8 +179,27 @@ jobs:
           set -euo pipefail
           changed="${RUNNER_TEMP}/security-changed-paths.txt"
           workflows="${RUNNER_TEMP}/security-changed-workflows.txt"
-          git diff --name-only --diff-filter=ACMRT "${PR_BASE_SHA}" "${PR_HEAD_SHA}" > "${changed}"
-          grep -E '^\.github/workflows/.*\.ya?ml$' "${changed}" > "${workflows}" || true
+          nul_paths="${RUNNER_TEMP}/security-changed-paths.nul"
+          : > "${changed}"
+          : > "${workflows}"
+          # -z preserves non-ASCII workflow filenames that Git otherwise quotes.
+          git diff --name-only --diff-filter=ACMRT -z "${PR_BASE_SHA}" "${PR_HEAD_SHA}" > "${nul_paths}"
+          while IFS= read -r -d '' path; do
+            if [[ "${path}" == *$'\n'* || "${path}" == *$'\r'* ]]; then
+              echo "[security] unsupported newline in changed filename" >&2
+              exit 1
+            fi
+            printf '%s\n' "${path}" >> "${changed}"
+            case "${path}" in
+              .github/workflows/*.yml|.github/workflows/*.yaml)
+                if [[ ! -f "${path}" || -L "${path}" ]]; then
+                  echo "[security] workflow missing or symlinked: ${path}" >&2
+                  exit 1
+                fi
+                printf '%s\n' "${path}" >> "${workflows}"
+                ;;
+            esac
+          done < "${nul_paths}"
 
           if [[ -s "${workflows}" ]]; then
             echo "has_workflows=true" >> "${GITHUB_OUTPUT}"
