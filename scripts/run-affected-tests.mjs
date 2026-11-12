@@ -42,7 +42,7 @@ const gitPaths = (args) => {
   if (result.status !== 0 || result.error) {
     throw new Error(`git ${args.join(' ')} -z failed: ${String(result.stderr ?? '')}`);
   }
-  return result.stdout.toString('utf8').split('\\0').filter(Boolean).map(normalize);
+  return result.stdout.toString('utf8').split('\0').filter(Boolean).map(normalize);
 };
 
 export const parseImports = (source) => {
