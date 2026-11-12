@@ -41,7 +41,11 @@ import {
   mutateQdrantChangedPaths,
   reuseOrPopulateQdrantSnapshot,
 } from '../adapters/qdrant-context-provider.js';
-import { makeAstGrepStructuralPort, resolveAstGrepProviderIdentity } from '../adapters/ast-grep-structural.js';
+import {
+  configuredAstGrepProvider,
+  makeAstGrepStructuralPort,
+  resolveAstGrepProviderIdentity,
+} from '../adapters/ast-grep-structural.js';
 import { buildRepoMapDelta } from '../adapters/repo-map-structural.js';
 import {
   lspLanguageIdForPath,
@@ -288,13 +292,7 @@ const main = async (): Promise<void> => {
     process.env.ACE_AST_GREP_COMMAND,
     resolve(runtimeRoot, 'node_modules/.bin/ast-grep'),
   );
-  // Auto reuses @ast-grep/napi for the verified JS/TS def/ref parser and
-  // keeps the already-batched CLI outline for unsupported grammars.
-  const astGrepProviderRaw = process.env.ACE_AST_GREP_PROVIDER?.trim() || 'auto';
-  if (!['cli', 'napi', 'auto'].includes(astGrepProviderRaw)) {
-    throw new Error('ACE_AST_GREP_PROVIDER must be cli, napi, or auto');
-  }
-  const astGrepProvider = astGrepProviderRaw as 'cli' | 'napi' | 'auto';
+  const astGrepProvider = configuredAstGrepProvider(process.env.ACE_AST_GREP_PROVIDER);
   const lspCommand = optionalCommand(
     process.env.ACE_LSP_COMMAND,
     resolve(runtimeRoot, 'node_modules/.bin/typescript-language-server'),

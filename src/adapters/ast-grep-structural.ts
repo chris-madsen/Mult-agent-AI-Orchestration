@@ -17,12 +17,22 @@ import { makeAstGrepNapiStructuralPort, supportsAstGrepNapiPath } from './ast-gr
 
 export interface AstGrepStructuralOptions {
   readonly command: string;
-  readonly provider?: 'cli' | 'napi' | 'auto';
+  readonly provider?: AstGrepProvider;
   readonly timeoutMs?: number;
   readonly providerVersion?: string;
   readonly napiProviderVersion?: string;
   readonly trace?: ProviderTraceSink;
 }
+
+export type AstGrepProvider = 'cli' | 'napi' | 'auto';
+
+export const configuredAstGrepProvider = (value: string | undefined): AstGrepProvider => {
+  const provider = value?.trim() || 'cli';
+  if (provider !== 'cli' && provider !== 'napi' && provider !== 'auto') {
+    throw new Error('ACE_AST_GREP_PROVIDER must be cli, napi, or auto');
+  }
+  return provider;
+};
 
 export interface AstGrepProviderIdentity {
   readonly provider: 'ast-grep';
