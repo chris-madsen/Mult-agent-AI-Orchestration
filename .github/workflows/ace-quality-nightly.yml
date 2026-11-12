@@ -1,6 +1,10 @@
 name: ACE quality nightly
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/ace-quality-nightly.yml"
+      - "test/nightly/gateway-projection.property.test.ts"
   schedule:
     - cron: "15 6 * * *"
   workflow_dispatch:
