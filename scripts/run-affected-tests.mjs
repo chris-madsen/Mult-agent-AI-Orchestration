@@ -27,14 +27,6 @@ const SMOKE_TESTS = new Set([
 
 const normalize = (value) => value.replaceAll('\\', '/').replace(/^\.\//u, '');
 
-const git = (args, { allowFailure = false } = {}) => {
-  const result = spawnSync('git', args, { encoding: 'utf8' });
-  if (result.status !== 0 && !allowFailure) {
-    throw new Error(`git ${args.join(' ')} failed: ${result.stderr.trim()}`);
-  }
-  return result.status === 0 ? result.stdout.trim() : '';
-};
-
 // Git quotes non-ASCII paths by default; -z is required for correct impact
 // selection. In particular, a renamed/unicode source must not silently select
 // zero tests merely because Git printed a quoted path.
