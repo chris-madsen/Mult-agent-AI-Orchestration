@@ -287,7 +287,7 @@ const commandVersion = (command: string): Effect.Effect<Result<string, DomainErr
 export const resolveAstGrepProviderIdentity = (
   options: AstGrepStructuralOptions,
 ): Effect.Effect<Result<AstGrepProviderIdentity, DomainError>> => Effect.gen(function* () {
-  const provider = options.provider ?? 'auto';
+  const provider = options.provider ?? 'cli';
   const napiVersion = options.napiProviderVersion
     ?? (provider === 'napi' ? options.providerVersion : undefined)
     ?? 'ast-grep/napi@0.51.0';
@@ -325,11 +325,6 @@ export const resolveAstGrepProviderIdentity = (
     fingerprint: createHash('sha256').update(JSON.stringify(stable), 'utf8').digest('hex'),
   });
 
-  return err(domainError(
-    'UNSUPPORTED_PROVIDER',
-    'ast_grep.provider',
-    'NAPI structural extraction is experimental parity research; use the official CLI outline provider',
-  ));
 });
 
 // ast-grep supports multiple explicit files in a single outline invocation.
@@ -440,7 +435,7 @@ const makeCliAstGrepStructuralPort = (options: AstGrepStructuralOptions): Struct
 });
 
 export const makeAstGrepStructuralPort = (options: AstGrepStructuralOptions): StructuralAnalysisPort => {
-  const provider = options.provider ?? 'auto';
+  const provider = options.provider ?? 'cli';
   const napi = makeAstGrepNapiStructuralPort();
   if (provider === 'napi') return napi;
   const cli = makeCliAstGrepStructuralPort(options);
