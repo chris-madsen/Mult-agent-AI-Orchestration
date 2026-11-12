@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
-import { posix } from 'node:path';
+import { readFileSync, existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import ts from 'typescript';
@@ -265,6 +266,26 @@ const runSelfTest = () => {
     `).sort(),
     ['./dependency.js', './lazy-with-options.js'],
   );
+  // A Unicode path is quoted by default Git output, which used to be
+  // mistaken for a different path and silently bypass the affected test.
+  const fixtureRoot = mkdtempSync(join(tmpdir(), 'ace-impact-unicode-'));
+  try {
+    const runGit = (args) => {
+      const result = spawnSync('git', ['-C', fixtureRoot, ...args], { encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+    };
+    runGit(['init', '-q']);
+    runGit(['config', 'user.email', 'ace-test@example.invalid']);
+    runGit(['config', 'user.name', 'ACE impact test']);
+    writeFileSync(join(fixtureRoot, 'пример.ts'), 'export const answer = 1;\\n');
+    runGit(['add', 'пример.ts']);
+    runGit(['commit', '-qm', 'fixture']);
+    writeFileSync(join(fixtureRoot, 'пример.ts'), 'export const answer = 2;\\n');
+    assert.deepEqual(gitPaths(['-C', fixtureRoot, 'diff', '--name-only']), ['пример.ts']);
+    assert.deepEqual(gitPaths(['-C', fixtureRoot, 'ls-files']), ['пример.ts']);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
   console.log('[test-impact] self-test PASS');
 };
 
