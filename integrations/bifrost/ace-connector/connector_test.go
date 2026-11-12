@@ -179,6 +179,8 @@ func TestRejectForgedProjectionReceipts(t *testing.T) {
   {"wrong decision kind", func(d *Decision) { d.Receipt.Decision = "UNCHANGED_AUTHORIZED" }},
   {"wrong attempt index", func(d *Decision) { d.Receipt.AttemptIndex = 1 }},
   {"wrong projected digest", func(d *Decision) { d.Receipt.ProjectedBodySHA256 = digest([]byte("wrong")) }},
+  {"wrong host compaction epoch", func(d *Decision) { d.Receipt.HostCompactionEpoch = 2 }},
+  {"wrong active engine", func(d *Decision) { d.Receipt.ActiveEngineID = "other-engine" }},
   {"malformed base64", func(d *Decision) { d.BodyBase64 = "e30=" + "!" }},
  }
  for _, scenario := range scenarios {
