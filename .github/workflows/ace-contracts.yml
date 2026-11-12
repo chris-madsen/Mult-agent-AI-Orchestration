@@ -14,7 +14,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 2
       - name: Determine verification scope
@@ -89,7 +89,7 @@ jobs:
           fi
           echo "[qg5] accepted public v1 baseline unchanged"
       - name: Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: steps.scope.outputs.mode != 'docs'
         with:
           node-version: "22"
@@ -147,7 +147,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 2
 
@@ -266,9 +266,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Go 1.23
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.23.x"
           cache: false
@@ -303,16 +303,16 @@ jobs:
       HF_HOME: /tmp/ace-huggingface-cache
     steps:
       - name: Checkout full clean repository identity
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - name: Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
       - name: Python 3.13 for pinned FastEmbed
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
       - name: Install locked Node and embedding dependencies
@@ -346,7 +346,7 @@ jobs:
           npm run test:real-qdrant-crash -- /tmp/ace-provider-evidence/crash.json
       - name: Retain source-linked real provider reports and traces
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ace-real-qdrant-${{ github.run_id }}
           path: /tmp/ace-provider-evidence/
@@ -360,9 +360,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
@@ -378,7 +378,7 @@ jobs:
         run: npm run test:real-non-ts-lsp -- /tmp/ace-real-non-ts-lsp.json
       - name: Retain real rust-analyzer and TypeScript routing evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ace-real-lsp-${{ github.run_id }}
           path: /tmp/ace-real-non-ts-lsp.json
