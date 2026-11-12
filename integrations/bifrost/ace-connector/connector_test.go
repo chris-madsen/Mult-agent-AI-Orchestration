@@ -8,8 +8,48 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 )
+
+type publicContractBaseline struct {
+	Gateway struct {
+		SchemaVersion string `json:"schemaVersion"`
+		Request       struct {
+			Required []string `json:"required"`
+		} `json:"request"`
+		Decision struct {
+			Required []string `json:"required"`
+			Receipt  struct {
+				Required []string `json:"required"`
+			} `json:"receipt"`
+		} `json:"decision"`
+	} `json:"gateway"`
+}
+
+func readPublicContractBaseline(t *testing.T) publicContractBaseline {
+	t.Helper()
+	path := filepath.Join("..", "..", "..", ".github", "fixtures", "contracts", "ace-public-v1-baseline.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var baseline publicContractBaseline
+	if err := json.Unmarshal(data, &baseline); err != nil {
+		t.Fatalf("decode public contract baseline: %v", err)
+	}
+	return baseline
+}
+
+func assertRequiredJSONFields(t *testing.T, value map[string]json.RawMessage, required []string, label string) {
+	t.Helper()
+	for _, field := range required {
+		if _, ok := value[field]; !ok {
+			t.Errorf("%s is missing baseline field %q", label, field)
+		}
+	}
+}
 
 func digest(value []byte) string {
 	sum := sha256.Sum256(value)
@@ -17,17 +57,23 @@ func digest(value []byte) string {
 }
 
 func TestProjectAndApplyBindOriginalAndProjectedDigests(t *testing.T) {
+	baseline := readPublicContractBaseline(t)
 	original := []byte(`{"model":"test","messages":[{"role":"user","content":"question"}]}`)
 	projected := []byte(`{"model":"test","messages":[{"role":"system","content":"ACE"},{"role":"user","content":"question"}]}`)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		var payload map[string]any
+		var payload map[string]json.RawMessage
 		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 			t.Fatal(err)
 		}
-		if payload["schemaVersion"] != SchemaVersion || payload["bodySha256"] != digest(original) {
+		var schemaVersion string
+		var bodyDigest string
+		_ = json.Unmarshal(payload["schemaVersion"], &schemaVersion)
+		_ = json.Unmarshal(payload["bodySha256"], &bodyDigest)
+		if schemaVersion != baseline.Gateway.SchemaVersion || schemaVersion != SchemaVersion || bodyDigest != digest(original) {
 			t.Fatalf("unexpected request binding: %#v", payload)
 		}
-		_ = json.NewEncoder(writer).Encode(Decision{
+		assertRequiredJSONFields(t, payload, baseline.Gateway.Request.Required, "Bifrost request")
+		decision := Decision{
 			Kind:       "APPLY",
 			BodyBase64: base64.StdEncoding.EncodeToString(projected),
 			Receipt: Receipt{
@@ -35,7 +81,22 @@ func TestProjectAndApplyBindOriginalAndProjectedDigests(t *testing.T) {
 				ReceiptID: "receipt-1", Decision: "APPLY", BaseBodySHA256: digest(original),
 				ProjectedBodySHA256: digest(projected), HostCompactionEpoch: 3, ActiveEngineID: "ace_context_engine",
 			},
-		})
+		}
+		encoded, err := json.Marshal(decision)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var wireDecision map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &wireDecision); err != nil {
+			t.Fatal(err)
+		}
+		assertRequiredJSONFields(t, wireDecision, baseline.Gateway.Decision.Required, "Bifrost decision")
+		var wireReceipt map[string]json.RawMessage
+		if err := json.Unmarshal(wireDecision["receipt"], &wireReceipt); err != nil {
+			t.Fatal(err)
+		}
+		assertRequiredJSONFields(t, wireReceipt, baseline.Gateway.Decision.Receipt.Required, "Bifrost receipt")
+		_, _ = writer.Write(encoded)
 	}))
 	defer server.Close()
 

@@ -26,7 +26,8 @@ except ModuleNotFoundError:
 from integrations.hermes.ace_context_engine.bridge import BridgeClient
 
 
-READY = {"type": "bridge_ready", "schemaVersion": 1, "runtimeId": "ace-harbor-runtime-v1"}
+_PUBLIC_CONTRACT = json.loads((_REPO_ROOT / ".github/fixtures/contracts/ace-public-v1-baseline.json").read_text(encoding="utf-8"))
+READY = _PUBLIC_CONTRACT["hermes"]["bridgeHandshake"]
 
 
 class BridgeClientTests(unittest.TestCase):
