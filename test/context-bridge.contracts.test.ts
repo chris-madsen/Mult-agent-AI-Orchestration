@@ -104,12 +104,19 @@ test('bridge rejects unknown message types and never echoes credential-like fiel
   assert.doesNotMatch(JSON.stringify(response), /must-not-appear/u);
 });
 
-test('stdio bridge emits a pinned ready record before processing transforms', async () => {
+test('stdio bridge emits a pinned ready record and preserves the versioned transform request', async () => {
   const input = new PassThrough();
   const output = new PassThrough();
   const lines: string[] = [];
   output.on('data', (chunk: Buffer) => lines.push(...chunk.toString('utf8').trim().split('\n')));
-  const running = runContextBridgeStdio(service(), input, output);
+  let observedRequest: unknown;
+  const capturingService: ContextBridgeService = {
+    transform: (request) => {
+      observedRequest = request;
+      return Effect.succeed(ok(result));
+    },
+  };
+  const running = runContextBridgeStdio(capturingService, input, output);
   const request = {
     type: 'transform',
     schemaVersion: 1,
@@ -140,4 +147,18 @@ test('stdio bridge emits a pinned ready record before processing transforms', as
   const response = JSON.parse(lines[1] ?? '{}') as Record<string, unknown>;
   assert.ok(publicContract.hermes.responseTypes.includes(String(response.type)));
   assert.equal(response.type, 'transform_result');
+  assert.deepEqual(observedRequest, {
+    schemaVersion: 1,
+    requestId: request.requestId,
+    sessionId: request.sessionId,
+    turnId: request.turnId,
+    workspaceId: request.workspaceId,
+    query: request.query,
+    budgetTokens: request.budgetTokens,
+    sourceObligations: request.sourceObligations,
+    intent: request.intent,
+    workingContext: request.workingContext,
+    knownBundleId: request.knownBundleId,
+    knownEvidenceIds: request.knownEvidenceIds,
+  });
 });
