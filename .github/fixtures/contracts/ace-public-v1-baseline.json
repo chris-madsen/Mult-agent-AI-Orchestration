@@ -71,6 +71,8 @@
   "domainErrorCodes": ["INVALID_INPUT", "WORKSPACE_NOT_FOUND", "WORKSPACE_ROOT_NOT_ALLOWED", "PATH_ESCAPE", "FILE_NOT_FOUND", "DIGEST_MISMATCH", "WORKTREE_RACED", "SNAPSHOT_FAILED", "PERSISTENCE_FAILED", "POLICY_DENIED", "AUTH_REQUIRED", "SECRET_DETECTED", "AUDIT_FAILED", "ARTIFACT_NOT_FOUND", "INVALID_HANDLE", "NOT_READY", "INVALID_BENCHMARK", "INVALID_USAGE", "USAGE_UNAVAILABLE", "UNSUPPORTED_PROVIDER", "QUALITY_GATE_FAILED", "INVALID_RETRIEVAL", "INVALID_MEMORY", "INVALID_ROUTING", "ARCHIVE_TOMBSTONED", "EXTERNAL_UNAVAILABLE", "INVALID_EXTERNAL_RESPONSE", "INVALID_ATTESTATION", "UNSUPPORTED_PROTOCOL", "PROTECTED_GROUP_INVALID", "HOST_CONTEXT_UNATTESTED", "HOST_COMPACTION_ACTIVE", "PROVIDER_MANAGED_STATE_UNKNOWN", "DUAL_PROJECTION_OWNER", "DEADLINE_EXCEEDED"],
   "gateway": {
     "schemaVersion": "ace.gateway.v1",
+    "requestSchemaBlobSha": "e9694b242caf3d2063c3bc62aca6173fdf712c6e",
+    "decisionSchemaBlobSha": "444135ada782115ddde697e8c8f52d0367d0f3d1",
     "request": {
       "required": ["schemaVersion", "requestId", "attemptGroupId", "agentSessionId", "workspaceId", "dataClass", "protocol", "provider", "model", "bodyBase64", "bodySha256", "query", "projectionMode", "deadlineEpochMs", "attestation"],
       "properties": ["schemaVersion", "requestId", "attemptGroupId", "agentSessionId", "workspaceId", "dataClass", "protocol", "provider", "model", "bodyBase64", "bodySha256", "query", "projectionMode", "deadlineEpochMs", "nativeProjectionActive", "requestedEvidenceIds", "attestation"],
