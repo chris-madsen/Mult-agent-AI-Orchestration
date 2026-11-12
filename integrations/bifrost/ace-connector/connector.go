@@ -22,6 +22,102 @@ func maxEnvelopeBytes(bodyBytes int64) int64 {
 	return 4*((bodyBytes+2)/3) + maxEnvelopeOverhead
 }
 
+
+func requireJSONFields(value map[string]json.RawMessage, label string, fields ...string) error {
+	for _, field := range fields {
+		if _, ok := value[field]; !ok {
+			return fmt.Errorf("%s is missing required field %q", label, field)
+		}
+	}
+	return nil
+}
+
+func validateReceiptWire(receipt map[string]json.RawMessage) error {
+	if err := requireJSONFields(
+		receipt,
+		"ACE projection receipt",
+		"schemaVersion",
+		"requestId",
+		"attemptGroupId",
+		"attemptIndex",
+		"receiptId",
+		"decision",
+		"baseBodySha256",
+		"hostCompactionEpoch",
+		"activeEngineId",
+		"permittedWireRewrites",
+	); err != nil {
+		return err
+	}
+
+	epochRaw := receipt["hostCompactionEpoch"]
+	var epoch int64
+	if err := json.Unmarshal(epochRaw, &epoch); err == nil {
+		if epoch < 0 {
+			return errors.New("ACE projection receipt hostCompactionEpoch must be non-negative or unknown")
+		}
+	} else {
+		var unknown string
+		if stringErr := json.Unmarshal(epochRaw, &unknown); stringErr != nil || unknown != "unknown" {
+			return errors.New("ACE projection receipt hostCompactionEpoch must be a non-negative integer or unknown")
+		}
+	}
+
+	rewritesRaw := receipt["permittedWireRewrites"]
+	if bytes.Equal(bytes.TrimSpace(rewritesRaw), []byte("null")) {
+		return errors.New("ACE projection receipt permittedWireRewrites must be an array")
+	}
+	var rewrites []string
+	if err := json.Unmarshal(rewritesRaw, &rewrites); err != nil {
+		return errors.New("ACE projection receipt permittedWireRewrites must be an array of strings")
+	}
+	seen := make(map[string]struct{}, len(rewrites))
+	for _, rewrite := range rewrites {
+		if _, ok := seen[rewrite]; ok {
+			return errors.New("ACE projection receipt permittedWireRewrites must be unique")
+		}
+		seen[rewrite] = struct{}{}
+	}
+	return nil
+}
+
+func decodeDecisionEnvelope(reader io.Reader, maxBytes int64) (Decision, error) {
+	data, err := io.ReadAll(io.LimitReader(reader, maxBytes+1))
+	if err != nil {
+		return Decision{}, fmt.Errorf("read ACE projection response: %w", err)
+	}
+	if int64(len(data)) > maxBytes {
+		return Decision{}, errors.New("ACE projection response envelope exceeds the bound")
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var decision Decision
+	if err := decoder.Decode(&decision); err != nil {
+		return Decision{}, fmt.Errorf("decode ACE projection response: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return Decision{}, errors.New("ACE projection response contains trailing data")
+	}
+
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(data, &envelope); err != nil || envelope == nil {
+		return Decision{}, errors.New("ACE projection response must be a JSON object")
+	}
+	if err := requireJSONFields(envelope, "ACE projection decision", "kind", "receipt"); err != nil {
+		return Decision{}, err
+	}
+	var receipt map[string]json.RawMessage
+	if err := json.Unmarshal(envelope["receipt"], &receipt); err != nil || receipt == nil {
+		return Decision{}, errors.New("ACE projection receipt must be a JSON object")
+	}
+	if err := validateReceiptWire(receipt); err != nil {
+		return Decision{}, err
+	}
+	return decision, nil
+}
+
 type Request struct {
 	RequestID       string
 	AttemptGroupID  string
@@ -135,14 +231,9 @@ func (c Client) Project(ctx context.Context, request Request) (Decision, error) 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return Decision{}, fmt.Errorf("ACE projection returned HTTP %d", response.StatusCode)
 	}
-	decoder := json.NewDecoder(io.LimitReader(response.Body, maxEnvelopeBytes(maxBodyBytes)+1))
-	var decision Decision
-	if err := decoder.Decode(&decision); err != nil {
-		return Decision{}, fmt.Errorf("decode ACE projection response: %w", err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		return Decision{}, errors.New("ACE projection response contains trailing data or exceeds the bound")
+	decision, err := decodeDecisionEnvelope(response.Body, maxEnvelopeBytes(maxBodyBytes))
+	if err != nil {
+		return Decision{}, err
 	}
 	if decision.Receipt.SchemaVersion != SchemaVersion ||
 		decision.Receipt.RequestID != request.RequestID ||
