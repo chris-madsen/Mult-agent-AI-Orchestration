@@ -217,3 +217,63 @@ func TestProjectedResponseHonorsCustomBodyBound(t *testing.T) {
  })
  if err == nil { t.Fatal("projected response exceeded configured body bound") }
 }
+
+
+func TestProjectRejectsSchemaInvalidDecisionEnvelope(t *testing.T) {
+	original := []byte(`{"model":"test","messages":[{"role":"user","content":"question"}]}`)
+	projected := []byte(`{"model":"test","messages":[{"role":"user","content":"question"},{"role":"system","content":"ACE"}]}`)
+	validPayload := func() map[string]any {
+		return map[string]any{
+			"kind":       "APPLY",
+			"bodyBase64": base64.StdEncoding.EncodeToString(projected),
+			"receipt": map[string]any{
+				"schemaVersion":         SchemaVersion,
+				"requestId":             "req-1",
+				"attemptGroupId":        "group-1",
+				"attemptIndex":          0,
+				"receiptId":             "receipt-1",
+				"decision":              "APPLY",
+				"baseBodySha256":        digest(original),
+				"projectedBodySha256":   digest(projected),
+				"hostCompactionEpoch":   1,
+				"activeEngineId":        "ace_context_engine",
+				"permittedWireRewrites": []string{},
+			},
+		}
+	}
+	scenarios := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{"unknown top-level field", func(payload map[string]any) { payload["unexpected"] = true }},
+		{"missing required attempt index", func(payload map[string]any) {
+			delete(payload["receipt"].(map[string]any), "attemptIndex")
+		}},
+		{"null permitted rewrites", func(payload map[string]any) {
+			payload["receipt"].(map[string]any)["permittedWireRewrites"] = nil
+		}},
+		{"invalid host compaction epoch", func(payload map[string]any) {
+			payload["receipt"].(map[string]any)["hostCompactionEpoch"] = map[string]any{"unexpected": true}
+		}},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			payload := validPayload()
+			scenario.mutate(payload)
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(writer).Encode(payload)
+			}))
+			defer server.Close()
+			_, err := (Client{Endpoint: server.URL}).Project(context.Background(), Request{
+				RequestID: "req-1", AttemptGroupID: "group-1", AgentSessionID: "session-1",
+				WorkspaceID: "workspace-1", DataClass: "private", Protocol: "openai.chat.completions",
+				Provider: "mock", Model: "test", Query: "question", ProjectionMode: "gateway",
+				DeadlineEpochMs: 4102444800000, Body: original,
+				Attestation: json.RawMessage(`{"hostCompactionEpoch":1}`),
+			})
+			if err == nil {
+				t.Fatal("schema-invalid projection decision must fail closed")
+			}
+		})
+	}
+}
