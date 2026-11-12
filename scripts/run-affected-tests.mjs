@@ -34,7 +34,16 @@ const git = (args, { allowFailure = false } = {}) => {
   return result.status === 0 ? result.stdout.trim() : '';
 };
 
-const lines = (value) => value.split(/\r?\n/u).map((line) => normalize(line.trim())).filter(Boolean);
+// Git quotes non-ASCII paths by default; -z is required for correct impact
+// selection. In particular, a renamed/unicode source must not silently select
+// zero tests merely because Git printed a quoted path.
+const gitPaths = (args) => {
+  const result = spawnSync('git', [...args, '-z'], { encoding: null, maxBuffer: 16 * 1024 * 1024 });
+  if (result.status !== 0 || result.error) {
+    throw new Error(`git ${args.join(' ')} -z failed: ${String(result.stderr ?? '')}`);
+  }
+  return result.stdout.toString('utf8').split('\\0').filter(Boolean).map(normalize);
+};
 
 export const parseImports = (source) => {
   const specifiers = new Set();
@@ -173,11 +182,11 @@ const detectBase = (explicitBase) => explicitBase ?? 'HEAD';
 const changedFilesFromGit = (base) => {
   const changed = new Set();
   if (base !== 'HEAD') {
-    for (const file of lines(git(['diff', '--name-only', '--diff-filter=ACMR', `${base}...HEAD`]))) changed.add(file);
+    for (const file of gitPaths(['diff', '--name-only', '--diff-filter=ACDMRT', `${base}...HEAD`])) changed.add(file);
   }
-  for (const file of lines(git(['diff', '--name-only', '--diff-filter=ACMR']))) changed.add(file);
-  for (const file of lines(git(['diff', '--cached', '--name-only', '--diff-filter=ACMR']))) changed.add(file);
-  for (const file of lines(git(['ls-files', '--others', '--exclude-standard']))) changed.add(file);
+  for (const file of gitPaths(['diff', '--name-only', '--diff-filter=ACDMRT'])) changed.add(file);
+  for (const file of gitPaths(['diff', '--cached', '--name-only', '--diff-filter=ACDMRT'])) changed.add(file);
+  for (const file of gitPaths(['ls-files', '--others', '--exclude-standard'])) changed.add(file);
   return [...changed].sort();
 };
 
@@ -269,7 +278,7 @@ const main = () => {
   // `git ls-files` also reports paths deleted in the working tree. Never pass
   // those stale paths to the test runner after a test file is intentionally
   // removed as part of a provider migration.
-  const trackedFiles = lines(git(['ls-files', 'src', 'test', 'scripts'])).filter((file) => existsSync(file));
+  const trackedFiles = gitPaths(['ls-files', 'src', 'test', 'scripts']).filter((file) => existsSync(file));
   const changedFiles = changedFilesFromGit(base);
   const contents = new Map();
   for (const file of trackedFiles) {
