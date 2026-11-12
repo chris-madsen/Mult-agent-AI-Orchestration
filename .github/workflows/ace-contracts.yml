@@ -76,6 +76,20 @@ jobs:
             echo "[qg5] BLOCKED: cannot inspect the PR base commit" >&2
             exit 1
           fi
+          for contract in \
+            contracts/ace-gateway/v1/projection-request.schema.json \
+            contracts/ace-gateway/v1/projection-decision.schema.json; do
+            if ! git cat-file -e "${PR_BASE_SHA}:${contract}" 2>/dev/null; then
+              echo "[qg5] BLOCKED: versioned v1 contract is missing from the PR base: ${contract}" >&2
+              exit 1
+            fi
+            if [[ ! -f "${contract}" || -L "${contract}" ]] \
+              || ! git show "${PR_BASE_SHA}:${contract}" | cmp -s - "${contract}"; then
+              echo "[qg5] BLOCKED: ace.gateway.v1 schema was rewritten in place: ${contract}; introduce a separately approved version instead" >&2
+              exit 1
+            fi
+          done
+
           if ! git cat-file -e "${PR_BASE_SHA}:${baseline}" 2>/dev/null; then
             echo "[qg5] INITIAL BASELINE: v1 first introduced in this PR; owner must approve its wire snapshot"
             exit 0
@@ -88,7 +102,7 @@ jobs:
             echo "[qg5] BLOCKED: accepted v1 baseline was rewritten; preserve v1 and use a separately approved, versioned contract migration" >&2
             exit 1
           fi
-          echo "[qg5] accepted public v1 baseline unchanged"
+          echo "[qg5] accepted public v1 baseline and schemas are unchanged"
       - name: Node 22
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: steps.scope.outputs.mode != 'docs'
