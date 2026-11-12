@@ -290,6 +290,25 @@ test('typed context, errors, gateway, and Hermes status variants match the appro
   const deliveryModes = ['augmentation', 'replacement', 'no_op'] as const satisfies readonly NonNullable<HermesContextEvidence['deliveryMode']>[];
   const responseTypes = ['bridge_ready', 'transform_result', 'transform_error'] as const satisfies readonly ContextBridgeResponse['type'][];
 
+  // A `satisfies readonly Union[]` list can omit new Union members without
+  // failing compilation. These reciprocal checks make it exhaustive and stop
+  // a new error/status from silently disappearing from QG5 coverage.
+  type ExhaustivePublicVariants = readonly [
+    Expect<Equal<CandidateFreshness, typeof candidateFreshness[number]>>,
+    Expect<Equal<SourceCoverageStatus, typeof sourceCoverageStatuses[number]>>,
+    Expect<Equal<ContextSource, typeof sourceKinds[number]>>,
+    Expect<Equal<DomainErrorCode, typeof domainErrorCodes[number]>>,
+    Expect<Equal<GatewayDecisionKind, typeof decisionKinds[number]>>,
+    Expect<Equal<ProjectionMode, typeof projectionModes[number]>>,
+    Expect<Equal<ProviderManagedHistoryCapability, typeof providerHistory[number]>>,
+    Expect<Equal<AceTransformResult['status'], typeof transformStatuses[number]>>,
+    Expect<Equal<HermesContextTransformStatus, typeof evidenceStatuses[number]>>,
+    Expect<Equal<NonNullable<HermesContextEvidence['deliveryMode']>, typeof deliveryModes[number]>>,
+    Expect<Equal<ContextBridgeResponse['type'], typeof responseTypes[number]>>,
+  ];
+  const exhaustivePublicVariants: ExhaustivePublicVariants = [true, true, true, true, true, true, true, true, true, true, true];
+  assert.equal(exhaustivePublicVariants.every(Boolean), true);
+
   assert.deepEqual(sortedTypeValues(candidateFreshness), sorted(contract.context.candidateFreshness));
   assert.deepEqual(sortedTypeValues(sourceCoverageStatuses), sorted(contract.context.sourceCoverageStatuses));
   assert.deepEqual(sortedTypeValues(sourceKinds), sorted(contract.context.sourceKinds));
