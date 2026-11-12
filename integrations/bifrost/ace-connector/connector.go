@@ -10,7 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -30,6 +32,36 @@ func requireJSONFields(value map[string]json.RawMessage, label string, fields ..
 		}
 	}
 	return nil
+}
+
+func normalizeHostCompactionEpoch(raw json.RawMessage) (string, error) {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", errors.New("hostCompactionEpoch must be a non-negative safe integer or unknown")
+	}
+	switch epoch := value.(type) {
+	case string:
+		if epoch == "unknown" {
+			return epoch, nil
+		}
+	case float64:
+		if epoch >= 0 && epoch <= 9007199254740991 && math.Trunc(epoch) == epoch {
+			return strconv.FormatFloat(epoch, 'f', -1, 64), nil
+		}
+	}
+	return "", errors.New("hostCompactionEpoch must be a non-negative safe integer or unknown")
+}
+
+func requiredAttestationBinding(attestation map[string]json.RawMessage) (string, string, error) {
+	epoch, err := normalizeHostCompactionEpoch(attestation["hostCompactionEpoch"])
+	if err != nil {
+		return "", "", fmt.Errorf("invalid host attestation epoch: %w", err)
+	}
+	var activeEngineID string
+	if err := json.Unmarshal(attestation["activeEngineId"], &activeEngineID); err != nil || activeEngineID == "" {
+		return "", "", errors.New("host attestation activeEngineId must be a non-empty string")
+	}
+	return epoch, activeEngineID, nil
 }
 
 func validateReceiptWire(receipt map[string]json.RawMessage) error {
@@ -180,6 +212,10 @@ func (c Client) Project(ctx context.Context, request Request) (Decision, error) 
 	if err := json.Unmarshal(request.Attestation, &attestation); err != nil || attestation == nil {
 		return Decision{}, errors.New("host attestation must be a JSON object")
 	}
+	requestEpoch, requestActiveEngineID, err := requiredAttestationBinding(attestation)
+	if err != nil {
+		return Decision{}, err
+	}
 	if request.DeadlineEpochMs <= time.Now().UnixMilli() {
 		return Decision{}, errors.New("ACE projection deadline has expired")
 	}
@@ -235,15 +271,24 @@ func (c Client) Project(ctx context.Context, request Request) (Decision, error) 
 	if err != nil {
 		return Decision{}, err
 	}
+	receiptEpochRaw, err := json.Marshal(decision.Receipt.HostCompactionEpoch)
+	if err != nil {
+		return Decision{}, errors.New("ACE projection receipt hostCompactionEpoch is invalid")
+	}
+	receiptEpoch, err := normalizeHostCompactionEpoch(receiptEpochRaw)
+	if err != nil {
+		return Decision{}, err
+	}
 	if decision.Receipt.SchemaVersion != SchemaVersion ||
 		decision.Receipt.RequestID != request.RequestID ||
 		decision.Receipt.AttemptGroupID != request.AttemptGroupID ||
 		decision.Receipt.AttemptIndex != 0 ||
 		decision.Receipt.ReceiptID == "" ||
-		decision.Receipt.ActiveEngineID == "" ||
+		decision.Receipt.ActiveEngineID != requestActiveEngineID ||
+		receiptEpoch != requestEpoch ||
 		decision.Receipt.BaseBodySHA256 != hex.EncodeToString(bodyDigest[:]) ||
 		decision.Receipt.Decision != decision.Kind {
-		return Decision{}, errors.New("ACE projection receipt does not bind the original attempt and decision")
+		return Decision{}, errors.New("ACE projection receipt does not bind the original attempt, host attestation and decision")
 	}
 	if int64(len(decision.BodyBase64)) > 4*((maxBodyBytes+2)/3) {
 		return Decision{}, errors.New("ACE projected response body exceeds bound")
