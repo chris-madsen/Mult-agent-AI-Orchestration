@@ -5,6 +5,10 @@ on:
     paths:
       - ".github/workflows/ace-quality-nightly.yml"
       - "test/nightly/gateway-projection.property.test.ts"
+      - "src/domain/gateway-projection.ts"
+      - "contracts/ace-gateway/v1/**"
+      - "package.json"
+      - "package-lock.json"
   schedule:
     - cron: "15 6 * * *"
   workflow_dispatch:
@@ -27,4 +31,4 @@ jobs:
       - name: Install locked dependencies
         run: npm ci --ignore-scripts
       - name: Exercise bounded gateway request properties
-        run: npx tsx --test test/nightly/gateway-projection.property.test.ts
+        run: ./node_modules/.bin/tsx --test test/nightly/gateway-projection.property.test.ts
