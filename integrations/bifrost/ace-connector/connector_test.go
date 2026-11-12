@@ -80,6 +80,7 @@ func TestProjectAndApplyBindOriginalAndProjectedDigests(t *testing.T) {
 				SchemaVersion: SchemaVersion, RequestID: "req-1", AttemptGroupID: "group-1", AttemptIndex: 0,
 				ReceiptID: "receipt-1", Decision: "APPLY", BaseBodySHA256: digest(original),
 				ProjectedBodySHA256: digest(projected), HostCompactionEpoch: 3, ActiveEngineID: "ace_context_engine",
+				PermittedWireRewrites: []string{},
 			},
 		}
 		encoded, err := json.Marshal(decision)
@@ -158,7 +159,7 @@ func TestRejectForgedProjectionReceipts(t *testing.T) {
      SchemaVersion: SchemaVersion, RequestID: "req-1", AttemptGroupID: "group-1",
      AttemptIndex: 0, ReceiptID: "receipt-1", Decision: "APPLY",
      BaseBodySHA256: digest(original), ProjectedBodySHA256: digest(projected),
-     HostCompactionEpoch: 1, ActiveEngineID: "ace_context_engine",
+     HostCompactionEpoch: 1, ActiveEngineID: "ace_context_engine", PermittedWireRewrites: []string{},
     },
    }
    scenario.change(&decision)
@@ -203,7 +204,7 @@ func TestProjectedResponseHonorsCustomBodyBound(t *testing.T) {
     SchemaVersion: SchemaVersion, RequestID: "req-1", AttemptGroupID: "group-1",
     AttemptIndex: 0, ReceiptID: "receipt-1", Decision: "APPLY",
     BaseBodySHA256: digest(original), ProjectedBodySHA256: digest(projected),
-    HostCompactionEpoch: 1, ActiveEngineID: "ace_context_engine",
+    HostCompactionEpoch: 1, ActiveEngineID: "ace_context_engine", PermittedWireRewrites: []string{},
    },
   })
  }))
