@@ -1,25 +1,31 @@
-name: ACE typecheck and contracts
+name: ACE verification (PR focused / nightly full)
 
 on:
   pull_request:
-  push:
-    branches: [main]
+  schedule:
+    - cron: "33 2 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  contracts:
+  scope:
+    name: Select affected PR language checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 3
+    outputs:
+      node: ${{ steps.paths.outputs.node }}
+      go: ${{ steps.paths.outputs.go }}
+      hermes: ${{ steps.paths.outputs.hermes }}
     steps:
       - name: Checkout code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
           fetch-depth: 2
-      - name: Determine verification scope
-        id: scope
+      - name: Classify changed PR paths without running tests
+        id: paths
         shell: bash
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -27,41 +33,62 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${GITHUB_EVENT_NAME}" != "pull_request" ]]; then
-            echo "mode=full" >> "${GITHUB_OUTPUT}"
-            echo "[ci-scope] push event: full verification"
+            echo "node=true" >> "${GITHUB_OUTPUT}"
+            echo "go=true" >> "${GITHUB_OUTPUT}"
+            echo "hermes=false" >> "${GITHUB_OUTPUT}"
+            echo "[scope] nightly/manual: exhaustive verification"
             exit 0
           fi
-          if [[ -z "${PR_BASE_SHA}" || -z "${PR_HEAD_SHA}" ]] || ! git fetch --no-tags --depth=1 origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"; then
-            echo "mode=full" >> "${GITHUB_OUTPUT}"
-            echo "[ci-scope] unable to fetch PR identities: full verification"
-            exit 0
+          if [[ -z "${PR_BASE_SHA}" || -z "${PR_HEAD_SHA}" ]]; then
+            echo "[scope] BLOCKED: missing PR commit identities" >&2
+            exit 1
           fi
-          changed="$(git diff --name-only --diff-filter=ACDMRT "${PR_BASE_SHA}" "${PR_HEAD_SHA}")"
-          if [[ -z "${changed}" ]]; then
-            echo "mode=full" >> "${GITHUB_OUTPUT}"
-            echo "[ci-scope] empty PR diff: full verification"
-            exit 0
-          fi
-          mode=docs
-          while IFS= read -r file; do
-            case "${file}" in
-              docs/*|benchmarks/reports/*|AGENTS.md|README.md|LICENSE)
-                ;;
-              package.json|package-lock.json|tsconfig.json|tsconfig.eslint.json|.eslintrc.cjs|.github/*|scripts/run-affected-tests.mjs|benchmarks/fixtures/*|infra/*|Makefile)
-                mode=full
-                ;;
-              src/*|test/*|scripts/*)
-                [[ "${mode}" == "docs" ]] && mode=affected
+          git fetch --no-tags --depth=1 origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
+          changed="${RUNNER_TEMP}/ace-changed-pr-paths.nul"
+          git diff --name-only --diff-filter=ACDMRT -z "${PR_BASE_SHA}" "${PR_HEAD_SHA}" > "${changed}"
+          node=false
+          go=false
+          hermes=false
+          count=0
+          while IFS= read -r -d '' path; do
+            count=$((count + 1))
+            echo "[scope] changed path: ${path}"
+            case "${path}" in
+              integrations/bifrost/ace-connector/*) go=true ;;
+              integrations/hermes/ace_context_engine/*) hermes=true ;;
+              .github/fixtures/contracts/*) node=true; go=true; hermes=true ;;
+              src/*|test/*|scripts/*|architecture/*|contracts/*|package.json|package-lock.json|tsconfig.json|tsconfig.eslint.json|.eslintrc.cjs|knip.json|knip.config.*|benchmarks/fixtures/*)
+                node=true ;;
+              docs/*|benchmarks/reports/*|AGENTS.md|README.md|LICENSE|.agents/*|.codex/*|.github/workflows/*|.github/fixtures/markdown-links/*)
                 ;;
               *)
-                mode=full
-                ;;
+                # Unknown non-document paths get a bounded Node smoke/affected gate,
+                # never an automatic full suite. Do not silently skip new code trees.
+                node=true ;;
             esac
-          done <<< "${changed}"
-          echo "mode=${mode}" >> "${GITHUB_OUTPUT}"
-          echo "[ci-scope] mode=${mode}"
-          printf '%s\n' "${changed}" | sed 's/^/[ci-scope] changed: /'
-      - name: Reject in-place rewrites of accepted public v1 baseline
+          done < "${changed}"
+          if (( count == 0 )); then
+            echo "[scope] BLOCKED: no changed files between PR base and head" >&2
+            exit 1
+          fi
+          echo "node=${node}" >> "${GITHUB_OUTPUT}"
+          echo "go=${go}" >> "${GITHUB_OUTPUT}"
+          echo "hermes=${hermes}" >> "${GITHUB_OUTPUT}"
+          echo "[scope] PR node=${node} go=${go} hermes=${hermes} (full runs nightly)"
+
+  contracts:
+    name: Focused TypeScript and contracts
+    needs: scope
+    if: github.event_name != 'pull_request' || needs.scope.outputs.node == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Reject in-place rewrite of accepted public v1 contracts
         if: github.event_name == 'pull_request'
         shell: bash
         env:
@@ -69,74 +96,45 @@ jobs:
         run: |
           set -euo pipefail
           baseline=.github/fixtures/contracts/ace-public-v1-baseline.json
-          if ! git cat-file -e "${PR_BASE_SHA}^{commit}" 2>/dev/null; then
-            git fetch --no-tags --depth=1 origin "${PR_BASE_SHA}"
-          fi
-          if ! git cat-file -e "${PR_BASE_SHA}^{commit}" 2>/dev/null; then
-            echo "[qg5] BLOCKED: cannot inspect the PR base commit" >&2
-            exit 1
-          fi
           for contract in \
             contracts/ace-gateway/v1/projection-request.schema.json \
-            contracts/ace-gateway/v1/projection-decision.schema.json; do
+            contracts/ace-gateway/v1/projection-decision.schema.json \
+            "${baseline}"; do
             if ! git cat-file -e "${PR_BASE_SHA}:${contract}" 2>/dev/null; then
-              echo "[qg5] BLOCKED: versioned v1 contract is missing from the PR base: ${contract}" >&2
+              echo "[qg5] BLOCKED: accepted v1 file missing at PR base: ${contract}" >&2
               exit 1
             fi
             if [[ ! -f "${contract}" || -L "${contract}" ]] \
               || ! git show "${PR_BASE_SHA}:${contract}" | cmp -s - "${contract}"; then
-              echo "[qg5] BLOCKED: ace.gateway.v1 schema was rewritten in place: ${contract}; introduce a separately approved version instead" >&2
+              echo "[qg5] BLOCKED: accepted v1 contract rewritten in place: ${contract}" >&2
               exit 1
             fi
           done
-
-          if ! git cat-file -e "${PR_BASE_SHA}:${baseline}" 2>/dev/null; then
-            echo "[qg5] INITIAL BASELINE: v1 first introduced in this PR; owner must approve its wire snapshot"
-            exit 0
-          fi
-          if [[ ! -f "${baseline}" || -L "${baseline}" ]]; then
-            echo "[qg5] BLOCKED: accepted v1 baseline missing or symlinked" >&2
-            exit 1
-          fi
-          if ! git show "${PR_BASE_SHA}:${baseline}" | cmp -s - "${baseline}"; then
-            echo "[qg5] BLOCKED: accepted v1 baseline was rewritten; preserve v1 and use a separately approved, versioned contract migration" >&2
-            exit 1
-          fi
-          echo "[qg5] accepted public v1 baseline and schemas are unchanged"
+          echo "[qg5] accepted v1 schemas and baseline unchanged"
       - name: Node 22
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        if: steps.scope.outputs.mode != 'docs'
         with:
           node-version: "22"
           cache: npm
-      - name: Install locked dependencies once
-        if: steps.scope.outputs.mode != 'docs'
+      - name: Install locked dependencies
         run: npm ci --ignore-scripts
-      - name: Embedding artifact and evaluator regressions
-        if: steps.scope.outputs.mode != 'docs'
-        env:
-          # Python imports must not create untracked scripts/__pycache__ files:
-          # runtime provenance intentionally fails closed on dirty source trees.
-          PYTHONDONTWRITEBYTECODE: "1"
-        run: python3 -B -m unittest discover -s scripts -p 'test_embedding_*.py'
-      - name: Install pinned structural provider
-        if: steps.scope.outputs.mode != 'docs'
+      - name: Pin structural Python provider for nightly exhaustive suite
+        if: github.event_name != 'pull_request'
         run: |
           python3 -m venv .venv-system
           .venv-system/bin/python -m pip install --disable-pip-version-check tree-sitter==0.26.0 tree-sitter-typescript==0.23.2
-      - name: Test-impact selector self-check
-        if: steps.scope.outputs.mode != 'docs'
-        run: npm run test:impact:self
-      - name: Deterministic PR verification
-        if: steps.scope.outputs.mode == 'full'
-        run: npm run verify:pr
-      - name: Affected PR verification
-        if: steps.scope.outputs.mode == 'affected'
+      - name: Focused PR typecheck, affected tests, lint and architecture
+        if: github.event_name == 'pull_request'
         env:
           ACE_TEST_BASE: ${{ github.event.pull_request.base.sha }}
-        run: npm run verify:pr:affected
-      - name: Verify clean compiled-runtime provenance
-        if: steps.scope.outputs.mode != 'docs'
+        run: npm run verify:pr
+      - name: Full nightly deterministic TypeScript, Hermes, architecture, build and property suite
+        if: github.event_name != 'pull_request'
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: npm run verify:full
+      - name: Nightly verify source-clean compiled runtime provenance
+        if: github.event_name != 'pull_request'
         run: |
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
@@ -144,17 +142,26 @@ jobs:
           if (manifest.sourceCleanAtBuild !== true
             || !Array.isArray(manifest.dirtyRelevantPaths)
             || manifest.dirtyRelevantPaths.length > 0) {
-            console.error('BLOCKED: compiled runtime provenance is dirty:', manifest.dirtyRelevantPaths);
+            console.error('[nightly] BLOCKED: dirty compiled runtime provenance', manifest.dirtyRelevantPaths);
             process.exitCode = 1;
           }
           NODE
-      - name: Documentation/evidence verification
-        if: steps.scope.outputs.mode == 'docs'
-        env:
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: git diff --check "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
 
+  hermes-plugin:
+    name: Focused Hermes Python contracts
+    needs: scope
+    if: github.event_name == 'pull_request' && needs.scope.outputs.hermes == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Hermes bridge contract suite
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -B -m unittest discover -s integrations/hermes/ace_context_engine -p 'test_*.py'
 
   docs-links:
     if: github.event_name == 'pull_request'
@@ -278,6 +285,8 @@ jobs:
           output: lychee/changed-markdown.md
 
   bifrost-connector:
+    needs: scope
+    if: github.event_name != 'pull_request' || needs.scope.outputs.go == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -304,7 +313,7 @@ jobs:
   real-qdrant:
     # Real Qdrant service + real FastEmbed model, not mocked provider wires.
     # Keep a single shared cache for the composed provider/crash acceptance.
-    if: github.event_name == 'pull_request'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 65
     services:
@@ -374,7 +383,7 @@ jobs:
 
   real-non-ts-lsp:
     # Real rust-analyzer protocol conformance, no fake LSP or fixture server.
-    if: github.event_name == 'pull_request'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
