@@ -42,6 +42,15 @@ test('gateway request validation binds exact original bytes and rejects malforme
   assert.equal(validateGatewayProjectionRequest({ ...request(), bodyBase64: 'AAAA'.repeat(1_400_000) })._tag, 'Err');
   assert.equal(validateGatewayProjectionRequest({ ...request(), attestation: { ...attestation, hostCompactionEpoch: -1 } })._tag, 'Err');
   assert.equal(validateGatewayProjectionRequest({ ...request(), requestedEvidenceIds: ['same', 'same'] })._tag, 'Err');
+  for (const invalid of [
+    { ...request(), unrecognized: true },
+    { ...request(), dataClass: ['private'] },
+    { ...request(), projectionMode: ['gateway'] },
+    { ...request(), attestation: { ...attestation, unrecognized: true } },
+    { ...request(), attestation: { ...attestation, providerManagedHistoryCapability: ['visible'] } },
+  ]) {
+    assert.equal(validateGatewayProjectionRequest(invalid)._tag, 'Err');
+  }
 });
 
 test('gateway rejects malformed UTF-8 rather than silently replacing original bytes', async () => {
