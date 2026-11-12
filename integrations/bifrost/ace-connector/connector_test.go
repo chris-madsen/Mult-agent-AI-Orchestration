@@ -188,7 +188,6 @@ func TestValidateLoopbackEndpoint(t *testing.T) {
 		"https://127.10.20.30:8765/project",
 		"http://[::1]:8765/project",
 		"http://[0:0:0:0:0:0:0:1]:8765/project",
-		"http://localhost:8765/project",
 	} {
 		if err := validateLoopbackEndpoint(endpoint); err != nil {
 			t.Errorf("expected loopback endpoint %q to pass: %v", endpoint, err)
@@ -201,6 +200,7 @@ func TestValidateLoopbackEndpoint(t *testing.T) {
 		"http://192.168.1.4:8765/project",
 		"http://[::]:8765/project",
 		"https://example.com/project",
+		"http://localhost:8765/project", // name resolution must never escape numeric loopback
 		"http://127.0.0.1.example.com/project",
 		"http://user@127.0.0.1:8765/project",
 	} {
