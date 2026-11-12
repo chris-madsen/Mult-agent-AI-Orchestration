@@ -27,7 +27,11 @@ from integrations.hermes.ace_context_engine.bridge import BridgeClient
 
 
 _PUBLIC_CONTRACT = json.loads((_REPO_ROOT / ".github/fixtures/contracts/ace-public-v1-baseline.json").read_text(encoding="utf-8"))
-READY = _PUBLIC_CONTRACT["hermes"]["bridgeHandshake"]
+READY = {
+    **_PUBLIC_CONTRACT["hermes"]["bridgeHandshake"],
+    "node": "v22.0.0",
+    "providerIdentities": {"qdrant": "qdrant/test"},
+}
 
 
 class BridgeClientTests(unittest.TestCase):
@@ -42,6 +46,20 @@ class BridgeClientTests(unittest.TestCase):
             response = client.transform({"requestId": "request-1"})
             self.assertTrue(response["ok"])
             self.assertEqual(response["requestId"], "request-1")
+        finally:
+            client.close()
+
+    def test_rejects_incomplete_ready_metadata(self) -> None:
+        incomplete = dict(_PUBLIC_CONTRACT["hermes"]["bridgeHandshake"])
+        command = [
+            sys.executable,
+            "-c",
+            "import json,sys; print(json.dumps({0}), flush=True); line=sys.stdin.readline(); print(json.dumps({{'ok':True,'requestId':json.loads(line)['requestId']}}), flush=True)".format(repr(incomplete).replace("'", '"')),
+        ]
+        client = BridgeClient(command=command, startup_timeout_seconds=1, request_timeout_seconds=1)
+        try:
+            with self.assertRaises(RuntimeError):
+                client.transform({"requestId": "request-1"})
         finally:
             client.close()
 
