@@ -50,18 +50,26 @@ class BridgeClientTests(unittest.TestCase):
             client.close()
 
     def test_rejects_incomplete_ready_metadata(self) -> None:
-        incomplete = dict(_PUBLIC_CONTRACT["hermes"]["bridgeHandshake"])
-        command = [
-            sys.executable,
-            "-c",
-            "import json,sys; print(json.dumps({0}), flush=True); line=sys.stdin.readline(); print(json.dumps({{'ok':True,'requestId':json.loads(line)['requestId']}}), flush=True)".format(repr(incomplete).replace("'", '"')),
+        incomplete_ready_records = [
+            {key: value for key, value in READY.items() if key != "node"},
+            {key: value for key, value in READY.items() if key != "providerIdentities"},
+            {**READY, "node": None},
+            {**READY, "providerIdentities": []},
+            {**READY, "providerIdentities": {"qdrant": None}},
         ]
-        client = BridgeClient(command=command, startup_timeout_seconds=1, request_timeout_seconds=1)
-        try:
-            with self.assertRaises(RuntimeError):
-                client.transform({"requestId": "request-1"})
-        finally:
-            client.close()
+        for incomplete in incomplete_ready_records:
+            with self.subTest(ready=incomplete):
+                command = [
+                    sys.executable,
+                    "-c",
+                    "import json,sys; print(json.dumps({0}), flush=True); line=sys.stdin.readline(); print(json.dumps({{'ok':True,'requestId':json.loads(line)['requestId']}}), flush=True)".format(repr(incomplete).replace("'", '"')),
+                ]
+                client = BridgeClient(command=command, startup_timeout_seconds=1, request_timeout_seconds=1)
+                try:
+                    with self.assertRaises(RuntimeError):
+                        client.transform({"requestId": "request-1"})
+                finally:
+                    client.close()
 
     def test_rejects_unpinned_ready_identity(self) -> None:
         command = [

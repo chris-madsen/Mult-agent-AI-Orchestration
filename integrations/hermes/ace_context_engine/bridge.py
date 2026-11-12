@@ -83,6 +83,14 @@ class BridgeClient:
         if ready.get("runtimeId") != "ace-harbor-runtime-v1":
             self.close()
             raise RuntimeError("ACE context bridge runtime identity is not pinned")
+        provider_identities = ready.get("providerIdentities")
+        if (
+            not isinstance(ready.get("node"), str)
+            or not isinstance(provider_identities, dict)
+            or not all(isinstance(identity, str) for identity in provider_identities.values())
+        ):
+            self.close()
+            raise RuntimeError("ACE context bridge returned incomplete bridge_ready metadata")
         return self._process
 
     def transform(self, request: dict[str, Any]) -> dict[str, Any]:
