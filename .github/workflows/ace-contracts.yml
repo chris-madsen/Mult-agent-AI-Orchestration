@@ -33,9 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${GITHUB_EVENT_NAME}" != "pull_request" ]]; then
-            echo "node=true" >> "${GITHUB_OUTPUT}"
-            echo "go=true" >> "${GITHUB_OUTPUT}"
-            echo "hermes=false" >> "${GITHUB_OUTPUT}"
+            printf 'node=true\ngo=true\nhermes=false\n' >> "${GITHUB_OUTPUT}"
             echo "[scope] nightly/manual: exhaustive verification"
             exit 0
           fi
@@ -71,9 +69,7 @@ jobs:
             echo "[scope] BLOCKED: no changed files between PR base and head" >&2
             exit 1
           fi
-          echo "node=${node}" >> "${GITHUB_OUTPUT}"
-          echo "go=${go}" >> "${GITHUB_OUTPUT}"
-          echo "hermes=${hermes}" >> "${GITHUB_OUTPUT}"
+          printf 'node=%s\ngo=%s\nhermes=%s\n' "${node}" "${go}" "${hermes}" >> "${GITHUB_OUTPUT}"
           echo "[scope] PR node=${node} go=${go} hermes=${hermes} (full runs nightly)"
 
   contracts:
