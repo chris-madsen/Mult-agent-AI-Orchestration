@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Effect } from 'effect';
+import * as gatewayTransportExports from '../src/transport/gateway-projection-http.js';
 import {
   handleGatewayProjectionHttp,
   isLoopbackGatewayHttpHost,
@@ -27,6 +28,10 @@ const service = {
     },
   })),
 };
+
+test('unvalidated Gateway Server factory is not exported for unsafe external binding', () => {
+  assert.equal('createGatewayProjectionServer' in gatewayTransportExports, false);
+});
 
 test('gateway HTTP host validation accepts loopback addresses only', () => {
   for (const host of ['127.0.0.1', '127.10.20.30', '::1', '0:0:0:0:0:0:0:1', 'localhost', 'LOCALHOST']) {
