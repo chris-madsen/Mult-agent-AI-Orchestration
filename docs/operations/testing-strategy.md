@@ -20,7 +20,8 @@ This document describes the operational test loop. Normative capability acceptan
 | `npm run check` | TypeScript strict typecheck only | Explicit type gate |
 | `npm run build` | Emit `dist/`; incremental state is reused locally | Runtime/E2E preparation |
 | `npm run verify:pr` | Typecheck + selected affected/limited smoke TS tests + lint + architecture + SDLC preflight | Fast PR/handoff; **not a full acceptance claim** |
-| `npm run verify:pr:affected` | Compatibility alias to the bounded `verify:pr` | Legacy local invocations |\n| `npm run verify:full` | All deterministic TS/Hermes, lint, build/source provenance, architecture, SDLC and Gateway property tests | Scheduled nightly/manual; not every PR |
+| `npm run verify:pr:affected` | Compatibility alias to the bounded `verify:pr` | Legacy local invocations |
+| `npm run verify:full` | All deterministic TS/Hermes, lint, build/source provenance, architecture, SDLC and Gateway property tests | Scheduled nightly/manual; not every PR |
 
 A clean CI worker installs dependencies once with:
 
@@ -40,7 +41,8 @@ Do not run `npm ci` repeatedly inside an already-installed development workspace
 4. walks that graph from changed source files to dependent tests;
 5. selects directly changed test files;
 6. for `scripts/` changes, selects tests that directly reference the changed script/name;
-7. for broad build/test configuration edits (package, lockfiles or TS/ESLint config), adds a **small explicit smoke set** and any affected tests; never silently invokes the entire suite. This does not assert full transitive dependency coverage.\n8. when zero tests are selected, prints an explicit `NO MATCHING TESTS` limitation; typecheck/lint and the next nightly full run are independent signals, not proof that the changed behavior is tested.
+7. for broad build/test configuration edits (package, lockfiles or TS/ESLint config), adds a **small explicit smoke set** and any affected tests; never silently invokes the entire suite. This does not assert full transitive dependency coverage.
+8. when zero tests are selected, prints an explicit `NO MATCHING TESTS` limitation; typecheck/lint and the next nightly full run are independent signals, not proof that the changed behavior is tested.
 
 Type-only dependency edges are owned by the TypeScript gate rather than runtime tests. Documentation-only changes normally select no TypeScript tests, and CI checks their diff without installing Node dependencies.
 
