@@ -250,7 +250,7 @@ HEADs, exact merge candidates, and CI again before accepting any row.
 | AC-SDLC-02 | AC-SDLC-01, #224 | QG1 merged; synthetic new secret blocks, output redacted, clean input passes; a secret adjacent to the excluded reviewed fixture is detected; actionlint/zizmor reject unsafe workflow and accept clean workflow | MERGED #224; independent post-merge negative PR still not demonstrated |
 | AC-SDLC-03 | AC-SDLC-02, #225 | QG2 merged; each native ast-grep rule passes valid/invalid/false-positive and re-export cases; production scan remains report-only until owner authorizes blocking promotion | MERGED #225; advisory only, not blocking |
 | AC-SDLC-04 | AC-SDLC-01..03 | One combined fresh PR verifies all three gates together on the post-merge main; no existing runtime or provider gate is weakened | NOT-RUN — local gate checks passed at clean `origin/main` `dea19cd3fa84d6a794d2b7c4e11094f534d86a65`; no PR/CI evidence existed when this row was recorded. The owner authorized commit/push/PR delivery on 2026-11-12 |
-| AC-SDLC-05 | AC-SDLC-01..04 | Branch/rules policy makes required checks and human approval enforceable; do not claim protection from an inaccessible GitHub endpoint | BLOCKED_OWNER_ACTION — on 2026-11-12, GitHub returned 404 for `branches/main/protection` and `rulesets=[]`; effective organization/owner policy remains UNKNOWN and requires owner confirmation |
+| AC-SDLC-05 | Owner instruction 2026-11-12 | **SUPERSEDED / NO LONGER A REQUIREMENT.** Owner explicitly declines branch protection, rulesets, mandatory status checks and required PR approvals; no admin setup or blocker for these is needed. | CLOSED_BY_OWNER_DECISION — do not create follow-up task or infer merge protection from CI jobs |
 | AC-SDLC-06 | AC-SDLC-01, owner merge | T1 dogfood evidence for #223 archived at merged SHA, with real RED/GREEN, four distinct gate passes and human review | MERGED #223 evidence remains valid; the additional T1 validator fix's focused tests were run in a pre-commit worktree and do not establish clean-SHA/PR/owner evidence |
 | AC-SDLC-07 | Appropriate real T2 task | G02 acceptance→owner→decision→state/contract→phase→RED/GREEN→provider-proof crosswalk accepted **before code**, then implemented, tested, reviewed and merged | BLOCKED_OWNER_DECISION — G02 crosswalk added to `openspec/changes/009-bifrost-hermes-ownership/design.md`; principal/proof and network boundary remain unresolved; no T2 code changed |
 | AC-SDLC-08 | AC-SDLC-01..07 | Two further independent real tasks (one contained T1 bugfix, one material T2 change) demonstrate repeatable process and honest provider/agent E2E; human audits quality rather than merely checking template fields | PARTIAL_LOCAL — the additional CLI-default T1 fix's affected tests were run in the pre-commit worktree and do not establish clean-SHA/PR/owner evidence; the material T2 task remains blocked by G02 |
@@ -266,9 +266,12 @@ rejected by their relevant checks. A clean changed-document PR must pass.
 QG2 is intentionally advisory/report-only until an owner-approved promotion;
 do not count its warnings as blocking.
 
-GitHub branch protection or ruleset configuration is a repository-owner action.
-Do not label checks mandatory merely because their workflows exist. Validate
-the effective merge policy and required checks using a non-production test PR.
+**Owner decision 2026-11-12:** branch protection/rulesets, required checks,
+and mandatory PR approvals are expressly **not wanted**. Do not reopen this
+item or attempt admin configuration. CI reports evidence but does not enforce
+merge. The default PR scope must remain small and affected-path only; the full
+TypeScript/Hermes/provider/quality sweep runs overnight or by explicit manual
+request. This changes CI execution cost, not accepted G02 or production truth.
 
 ### Beyond minimum operational adoption
 
@@ -351,3 +354,31 @@ coverage. P1 QG4–QG6 and TypeSpec TS-00..06 remain separately staged.
 **Separate branch state:** `origin/codex/retrieval-followup@65aec6f12027b06955629ddcc40f59dfb70855d1` remains unmerged with no open PR. It is 41 commits behind and 55 ahead of `origin/main` (net 23 files, +693/−619 lines); its own readiness report marks real NAPI parity and the latest local Qdrant concurrency run blocked. It was not merged, rewritten, or included in this Phase A slice.
 
 **Next gate:** before a T2 runtime fix, complete a human-approved G02 acceptance-to-owner/decision/contract/phase/oracle/provider crosswalk. Preserve the existing retrieval order; resolve the gateway auth/schema contract and AST default/parity as separate reviewable slices. Keep TypeSpec TS-00 staged until its contract-migration task is approved. No production or benchmark status changes in ACE-ARCH-1.
+
+## SDLC-CI-SCOPE — owner-approved fast PR / full nightly split (2026-11-12)
+
+**Owner decision:** do not configure branch protection or mandatory approvals.
+The previous AC-SDLC-05 branch-protection item is **superseded**, not blocked.
+Default agent behavior must never run the entire deterministic/provider suite
+merely because a PR has a package/config change or `main` received a push.
+
+| Scope | Trigger | Included | Explicit exclusions and evidence limits |
+|---|---|---|---|
+| Focused PR | `pull_request` | Diff-selected typecheck, lint, affected TS tests + bounded config smoke; path-scoped Hermes Python and Go/Bifröst tests; changed docs links, secret scan, changed workflow actionlint/zizmor | **No** `npm test`/full TS, real Qdrant/rust-analyzer, Knip, OSV, k3s/Harbor/scale runs. Missing targeted tests stay an explicit limitation, never a claim of full coverage. |
+| Full nightly | Daily schedule or manual `workflow_dispatch` | `verify:full`: all deterministic TypeScript, Hermes Python, lint, build/runtime provenance, architecture, SDLC, Gateway property; real Qdrant provider/restart/two-writer/crash; real rust-analyzer; Go tests/vet; scheduled Knip and OSV reports | External provider/credential-dependent k3s, Vertex, Graphiti, Harbor and release gates remain on-demand acceptance, **NOT-RUN** unless actually executed. |
+
+**Regression oracle:** a package/lock/config-only PR never invokes the full
+suite; a docs-only PR never installs npm; a Go-only PR does not invoke TS;
+a Hermes-only PR runs only its Python tests; a source PR selects affected TS
+tests; a manual/nightly run executes the full deterministic suite and real
+Qdrant/LSP. Existing security scan and contract-version immutability must not
+be bypassed. Repeated selection errors must fail visibly; never pretend that
+static scope selection establishes provider quality.
+
+**Known inherited red at this scope change:** on original
+`main@cf1809650f61c7d826d61b7d58e88be22dd7f1e5`, full CI failed
+`integrations/hermes/ace_context_engine/test_bridge.py::test_rejects_incomplete_ready_metadata`
+(bad `bridge_ready` metadata accepted). This remains a real defect requiring
+its own focused Hermes bugfix PR and an explicit full-nightly rerun; moving it
+out of the default PR loop is **not a fix** and must not be reported as green
+architecture acceptance.
