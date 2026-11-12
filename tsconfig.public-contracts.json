@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": ".cache/tsconfig.public-contracts.tsbuildinfo"
+  },
+  "include": [
+    "src/**/*.ts",
+    "test/public-contract-compatibility.contracts.test.ts"
+  ],
+  "exclude": ["dist", "node_modules"]
+}
