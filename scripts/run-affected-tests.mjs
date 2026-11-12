@@ -6,13 +6,22 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import ts from 'typescript';
 
-const FULL_SUITE_TRIGGERS = new Set([
+// Even a toolchain/lockfile change stays bounded in PRs. The nightly workflow
+// owns the exhaustive suite. This small smoke set is a safety net, not a claim
+// that the PR covered every consumer of a changed dependency.
+const BROAD_CONFIG_TRIGGERS = new Set([
   'package.json',
   'package-lock.json',
   'tsconfig.json',
   'tsconfig.eslint.json',
   '.eslintrc.cjs',
   'scripts/run-affected-tests.mjs',
+]);
+const SMOKE_TESTS = new Set([
+  'test/foundation.test.ts',
+  'test/mcp-sdk-runtime.conformance.test.ts',
+  'test/public-contract-compatibility.contracts.test.ts',
+  'test/runtime-provenance.contracts.test.ts',
 ]);
 
 const normalize = (value) => value.replaceAll('\\', '/').replace(/^\.\//u, '');
@@ -86,9 +95,7 @@ export const resolveRelativeImport = (importer, specifier) => {
 
 export const selectAffectedTests = ({ trackedFiles, changedFiles, contents }) => {
   const tests = trackedFiles.filter((file) => /^test\/[^/]+\.test\.ts$/u.test(file)).sort();
-  if (changedFiles.some((file) => FULL_SUITE_TRIGGERS.has(file))) {
-    return { mode: 'full', tests, reasons: ['broad test/build configuration changed'] };
-  }
+  const broadConfiguration = changedFiles.some((file) => BROAD_CONFIG_TRIGGERS.has(file));
 
   const codeFiles = trackedFiles.filter((file) => /^(?:src|test)\/.*\.ts$/u.test(file));
   const reverse = new Map();
@@ -129,10 +136,17 @@ export const selectAffectedTests = ({ trackedFiles, changedFiles, contents }) =>
     }
   }
 
+  if (broadConfiguration) {
+    const smoke = tests.filter((file) => SMOKE_TESTS.has(file));
+    for (const file of smoke.length > 0 ? smoke : tests.slice(0, 3)) selected.add(file);
+  }
   return {
-    mode: selected.size === 0 ? 'none' : 'affected',
+    mode: broadConfiguration ? 'smoke' : selected.size === 0 ? 'none' : 'affected',
     tests: [...selected].sort(),
-    reasons: selected.size === 0 ? ['no dependent deterministic TypeScript tests discovered'] : [],
+    reasons: [
+      ...(broadConfiguration ? ['broad config changed: bounded smoke + affected tests; exhaustive suite runs nightly'] : []),
+      ...(selected.size === 0 ? ['NO MATCHING TESTS: do not treat this as behavioral acceptance'] : []),
+    ],
   };
 };
 
@@ -203,10 +217,11 @@ const runSelfTest = () => {
     selectAffectedTests({ trackedFiles, changedFiles: ['docs/readme.md'], contents }).mode,
     'none',
   );
-  assert.equal(
-    selectAffectedTests({ trackedFiles, changedFiles: ['package.json'], contents }).mode,
-    'full',
-  );
+  const broad = selectAffectedTests({ trackedFiles, changedFiles: ['package.json'], contents });
+  assert.equal(broad.mode, 'smoke');
+  assert.ok(broad.tests.length > 0 && broad.tests.length < trackedFiles.length);
+  const mixed = selectAffectedTests({ trackedFiles, changedFiles: ['package.json', 'src/a.ts'], contents });
+  assert.ok(mixed.tests.includes('test/b.test.ts'), 'broad config must preserve changed-code dependents');
   assert.deepEqual(
     selectAffectedTests({ trackedFiles, changedFiles: ['scripts/report.ts'], contents }).tests,
     ['test/script.test.ts'],
@@ -271,9 +286,8 @@ const main = () => {
   if (selection.tests.length > 0) console.log(selection.tests.map((file) => `  test: ${file}`).join('\n'));
 
   if (dryRun || selection.mode === 'none') return;
-  const command = selection.mode === 'full'
-    ? ['test']
-    : ['exec', '--', 'tsx', '--test', ...selection.tests];
+  // PR/inner-loop selector must never invoke npm test/full suite implicitly.
+  const command = ['exec', '--', 'tsx', '--test', ...selection.tests];
   const npmInvocation = process.platform === 'win32'
     ? ['cmd.exe', ['/d', '/s', '/c', ['npm.cmd', ...command].join(' ')]]
     : ['npm', command];
