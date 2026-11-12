@@ -102,7 +102,7 @@ Full procedure: [implement_backend.md](../research/sdlc/source/commands/implemen
 - **Gate D PLAN:** every accepted requirement maps to changed code and test/proof.
 - On FAIL fix current phase, rerun; UNKNOWN is never silently a PASS.
 - Self-audits by the same model are not independent reviews.
-- Once the coherent slice is ready, run `npm run verify:pr` once and push focused commit/PR per AGENTS.md.
+- Once the coherent slice is ready, run **bounded** `npm run verify:pr` once and push a focused commit/PR per AGENTS.md. The complete deterministic/provider suite runs nightly or via explicit manual `npm run verify:full`, not for every PR or `main` push. Do not mistake an affected-test PASS for full acceptance.
 
 ## 5. Final integration / release evidence
 - Read all phases and entire PR diff against merge base.
