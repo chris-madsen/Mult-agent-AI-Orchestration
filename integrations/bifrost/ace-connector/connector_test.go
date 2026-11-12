@@ -6,10 +6,13 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -57,6 +60,29 @@ func assertRequiredJSONFields(t *testing.T, value map[string]json.RawMessage, re
 func digest(value []byte) string {
 	sum := sha256.Sum256(value)
 	return hex.EncodeToString(sum[:])
+}
+
+type unexpectedRoundTripper struct{}
+
+func (unexpectedRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	panic("non-loopback ACE endpoint reached HTTP transport")
+}
+
+type redirectRoundTripper struct {
+	t *testing.T
+}
+
+func (r redirectRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.URL.Hostname() != "127.0.0.1" {
+		r.t.Errorf("unexpected HTTP request to %s", request.URL)
+		return nil, errors.New("unexpected non-loopback request")
+	}
+	return &http.Response{
+		StatusCode: http.StatusTemporaryRedirect,
+		Header:     http.Header{"Location": []string{"https://example.com/project"}},
+		Body:       io.NopCloser(strings.NewReader("")),
+		Request:    request,
+	}, nil
 }
 
 func validHostAttestation(t *testing.T, epoch int) json.RawMessage {
@@ -147,6 +173,66 @@ func TestProjectAndApplyBindOriginalAndProjectedDigests(t *testing.T) {
 	}
 	if string(actual) != string(projected) {
 		t.Fatalf("unexpected projected body: %s", actual)
+	}
+}
+
+func TestValidateLoopbackEndpoint(t *testing.T) {
+	for _, endpoint := range []string{
+		"http://127.0.0.1:8765/project",
+		"https://127.10.20.30:8765/project",
+		"http://[::1]:8765/project",
+		"http://[0:0:0:0:0:0:0:1]:8765/project",
+		"http://localhost:8765/project",
+	} {
+		if err := validateLoopbackEndpoint(endpoint); err != nil {
+			t.Errorf("expected loopback endpoint %q to pass: %v", endpoint, err)
+		}
+	}
+	for _, endpoint := range []string{
+		"/internal/ace-gateway/v1/project",
+		"ftp://127.0.0.1:8765/project",
+		"http://0.0.0.0:8765/project",
+		"http://192.168.1.4:8765/project",
+		"http://[::]:8765/project",
+		"https://example.com/project",
+		"http://127.0.0.1.example.com/project",
+		"http://user@127.0.0.1:8765/project",
+	} {
+		if err := validateLoopbackEndpoint(endpoint); err == nil {
+			t.Errorf("expected non-loopback endpoint %q to fail", endpoint)
+		}
+	}
+}
+
+func TestProjectRejectsNonLoopbackEndpointBeforeHTTP(t *testing.T) {
+	client := Client{
+		Endpoint:   "https://example.com/internal/ace-gateway/v1/project",
+		HTTPClient: &http.Client{Transport: unexpectedRoundTripper{}},
+	}
+	_, err := client.Project(context.Background(), Request{
+		RequestID: "req-1", AttemptGroupID: "group-1", AgentSessionID: "session-1", WorkspaceID: "workspace-1",
+		DataClass: "private", Protocol: "openai.chat.completions", Provider: "mock", Model: "test", Query: "question",
+		ProjectionMode: "gateway", DeadlineEpochMs: 4102444800000, Body: []byte(`{"messages":[]}`),
+		Attestation: validHostAttestation(t, 1),
+	})
+	if err == nil {
+		t.Fatal("expected non-loopback endpoint to fail before HTTP")
+	}
+}
+
+func TestProjectRejectsRedirectToNonLoopbackBeforeHTTP(t *testing.T) {
+	client := Client{
+		Endpoint:   "http://127.0.0.1:8765/project",
+		HTTPClient: &http.Client{Transport: redirectRoundTripper{t: t}},
+	}
+	_, err := client.Project(context.Background(), Request{
+		RequestID: "req-1", AttemptGroupID: "group-1", AgentSessionID: "session-1", WorkspaceID: "workspace-1",
+		DataClass: "private", Protocol: "openai.chat.completions", Provider: "mock", Model: "test", Query: "question",
+		ProjectionMode: "gateway", DeadlineEpochMs: 4102444800000, Body: []byte(`{"messages":[]}`),
+		Attestation: validHostAttestation(t, 1),
+	})
+	if err == nil {
+		t.Fatal("expected non-loopback redirect to fail before HTTP")
 	}
 }
 

@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Effect } from 'effect';
-import { handleGatewayProjectionHttp, maxEnvelopeBytesFor } from '../src/transport/gateway-projection-http.js';
+import {
+  handleGatewayProjectionHttp,
+  isLoopbackGatewayHttpHost,
+  maxEnvelopeBytesFor,
+  runGatewayProjectionHttp,
+} from '../src/transport/gateway-projection-http.js';
 import { ok } from '../src/domain/result.js';
 
 const service = {
@@ -22,6 +27,28 @@ const service = {
     },
   })),
 };
+
+test('gateway HTTP host validation accepts loopback addresses only', () => {
+  for (const host of ['127.0.0.1', '127.10.20.30', '::1', '0:0:0:0:0:0:0:1', 'localhost', 'LOCALHOST']) {
+    assert.equal(isLoopbackGatewayHttpHost(host), true, host);
+  }
+  for (const host of ['0.0.0.0', '192.168.1.4', '::', 'example.com', '127.0.0.1.example.com']) {
+    assert.equal(isLoopbackGatewayHttpHost(host), false, host);
+  }
+});
+
+test('gateway HTTP rejects non-loopback options and environment hosts before listening', async () => {
+  await assert.rejects(runGatewayProjectionHttp(service, { host: '0.0.0.0' }), /loopback address/u);
+
+  const previousHost = process.env.ACE_GATEWAY_HTTP_HOST;
+  process.env.ACE_GATEWAY_HTTP_HOST = '192.168.1.4';
+  try {
+    await assert.rejects(runGatewayProjectionHttp(service), /loopback address/u);
+  } finally {
+    if (previousHost === undefined) delete process.env.ACE_GATEWAY_HTTP_HOST;
+    else process.env.ACE_GATEWAY_HTTP_HOST = previousHost;
+  }
+});
 
 test('gateway HTTP exposes health and capability contracts', async () => {
   const health = await handleGatewayProjectionHttp(service, 'GET', '/internal/ace-gateway/v1/health', '');

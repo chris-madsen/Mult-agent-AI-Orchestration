@@ -16,11 +16,16 @@ A strict model request SHALL have exactly one authoritative context owner: `nati
 - **THEN** the decision states that no model-bound ACE projection is being claimed
 - **AND** a missing ACE projection is not relabeled as success.
 
-### Requirement: Trusted host ownership attestation
+### Requirement: Local-only Gateway trust boundary
 
-Strict ACE attribution SHALL require an authenticated host attestation bound to session, workspace and tenant identity.
+The approved local Gateway deployment SHALL bind its listener and Bifrost projection endpoint to loopback. The local host is the trust boundary; process-level authentication and mTLS are not required. Strict requests SHALL still bind host claims to the request's session, workspace and tenant, and validate those claims before projection.
 
-#### Scenario: missing or stale attestation
+#### Scenario: non-loopback Gateway listener or endpoint
+- **WHEN** the Gateway listener or Bifrost projection endpoint is configured with a non-loopback address
+- **THEN** the listener fails before accepting requests or the connector rejects the endpoint before network I/O
+- **AND** no provider attempt is sent.
+
+#### Scenario: missing or stale host claims
 - **WHEN** host engine identity, compression controls, transcript revision, attestor identity or compaction epoch is missing, stale or mismatched
 - **THEN** the request is blocked with a typed ownership error
 - **AND** no upstream provider call occurs.

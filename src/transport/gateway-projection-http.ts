@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { isIP } from 'node:net';
 import { Effect } from 'effect';
 import type { DomainError } from '../domain/errors.js';
 import type { Result } from '../domain/result.js';
@@ -23,6 +24,13 @@ const schemaVersion = 'ace.gateway.v1';
 const defaultMaxBodyBytes = 4 * 1024 * 1024;
 // The HTTP request is a JSON envelope containing Base64, not raw provider bytes.
 export const maxEnvelopeBytesFor = (bodyBytes: number): number => 4 * Math.ceil(bodyBytes / 3) + 64 * 1024;
+export const isLoopbackGatewayHttpHost = (host: string): boolean => {
+  const normalizedHost = host.toLowerCase();
+  if (normalizedHost === 'localhost') return true;
+  const family = isIP(normalizedHost);
+  if (family === 4) return normalizedHost.startsWith('127.');
+  return family === 6 && (normalizedHost === '::1' || normalizedHost === '0:0:0:0:0:0:0:1');
+};
 const jsonHeaders = { 'content-type': 'application/json; charset=utf-8' };
 
 const json = (body: Readonly<Record<string, unknown>>): GatewayProjectionHttpResponse => ({
@@ -111,8 +119,9 @@ export const runGatewayProjectionHttp = async (
   service: GatewayProjectionHttpService,
   options: GatewayProjectionHttpOptions = {},
 ): Promise<void> => {
-  const server = createGatewayProjectionServer(service, options);
   const host = options.host ?? process.env.ACE_GATEWAY_HTTP_HOST ?? '127.0.0.1';
+  if (!isLoopbackGatewayHttpHost(host)) throw new Error('ACE Gateway HTTP host must be a loopback address');
+  const server = createGatewayProjectionServer(service, options);
   const port = options.port ?? Number(process.env.ACE_GATEWAY_HTTP_PORT ?? '8765');
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
