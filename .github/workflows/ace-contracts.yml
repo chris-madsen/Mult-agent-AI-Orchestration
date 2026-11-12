@@ -60,6 +60,34 @@ jobs:
           echo "mode=${mode}" >> "${GITHUB_OUTPUT}"
           echo "[ci-scope] mode=${mode}"
           printf '%s\n' "${changed}" | sed 's/^/[ci-scope] changed: /'
+      - name: Reject in-place rewrites of accepted public v1 baseline
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          baseline=.github/fixtures/contracts/ace-public-v1-baseline.json
+          if ! git cat-file -e "${PR_BASE_SHA}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "${PR_BASE_SHA}"
+          fi
+          if ! git cat-file -e "${PR_BASE_SHA}^{commit}" 2>/dev/null; then
+            echo "[qg5] BLOCKED: cannot inspect the PR base commit" >&2
+            exit 1
+          fi
+          if ! git cat-file -e "${PR_BASE_SHA}:${baseline}" 2>/dev/null; then
+            echo "[qg5] INITIAL BASELINE: v1 first introduced in this PR; owner must approve its wire snapshot"
+            exit 0
+          fi
+          if [[ ! -f "${baseline}" || -L "${baseline}" ]]; then
+            echo "[qg5] BLOCKED: accepted v1 baseline missing or symlinked" >&2
+            exit 1
+          fi
+          if ! git show "${PR_BASE_SHA}:${baseline}" | cmp -s - "${baseline}"; then
+            echo "[qg5] BLOCKED: accepted v1 baseline was rewritten; preserve v1 and use a separately approved, versioned contract migration" >&2
+            exit 1
+          fi
+          echo "[qg5] accepted public v1 baseline unchanged"
       - name: Node 22
         uses: actions/setup-node@v4
         if: steps.scope.outputs.mode != 'docs'
