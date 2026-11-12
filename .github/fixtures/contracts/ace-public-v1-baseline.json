@@ -10,6 +10,30 @@
           "working_context.focused_range": ["end_line", "start_line"],
           "source_obligations": []
         },
+        "types": {
+          "workspace_id": "string",
+          "query": "string",
+          "intent": "string",
+          "include_code": "boolean",
+          "include_docs": "boolean",
+          "include_memory": "boolean",
+          "include_history": "boolean",
+          "known_bundle_id": "string",
+          "known_evidence_ids": "array",
+          "known_evidence_ids[]": "string",
+          "working_context": "object",
+          "working_context.focused_path": "string",
+          "working_context.open_paths": "array",
+          "working_context.open_paths[]": "string",
+          "working_context.focused_range": "object",
+          "working_context.focused_range.start_line": "integer",
+          "working_context.focused_range.end_line": "integer",
+          "source_obligations": "object",
+          "source_obligations.required": "array",
+          "source_obligations.required[]": "string",
+          "source_obligations.optional": "array",
+          "source_obligations.optional[]": "string"
+        },
         "enums": {
           "source_obligations.required[]": ["code", "structural", "lsp", "documentation", "memory", "history"],
           "source_obligations.optional[]": ["code", "structural", "lsp", "documentation", "memory", "history"]
@@ -18,15 +42,18 @@
       "ace_expand": {
         "required": ["handle"],
         "properties": ["handle", "cursor", "max_bytes", "format"],
+        "types": {"handle": "string", "cursor": "string", "max_bytes": "integer", "format": "string"},
         "enums": {"format": ["base64", "utf8"]}
       },
       "ace_workspace_status": {
         "required": ["workspace_id"],
-        "properties": ["workspace_id"]
+        "properties": ["workspace_id"],
+        "types": {"workspace_id": "string"}
       },
       "ace_memory_search": {
         "required": ["query", "workspace_id"],
-        "properties": ["workspace_id", "query", "as_of", "include_original"]
+        "properties": ["workspace_id", "query", "as_of", "include_original"],
+        "types": {"workspace_id": "string", "query": "string", "as_of": "string", "include_original": "boolean"}
       }
     },
     "successEnvelopeRequired": ["content", "structuredContent"],
