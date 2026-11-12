@@ -18,6 +18,9 @@ type publicContractBaseline struct {
 		SchemaVersion string `json:"schemaVersion"`
 		Request       struct {
 			Required []string `json:"required"`
+			Attestation struct {
+				Required []string `json:"required"`
+			} `json:"attestation"`
 		} `json:"request"`
 		Decision struct {
 			Required []string `json:"required"`
@@ -56,6 +59,29 @@ func digest(value []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func validHostAttestation(t *testing.T, epoch int) json.RawMessage {
+	t.Helper()
+	value := map[string]any{
+		"hostBuildDigest": digest([]byte("host-build")),
+		"sessionId": "session-1",
+		"activeEngineId": "ace_context_engine",
+		"effectiveCompressionControlsDigest": digest([]byte("compression-controls")),
+		"durableActiveTranscriptRevision": "row-1",
+		"durableActiveTranscriptDigest": digest([]byte("transcript")),
+		"hostCompactionEpoch": epoch,
+		"attestorId": "test-host",
+		"providerManagedHistoryCapability": "visible",
+		"hostTranscriptAttested": true,
+		"compactionEnabled": false,
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("encode valid Gateway v1 host attestation: %v", err)
+	}
+	return encoded
+}
+
+
 func TestProjectAndApplyBindOriginalAndProjectedDigests(t *testing.T) {
 	baseline := readPublicContractBaseline(t)
 	original := []byte(`{"model":"test","messages":[{"role":"user","content":"question"}]}`)
@@ -73,6 +99,11 @@ func TestProjectAndApplyBindOriginalAndProjectedDigests(t *testing.T) {
 			t.Fatalf("unexpected request binding: %#v", payload)
 		}
 		assertRequiredJSONFields(t, payload, baseline.Gateway.Request.Required, "Bifrost request")
+		var sentAttestation map[string]json.RawMessage
+		if err := json.Unmarshal(payload["attestation"], &sentAttestation); err != nil || sentAttestation == nil {
+			t.Fatalf("Bifrost request has no valid host attestation object: %v", err)
+		}
+		assertRequiredJSONFields(t, sentAttestation, baseline.Gateway.Request.Attestation.Required, "Bifrost host attestation")
 		decision := Decision{
 			Kind:       "APPLY",
 			BodyBase64: base64.StdEncoding.EncodeToString(projected),
@@ -105,7 +136,7 @@ func TestProjectAndApplyBindOriginalAndProjectedDigests(t *testing.T) {
 	decision, err := client.Project(context.Background(), Request{
 		RequestID: "req-1", AttemptGroupID: "group-1", AgentSessionID: "session-1", WorkspaceID: "workspace-1",
 		DataClass: "private", Protocol: "openai.chat.completions", Provider: "mock", Model: "test", Query: "question",
-		ProjectionMode: "gateway", DeadlineEpochMs: 4102444800000, Body: original, Attestation: json.RawMessage(`{"hostCompactionEpoch":3}`),
+		ProjectionMode: "gateway", DeadlineEpochMs: 4102444800000, Body: original, Attestation: validHostAttestation(t, 3),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -173,7 +204,7 @@ func TestRejectForgedProjectionReceipts(t *testing.T) {
     WorkspaceID: "workspace-1", DataClass: "private", Protocol: "openai.chat.completions",
     Provider: "mock", Model: "test", Query: "question", ProjectionMode: "gateway",
     DeadlineEpochMs: 4102444800000, Body: original,
-    Attestation: json.RawMessage(`{"hostCompactionEpoch":1}`),
+    Attestation: validHostAttestation(t, 1),
    })
    if err == nil {
     t.Fatal("expected invalid projection receipt to fail closed")
@@ -214,7 +245,7 @@ func TestProjectedResponseHonorsCustomBodyBound(t *testing.T) {
   WorkspaceID: "workspace-1", DataClass: "private", Protocol: "openai.chat.completions",
   Provider: "mock", Model: "test", Query: "question", ProjectionMode: "gateway",
   DeadlineEpochMs: 4102444800000, Body: original,
-  Attestation: json.RawMessage(`{"hostCompactionEpoch":1}`),
+  Attestation: validHostAttestation(t, 1),
  })
  if err == nil { t.Fatal("projected response exceeded configured body bound") }
 }
@@ -270,7 +301,7 @@ func TestProjectRejectsSchemaInvalidDecisionEnvelope(t *testing.T) {
 				WorkspaceID: "workspace-1", DataClass: "private", Protocol: "openai.chat.completions",
 				Provider: "mock", Model: "test", Query: "question", ProjectionMode: "gateway",
 				DeadlineEpochMs: 4102444800000, Body: original,
-				Attestation: json.RawMessage(`{"hostCompactionEpoch":1}`),
+				Attestation: validHostAttestation(t, 1),
 			})
 			if err == nil {
 				t.Fatal("schema-invalid projection decision must fail closed")
