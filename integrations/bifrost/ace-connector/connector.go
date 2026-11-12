@@ -206,9 +206,10 @@ func validateLoopbackEndpoint(endpoint string) error {
 		return errors.New("ACE projection endpoint must be a loopback HTTP(S) URL")
 	}
 	host := strings.ToLower(parsed.Hostname())
-	if host == "localhost" {
-		return nil
-	}
+	// The connector transmits private projection payloads. Only numeric
+	// loopback IPs are safe to accept here: a name such as "localhost" can
+	// resolve via /etc/hosts or a custom resolver to a non-loopback address.
+	// Do not trust a hostname match as proof of the actual network destination.
 	address := net.ParseIP(host)
 	if address == nil || !address.IsLoopback() {
 		return errors.New("ACE projection endpoint must be a loopback HTTP(S) URL")
