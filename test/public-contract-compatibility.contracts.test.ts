@@ -23,6 +23,7 @@ interface ToolBaseline {
   readonly required: readonly string[];
   readonly properties: readonly string[];
   readonly requiredByPath?: Readonly<Record<string, readonly string[]>>;
+  readonly types?: Readonly<Record<string, string>>;
   readonly enums?: Readonly<Record<string, readonly string[]>>;
 }
 
@@ -149,6 +150,16 @@ const assertPropertiesPresent = (schema: unknown, expected: readonly string[], l
   }
 };
 
+const assertTypes = (
+  schema: unknown,
+  expected: Readonly<Record<string, string>> | undefined,
+  label: string,
+): void => {
+  for (const [path, type] of Object.entries(expected ?? {})) {
+    assert.equal(schemaAtPath(schema, path).type, type, `${label}.${path} type changed`);
+  }
+};
+
 const assertEnums = (
   schema: unknown,
   expected: Readonly<Record<string, readonly string[]>> | undefined,
@@ -164,7 +175,8 @@ const assertEnums = (
 const assertGatewayObject = (schema: unknown, expected: GatewayObjectBaseline, label: string): void => {
   const object = asRecord(schema, label);
   assertRequired(object, expected.required, label);
-  assertPropertiesPresent(object, expected.properties, label);
+  const properties = asRecord(object.properties, `${label}.properties`);
+  assert.deepEqual(sorted(Object.keys(properties)), sorted(expected.properties), `${label} properties changed`);
   assertEnums(object, expected.enums, label);
   for (const [property, value] of Object.entries(expected.constants ?? {})) {
     assert.equal(asRecord(asRecord(object.properties, `${label}.properties`)[property], `${label}.${property}`).const, value);
@@ -181,17 +193,31 @@ test('compatibility checks allow optional additions and detect removals, new req
   const expected: ToolBaseline = {
     required: ['id'],
     properties: ['id'],
+    types: { id: 'string' },
     enums: { state: ['ready'] },
   };
   const additive = { type: 'object', required: ['id'], properties: { id: { type: 'string' }, label: { type: 'string' }, state: { enum: ['ready'] } } };
   assertRequired(additive, expected.required, 'additive fixture');
   assertPropertiesPresent(additive, expected.properties, 'additive fixture');
+  assertTypes(additive, expected.types, 'additive fixture');
   assertEnums(additive, expected.enums, 'additive fixture');
 
   assert.throws(() => assertRequired({ required: [] }, expected.required, 'removed field'));
   assert.throws(() => assertPropertiesPresent({ properties: { renamed: {} } }, expected.properties, 'renamed field'));
   assert.throws(() => assertRequired({ required: ['id', 'new_required'], properties: { id: {} } }, expected.required, 'new required field'));
+  assert.throws(() => assertTypes({ properties: { id: { type: 'number' } } }, expected.types, 'changed field type'));
   assert.throws(() => assertEnums({ properties: { state: { enum: ['ready', 'future'] } } }, expected.enums, 'unknown enum variant'));
+
+  const strictGateway: GatewayObjectBaseline = {
+    required: ['id'],
+    properties: ['id'],
+    additionalProperties: false,
+  };
+  assert.throws(() => assertGatewayObject({
+    required: ['id'],
+    properties: { id: { type: 'string' }, optional: { type: 'string' } },
+    additionalProperties: false,
+  }, strictGateway, 'strict Gateway v1'));
 });
 
 test('official MCP SDK schemas and result envelopes remain compatible with the shared baseline', async () => {
@@ -219,6 +245,7 @@ test('official MCP SDK schemas and result envelopes remain compatible with the s
       const input = asRecord(tool.inputSchema, `${name}.inputSchema`);
       assertRequired(input, expected.required, `${name}.inputSchema`);
       assertPropertiesPresent(input, expected.properties, `${name}.inputSchema`);
+      assertTypes(input, expected.types, `${name}.inputSchema`);
       for (const [path, fields] of Object.entries(expected.requiredByPath ?? {})) {
         assertRequired(schemaAtPath(input, path), fields, `${name}.inputSchema.${path}`);
       }
