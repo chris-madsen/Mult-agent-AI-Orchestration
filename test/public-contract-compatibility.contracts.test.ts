@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
@@ -53,6 +54,8 @@ interface PublicContractBaseline {
   readonly domainErrorCodes: readonly DomainErrorCode[];
   readonly gateway: {
     readonly schemaVersion: 'ace.gateway.v1';
+    readonly requestSchemaBlobSha: string;
+    readonly decisionSchemaBlobSha: string;
     readonly request: GatewayObjectBaseline & {
       readonly attestation: GatewayObjectBaseline & {
         readonly hostCompactionEpochVariants: readonly Readonly<Record<string, unknown>>[];
@@ -111,6 +114,11 @@ const parseJson = (text: string, label: string): unknown => {
 
 const readJson = async (path: URL, label: string): Promise<unknown> =>
   parseJson(await readFile(path, 'utf8'), label);
+
+const gitBlobSha = (text: string): string => {
+  const bytes = Buffer.from(text, 'utf8');
+  return createHash('sha1').update(`blob ${bytes.length}\0`, 'utf8').update(bytes).digest('hex');
+};
 
 const asRecord = (value: unknown, label: string): Record<string, unknown> => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -271,8 +279,12 @@ test('official MCP SDK schemas and result envelopes remain compatible with the s
 
 test('versioned Gateway JSON Schemas remain compatible for TypeScript and Bifrost owners', async () => {
   const contract = await baseline();
-  const request = asRecord(await readJson(gatewayRequestPath, 'Gateway request schema'), 'Gateway request schema');
-  const decision = asRecord(await readJson(gatewayDecisionPath, 'Gateway decision schema'), 'Gateway decision schema');
+  const requestText = await readFile(gatewayRequestPath, 'utf8');
+  const decisionText = await readFile(gatewayDecisionPath, 'utf8');
+  assert.equal(gitBlobSha(requestText), contract.gateway.requestSchemaBlobSha, 'Gateway v1 request schema changed in place');
+  assert.equal(gitBlobSha(decisionText), contract.gateway.decisionSchemaBlobSha, 'Gateway v1 decision schema changed in place');
+  const request = asRecord(parseJson(requestText, 'Gateway request schema'), 'Gateway request schema');
+  const decision = asRecord(parseJson(decisionText, 'Gateway decision schema'), 'Gateway decision schema');
   assertGatewayObject(request, contract.gateway.request, 'Gateway request');
   assertGatewayObject(decision, contract.gateway.decision, 'Gateway decision');
 
