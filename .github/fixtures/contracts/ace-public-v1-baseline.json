@@ -1,0 +1,122 @@
+{
+  "sourceCommit": "dea19cd3fa84d6a794d2b7c4e11094f534d86a65",
+  "mcp": {
+    "tools": {
+      "ace_context": {
+        "required": ["query", "workspace_id"],
+        "properties": ["workspace_id", "query", "intent", "include_code", "include_docs", "include_memory", "include_history", "known_bundle_id", "known_evidence_ids", "working_context", "working_context.focused_path", "working_context.open_paths", "working_context.focused_range", "working_context.focused_range.start_line", "working_context.focused_range.end_line", "source_obligations", "source_obligations.required", "source_obligations.optional"],
+        "requiredByPath": {
+          "working_context": [],
+          "working_context.focused_range": ["end_line", "start_line"],
+          "source_obligations": []
+        },
+        "types": {
+          "workspace_id": "string",
+          "query": "string",
+          "intent": "string",
+          "include_code": "boolean",
+          "include_docs": "boolean",
+          "include_memory": "boolean",
+          "include_history": "boolean",
+          "known_bundle_id": "string",
+          "known_evidence_ids": "array",
+          "known_evidence_ids[]": "string",
+          "working_context": "object",
+          "working_context.focused_path": "string",
+          "working_context.open_paths": "array",
+          "working_context.open_paths[]": "string",
+          "working_context.focused_range": "object",
+          "working_context.focused_range.start_line": "integer",
+          "working_context.focused_range.end_line": "integer",
+          "source_obligations": "object",
+          "source_obligations.required": "array",
+          "source_obligations.required[]": "string",
+          "source_obligations.optional": "array",
+          "source_obligations.optional[]": "string"
+        },
+        "enums": {
+          "source_obligations.required[]": ["code", "structural", "lsp", "documentation", "memory", "history"],
+          "source_obligations.optional[]": ["code", "structural", "lsp", "documentation", "memory", "history"]
+        }
+      },
+      "ace_expand": {
+        "required": ["handle"],
+        "properties": ["handle", "cursor", "max_bytes", "format"],
+        "types": {"handle": "string", "cursor": "string", "max_bytes": "integer", "format": "string"},
+        "enums": {"format": ["base64", "utf8"]}
+      },
+      "ace_workspace_status": {
+        "required": ["workspace_id"],
+        "properties": ["workspace_id"],
+        "types": {"workspace_id": "string"}
+      },
+      "ace_memory_search": {
+        "required": ["query", "workspace_id"],
+        "properties": ["workspace_id", "query", "as_of", "include_original"],
+        "types": {"workspace_id": "string", "query": "string", "as_of": "string", "include_original": "boolean"}
+      }
+    },
+    "successEnvelopeRequired": ["content", "structuredContent"],
+    "failureEnvelopeRequired": ["content", "isError", "structuredContent"],
+    "contentItemRequired": ["text", "type"],
+    "successStructuredContentRequired": ["status"],
+    "failureStructuredContentRequired": ["error", "status"]
+  },
+  "context": {
+    "completeType": "boolean",
+    "candidateFreshness": ["current", "stale", "changed_during_request", "unknown"],
+    "sourceCoverageStatuses": ["satisfied", "partial", "empty", "unavailable", "denied", "not_requested"],
+    "sourceKinds": ["code", "structural", "lsp", "documentation", "memory", "history"]
+  },
+  "domainErrorCodes": ["INVALID_INPUT", "WORKSPACE_NOT_FOUND", "WORKSPACE_ROOT_NOT_ALLOWED", "PATH_ESCAPE", "FILE_NOT_FOUND", "DIGEST_MISMATCH", "WORKTREE_RACED", "SNAPSHOT_FAILED", "PERSISTENCE_FAILED", "POLICY_DENIED", "AUTH_REQUIRED", "SECRET_DETECTED", "AUDIT_FAILED", "ARTIFACT_NOT_FOUND", "INVALID_HANDLE", "NOT_READY", "INVALID_BENCHMARK", "INVALID_USAGE", "USAGE_UNAVAILABLE", "UNSUPPORTED_PROVIDER", "QUALITY_GATE_FAILED", "INVALID_RETRIEVAL", "INVALID_MEMORY", "INVALID_ROUTING", "ARCHIVE_TOMBSTONED", "EXTERNAL_UNAVAILABLE", "INVALID_EXTERNAL_RESPONSE", "INVALID_ATTESTATION", "UNSUPPORTED_PROTOCOL", "PROTECTED_GROUP_INVALID", "HOST_CONTEXT_UNATTESTED", "HOST_COMPACTION_ACTIVE", "PROVIDER_MANAGED_STATE_UNKNOWN", "DUAL_PROJECTION_OWNER", "DEADLINE_EXCEEDED"],
+  "gateway": {
+    "schemaVersion": "ace.gateway.v1",
+    "requestSchemaBlobSha": "e9694b242caf3d2063c3bc62aca6173fdf712c6e",
+    "decisionSchemaBlobSha": "444135ada782115ddde697e8c8f52d0367d0f3d1",
+    "request": {
+      "required": ["schemaVersion", "requestId", "attemptGroupId", "agentSessionId", "workspaceId", "dataClass", "protocol", "provider", "model", "bodyBase64", "bodySha256", "query", "projectionMode", "deadlineEpochMs", "attestation"],
+      "properties": ["schemaVersion", "requestId", "attemptGroupId", "agentSessionId", "workspaceId", "dataClass", "protocol", "provider", "model", "bodyBase64", "bodySha256", "query", "projectionMode", "deadlineEpochMs", "nativeProjectionActive", "requestedEvidenceIds", "attestation"],
+      "enums": {
+        "dataClass": ["private", "project_document", "public"],
+        "projectionMode": ["native", "gateway", "assist-only", "observe-only", "off"]
+      },
+      "constants": {"schemaVersion": "ace.gateway.v1", "protocol": "openai.chat.completions"},
+      "additionalProperties": false,
+      "attestation": {
+        "required": ["hostBuildDigest", "sessionId", "activeEngineId", "effectiveCompressionControlsDigest", "durableActiveTranscriptRevision", "durableActiveTranscriptDigest", "hostCompactionEpoch", "attestorId", "providerManagedHistoryCapability", "hostTranscriptAttested", "compactionEnabled"],
+        "properties": ["hostBuildDigest", "sessionId", "parentSessionId", "activeEngineId", "effectiveCompressionControlsDigest", "durableActiveTranscriptRevision", "durableActiveTranscriptDigest", "hostCompactionEpoch", "attestorId", "providerManagedHistoryCapability", "hostTranscriptAttested", "compactionEnabled"],
+        "enums": {"providerManagedHistoryCapability": ["visible", "hidden", "unknown"]},
+        "additionalProperties": false,
+        "hostCompactionEpochVariants": [{"type": "integer", "minimum": 0}, {"const": "unknown"}]
+      }
+    },
+    "decision": {
+      "required": ["kind", "receipt"],
+      "properties": ["kind", "bodyBase64", "receipt"],
+      "enums": {"kind": ["APPLY", "UNCHANGED_AUTHORIZED", "DEGRADED_AUTHORIZED", "BLOCK"]},
+      "additionalProperties": false,
+      "receipt": {
+        "required": ["schemaVersion", "requestId", "attemptGroupId", "attemptIndex", "receiptId", "decision", "baseBodySha256", "hostCompactionEpoch", "activeEngineId", "permittedWireRewrites"],
+        "properties": ["schemaVersion", "requestId", "attemptGroupId", "attemptIndex", "projectionId", "receiptId", "decision", "reasonCode", "baseBodySha256", "projectedBodySha256", "hostCompactionEpoch", "activeEngineId", "permittedWireRewrites"],
+        "enums": {"decision": ["APPLY", "UNCHANGED_AUTHORIZED", "DEGRADED_AUTHORIZED", "BLOCK"]},
+        "constants": {"schemaVersion": "ace.gateway.v1"},
+        "additionalProperties": false,
+        "hostCompactionEpochVariants": [{"type": "integer", "minimum": 0}, {"const": "unknown"}]
+      }
+    }
+  },
+  "bifrost": {
+    "schemaVersion": "ace.gateway.v1"
+  },
+  "hermes": {
+    "bridgeHandshake": {"type": "bridge_ready", "schemaVersion": 1, "runtimeId": "ace-harbor-runtime-v1"},
+    "bridgeReadyRequired": ["type", "schemaVersion", "runtimeId", "node", "providerIdentities"],
+    "transformRequestRequired": ["type", "schemaVersion", "requestId", "sessionId", "turnId", "workspaceId", "query", "budgetTokens", "sourceObligations"],
+    "transformRequestProperties": ["type", "schemaVersion", "requestId", "sessionId", "turnId", "workspaceId", "query", "budgetTokens", "sourceObligations", "intent", "workingContext", "knownBundleId", "knownEvidenceIds"],
+    "sourceObligationsRequired": ["code"],
+    "responseTypes": ["bridge_ready", "transform_result", "transform_error"],
+    "transformResultStatuses": ["ready", "partial", "not_ready", "blocked"],
+    "evidenceStatuses": ["ready", "partial", "not_ready", "blocked", "not_beneficial"],
+    "deliveryModes": ["augmentation", "replacement", "no_op"]
+  }
+}

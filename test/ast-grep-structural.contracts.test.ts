@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { Effect } from 'effect';
 import {
+  configuredAstGrepProvider,
   makeAstGrepStructuralPort,
   resolveAstGrepProviderIdentity,
 } from '../src/adapters/ast-grep-structural.js';
@@ -13,6 +14,22 @@ import {
 
 const command = join(process.cwd(), 'node_modules/.bin/ast-grep');
 const provider = makeAstGrepStructuralPort({ command, provider: 'cli' });
+
+test('the pinned CLI remains the default until NAPI parity is accepted', () => {
+  assert.equal(configuredAstGrepProvider(undefined), 'cli');
+  assert.equal(configuredAstGrepProvider('  '), 'cli');
+  assert.equal(configuredAstGrepProvider('auto'), 'auto');
+  assert.equal(configuredAstGrepProvider('napi'), 'napi');
+  assert.throws(() => configuredAstGrepProvider('unsupported'), /ACE_AST_GREP_PROVIDER/u);
+});
+
+test('provider identity uses the CLI when provider is omitted', async () => {
+  const identity = await Effect.runPromise(resolveAstGrepProviderIdentity({ command }));
+  assert.equal(identity._tag, 'Ok');
+  if (identity._tag === 'Err') return;
+  assert.equal(identity.value.command, command);
+  assert.doesNotMatch(identity.value.command, /@ast-grep\/napi/u);
+});
 
 test('ast-grep identity is pinned to the executable version', async () => {
   const identity = await Effect.runPromise(resolveAstGrepProviderIdentity({ command, provider: 'cli' }));

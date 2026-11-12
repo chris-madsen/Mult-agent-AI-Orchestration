@@ -68,6 +68,18 @@ const nonEmpty = (value: unknown): value is string => typeof value === 'string' 
 const safeInteger = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value);
 const maxBodyBytes = 4 * 1024 * 1024;
 const maxBase64Length = 4 * Math.ceil(maxBodyBytes / 3);
+const hostAttestationFields = new Set([
+  'hostBuildDigest', 'sessionId', 'parentSessionId', 'activeEngineId', 'effectiveCompressionControlsDigest',
+  'durableActiveTranscriptRevision', 'durableActiveTranscriptDigest', 'hostCompactionEpoch', 'attestorId',
+  'providerManagedHistoryCapability', 'hostTranscriptAttested', 'compactionEnabled',
+]);
+const gatewayProjectionRequestFields = new Set([
+  'schemaVersion', 'requestId', 'attemptGroupId', 'agentSessionId', 'workspaceId', 'dataClass', 'protocol',
+  'provider', 'model', 'bodyBase64', 'bodySha256', 'query', 'projectionMode', 'deadlineEpochMs', 'attestation',
+  'nativeProjectionActive', 'requestedEvidenceIds',
+]);
+const firstUnknownField = (input: Record<string, unknown>, allowed: ReadonlySet<string>): string | undefined =>
+  Object.keys(input).find((field) => !allowed.has(field));
 
 export const sha256Base64 = (bodyBase64: string): string =>
   sha256(Buffer.from(bodyBase64, 'base64'));
@@ -79,6 +91,10 @@ export const validateHostCompactionAttestation = (
     return err(domainError('INVALID_ATTESTATION', 'attestation', 'host attestation must be an object'));
   }
   const input = value as Record<string, unknown>;
+  const unknownField = firstUnknownField(input, hostAttestationFields);
+  if (unknownField !== undefined) {
+    return err(domainError('INVALID_ATTESTATION', `attestation.${unknownField}`, 'unknown host attestation field'));
+  }
   const requiredStrings = [
     'hostBuildDigest', 'sessionId', 'activeEngineId', 'effectiveCompressionControlsDigest',
     'durableActiveTranscriptRevision', 'durableActiveTranscriptDigest', 'attestorId',
@@ -100,7 +116,9 @@ export const validateHostCompactionAttestation = (
   if (typeof input.hostTranscriptAttested !== 'boolean' || typeof input.compactionEnabled !== 'boolean') {
     return err(domainError('INVALID_ATTESTATION', 'attestation.flags', 'host attestation flags are required'));
   }
-  if (!['visible', 'hidden', 'unknown'].includes(String(input.providerManagedHistoryCapability))) {
+  if (input.providerManagedHistoryCapability !== 'visible'
+    && input.providerManagedHistoryCapability !== 'hidden'
+    && input.providerManagedHistoryCapability !== 'unknown') {
     return err(domainError('INVALID_ATTESTATION', 'attestation.providerManagedHistoryCapability', 'provider history capability is invalid'));
   }
   return ok(input as unknown as HostCompactionAttestation);
@@ -113,13 +131,22 @@ export const validateGatewayProjectionRequest = (
     return err(domainError('INVALID_INPUT', 'gateway_request', 'gateway request must be an object'));
   }
   const input = value as Record<string, unknown>;
+  const unknownField = firstUnknownField(input, gatewayProjectionRequestFields);
+  if (unknownField !== undefined) {
+    return err(domainError('INVALID_INPUT', unknownField, 'unknown gateway request field'));
+  }
   if (input.schemaVersion !== 'ace.gateway.v1') return err(domainError('INVALID_INPUT', 'schemaVersion', 'unsupported gateway schema version'));
   for (const field of ['requestId', 'attemptGroupId', 'agentSessionId', 'workspaceId', 'provider', 'model', 'bodyBase64', 'bodySha256', 'query'] as const) {
     if (!nonEmpty(input[field])) return err(domainError('INVALID_INPUT', field, `${field} must be non-empty`));
   }
-  if (!['private', 'project_document', 'public'].includes(String(input.dataClass))) return err(domainError('INVALID_INPUT', 'dataClass', 'unsupported data class'));
+  if (input.dataClass !== 'private' && input.dataClass !== 'project_document' && input.dataClass !== 'public') {
+    return err(domainError('INVALID_INPUT', 'dataClass', 'unsupported data class'));
+  }
   if (input.protocol !== 'openai.chat.completions') return err(domainError('UNSUPPORTED_PROTOCOL', 'protocol', 'only OpenAI Chat Completions is currently supported'));
-  if (!['native', 'gateway', 'assist-only', 'observe-only', 'off'].includes(String(input.projectionMode))) return err(domainError('INVALID_INPUT', 'projectionMode', 'invalid projection mode'));
+  if (input.projectionMode !== 'native' && input.projectionMode !== 'gateway' && input.projectionMode !== 'assist-only'
+    && input.projectionMode !== 'observe-only' && input.projectionMode !== 'off') {
+    return err(domainError('INVALID_INPUT', 'projectionMode', 'invalid projection mode'));
+  }
   if (input.nativeProjectionActive !== undefined && typeof input.nativeProjectionActive !== 'boolean') return err(domainError('INVALID_INPUT', 'nativeProjectionActive', 'nativeProjectionActive must be boolean'));
   if (!safeInteger(input.deadlineEpochMs) || input.deadlineEpochMs <= 0) return err(domainError('INVALID_INPUT', 'deadlineEpochMs', 'deadline must be a positive safe integer'));
   const bodyBase64 = input.bodyBase64 as string;

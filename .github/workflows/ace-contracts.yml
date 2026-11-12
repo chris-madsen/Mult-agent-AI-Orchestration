@@ -14,8 +14,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          persist-credentials: false
           fetch-depth: 2
       - name: Determine verification scope
         id: scope
@@ -60,8 +61,50 @@ jobs:
           echo "mode=${mode}" >> "${GITHUB_OUTPUT}"
           echo "[ci-scope] mode=${mode}"
           printf '%s\n' "${changed}" | sed 's/^/[ci-scope] changed: /'
+      - name: Reject in-place rewrites of accepted public v1 baseline
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          baseline=.github/fixtures/contracts/ace-public-v1-baseline.json
+          if ! git cat-file -e "${PR_BASE_SHA}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "${PR_BASE_SHA}"
+          fi
+          if ! git cat-file -e "${PR_BASE_SHA}^{commit}" 2>/dev/null; then
+            echo "[qg5] BLOCKED: cannot inspect the PR base commit" >&2
+            exit 1
+          fi
+          for contract in \
+            contracts/ace-gateway/v1/projection-request.schema.json \
+            contracts/ace-gateway/v1/projection-decision.schema.json; do
+            if ! git cat-file -e "${PR_BASE_SHA}:${contract}" 2>/dev/null; then
+              echo "[qg5] BLOCKED: versioned v1 contract is missing from the PR base: ${contract}" >&2
+              exit 1
+            fi
+            if [[ ! -f "${contract}" || -L "${contract}" ]] \
+              || ! git show "${PR_BASE_SHA}:${contract}" | cmp -s - "${contract}"; then
+              echo "[qg5] BLOCKED: ace.gateway.v1 schema was rewritten in place: ${contract}; introduce a separately approved version instead" >&2
+              exit 1
+            fi
+          done
+
+          if ! git cat-file -e "${PR_BASE_SHA}:${baseline}" 2>/dev/null; then
+            echo "[qg5] INITIAL BASELINE: v1 first introduced in this PR; owner must approve its wire snapshot"
+            exit 0
+          fi
+          if [[ ! -f "${baseline}" || -L "${baseline}" ]]; then
+            echo "[qg5] BLOCKED: accepted v1 baseline missing or symlinked" >&2
+            exit 1
+          fi
+          if ! git show "${PR_BASE_SHA}:${baseline}" | cmp -s - "${baseline}"; then
+            echo "[qg5] BLOCKED: accepted v1 baseline was rewritten; preserve v1 and use a separately approved, versioned contract migration" >&2
+            exit 1
+          fi
+          echo "[qg5] accepted public v1 baseline and schemas are unchanged"
       - name: Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: steps.scope.outputs.mode != 'docs'
         with:
           node-version: "22"
@@ -119,8 +162,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          persist-credentials: false
           fetch-depth: 2
 
       - name: Collect changed Markdown files
@@ -238,9 +282,11 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Go 1.23
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.23.x"
           cache: false
@@ -275,16 +321,17 @@ jobs:
       HF_HOME: /tmp/ace-huggingface-cache
     steps:
       - name: Checkout full clean repository identity
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
       - name: Python 3.13 for pinned FastEmbed
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
       - name: Install locked Node and embedding dependencies
@@ -297,6 +344,7 @@ jobs:
           set -euo pipefail
           for attempt in {1..45}; do
             if curl --fail --silent "http://127.0.0.1:6333/collections" >/dev/null; then
+              echo "[qdrant] service ready on attempt ${attempt}"
               exit 0
             fi
             sleep 2
@@ -317,7 +365,7 @@ jobs:
           npm run test:real-qdrant-crash -- /tmp/ace-provider-evidence/crash.json
       - name: Retain source-linked real provider reports and traces
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ace-real-qdrant-${{ github.run_id }}
           path: /tmp/ace-provider-evidence/
@@ -331,9 +379,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
@@ -349,7 +399,7 @@ jobs:
         run: npm run test:real-non-ts-lsp -- /tmp/ace-real-non-ts-lsp.json
       - name: Retain real rust-analyzer and TypeScript routing evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ace-real-lsp-${{ github.run_id }}
           path: /tmp/ace-real-non-ts-lsp.json

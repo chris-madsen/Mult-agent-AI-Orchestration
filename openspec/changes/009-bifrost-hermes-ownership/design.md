@@ -36,3 +36,15 @@ For strict H2/H3 trials the host configuration disables compression, micro-compa
 ## Evidence
 
 Receipts contain identities, digests, statuses, selected evidence IDs and failure codes only. They do not contain prompts, source bodies, credentials or raw provider payloads. Provider-wire evidence is a separate stage and cannot be closed by a domain port or mock-only test.
+
+## G02 crosswalk — authenticated host attestation (REVIEW_REQUIRED)
+
+This is a pre-code crosswalk for AC-SDLC-07, not an accepted authentication design. State remains `BLOCKED_OWNER_DECISION`; no T2 authentication implementation is authorized until the owner selects and approves the unresolved security boundary.
+
+| Acceptance | Owner | Accepted decision | Interface/state | Phase | Deterministic oracle | Provider requirement | Rollback |
+|---|---|---|---|---|---|---|---|
+| `gateway-ownership` / trusted host ownership attestation | Repository owner for the trust model; Gateway, Bifrost and Hermes owners for their respective adapters; accountable owner confirmation is still required | **Unresolved.** Select authenticated principal source, proof (for example mTLS peer identity or a signed host assertion), binding to session/workspace/tenant, replay/expiry behavior, key rotation/trust roots, and permitted network boundary. Neither option is selected here. | `ace.gateway.v1` currently carries host identity and transcript/compaction claims but no cryptographic proof. The HTTP handler has no peer-identity/authentication check and defaults to loopback binding. The existing worktree-helper mTLS boundary is separate and is not assumed to authenticate Gateway requests. | G02 before any T2 code; after acceptance, implement only the approved boundary and prove it at final provider send. | Missing, invalid, expired, replayed, or misbound proof must return an accepted typed denial and produce zero provider attempts; valid proof must bind the exact session/workspace/tenant and request body. Exact error code and fixture values require owner approval. | Real credential/TLS or signing-key integration and the selected Bifrost/Hermes final-send route; mocks prove only contract behavior. | Fail closed: disable the strict Gateway route and return the accepted typed denial. Never fall back to unauthenticated attestation or label an outage as authorized success. |
+
+### Owner decision required before T2
+
+Choose the trusted principal and authentication proof, identify who provisions and rotates its trust material, specify the network boundary allowed to reach `/internal/ace-gateway/v1/project`, and define how the proof binds to the request's session, workspace and tenant. Until these are accepted, AC-SDLC-07 and the T2 part of AC-SDLC-08 remain `BLOCKED`.

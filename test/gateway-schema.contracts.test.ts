@@ -16,6 +16,14 @@ test('gateway v1 schemas are versioned and fail-closed at the object boundary', 
     'schemaVersion', 'requestId', 'attemptGroupId', 'agentSessionId', 'workspaceId', 'dataClass',
     'protocol', 'provider', 'model', 'bodyBase64', 'bodySha256', 'query', 'projectionMode', 'deadlineEpochMs', 'attestation',
   ]);
+  const requestProperties = request.properties as Record<string, { enum?: readonly string[] }>;
+  assert.deepEqual(requestProperties.dataClass?.enum, ['private', 'project_document', 'public']);
+  assert.deepEqual(requestProperties.projectionMode?.enum, ['native', 'gateway', 'assist-only', 'observe-only', 'off']);
+  const definitions = request.$defs as Record<string, Record<string, unknown>>;
+  const attestation = definitions.attestation;
+  assert.equal(attestation.additionalProperties, false);
+  const attestationProperties = attestation.properties as Record<string, { enum?: readonly string[] }>;
+  assert.deepEqual(attestationProperties.providerManagedHistoryCapability?.enum, ['visible', 'hidden', 'unknown']);
 });
 
 test('hidden provider history fixture is explicitly non-certifying', async () => {
