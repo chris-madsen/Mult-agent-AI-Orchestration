@@ -279,21 +279,11 @@ func (c Client) Project(ctx context.Context, request Request) (Decision, error) 
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
+	// Projection is a fixed internal API call, not a redirect navigation flow.
+	// Never replay the payload to another endpoint, even on the same host.
 	safeClient := *httpClient
-	previousRedirectCheck := safeClient.CheckRedirect
-	safeClient.CheckRedirect = func(next *http.Request, via []*http.Request) error {
-		if previousRedirectCheck != nil {
-			if err := previousRedirectCheck(next, via); err != nil {
-				return err
-			}
-		}
-		if err := validateLoopbackEndpoint(next.URL.String()); err != nil {
-			return err
-		}
-		if len(via) >= 10 {
-			return errors.New("stopped after 10 ACE projection redirects")
-		}
-		return nil
+	safeClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return errors.New("ACE projection redirects are not supported")
 	}
 	httpRequest, err := http.NewRequestWithContext(boundedCtx, http.MethodPost, c.Endpoint, bytes.NewReader(encoded))
 	if err != nil {
