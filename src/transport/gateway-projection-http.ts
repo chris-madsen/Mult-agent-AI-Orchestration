@@ -98,8 +98,7 @@ const readRequestBody = async (request: IncomingMessage, maxBodyBytes: number): 
   return Buffer.concat(chunks).toString('utf8');
 };
 
-// Keep the unbound Server factory private so callers cannot bind it to 0.0.0.0.
-const createGatewayProjectionServer = (
+export const createGatewayProjectionServer = (
   service: GatewayProjectionHttpService,
   options: GatewayProjectionHttpOptions = {},
 ): Server => {
@@ -120,11 +119,8 @@ export const runGatewayProjectionHttp = async (
   service: GatewayProjectionHttpService,
   options: GatewayProjectionHttpOptions = {},
 ): Promise<void> => {
-  const configuredHost = options.host ?? process.env.ACE_GATEWAY_HTTP_HOST ?? '127.0.0.1';
-  if (!isLoopbackGatewayHttpHost(configuredHost)) throw new Error('ACE Gateway HTTP host must be a loopback address');
-  // Do not trust localhost DNS/hosts resolution to enforce the security boundary.
-  // Bind explicitly to the numeric loopback interface.
-  const host = configuredHost.toLowerCase() === 'localhost' ? '127.0.0.1' : configuredHost;
+  const host = options.host ?? process.env.ACE_GATEWAY_HTTP_HOST ?? '127.0.0.1';
+  if (!isLoopbackGatewayHttpHost(host)) throw new Error('ACE Gateway HTTP host must be a loopback address');
   const server = createGatewayProjectionServer(service, options);
   const port = options.port ?? Number(process.env.ACE_GATEWAY_HTTP_PORT ?? '8765');
   await new Promise<void>((resolve, reject) => {

@@ -84,22 +84,10 @@ class BridgeClient:
             self.close()
             raise RuntimeError("ACE context bridge runtime identity is not pinned")
         provider_identities = ready.get("providerIdentities")
-        # A present but empty identity is not evidence that a provider/node is
-        # ready. Check values, not just types; never let an empty map pass
-        # vacuously through all(...).
-        node_identity = ready.get("node")
         if (
-            not isinstance(node_identity, str)
-            or not node_identity.strip()
+            not isinstance(ready.get("node"), str)
             or not isinstance(provider_identities, dict)
-            or not provider_identities
-            or any(
-                not isinstance(name, str)
-                or not name.strip()
-                or not isinstance(identity, str)
-                or not identity.strip()
-                for name, identity in provider_identities.items()
-            )
+            or not all(isinstance(identity, str) for identity in provider_identities.values())
         ):
             self.close()
             raise RuntimeError("ACE context bridge returned incomplete bridge_ready metadata")

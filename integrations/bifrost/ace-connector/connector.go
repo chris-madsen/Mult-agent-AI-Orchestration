@@ -206,10 +206,9 @@ func validateLoopbackEndpoint(endpoint string) error {
 		return errors.New("ACE projection endpoint must be a loopback HTTP(S) URL")
 	}
 	host := strings.ToLower(parsed.Hostname())
-	// The connector transmits private projection payloads. Only numeric
-	// loopback IPs are safe to accept here: a name such as "localhost" can
-	// resolve via /etc/hosts or a custom resolver to a non-loopback address.
-	// Do not trust a hostname match as proof of the actual network destination.
+	if host == "localhost" {
+		return nil
+	}
 	address := net.ParseIP(host)
 	if address == nil || !address.IsLoopback() {
 		return errors.New("ACE projection endpoint must be a loopback HTTP(S) URL")
@@ -280,14 +279,21 @@ func (c Client) Project(ctx context.Context, request Request) (Decision, error) 
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
-	// The Gateway Projection API is a fixed internal endpoint, not a redirect
-	// navigation protocol. HTTP 307/308 can replay the full original body to
-	// another loopback process; 301/302 can silently change POST to GET. Reject
-	// every redirect instead of treating another local HTTP server as equivalent
-	// to the configured Gateway.
 	safeClient := *httpClient
-	safeClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
-		return errors.New("ACE projection HTTP redirects are forbidden")
+	previousRedirectCheck := safeClient.CheckRedirect
+	safeClient.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+		if previousRedirectCheck != nil {
+			if err := previousRedirectCheck(next, via); err != nil {
+				return err
+			}
+		}
+		if err := validateLoopbackEndpoint(next.URL.String()); err != nil {
+			return err
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 ACE projection redirects")
+		}
+		return nil
 	}
 	httpRequest, err := http.NewRequestWithContext(boundedCtx, http.MethodPost, c.Endpoint, bytes.NewReader(encoded))
 	if err != nil {

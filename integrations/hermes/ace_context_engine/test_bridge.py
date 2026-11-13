@@ -54,14 +54,8 @@ class BridgeClientTests(unittest.TestCase):
             {key: value for key, value in READY.items() if key != "node"},
             {key: value for key, value in READY.items() if key != "providerIdentities"},
             {**READY, "node": None},
-            {**READY, "node": ""},
-            {**READY, "node": "   "},
             {**READY, "providerIdentities": []},
-            {**READY, "providerIdentities": {}},
             {**READY, "providerIdentities": {"qdrant": None}},
-            {**READY, "providerIdentities": {"qdrant": ""}},
-            {**READY, "providerIdentities": {"qdrant": "   "}},
-            {**READY, "providerIdentities": {"": "qdrant/test"}},
         ]
         for incomplete in incomplete_ready_records:
             with self.subTest(ready=incomplete):

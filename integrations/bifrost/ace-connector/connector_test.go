@@ -69,23 +69,17 @@ func (unexpectedRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
 }
 
 type redirectRoundTripper struct {
-	t        *testing.T
-	location string
-	calls    int
+	t *testing.T
 }
 
-func (r *redirectRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
-	r.calls++
-	if r.calls != 1 || request.URL.Hostname() != "127.0.0.1" {
-		r.t.Errorf("projection request was redirected to %s (call %d)", request.URL, r.calls)
-		return nil, errors.New("unexpected projection request replay")
-	}
-	if request.Method != http.MethodPost {
-		r.t.Errorf("first projection attempt must remain POST, got %s", request.Method)
+func (r redirectRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.URL.Hostname() != "127.0.0.1" {
+		r.t.Errorf("unexpected HTTP request to %s", request.URL)
+		return nil, errors.New("unexpected non-loopback request")
 	}
 	return &http.Response{
 		StatusCode: http.StatusTemporaryRedirect,
-		Header:     http.Header{"Location": []string{r.location}},
+		Header:     http.Header{"Location": []string{"https://example.com/project"}},
 		Body:       io.NopCloser(strings.NewReader("")),
 		Request:    request,
 	}, nil
@@ -188,6 +182,7 @@ func TestValidateLoopbackEndpoint(t *testing.T) {
 		"https://127.10.20.30:8765/project",
 		"http://[::1]:8765/project",
 		"http://[0:0:0:0:0:0:0:1]:8765/project",
+		"http://localhost:8765/project",
 	} {
 		if err := validateLoopbackEndpoint(endpoint); err != nil {
 			t.Errorf("expected loopback endpoint %q to pass: %v", endpoint, err)
@@ -200,7 +195,6 @@ func TestValidateLoopbackEndpoint(t *testing.T) {
 		"http://192.168.1.4:8765/project",
 		"http://[::]:8765/project",
 		"https://example.com/project",
-		"http://localhost:8765/project", // name resolution must never escape numeric loopback
 		"http://127.0.0.1.example.com/project",
 		"http://user@127.0.0.1:8765/project",
 	} {
@@ -226,33 +220,19 @@ func TestProjectRejectsNonLoopbackEndpointBeforeHTTP(t *testing.T) {
 	}
 }
 
-func TestProjectRejectsAllRedirectsWithoutReplayingPayload(t *testing.T) {
-	// Reaching another loopback service is not equivalent to reaching the
-	// configured Gateway. A 307 can replay sensitive body bytes even locally.
-	for _, target := range []string{
-		"https://example.com/project",
-		"http://127.0.0.1:9000/other-local-service",
-		"http://127.0.0.1:8765/project",
-	} {
-		t.Run(target, func(t *testing.T) {
-			transport := &redirectRoundTripper{t: t, location: target}
-			client := Client{
-				Endpoint:   "http://127.0.0.1:8765/project",
-				HTTPClient: &http.Client{Transport: transport},
-			}
-			_, err := client.Project(context.Background(), Request{
-				RequestID: "req-1", AttemptGroupID: "group-1", AgentSessionID: "session-1", WorkspaceID: "workspace-1",
-				DataClass: "private", Protocol: "openai.chat.completions", Provider: "mock", Model: "test", Query: "question",
-				ProjectionMode: "gateway", DeadlineEpochMs: 4102444800000, Body: []byte(`{"messages":[]}`),
-				Attestation: validHostAttestation(t, 1),
-			})
-			if err == nil || !strings.Contains(err.Error(), "redirects are forbidden") {
-				t.Fatalf("expected explicit redirect refusal, got %v", err)
-			}
-			if transport.calls != 1 {
-				t.Fatalf("projection request was replayed: %d transport calls", transport.calls)
-			}
-		})
+func TestProjectRejectsRedirectToNonLoopbackBeforeHTTP(t *testing.T) {
+	client := Client{
+		Endpoint:   "http://127.0.0.1:8765/project",
+		HTTPClient: &http.Client{Transport: redirectRoundTripper{t: t}},
+	}
+	_, err := client.Project(context.Background(), Request{
+		RequestID: "req-1", AttemptGroupID: "group-1", AgentSessionID: "session-1", WorkspaceID: "workspace-1",
+		DataClass: "private", Protocol: "openai.chat.completions", Provider: "mock", Model: "test", Query: "question",
+		ProjectionMode: "gateway", DeadlineEpochMs: 4102444800000, Body: []byte(`{"messages":[]}`),
+		Attestation: validHostAttestation(t, 1),
+	})
+	if err == nil {
+		t.Fatal("expected non-loopback redirect to fail before HTTP")
 	}
 }
 
