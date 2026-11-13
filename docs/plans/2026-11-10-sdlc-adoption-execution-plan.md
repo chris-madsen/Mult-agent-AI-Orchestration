@@ -293,15 +293,22 @@ request. This changes CI execution cost, not accepted G02 or production truth.
   merged in #229; manual run `43409461876` completed on `main@6df583f`. Knip
   reported 1 unused file, 17 unused exports, 43 unused exported types, and 1
   duplicate export. The install step separately reported 9 npm audit
-  advisories (8 moderate, 1 high). These findings remain untriaged and do not
-  authorize automatic deletion or dependency changes. The OSV job completed,
-  but its findings artifact was not reviewed; no “zero vulnerabilities” claim
-  is made. QG5 compatibility baseline/fixtures and QG6 bounded property
+  advisories (8 moderate, 1 high). A static triage report is now recorded at
+  `docs/reviews/2026-11-13-sdlc-qg4-findings-triage.md`; it preserves report-only
+  status and makes no automatic deletion, suppression, or dependency change.
+  The retained OSV SARIF has 70 result instances / 46 unique rule IDs (3 with
+  `security-severity >= 9.0`, 20 in `[7.0, 9.0)`, 23 in `[4.0, 7.0)`). It
+  includes findings against direct embedding pins and package-lock entries;
+  provenance for several `requirements-provider.txt` package versions still
+  needs confirmation. No zero-vulnerability or remediation claim is made.
+  QG5 compatibility baseline/fixtures and QG6 bounded property
   workflow are merged in #230; PR #232 contracts checks and nightly run
   `43409457459` passed. CodeQL and mutation-run evidence were not observed;
   keep those sub-checks NOT-RUN if selected as additional acceptance.
-- QG4 findings triage is owner work; these P1 pilots are beyond the minimum
-  operational-adoption milestone and do not block that milestone.
+- QG4 report triage is complete at the static-evidence level; owner disposition
+  on API removals, dependency remediation, and any blocking promotion remains
+  open. These P1 pilots are beyond the minimum operational-adoption milestone
+  and do not block that milestone.
 - **Risk-driven:** QG7 typed import/SCIP pilot only where the native TS graph or
   ast-grep cannot prove an accepted invariant.
 - **Separate approved architecture track:** TypeSpec TS-00..TS-06 with generated
@@ -413,10 +420,12 @@ Qdrant/LSP. Existing security scan and contract-version immutability must not
 be bypassed. Repeated selection errors must fail visibly; never pretend that
 static scope selection establishes provider quality.
 
-**Known inherited red at this scope change:** on original
+**Historical inherited red at this scope change:** on original
 `main@cf1809650f61c7d826d61b7d58e88be22dd7f1e5`, full CI failed
 `integrations/hermes/ace_context_engine/test_bridge.py::test_rejects_incomplete_ready_metadata`
-(bad `bridge_ready` metadata accepted). This remains a real defect requiring
-its own focused Hermes bugfix PR and an explicit full-nightly rerun; moving it
-out of the default PR loop is **not a fix** and must not be reported as green
-architecture acceptance.
+(bad `bridge_ready` metadata accepted). PR #232 added strict metadata
+validation and merged at `6df583fad7d45a4cda6586632240b6f364c08a8a`; the
+post-merge full nightly `43409457459` passed on that SHA. This is a fixed
+historical defect, not a current inherited red. The fix—not path filtering—
+restored the contract; a docs-only PR does not independently re-prove the
+Hermes runtime gate.
