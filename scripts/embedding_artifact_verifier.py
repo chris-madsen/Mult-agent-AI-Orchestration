@@ -50,8 +50,9 @@ def verify_loaded_artifact(model: object, *, loaded_path: str | Path | None = No
     if expected_model:
         if "\\" in expected_model or any(part in {"", ".", ".."} for part in expected_model.split("/")):
             raise RuntimeError("embedding artifact model label is invalid")
-        model_marker = f"models--{expected_model.replace('/', '--')}"
-        if model_marker not in {path.name for path in (resolved, *resolved.parents)}:
+        model_marker = f"models--{expected_model.replace('/', '--')}".casefold()
+        loaded_markers = {path.name.casefold() for path in (resolved, *resolved.parents)}
+        if model_marker not in loaded_markers:
             raise RuntimeError(
                 f"embedding artifact model mismatch: expected {expected_model}, loaded {resolved}"
             )

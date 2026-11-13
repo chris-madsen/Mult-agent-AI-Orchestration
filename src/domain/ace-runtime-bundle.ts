@@ -4,9 +4,9 @@ export interface AceRuntimeBundleManifest {
   readonly sourceCommit: string;
   readonly bundleSha256: string;
   readonly taskImages: readonly { readonly reference: string; readonly digest: string }[];
-  readonly pythonVersions: readonly ('3.10' | '3.11')[];
-  readonly pillow: '11.3.0';
-  readonly fastembed: '0.7.4';
+  readonly pythonVersions: readonly '3.11'[];
+  readonly pillow: '13.0.0';
+  readonly fastembed: '0.9.1';
   readonly onnxruntime: '1.23.2';
   readonly numpy: '2.2.6';
   readonly huggingfaceHub: '1.33.0';
@@ -49,13 +49,12 @@ export const validateAceRuntimeBundleManifest = (value: unknown): readonly strin
     || !isDockerDigest((item as Record<string, unknown>).digest))) {
     failures.push('task_images_invalid');
   }
-  if (!Array.isArray(pythonVersions) || pythonVersions.length === 0
-    || pythonVersions.some((version) => version !== '3.10' && version !== '3.11')) {
+  if (!Array.isArray(pythonVersions) || pythonVersions.length !== 1 || pythonVersions[0] !== '3.11') {
     failures.push('python_versions_invalid');
   }
   for (const [field, expected] of [
-    ['pillow', '11.3.0'],
-    ['fastembed', '0.7.4'],
+    ['pillow', '13.0.0'],
+    ['fastembed', '0.9.1'],
     ['onnxruntime', '1.23.2'],
     ['numpy', '2.2.6'],
     ['huggingfaceHub', '1.33.0'],

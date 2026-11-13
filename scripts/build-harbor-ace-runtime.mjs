@@ -4,11 +4,11 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { chmod, cp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
-const FASTEMBED = '0.7.4';
+const FASTEMBED = '0.9.1';
 const ONNXRUNTIME = '1.23.2';
 const NUMPY = '2.2.6';
 const HUGGINGFACE_HUB = '1.33.0';
-const PILLOW = '11.3.0';
+const PILLOW = '13.0.0';
 const pinnedHex = (name, value, length) => {
   if (!new RegExp(`^[a-f0-9]{${length}}$`, 'u').test(value)) {
     throw new Error(`BLOCKED: ${name} must be exactly ${length} lowercase hexadecimal characters`);
@@ -137,7 +137,7 @@ const pythonVersions = new Set();
 for (const image of imageRefs) {
   const pinnedImage = executionImage(image);
   const pythonVersion = run('docker', ['run', '--rm', '--entrypoint', 'python3', pinnedImage, '-c', 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")']).trim();
-  if (pythonVersion !== '3.10' && pythonVersion !== '3.11') {
+  if (pythonVersion !== '3.11') {
     throw new Error(`BLOCKED: unsupported task-image Python ${pythonVersion} in ${pinnedImage}`);
   }
   pythonVersions.add(pythonVersion);
