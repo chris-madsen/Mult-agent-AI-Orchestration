@@ -238,7 +238,7 @@ Minimum milestone:
 
 Original next step (completed via #223): add a pinned offline Lychee check with controlled RED/GREEN fixtures and retained evidence.
 
-## Adoption closure crosswalk (reviewed 2026-11-11)
+## Adoption closure crosswalk (reviewed 2026-11-13)
 
 This section is a delivery checklist under the existing SDLC, not a second
 specification or a claim that unmerged checks are active. Check current PR
@@ -246,25 +246,36 @@ HEADs, exact merge candidates, and CI again before accepting any row.
 
 | ID | Dependency | Completion evidence | State at review |
 |---|---|---|---|
-| AC-SDLC-01 | #223 | QG0 merged; normal changed-Markdown PR rejects a broken relative file/anchor; Unicode paths are included; docs-only checks avoid npm/provider installs; source SHA and checkout SHA retained | MERGED #223; ordinary separate post-merge negative PR still not demonstrated |
-| AC-SDLC-02 | AC-SDLC-01, #224 | QG1 merged; synthetic new secret blocks, output redacted, clean input passes; a secret adjacent to the excluded reviewed fixture is detected; actionlint/zizmor reject unsafe workflow and accept clean workflow | MERGED #224; independent post-merge negative PR still not demonstrated |
+| AC-SDLC-01 | #223 | QG0 merged; normal changed-Markdown PR rejects a broken relative file/anchor; Unicode paths are included; docs-only checks avoid npm/provider installs; source SHA and checkout SHA retained | MERGED #223. Post-merge negative probe: disposable PR #233, head `6e7ef7102cc42239bcf8d75c4b9309be1d7491db`, run `43418364934` failed specifically at `docs-links` / offline Markdown link verification. Clean changed-document pass: PR #232 head `3a103097266f0690b1e293b86595418a7ed35d82`, run `43392404199`. PR #233 closed without merge |
+| AC-SDLC-02 | AC-SDLC-01, #224 | QG1 merged; synthetic new secret blocks, output redacted, clean input passes; a secret adjacent to the excluded reviewed fixture is detected; actionlint/zizmor reject unsafe workflow and accept clean workflow | MERGED #224. Synthetic-only PR #233 head `af4c3397015605045af7a066b13799f38a6c9b8d`, run `43418564865`: `pr-secret-scan` failed; programmatic log check confirmed the raw synthetic value was absent. Isolated workflow probe PR #234 head `a1a92dc69dc940ab8b0e8bb1cc8193762d948910`, run `43431205826`: actionlint passed and blocking zizmor failed; PR-range secret scan passed, and docs-links passed in run `43431206365`. PRs #233/#234 closed without merge |
 | AC-SDLC-03 | AC-SDLC-02, #225 | QG2 merged; each native ast-grep rule passes valid/invalid/false-positive and re-export cases; production scan remains report-only until owner authorizes blocking promotion | MERGED #225; advisory only, not blocking |
-| AC-SDLC-04 | AC-SDLC-01..03 | One combined fresh PR verifies all three gates together on the post-merge main; no existing runtime or provider gate is weakened | NOT-RUN — local gate checks passed at clean `origin/main` `dea19cd3fa84d6a794d2b7c4e11094f534d86a65`; no PR/CI evidence existed when this row was recorded. The owner authorized commit/push/PR delivery on 2026-11-12 |
+| AC-SDLC-04 | AC-SDLC-01..03 | One combined fresh PR verifies all three gates together on the post-merge main; no existing runtime or provider gate is weakened | COMPLETE — PR #232 head `3a103097266f0690b1e293b86595418a7ed35d82` passed docs-links (run `43392404199`), security (run `43392404186`), and contract/provider checks; merged as `6df583fad7d45a4cda6586632240b6f364c08a8a`. Post-merge full nightly run `43409457459` passed on that merge SHA |
 | AC-SDLC-05 | Owner instruction 2026-11-12 | **SUPERSEDED / NO LONGER A REQUIREMENT.** Owner explicitly declines branch protection, rulesets, mandatory status checks and required PR approvals; no admin setup or blocker for these is needed. | CLOSED_BY_OWNER_DECISION — do not create follow-up task or infer merge protection from CI jobs |
-| AC-SDLC-06 | AC-SDLC-01, owner merge | T1 dogfood evidence for #223 archived at merged SHA, with real RED/GREEN, four distinct gate passes and human review | MERGED #223 evidence remains valid; the additional T1 validator fix's focused tests were run in a pre-commit worktree and do not establish clean-SHA/PR/owner evidence |
-| AC-SDLC-07 | Appropriate real T2 task | G02 acceptance→owner→decision→state/contract→phase→RED/GREEN→provider-proof crosswalk accepted **before code**, then implemented, tested, reviewed and merged | PARTIAL_LOCAL — owner decision accepted 2026-11-12: loopback-only trusted local host, no process authentication or mTLS. Gateway contract tests (6/6), Bifrost Go tests/vet, and strict OpenSpec validation pass. `verify:pr` passed at `4e82d7a` (726 TypeScript tests, 21 Hermes tests, lint/build/architecture/SDLC-preflight); PR #232 configured CI checks passed at the same head, with scheduled OSV and secret-history checks skipped. Provider-wire/agent-E2E remain NOT-RUN; PR review/merge evidence is pending |
-| AC-SDLC-08 | AC-SDLC-01..07 | Two further independent real tasks (one contained T1 bugfix, one material T2 change) demonstrate repeatable process and honest provider/agent E2E; human audits quality rather than merely checking template fields | PARTIAL_LOCAL — the additional T1 CLI-default change is delivered in merged PR #230; the local-only T2 boundary implementation and contract tests pass in task branch `4e82d7a`, and PR #232 checks passed, but human review/merge and provider/agent E2E evidence remain pending |
+| AC-SDLC-06 | AC-SDLC-01, owner merge | T1 dogfood evidence for #223 archived at merged SHA, with real RED/GREEN, four distinct gate passes and human review | COMPLETE — #223 dogfood evidence remains valid. Separately, the note about an “additional T1 validator fix” has no linked task or PR in the tracked evidence; keep it unclassified rather than attributing it to #230 without proof |
+| AC-SDLC-07 | Appropriate real T2 task | G02 acceptance→owner→decision→state/contract→phase→RED/GREEN→provider-proof crosswalk accepted **before code**, then implemented, tested, reviewed and merged | PARTIAL_LOCAL — owner decision accepted 2026-11-12: loopback-only trusted local host, no process authentication or mTLS. Implementation merged in #232 at `6df583fad7d45a4cda6586632240b6f364c08a8a`; final PR head `3a103097266f0690b1e293b86595418a7ed35d82` passed configured checks, and full nightly run `43409457459` passed. Provider-wire and agent-E2E remain NOT-RUN; merge/review is no longer pending |
+| AC-SDLC-08 | AC-SDLC-01..07 | Two further independent real tasks (one contained T1 bugfix, one material T2 change) demonstrate repeatable process and honest provider/agent E2E; human audits quality rather than merely checking template fields | PARTIAL_LOCAL — the T1 dogfood (#223), T1 CLI-default change (#230), and material T2 local-only boundary (#232) are merged and reviewed. Real Bifrost provider-wire, agent-facing E2E, and the user's separate interactive agent trial remain NOT-RUN |
 
 ### Required integration after merge
 
-Merge order is QG0 (#223), QG1 (#224), QG2 (#225), each rechecked
-against the **current main** rather than treating green isolated PR runs as
-integration proof. Preserve separate branch HEAD and actual tested checkout
-SHA. Use a disposable test PR to show a genuinely broken local Markdown link,
-synthetic newly introduced credential, and unsafe workflow are independently
-rejected by their relevant checks. A clean changed-document PR must pass.
-QG2 is intentionally advisory/report-only until an owner-approved promotion;
-do not count its warnings as blocking.
+Merge order was QG0 (#223), QG1 (#224), QG2 (#225), each rechecked against
+current `main`. Post-merge integration evidence recorded 2026-11-13:
+
+- PR #232 on final head `3a103097266f0690b1e293b86595418a7ed35d82` passed
+  docs-links, secret/workflow checks, contracts, real Qdrant, real non-TS LSP,
+  and the Bifrost connector checks; it merged as
+  `6df583fad7d45a4cda6586632240b6f364c08a8a`.
+- Disposable PR #233 was closed without merge after its separate broken-link
+  and synthetic-secret heads. The relevant failures and redaction check are
+  recorded in AC-SDLC-01/02 above.
+- Isolated disposable PR #234 was closed without merge. On head
+  `a1a92dc69dc940ab8b0e8bb1cc8193762d948910`, actionlint passed, zizmor
+  rejected the unpinned action, and the PR secret scan passed.
+- Full post-merge nightly run `43409457459` succeeded on merge SHA
+  `6df583fad7d45a4cda6586632240b6f364c08a8a`.
+
+QG2 remains advisory/report-only until an owner-approved promotion; do not
+count its warnings as blocking. No branch protection or repository rules were
+changed.
 
 **Owner decision 2026-11-12:** branch protection/rulesets, required checks,
 and mandatory PR approvals are expressly **not wanted**. Do not reopen this
@@ -278,6 +289,19 @@ request. This changes CI execution cost, not accepted G02 or production truth.
 - **P1:** QG4 Knip/OSV report-only pilots, QG5 public contract compatibility
   with positive and breaking fixtures, QG6 scoped nightly CodeQL/advisory/
   property or mutation checks after measuring their noise and cost.
+- **Observed evidence (2026-11-13):** QG4's report-only Knip/OSV workflow is
+  merged in #229; manual run `43409461876` completed on `main@6df583f`. Knip
+  reported 1 unused file, 17 unused exports, 43 unused exported types, and 1
+  duplicate export. The install step separately reported 9 npm audit
+  advisories (8 moderate, 1 high). These findings remain untriaged and do not
+  authorize automatic deletion or dependency changes. The OSV job completed,
+  but its findings artifact was not reviewed; no “zero vulnerabilities” claim
+  is made. QG5 compatibility baseline/fixtures and QG6 bounded property
+  workflow are merged in #230; PR #232 contracts checks and nightly run
+  `43409457459` passed. CodeQL and mutation-run evidence were not observed;
+  keep those sub-checks NOT-RUN if selected as additional acceptance.
+- QG4 findings triage is owner work; these P1 pilots are beyond the minimum
+  operational-adoption milestone and do not block that milestone.
 - **Risk-driven:** QG7 typed import/SCIP pilot only where the native TS graph or
   ast-grep cannot prove an accepted invariant.
 - **Separate approved architecture track:** TypeSpec TS-00..TS-06 with generated
@@ -329,10 +353,13 @@ was observed as 10/10 PASS before branch submission. Full repository CI on
 the exact final PR SHA and the user's actual interactive agent trial are
 separate requirements.
 
-After merging this slice, the remaining operational acceptance is a
-real local agent T1 PR and a material T2 task demonstrating human-approved
-G02 **before code**, plus genuinely combined post-merge negative gate
-coverage. P1 QG4–QG6 and TypeSpec TS-00..06 remain separately staged.
+**Status update (2026-11-13):** the minimum operational-adoption criteria
+above are evidenced by the T1 dogfood in #223, the pre-code G02/T2 work in
+#232, and the post-merge gate runs in #233/#234. The user's actual interactive
+agent trial remains a separate NOT-RUN requirement. AC-SDLC-07/08 remain
+partial until real provider-wire and agent-E2E evidence exists. P1 QG4–QG6
+evidence and report triage are recorded above; TypeSpec TS-00..06 remains a
+separate approved architecture track.
 
 ## ACE-ARCH-1 — Phase A current-main architecture inventory (2026-11-11)
 
