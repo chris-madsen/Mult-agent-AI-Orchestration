@@ -11,8 +11,11 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -194,9 +197,31 @@ type Client struct {
 	MaxBodyBytes int64
 }
 
+func validateLoopbackEndpoint(endpoint string) error {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Opaque != "" || parsed.Host == "" || parsed.User != nil {
+		return errors.New("ACE projection endpoint must be a loopback HTTP(S) URL")
+	}
+	if scheme := strings.ToLower(parsed.Scheme); scheme != "http" && scheme != "https" {
+		return errors.New("ACE projection endpoint must be a loopback HTTP(S) URL")
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "localhost" {
+		return nil
+	}
+	address := net.ParseIP(host)
+	if address == nil || !address.IsLoopback() {
+		return errors.New("ACE projection endpoint must be a loopback HTTP(S) URL")
+	}
+	return nil
+}
+
 func (c Client) Project(ctx context.Context, request Request) (Decision, error) {
 	if c.Endpoint == "" {
 		return Decision{}, errors.New("ACE projection endpoint is required")
+	}
+	if err := validateLoopbackEndpoint(c.Endpoint); err != nil {
+		return Decision{}, err
 	}
 	maxBodyBytes := c.MaxBodyBytes
 	if maxBodyBytes <= 0 {
@@ -254,12 +279,18 @@ func (c Client) Project(ctx context.Context, request Request) (Decision, error) 
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
+	// Projection is a fixed internal API call, not a redirect navigation flow.
+	// Never replay the payload to another endpoint, even on the same host.
+	safeClient := *httpClient
+	safeClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return errors.New("ACE projection redirects are not supported")
+	}
 	httpRequest, err := http.NewRequestWithContext(boundedCtx, http.MethodPost, c.Endpoint, bytes.NewReader(encoded))
 	if err != nil {
 		return Decision{}, fmt.Errorf("create projection request: %w", err)
 	}
 	httpRequest.Header.Set("Content-Type", "application/json")
-	response, err := httpClient.Do(httpRequest)
+	response, err := safeClient.Do(httpRequest)
 	if err != nil {
 		return Decision{}, fmt.Errorf("ACE projection request failed: %w", err)
 	}
