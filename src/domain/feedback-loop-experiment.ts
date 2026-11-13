@@ -605,8 +605,3 @@ export const reconcileFeedbackTrials = (input: {
     aceNotUsed,
   });
 };
-
-export const feedbackTokenRatio = (nativeTotalTokens: number | null, aceTotalTokens: number | null): number | null =>
-  nativeTotalTokens !== null && aceTotalTokens !== null && nativeTotalTokens > 0 && aceTotalTokens > 0
-    ? nativeTotalTokens / aceTotalTokens
-    : null;

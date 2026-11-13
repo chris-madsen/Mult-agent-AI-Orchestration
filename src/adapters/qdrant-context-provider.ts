@@ -70,7 +70,7 @@ import {
   utf16ColumnAtUtf8Byte,
 } from '../domain/utf8-range.js';
 
-export { exactUtf8ByteRange, exactUtf8Span } from '../domain/utf8-range.js';
+export { exactUtf8ByteRange } from '../domain/utf8-range.js';
 
 export interface QdrantContextConfig {
   readonly workspaceId: WorkspaceId;

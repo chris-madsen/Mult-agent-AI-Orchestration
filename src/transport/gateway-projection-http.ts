@@ -98,7 +98,7 @@ const readRequestBody = async (request: IncomingMessage, maxBodyBytes: number): 
   return Buffer.concat(chunks).toString('utf8');
 };
 
-export const createGatewayProjectionServer = (
+const createGatewayProjectionServer = (
   service: GatewayProjectionHttpService,
   options: GatewayProjectionHttpOptions = {},
 ): Server => {

@@ -3,13 +3,6 @@ import { existsSync, readdirSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const providerStatuses = Object.freeze([
-  'available',
-  'unavailable',
-  'not_applicable',
-  'not_required',
-]);
-
 const firstLine = (value) => value.split(/\r?\n/u).map((line) => line.trim()).find(Boolean) ?? '';
 
 const pathCandidates = (command, platform) => {
@@ -131,7 +124,7 @@ export const runResolved = (command, args = [], {
   }
 };
 
-export const commandProbe = (command, args = ['--version'], options = {}) => ({
+const commandProbe = (command, args = ['--version'], options = {}) => ({
   ...runResolved(command, args, options),
 });
 

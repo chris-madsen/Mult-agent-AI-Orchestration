@@ -61,7 +61,7 @@ export interface SemanticSelectionVerdict {
 const stableRuntime = (runtime: Readonly<Record<string, string>>): Readonly<Record<string, string>> =>
   Object.fromEntries(Object.entries(runtime).sort(([left], [right]) => left.localeCompare(right)));
 
-export const semanticProviderIdentity = (report: SemanticProviderReport): string => JSON.stringify({
+const semanticProviderIdentity = (report: SemanticProviderReport): string => JSON.stringify({
   provider: report.provider,
   providerVersion: report.providerVersion,
   fixtureSha256: report.fixtureSha256,
