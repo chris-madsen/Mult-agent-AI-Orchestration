@@ -253,7 +253,7 @@ HEADs, exact merge candidates, and CI again before accepting any row.
 | AC-SDLC-05 | Owner instruction 2026-11-12 | **SUPERSEDED / NO LONGER A REQUIREMENT.** Owner explicitly declines branch protection, rulesets, mandatory status checks and required PR approvals; no admin setup or blocker for these is needed. | CLOSED_BY_OWNER_DECISION — do not create follow-up task or infer merge protection from CI jobs |
 | AC-SDLC-06 | AC-SDLC-01, owner merge | T1 dogfood evidence for #223 archived at merged SHA, with real RED/GREEN, four distinct gate passes and human review | COMPLETE — #223 dogfood evidence remains valid. Separately, the note about an “additional T1 validator fix” has no linked task or PR in the tracked evidence; keep it unclassified rather than attributing it to #230 without proof |
 | AC-SDLC-07 | Appropriate real T2 task | G02 acceptance→owner→decision→state/contract→phase→RED/GREEN→provider-proof crosswalk accepted **before code**, then implemented, tested, reviewed and merged | PARTIAL_LOCAL — owner decision accepted 2026-11-12: loopback-only trusted local host, no process authentication or mTLS. Implementation merged in #232 at `6df583fad7d45a4cda6586632240b6f364c08a8a`; final PR head `3a103097266f0690b1e293b86595418a7ed35d82` passed configured checks, and full nightly run `43409457459` passed. Provider-wire and agent-E2E remain NOT-RUN; merge/review is no longer pending |
-| AC-SDLC-08 | AC-SDLC-01..07 | Two further independent real tasks (one contained T1 bugfix, one material T2 change) demonstrate repeatable process and honest provider/agent E2E; human audits quality rather than merely checking template fields | PARTIAL_LOCAL — the T1 dogfood (#223), T1 CLI-default change (#230), and material T2 local-only boundary (#232) are merged and reviewed. Real Bifrost provider-wire, agent-facing E2E, and the user's separate interactive agent trial remain NOT-RUN |
+| AC-SDLC-08 | AC-SDLC-01..07 | Two further independent real tasks (one contained T1 bugfix, one material T2 change) demonstrate repeatable process and honest provider/agent E2E; human audits quality rather than merely checking template fields | PARTIAL_LOCAL — the T1 dogfood (#223), T1 CLI-default change (#230), and material T2 local-only boundary (#232) are merged and reviewed. The no-write Research step and negative T2 preflight were executed in the 2026-11-13 interactive session and recorded below. Real Bifrost provider-wire and agent-facing E2E remain NOT-RUN; neither local preflight nor this research report is owner approval |
 
 ### Required integration after merge
 
@@ -348,18 +348,29 @@ or Matt Pocock tools, changing accepted G02 semantics, promoting ast-grep pilot
 warnings to blocking, adding a second agent runner, executing private-provider
 E2E, or calling this an already-completed T2 dogfood test.
 
-**Local proof, not an independent review:** standalone Node fixture suite
-was observed as 10/10 PASS before branch submission. Full repository CI on
-the exact final PR SHA and the user's actual interactive agent trial are
-separate requirements.
+**Interactive trial evidence added 2026-11-13 (not owner approval):** the
+prescribed no-write Research task ran in this TUI session against
+`main@6df583fad7d45a4cda6586632240b6f364c08a8a`. T0 preflight returned
+`READY_FOR_AGENT`; `npm run test:sdlc-preflight` passed 11/11; the focused MCP
+SDK/readiness tests passed 4/4. The fact-only report is
+[`docs/research/sdlc/2026-11-13-ace-context-mcp-registration-research.md`](../research/sdlc/2026-11-13-ace-context-mcp-registration-research.md).
+
+The local trial's negative T2 pre-code check was also run without `--g02`:
+`npm run sdlc:preflight -- --tier T2 --stage implement --task-id sdlc-local-t2-negative-probe --plan docs/plans/2026-11-10-sdlc-adoption-execution-plan.md --json`
+returned exit 2, `BLOCKED`, `G02=BLOCKED`, on the isolated evidence branch
+`codex/sdlc-adoption-plan-evidence@d3c1edbce66ad1dfa14ba164d9342620754b0dea`.
+The preflight does not verify human plan approval or bind that task ID to the
+branch. The T1 implementation/PR evidence is in #223/#230; the material T2
+work is in #232. These are local process/gate checks, not provider-wire or
+agent-E2E evidence.
 
 **Status update (2026-11-13):** the minimum operational-adoption criteria
 above are evidenced by the T1 dogfood in #223, the pre-code G02/T2 work in
-#232, and the post-merge gate runs in #233/#234. The user's actual interactive
-agent trial remains a separate NOT-RUN requirement. AC-SDLC-07/08 remain
-partial until real provider-wire and agent-E2E evidence exists. P1 QG4–QG6
-evidence and report triage are recorded above; TypeSpec TS-00..06 remains a
-separate approved architecture track.
+#232, the post-merge gate runs in #233/#234, and the interactive Research/T2
+negative-preflight evidence above. AC-SDLC-07/08 remain partial until real
+provider-wire and agent-E2E evidence exists. P1 QG4–QG6 evidence and report
+triage are recorded above; TypeSpec TS-00..06 remains a separate approved
+architecture track.
 
 ## ACE-ARCH-1 — Phase A current-main architecture inventory (2026-11-11)
 
