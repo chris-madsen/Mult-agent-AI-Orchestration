@@ -19,8 +19,9 @@ This document describes the operational test loop. Normative capability acceptan
 | `npm run test:fast` | Alias for the affected deterministic TypeScript tests | Inner development loop |
 | `npm run check` | TypeScript strict typecheck only | Explicit type gate |
 | `npm run build` | Emit `dist/`; incremental state is reused locally | Runtime/E2E preparation |
-| `npm run verify:pr` | Typecheck + full deterministic tests + lint + build | Once before handoff and in CI |
-| `npm run verify:pr:affected` | Typecheck + affected deterministic tests + lint + build | Narrow PR verification in CI |
+| `npm run verify:pr` | Typecheck + selected affected/limited smoke TS tests + lint + architecture + SDLC preflight | Fast PR/handoff; **not a full acceptance claim** |
+| `npm run verify:pr:affected` | Compatibility alias to the bounded `verify:pr` | Legacy local invocations |
+| `npm run verify:full` | All deterministic TS/Hermes, lint, build/source provenance, architecture, SDLC and Gateway property tests | Scheduled nightly/manual; not every PR |
 
 A clean CI worker installs dependencies once with:
 
@@ -40,7 +41,8 @@ Do not run `npm ci` repeatedly inside an already-installed development workspace
 4. walks that graph from changed source files to dependent tests;
 5. selects directly changed test files;
 6. for `scripts/` changes, selects tests that directly reference the changed script/name;
-7. falls back to the entire deterministic suite for broad build/test configuration changes such as `package.json`, lockfiles and TypeScript/ESLint configuration.
+7. for broad build/test configuration edits (package, lockfiles or TS/ESLint config), adds a **small explicit smoke set** and any affected tests; never silently invokes the entire suite. This does not assert full transitive dependency coverage.
+8. when zero tests are selected, prints an explicit `NO MATCHING TESTS` limitation; typecheck/lint and the next nightly full run are independent signals, not proof that the changed behavior is tested.
 
 Type-only dependency edges are owned by the TypeScript gate rather than runtime tests. Documentation-only changes normally select no TypeScript tests, and CI checks their diff without installing Node dependencies.
 
@@ -81,12 +83,24 @@ Several expensive commands against unchanged source should reuse the same emitte
 
 ## CI policy
 
-The deterministic PR workflow is scope-aware:
+There are **two automatic execution scopes**, with optional manual full verification.
 
-1. checkout;
-2. classify the PR from its changed paths;
-3. for documentation/evidence-only changes, run `git diff --check` without installing Node dependencies;
-4. for narrow source/test/script changes, install locked dependencies once, install the pinned structural provider, and run `npm run verify:pr:affected` with the PR base as `ACE_TEST_BASE`;
-5. for package/lock/configuration/CI/infrastructure/fixture changes and every push to `main`, run the full `npm run verify:pr` gate.
+**PR minimal/focused** (`pull_request`, not every push to `main`):
 
-Provider/k3s/Harbor/release evidence remains separate because those jobs require capability-specific infrastructure, authorization and retained evidence. A green deterministic PR workflow does not imply those production gates passed.
+1. Classify changed paths using NUL-delimited Git diff against the actual PR base/head; no silent full-suite fallback.
+2. Docs-only: `git diff --check` and offline changed-Markdown link check; no npm installation.
+3. Source/test/toolchain: `npm ci --ignore-scripts` **once**, `ACE_TEST_BASE=<PR base SHA> npm run verify:pr`: typecheck, affected TS tests and a bounded smoke set for broad config changes, lint, architecture and preflight.
+4. Go/Bifröst changes: only Go `test`/`vet` on changed Go scope. Hermes plugin changes: only its Python tests. Shared public-contract fixture changes trigger all three applicable language gates.
+5. Keep scoped secret scanning and actionlint/zizmor on changed workflows. These security checks are fast and independent; do not disable them to save minutes.
+6. No full Qdrant/FastEmbed, non-TS rust-analyzer, Harbor, TypeScript-wide `npm test`, Knip or OSV scans on an ordinary PR. A green fast PR is **not** a provider/release/whole-repo certification.
+
+**Nightly full** (`schedule`, plus manual `workflow_dispatch`):
+
+1. `npm run verify:full` for all deterministic TS/Hermes tests, build/provenance, architecture, preflight and Gateway property checks.
+2. Real Qdrant provider/restart/two-writer/crash and real rust-analyzer conformance with retained logs.
+3. Go/Bifröst tests and vet; Knip and OSV via the separate scheduled dependency workflow.
+4. Failures stay failures. Do not rerun or weaken expensive oracles merely to get a green status; report sources, provider identity, source/tested SHA and any environment-induced uncertainty.
+
+**Repository policy:** the owner explicitly **does not want branch protection, GitHub rulesets, required checks or mandatory PR approvals**. Do not request/configure them. Independent G02 architectural decisions, source correctness and relevant provider/release evidence are still required by their accepted contracts.
+
+To run the full scope locally when it is useful, call `npm run verify:full` explicitly. Do not make agent prompts or workflow defaults run it for every PR.

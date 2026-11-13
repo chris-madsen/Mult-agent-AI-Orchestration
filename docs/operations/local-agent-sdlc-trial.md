@@ -38,7 +38,7 @@ cd ../ace-sdlc-local-t1
 npm run sdlc:preflight -- --tier T1 --stage research --task-id sdlc-local-t1 --json
 ```
 
-Ask the agent to pick a **real, reproducible, limited T1 defect** in the existing implementation, not a fabricated example, and stop after diagnosis if no RED oracle can be established. It must cite the exact source, produce focused research, minimal plan in the existing owning artifact, observed RED/GREEN, four separate self-review results and a PR. Run affected tests in the inner loop and full `npm run verify:pr` once before PR handoff. Do not claim external provider acceptance based on mocks.
+Ask the agent to pick a **real, reproducible, limited T1 defect** in the existing implementation, not a fabricated example, and stop after diagnosis if no RED oracle can be established. It must cite the exact source, produce focused research, minimal plan in the existing owning artifact, observed RED/GREEN, four separate self-review results and a PR. Run affected tests in the inner loop and the **fast, affected-only** `npm run verify:pr` once before PR handoff. The exhaustive `npm run verify:full` belongs to nightly/manual testing. Do not claim external provider acceptance based on mocks.
 
 Implementation-stage preflight requires an existing canonical plan, such as:
 

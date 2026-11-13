@@ -1,18 +1,16 @@
 name: ACE dependency usage and advisory reports
 
 on:
-  pull_request:
   workflow_dispatch:
   schedule:
-    - cron: "43 5 * * 1"
+    - cron: "13 3 * * *"
 
 permissions:
   contents: read
 
 jobs:
   knip-report:
-    name: Knip non-blocking report
-    if: github.event_name != 'schedule'
+    name: Knip non-blocking nightly report
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -29,21 +27,6 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Report unused dependencies, exports, and files
         run: npm run analyze:dependencies
-
-  osv-pull-request-report:
-    name: OSV report for pull requests
-    if: github.event_name == 'pull_request'
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@32d3cd482bdadfb38b186c0ad1b031902d55d932 # v2.7.1
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-    with:
-      scan-args: |-
-        -r
-        ./
-      fail-on-vuln: false
-      upload-sarif: false
 
   osv-scheduled-report:
     name: Scheduled OSV report

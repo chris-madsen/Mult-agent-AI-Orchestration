@@ -179,7 +179,7 @@ If any mandatory gate FAILS:
 
 ## Phase 6 — commit, push and PR evidence
 
-- Run `npm run verify:pr` once at handoff readiness, using the repository's current script.
+- Run the **bounded, affected-only** `npm run verify:pr` once at handoff readiness. Only nightly/manual verification runs `npm run verify:full` and expensive real-provider suites; never wait for those by default on a PR. Record any uncovered invariant honestly.
 - Use focused commits per coherent verified slice.
 - Push branch and confirm PR to `main` contains each delivered commit; no direct-to-main unless owner explicitly authorizes.
 - Record exact PR number and head SHA.

@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
-import { posix } from 'node:path';
+import { readFileSync, existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import ts from 'typescript';
 
-const FULL_SUITE_TRIGGERS = new Set([
+// Even a toolchain/lockfile change stays bounded in PRs. The nightly workflow
+// owns the exhaustive suite. This small smoke set is a safety net, not a claim
+// that the PR covered every consumer of a changed dependency.
+const BROAD_CONFIG_TRIGGERS = new Set([
   'package.json',
   'package-lock.json',
   'tsconfig.json',
@@ -14,18 +18,25 @@ const FULL_SUITE_TRIGGERS = new Set([
   '.eslintrc.cjs',
   'scripts/run-affected-tests.mjs',
 ]);
+const SMOKE_TESTS = new Set([
+  'test/foundation.test.ts',
+  'test/mcp-sdk-runtime.conformance.test.ts',
+  'test/public-contract-compatibility.contracts.test.ts',
+  'test/runtime-provenance.contracts.test.ts',
+]);
 
 const normalize = (value) => value.replaceAll('\\', '/').replace(/^\.\//u, '');
 
-const git = (args, { allowFailure = false } = {}) => {
-  const result = spawnSync('git', args, { encoding: 'utf8' });
-  if (result.status !== 0 && !allowFailure) {
-    throw new Error(`git ${args.join(' ')} failed: ${result.stderr.trim()}`);
+// Git quotes non-ASCII paths by default; -z is required for correct impact
+// selection. In particular, a renamed/unicode source must not silently select
+// zero tests merely because Git printed a quoted path.
+const gitPaths = (args) => {
+  const result = spawnSync('git', [...args, '-z'], { encoding: null, maxBuffer: 16 * 1024 * 1024 });
+  if (result.status !== 0 || result.error) {
+    throw new Error(`git ${args.join(' ')} -z failed: ${String(result.stderr ?? '')}`);
   }
-  return result.status === 0 ? result.stdout.trim() : '';
+  return result.stdout.toString('utf8').split('\0').filter(Boolean).map(normalize);
 };
-
-const lines = (value) => value.split(/\r?\n/u).map((line) => normalize(line.trim())).filter(Boolean);
 
 export const parseImports = (source) => {
   const specifiers = new Set();
@@ -86,9 +97,7 @@ export const resolveRelativeImport = (importer, specifier) => {
 
 export const selectAffectedTests = ({ trackedFiles, changedFiles, contents }) => {
   const tests = trackedFiles.filter((file) => /^test\/[^/]+\.test\.ts$/u.test(file)).sort();
-  if (changedFiles.some((file) => FULL_SUITE_TRIGGERS.has(file))) {
-    return { mode: 'full', tests, reasons: ['broad test/build configuration changed'] };
-  }
+  const broadConfiguration = changedFiles.some((file) => BROAD_CONFIG_TRIGGERS.has(file));
 
   const codeFiles = trackedFiles.filter((file) => /^(?:src|test)\/.*\.ts$/u.test(file));
   const reverse = new Map();
@@ -129,10 +138,17 @@ export const selectAffectedTests = ({ trackedFiles, changedFiles, contents }) =>
     }
   }
 
+  if (broadConfiguration) {
+    const smoke = tests.filter((file) => SMOKE_TESTS.has(file));
+    for (const file of smoke.length > 0 ? smoke : tests.slice(0, 3)) selected.add(file);
+  }
   return {
-    mode: selected.size === 0 ? 'none' : 'affected',
+    mode: broadConfiguration ? 'smoke' : selected.size === 0 ? 'none' : 'affected',
     tests: [...selected].sort(),
-    reasons: selected.size === 0 ? ['no dependent deterministic TypeScript tests discovered'] : [],
+    reasons: [
+      ...(broadConfiguration ? ['broad config changed: bounded smoke + affected tests; exhaustive suite runs nightly'] : []),
+      ...(selected.size === 0 ? ['NO MATCHING TESTS: do not treat this as behavioral acceptance'] : []),
+    ],
   };
 };
 
@@ -159,11 +175,11 @@ const detectBase = (explicitBase) => explicitBase ?? 'HEAD';
 const changedFilesFromGit = (base) => {
   const changed = new Set();
   if (base !== 'HEAD') {
-    for (const file of lines(git(['diff', '--name-only', '--diff-filter=ACMR', `${base}...HEAD`]))) changed.add(file);
+    for (const file of gitPaths(['diff', '--name-only', '--diff-filter=ACDMRT', `${base}...HEAD`])) changed.add(file);
   }
-  for (const file of lines(git(['diff', '--name-only', '--diff-filter=ACMR']))) changed.add(file);
-  for (const file of lines(git(['diff', '--cached', '--name-only', '--diff-filter=ACMR']))) changed.add(file);
-  for (const file of lines(git(['ls-files', '--others', '--exclude-standard']))) changed.add(file);
+  for (const file of gitPaths(['diff', '--name-only', '--diff-filter=ACDMRT'])) changed.add(file);
+  for (const file of gitPaths(['diff', '--cached', '--name-only', '--diff-filter=ACDMRT'])) changed.add(file);
+  for (const file of gitPaths(['ls-files', '--others', '--exclude-standard'])) changed.add(file);
   return [...changed].sort();
 };
 
@@ -203,10 +219,11 @@ const runSelfTest = () => {
     selectAffectedTests({ trackedFiles, changedFiles: ['docs/readme.md'], contents }).mode,
     'none',
   );
-  assert.equal(
-    selectAffectedTests({ trackedFiles, changedFiles: ['package.json'], contents }).mode,
-    'full',
-  );
+  const broad = selectAffectedTests({ trackedFiles, changedFiles: ['package.json'], contents });
+  assert.equal(broad.mode, 'smoke');
+  assert.ok(broad.tests.length > 0 && broad.tests.length < trackedFiles.length);
+  const mixed = selectAffectedTests({ trackedFiles, changedFiles: ['package.json', 'src/a.ts'], contents });
+  assert.ok(mixed.tests.includes('test/b.test.ts'), 'broad config must preserve changed-code dependents');
   assert.deepEqual(
     selectAffectedTests({ trackedFiles, changedFiles: ['scripts/report.ts'], contents }).tests,
     ['test/script.test.ts'],
@@ -241,6 +258,26 @@ const runSelfTest = () => {
     `).sort(),
     ['./dependency.js', './lazy-with-options.js'],
   );
+  // A Unicode path is quoted by default Git output, which used to be
+  // mistaken for a different path and silently bypass the affected test.
+  const fixtureRoot = mkdtempSync(join(tmpdir(), 'ace-impact-unicode-'));
+  try {
+    const runGit = (args) => {
+      const result = spawnSync('git', ['-C', fixtureRoot, ...args], { encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+    };
+    runGit(['init', '-q']);
+    runGit(['config', 'user.email', 'ace-test@example.invalid']);
+    runGit(['config', 'user.name', 'ACE impact test']);
+    writeFileSync(join(fixtureRoot, 'пример.ts'), 'export const answer = 1;\\n');
+    runGit(['add', 'пример.ts']);
+    runGit(['commit', '-qm', 'fixture']);
+    writeFileSync(join(fixtureRoot, 'пример.ts'), 'export const answer = 2;\\n');
+    assert.deepEqual(gitPaths(['-C', fixtureRoot, 'diff', '--name-only']), ['пример.ts']);
+    assert.deepEqual(gitPaths(['-C', fixtureRoot, 'ls-files']), ['пример.ts']);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
   console.log('[test-impact] self-test PASS');
 };
 
@@ -254,7 +291,7 @@ const main = () => {
   // `git ls-files` also reports paths deleted in the working tree. Never pass
   // those stale paths to the test runner after a test file is intentionally
   // removed as part of a provider migration.
-  const trackedFiles = lines(git(['ls-files', 'src', 'test', 'scripts'])).filter((file) => existsSync(file));
+  const trackedFiles = gitPaths(['ls-files', 'src', 'test', 'scripts']).filter((file) => existsSync(file));
   const changedFiles = changedFilesFromGit(base);
   const contents = new Map();
   for (const file of trackedFiles) {
@@ -271,9 +308,8 @@ const main = () => {
   if (selection.tests.length > 0) console.log(selection.tests.map((file) => `  test: ${file}`).join('\n'));
 
   if (dryRun || selection.mode === 'none') return;
-  const command = selection.mode === 'full'
-    ? ['test']
-    : ['exec', '--', 'tsx', '--test', ...selection.tests];
+  // PR/inner-loop selector must never invoke npm test/full suite implicitly.
+  const command = ['exec', '--', 'tsx', '--test', ...selection.tests];
   const npmInvocation = process.platform === 'win32'
     ? ['cmd.exe', ['/d', '/s', '/c', ['npm.cmd', ...command].join(' ')]]
     : ['npm', command];
