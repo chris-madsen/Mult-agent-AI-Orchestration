@@ -2,7 +2,7 @@ schema_version = "1.4"
 artifacts = ["/tmp/ace-artifacts"]
 [task]
 name = "ace/cloud-policy-impact"
-version = "1.0.0"
+version = "1.0.1"
 description = "Cross-file policy investigation with public and secret-bearing routes"
 authors = []
 keywords = ["typescript", "policy", "security", "code-intelligence"]

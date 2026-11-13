@@ -118,6 +118,20 @@ test('Docker runtime uses the pinned embedding versions from the Harbor bundle c
   assert.ok(!dockerfile.includes('pillow==11.3.0'));
   assert.ok(!dockerfile.includes('fastembed==0.7.4'));
   assert.ok(!dockerfile.includes('numpy==2.5.4'));
+
+  const taskDockerfiles = [
+    'benchmarks/harbor/ace-shared-archive-impact/environment/Dockerfile',
+    'benchmarks/harbor/ace-retrieval-impact/environment/Dockerfile',
+    'benchmarks/harbor/ace-cloud-policy-impact/environment/Dockerfile',
+  ];
+  for (const path of taskDockerfiles) {
+    const taskDockerfile = await readFile(path, 'utf8');
+    assert.match(taskDockerfile, /sys\.version_info < \(3, 11\)/u, `${path} must reject Python 3.10`);
+    for (const pin of ['fastembed==0.9.1', 'pillow==13.0.0', 'onnxruntime==1.23.2', 'numpy==2.2.6']) {
+      assert.ok(taskDockerfile.includes(pin), `${path} is missing ${pin}`);
+    }
+    assert.doesNotMatch(taskDockerfile, /fastembed==0\.7\.4|pillow==11\.3\.0|onnxruntime==1\.31\.0/u);
+  }
 });
 
 test('Hermes runtime probe missing-Python guard executes under POSIX sh', async () => {
