@@ -84,10 +84,15 @@ class BridgeClient:
             self.close()
             raise RuntimeError("ACE context bridge runtime identity is not pinned")
         provider_identities = ready.get("providerIdentities")
+        node = ready.get("node")
         if (
-            not isinstance(ready.get("node"), str)
-            or not isinstance(provider_identities, dict)
-            or not all(isinstance(identity, str) for identity in provider_identities.values())
+            not isinstance(node, str) or not node.strip()
+            or not isinstance(provider_identities, dict) or not provider_identities
+            or any(
+                not isinstance(name, str) or not name.strip()
+                or not isinstance(identity, str) or not identity.strip()
+                for name, identity in provider_identities.items()
+            )
         ):
             self.close()
             raise RuntimeError("ACE context bridge returned incomplete bridge_ready metadata")
