@@ -5,6 +5,7 @@ import type {
   ContentDigest,
   FileObservation,
   RepoPath,
+  WorkingContextHints,
   WorkspaceId,
   WorkspaceRecord,
   WorkspaceSnapshot,
@@ -20,6 +21,7 @@ import type {
   StructuralAnalysis,
 } from '../domain/semantic.js';
 import type { ProviderTraceEvent } from '../domain/provider-trace.js';
+import type { SourceRequirements } from '../domain/source-coverage.js';
 
 export interface HttpRequest {
   readonly method: 'GET' | 'POST' | 'PUT' | 'DELETE';
@@ -181,6 +183,21 @@ export interface GitHistoryPort {
     readonly limit: number;
     readonly requestId?: string;
   }) => Effect.Effect<Result<readonly ContextBundle['evidence'][number][], DomainError>>;
+}
+
+/** Runtime-neutral context retrieval capability shared by all delivery planes. */
+export interface ContextProvider {
+  readonly search: (input: {
+    readonly workspaceId: WorkspaceId;
+    readonly query: string;
+    readonly intent?: string;
+    readonly includeCode?: boolean;
+    readonly includeDocs: boolean;
+    readonly includeMemory: boolean;
+    readonly includeHistory?: boolean;
+    readonly sourceRequirements?: SourceRequirements;
+    readonly workingContextHints?: WorkingContextHints;
+  }) => Effect.Effect<Result<ContextBundle, DomainError>>;
 }
 
 export interface MemorySearchPort {

@@ -139,6 +139,13 @@ test('legacy handwritten MCP framing is removed; official SDK remains sole expli
   assert.doesNotMatch(runtime, /runMcpStdio\(/u);
 });
 
+test('context application owns its retrieval port rather than importing MCP transport', async () => {
+  const application = await readFile(join(process.cwd(), 'src/application/context-transform-service.ts'), 'utf8');
+  const ports = await readFile(join(process.cwd(), 'src/application/ports.ts'), 'utf8');
+  assert.doesNotMatch(application, /gateway\\/mcp-gateway/u);
+  assert.match(ports, /export interface ContextProvider/u);
+});
+
 test('Bifrost model projection and native context bridge never construct an MCP gateway', async () => {
   const runtime = await readFile(join(process.cwd(), 'src/bin/ace-mcp.ts'), 'utf8');
   const httpStart = runtime.indexOf("if (process.env.ACE_GATEWAY_HTTP_MODE === 'true') {");
