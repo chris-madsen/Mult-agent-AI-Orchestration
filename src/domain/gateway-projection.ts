@@ -84,7 +84,7 @@ const firstUnknownField = (input: Record<string, unknown>, allowed: ReadonlySet<
 export const sha256Base64 = (bodyBase64: string): string =>
   sha256(Buffer.from(bodyBase64, 'base64'));
 
-const validateHostCompactionAttestation = (
+export const validateHostCompactionAttestation = (
   value: unknown,
 ): Result<HostCompactionAttestation, DomainError> => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {

@@ -81,7 +81,7 @@ export interface EmbeddingSelectionVerdict {
 const stableRuntime = (runtime: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> =>
   Object.fromEntries(Object.entries(runtime).sort(([left], [right]) => left.localeCompare(right)));
 
-const embeddingProviderIdentity = (candidate: EmbeddingComparisonCandidate): string => JSON.stringify({
+export const embeddingProviderIdentity = (candidate: EmbeddingComparisonCandidate): string => JSON.stringify({
   provider: candidate.provider,
   model: candidate.model,
   revision: candidate.revision,

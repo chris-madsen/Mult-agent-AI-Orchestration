@@ -109,6 +109,8 @@ test('verifies bundle bytes rather than accepting an unverified manifest digest'
 });
 
 test('Docker runtime uses the pinned embedding versions from the Harbor bundle contract', async () => {
+  const cpuEmbeddingRequirements = await readFile('requirements-embedding-st.txt', 'utf8');
+  assert.match(cpuEmbeddingRequirements, /^torch==2\.15\.0\+cpu$/mu, 'CPU-only Sentence-Transformers environment must not resolve a CUDA torch wheel');
   const dockerfile = await readFile('Dockerfile.ace', 'utf8');
   assert.match(dockerfile, /sys\.version_info < \(3, 11\)/u);
   assert.ok(dockerfile.includes('pillow==13.0.0'));

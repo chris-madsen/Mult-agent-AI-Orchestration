@@ -42,7 +42,7 @@ interface DeliveryMetricStages {
   readonly projectedEvidence?: readonly RetrievalEvidence[];
 }
 
-const deliveryMetricsFor = (
+export const deliveryMetricsFor = (
   bundle: Omit<ContextBundle, 'deliveryMetrics'>,
   stages: DeliveryMetricStages = {},
 ): ContextDeliveryMetrics => {
