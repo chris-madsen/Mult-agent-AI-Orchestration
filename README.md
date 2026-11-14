@@ -1,6 +1,6 @@
 # Adaptive Context Engine (ACE) Harness
 
-ACE is an **agent-neutral hybrid context/RAG engine**, not an agent scheduler. LangGraph or another external orchestrator owns multi-agent workflows. ACE supplies verified context to model requests. For configurable-endpoint agents, **Bifrost is the selected, not-yet-implemented LLM context gateway** (ADR-017). **MCP is an explicit tool interface, not the primary route for model-bound context injection.** Hermes already has a native ContextEngine/JSONL bridge (ADR-016).
+ACE is an **agent-neutral hybrid context/RAG engine**, not an agent scheduler. LangGraph or another external orchestrator owns multi-agent workflows. ACE supplies verified context to model requests. For configurable-endpoint agents, **Bifrost is the selected LLM context gateway, with a local connector and experimental Gateway seam implemented; real final-provider wire and production acceptance are not certified** (ADR-017). **MCP is an explicit tool interface, not the primary route for model-bound context injection.** Hermes already has a native ContextEngine/JSONL bridge (ADR-016).
 
 
 ## Architecture at a glance
