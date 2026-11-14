@@ -48,12 +48,5 @@ jobs:
         run: npm --prefix typespec run check:mcp-hermes
       - name: Exercise official MCP and native bridge adapters with existing contract tests
         run: ./node_modules/.bin/tsx --test test/mcp-sdk-runtime.conformance.test.ts test/context-bridge.contracts.test.ts
-      - name: Temporary export of regenerated TypeSpec v1 numerical-boundary artifacts
-        if: always()
-        run: |
-          node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs';
-          for (const path of ['typespec/generated/openapi.json', 'typespec/generated/schema/ProjectionDecision.json']) {
-            console.log('ACE_TS06_EXPORT ' + JSON.stringify({ path, base64: readFileSync(path).toString('base64') }));
-          }
-          NODE
+      - name: Exercise real Gateway HTTP and domain v1 compatibility tests
+        run: ./node_modules/.bin/tsx --test test/gateway-projection-http.contracts.test.ts test/gateway-projection.contracts.test.ts test/gateway-schema.contracts.test.ts
