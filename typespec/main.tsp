@@ -50,7 +50,7 @@ namespace AceGatewayV1 {
     @minLength(1)
     provider: string;
     @minLength(1)
-    model: string;
+    `model`: string;
     @pattern("^[A-Za-z0-9+/]+={0,2}$")
     @maxLength(5592408)
     bodyBase64: string;
