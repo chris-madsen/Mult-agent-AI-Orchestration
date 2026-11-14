@@ -4,6 +4,14 @@ import { Effect } from 'effect';
 import type { DomainError } from '../domain/errors.js';
 import type { Result } from '../domain/result.js';
 import type { GatewayProjectionDecision } from '../domain/gateway-projection.js';
+import type { ProjectionDecision as GeneratedProjectionDecision } from '../generated/ace-gateway/v1/types.gen.js';
+
+// The functional domain deliberately exposes readonly arrays and ADTs.
+// Generated OpenAPI DTO shapes are checked at this boundary without cloning
+// or reordering the existing serialized HTTP response.
+type DeepReadonly<T> = T extends readonly (infer Item)[]
+  ? readonly DeepReadonly<Item>[]
+  : T extends object ? { readonly [Key in keyof T]: DeepReadonly<T[Key]> } : T;
 
 export interface GatewayProjectionHttpService {
   readonly project: (value: unknown) => Effect.Effect<Result<GatewayProjectionDecision, DomainError>>;
@@ -75,7 +83,10 @@ export const handleGatewayProjectionHttp = async (
   try {
     const result = await Effect.runPromise(service.project(input));
     if (result._tag === 'Err') return error(400, result.error.code, result.error.message);
-    return json(result.value as unknown as Readonly<Record<string, unknown>>);
+    // TS-06 incremental migration: generated wire type checks the *real*
+    // server success output, while semantic validation remains domain-owned.
+    const wire: DeepReadonly<GeneratedProjectionDecision> = result.value;
+    return json(wire as unknown as Readonly<Record<string, unknown>>);
   } catch {
     return error(503, 'NOT_READY', 'gateway projection service is unavailable');
   }

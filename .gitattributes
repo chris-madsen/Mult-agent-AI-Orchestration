@@ -1,1 +1,2 @@
 typespec/generated/** linguist-generated=true
+src/generated/ace-gateway/** linguist-generated=true
