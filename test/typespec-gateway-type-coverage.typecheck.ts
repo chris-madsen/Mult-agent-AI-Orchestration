@@ -18,8 +18,12 @@ type SameKeys<A, B> = [Exclude<keyof A, keyof B>, Exclude<keyof B, keyof A>] ext
 const sameRequestFields: SameKeys<GatewayWireRequest, GatewayProjectionRequest> = true;
 const sameReceiptFields: SameKeys<GatewayWireReceipt, GatewayProjectionReceipt> = true;
 const sameAttestationFields: SameKeys<GatewayWireAttestation, HostCompactionAttestation> = true;
-const sameDecisionFields: SameKeys<GatewayWireDecision,
-  { kind: GatewayProjectionDecision['kind']; bodyBase64?: string; receipt: GatewayProjectionReceipt }> = true;
+type DomainDecisionWireShape = {
+  kind: GatewayProjectionDecision['kind'];
+  bodyBase64?: string;
+  receipt: GatewayProjectionReceipt;
+};
+const sameDecisionFields: SameKeys<GatewayWireDecision, DomainDecisionWireShape> = true;
 void [sameRequestFields, sameReceiptFields, sameAttestationFields, sameDecisionFields];
 
 // The adapter does mechanical DTO field mapping only. The existing domain
