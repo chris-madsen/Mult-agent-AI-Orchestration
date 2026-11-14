@@ -1,0 +1,17 @@
+id: ace-domain-no-application-import
+language: TypeScript
+rule:
+  kind: string_fragment
+  regex: '^(?:\.\./)+application/'
+  inside:
+    any:
+      - kind: import_statement
+      - kind: export_statement
+    stopBy: end
+severity: warning
+message: Pure domain functions must not import application orchestration or ports.
+note: |
+  ACE-ARCH-006. Keep ADTs and pure invariants below Effect application layer.
+metadata:
+  contract: ADR-019 / FP-03 inward dependency direction
+  repair: Define pure domain input/output and use application composition externally.

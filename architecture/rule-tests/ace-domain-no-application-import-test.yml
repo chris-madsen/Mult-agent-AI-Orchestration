@@ -1,0 +1,13 @@
+id: ace-domain-no-application-import
+valid:
+  - |
+    import type { Result } from './result.js';
+  - |
+    const message = "import { process } from '../application/process.js'";
+invalid:
+  - |
+    import type { Port } from '../application/ports.js';
+  - |
+    export type { Service } from '../application/context-transform-service.js';
+  - |
+    import { useCase } from '../../application/workspace-service.js';
