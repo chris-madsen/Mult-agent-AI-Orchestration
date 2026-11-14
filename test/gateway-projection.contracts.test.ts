@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { Effect } from 'effect';
-import { makeGatewayProjectionService } from '../src/application/gateway-projection-service.js';
+import { makeGatewayProjectionService, type GatewayHostModelBudgetPort } from '../src/application/gateway-projection-service.js';
 import type { AceTransformResult, ContextTransformService } from '../src/application/context-transform-service.js';
 import { sha256Base64, validateGatewayProjectionRequest, type GatewayProjectionRequest } from '../src/domain/gateway-projection.js';
 import { err, ok } from '../src/domain/result.js';
@@ -26,9 +26,12 @@ const request = (overrides: Partial<GatewayProjectionRequest> = {}): GatewayProj
 const transformed: AceTransformResult = {
   schemaVersion: 1, requestId: 'request-1', sessionId: 'session-1', turnId: 'attempt-group-1', workspaceId: 'workspace-1' as never,
   status: 'ready', contextText: 'verified handler context', evidence: [], selectedEvidenceIds: ['ev-1'], omittedEvidenceIds: [],
-  estimatedTokens: 4, providerIdentities: {}, receiptId: 'receipt-1', providerRequestId: 'provider-1', limitations: [],
+  estimatedTokens: 4, tokenCountMode: 'host_counter', providerIdentities: {}, receiptId: 'receipt-1', providerRequestId: 'provider-1', limitations: [],
 };
 const context: ContextTransformService = { transform: () => Effect.succeed(ok(transformed)) };
+const verifiedHostBudget: GatewayHostModelBudgetPort = {
+  resolve: (value) => ({ provider: value.provider, model: value.model, remainingInputTokens: 128 }),
+};
 
 test('gateway request validation binds exact original bytes and rejects malformed bounds', () => {
   assert.equal(validateGatewayProjectionRequest(request())._tag, 'Ok');
@@ -56,7 +59,7 @@ test('gateway request validation binds exact original bytes and rejects malforme
 test('gateway rejects malformed UTF-8 rather than silently replacing original bytes', async () => {
   const invalidUtf8 = Buffer.from([0x7b, 0x22, 0x78, 0x22, 0x3a, 0x22, 0xff, 0x22, 0x7d]);
   const badBase64 = invalidUtf8.toString('base64');
-  const response = await Effect.runPromise(makeGatewayProjectionService(context).project(request({
+  const response = await Effect.runPromise(makeGatewayProjectionService(context, verifiedHostBudget).project(request({
     bodyBase64: badBase64,
     bodySha256: sha256Base64(badBase64),
   })));
@@ -64,7 +67,7 @@ test('gateway rejects malformed UTF-8 rather than silently replacing original by
 });
 
 test('gateway applies request-local context and preserves unknown provider fields', async () => {
-  const decision = await Effect.runPromise(makeGatewayProjectionService(context).project(request()));
+  const decision = await Effect.runPromise(makeGatewayProjectionService(context, verifiedHostBudget).project(request()));
   assert.equal(decision._tag, 'Ok');
   if (decision._tag === 'Err' || decision.value.kind !== 'APPLY') return;
   const projected = JSON.parse(Buffer.from(decision.value.bodyBase64, 'base64').toString('utf8')) as typeof body;
@@ -76,7 +79,7 @@ test('gateway applies request-local context and preserves unknown provider field
 });
 
 test('gateway blocks hidden provider state and active or unknown host compaction', async () => {
-  const service = makeGatewayProjectionService(context);
+  const service = makeGatewayProjectionService(context, verifiedHostBudget);
   for (const override of [
     { attestation: { ...attestation, providerManagedHistoryCapability: 'unknown' as const } },
     { attestation: { ...attestation, compactionEnabled: true } },
@@ -90,7 +93,7 @@ test('gateway blocks hidden provider state and active or unknown host compaction
 
 test('gateway never treats context failure as unchanged success', async () => {
   const failing: ContextTransformService = { transform: () => Effect.succeed(err(domainError('NOT_READY', 'context', 'provider unavailable'))) };
-  const decision = await Effect.runPromise(makeGatewayProjectionService(failing).project(request()));
+  const decision = await Effect.runPromise(makeGatewayProjectionService(failing, verifiedHostBudget).project(request()));
   assert.equal(decision._tag, 'Ok');
   if (decision._tag === 'Ok') {
     assert.equal(decision.value.kind, 'BLOCK');
@@ -98,14 +101,72 @@ test('gateway never treats context failure as unchanged success', async () => {
   }
 });
 
+test('gateway never invents a model token budget from deadline time', async () => {
+  let called = false;
+  const collecting: ContextTransformService = { transform: () => {
+    called = true;
+    return Effect.succeed(ok(transformed));
+  } };
+  const missing = await Effect.runPromise(makeGatewayProjectionService(collecting).project(request()));
+  assert.equal(missing._tag, 'Ok');
+  if (missing._tag === 'Ok') {
+    assert.equal(missing.value.kind, 'BLOCK');
+    assert.equal(missing.value.receipt.reasonCode, 'MODEL_TOKEN_BUDGET_UNVERIFIED');
+  }
+  assert.equal(called, false);
+
+  for (const supplied of [
+    { provider: 'other', model: 'test-model', remainingInputTokens: 128 },
+    { provider: 'mock', model: 'other-model', remainingInputTokens: 128 },
+    { provider: 'mock', model: 'test-model', remainingInputTokens: 0 },
+    { provider: 'mock', model: 'test-model', remainingInputTokens: Number.NaN },
+    { provider: 'mock', model: 'test-model', remainingInputTokens: 1.5 },
+  ]) {
+    const decision = await Effect.runPromise(makeGatewayProjectionService(collecting, {
+      resolve: () => supplied,
+    }).project(request()));
+    assert.equal(decision._tag, 'Ok');
+    if (decision._tag === 'Ok') assert.equal(decision.value.receipt.reasonCode, 'MODEL_TOKEN_BUDGET_UNVERIFIED');
+  }
+  assert.equal(called, false);
+});
+
+test('Gateway trusts only host-counter mode and checked budget evidence', async () => {
+  for (const invalidResult of [
+    { ...transformed, tokenCountMode: 'character_estimate' as const },
+    { ...transformed, estimatedTokens: 129 },
+    { ...transformed, estimatedTokens: -1 },
+  ]) {
+    const unverified: ContextTransformService = { transform: () => Effect.succeed(ok(invalidResult)) };
+    const response = await Effect.runPromise(makeGatewayProjectionService(unverified, verifiedHostBudget).project(request()));
+    assert.equal(response._tag, 'Ok');
+    if (response._tag === 'Ok') {
+      assert.equal(response.value.kind, 'BLOCK');
+      assert.equal(response.value.receipt.reasonCode, 'MODEL_TOKEN_COUNT_UNVERIFIED');
+    }
+  }
+});
+
+test('gateway uses the host-approved budget rather than time to deadline', async () => {
+  let forwardedBudget: number | undefined;
+  const verifying: ContextTransformService = { transform: (input) => {
+    forwardedBudget = input.budgetTokens;
+    return Effect.succeed(ok(transformed));
+  } };
+  const decision = await Effect.runPromise(makeGatewayProjectionService(verifying, verifiedHostBudget).project(request()));
+  assert.equal(decision._tag, 'Ok');
+  assert.equal(forwardedBudget, 128);
+  if (decision._tag === 'Ok') assert.equal(decision.value.kind, 'APPLY');
+});
+
 test('non-gateway modes are explicit and do not claim ACE projection', async () => {
-  const decision = await Effect.runPromise(makeGatewayProjectionService(context).project(request({ projectionMode: 'assist-only' })));
+  const decision = await Effect.runPromise(makeGatewayProjectionService(context, verifiedHostBudget).project(request({ projectionMode: 'assist-only' })));
   assert.equal(decision._tag, 'Ok');
   if (decision._tag === 'Ok') assert.equal(decision.value.kind, 'UNCHANGED_AUTHORIZED');
 });
 
 test('gateway blocks simultaneous native projection ownership', async () => {
-  const decision = await Effect.runPromise(makeGatewayProjectionService(context).project(request({ nativeProjectionActive: true })));
+  const decision = await Effect.runPromise(makeGatewayProjectionService(context, verifiedHostBudget).project(request({ nativeProjectionActive: true })));
   assert.equal(decision._tag, 'Ok');
   if (decision._tag === 'Ok') {
     assert.equal(decision.value.kind, 'BLOCK');
@@ -114,7 +175,7 @@ test('gateway blocks simultaneous native projection ownership', async () => {
 });
 
 test('gateway rejects mismatched host session and unverified transform results', async () => {
-  const gateway = makeGatewayProjectionService(context);
+  const gateway = makeGatewayProjectionService(context, verifiedHostBudget);
   const wrongSession = await Effect.runPromise(gateway.project(request({
     attestation: { ...attestation, sessionId: 'other-session' },
   })));
@@ -129,7 +190,7 @@ test('gateway rejects mismatched host session and unverified transform results',
     { ...transformed, selectedEvidenceIds: [] },
   ]) {
     const invalidContext: ContextTransformService = { transform: () => Effect.succeed(ok(result)) };
-    const response = await Effect.runPromise(makeGatewayProjectionService(invalidContext).project(request()));
+    const response = await Effect.runPromise(makeGatewayProjectionService(invalidContext, verifiedHostBudget).project(request()));
     assert.equal(response._tag, 'Ok');
     if (response._tag === 'Ok') {
       assert.equal(response.value.kind, 'BLOCK');

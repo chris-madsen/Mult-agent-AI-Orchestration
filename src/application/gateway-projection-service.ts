@@ -14,6 +14,19 @@ export interface GatewayProjectionService {
   readonly project: (value: unknown) => Effect.Effect<Result<GatewayProjectionDecision, DomainError>>;
 }
 
+/**
+ * Host-owned model accounting: remainingInputTokens must already exclude the
+ * original request, tool/schema overhead and output reservation for the active
+ * provider/model. A wall-clock deadline cannot stand in for this capacity.
+ */
+export interface GatewayHostModelBudgetPort {
+  readonly resolve: (request: Readonly<GatewayProjectionRequest>) => Readonly<{
+    provider: string;
+    model: string;
+    remainingInputTokens: number;
+  }> | undefined;
+}
+
 const bodySha256 = (value: string): string => createHash('sha256').update(Buffer.from(value, 'base64')).digest('hex');
 const receiptFor = (request: GatewayProjectionRequest, decision: GatewayProjectionReceipt['decision'], extra: Partial<GatewayProjectionReceipt> = {}): GatewayProjectionReceipt => ({
   schemaVersion: 'ace.gateway.v1',
@@ -55,18 +68,24 @@ const appendContext = (body: Record<string, unknown>, context: AceTransformResul
   return ok(Buffer.from(JSON.stringify(projected), 'utf8').toString('base64'));
 };
 
-const transformRequestFor = (request: GatewayProjectionRequest): Parameters<ContextTransformService['transform']>[0] => ({
+const transformRequestFor = (
+  request: GatewayProjectionRequest,
+  budgetTokens: number,
+): Parameters<ContextTransformService['transform']>[0] => ({
   schemaVersion: 1,
   requestId: request.requestId,
   sessionId: request.agentSessionId,
   turnId: request.attemptGroupId,
   workspaceId: request.workspaceId,
   query: request.query,
-  budgetTokens: Math.max(1, Math.floor((request.deadlineEpochMs - Date.now()) / 10)),
+  budgetTokens,
   sourceObligations: { required: ['code'] },
 });
 
-export const makeGatewayProjectionService = (context: ContextTransformService): GatewayProjectionService => ({
+export const makeGatewayProjectionService = (
+  context: ContextTransformService,
+  modelBudget?: GatewayHostModelBudgetPort,
+): GatewayProjectionService => ({
   project: (value) => Effect.gen(function* () {
     const decoded = validateGatewayProjectionRequest(value);
     if (decoded._tag === 'Err') return decoded;
@@ -82,7 +101,19 @@ export const makeGatewayProjectionService = (context: ContextTransformService): 
     if (request.attestation.providerManagedHistoryCapability !== 'visible') return block(request, 'PROVIDER_MANAGED_STATE_UNKNOWN');
     const body = parseBody(request);
     if (body._tag === 'Err') return body;
-    const transformed = yield* context.transform(transformRequestFor(request));
+    // No host model accounting is wired in the current production Gateway.
+    // Fail closed; do not derive an invented token budget from deadline time.
+    let available: ReturnType<GatewayHostModelBudgetPort['resolve']>;
+    try {
+      available = modelBudget?.resolve(request);
+    } catch {
+      return block(request, 'MODEL_TOKEN_BUDGET_UNVERIFIED');
+    }
+    if (available === undefined || available.provider !== request.provider || available.model !== request.model
+      || !Number.isSafeInteger(available.remainingInputTokens) || available.remainingInputTokens <= 0) {
+      return block(request, 'MODEL_TOKEN_BUDGET_UNVERIFIED');
+    }
+    const transformed = yield* context.transform(transformRequestFor(request, available.remainingInputTokens));
     if (transformed._tag === 'Err') return block(request, transformed.error.code);
     if (request.deadlineEpochMs <= Date.now()) return block(request, 'DEADLINE_EXCEEDED');
     const result = transformed.value;
@@ -92,6 +123,13 @@ export const makeGatewayProjectionService = (context: ContextTransformService): 
     }
     if (result.status !== 'ready' || !result.contextText.trim() || result.selectedEvidenceIds.length === 0) {
       return block(request, 'TRANSFORM_NOT_READY');
+    }
+    if (result.tokenCountMode !== 'host_counter') {
+      return block(request, 'MODEL_TOKEN_COUNT_UNVERIFIED');
+    }
+    if (!Number.isSafeInteger(result.estimatedTokens)
+      || result.estimatedTokens <= 0 || result.estimatedTokens > available.remainingInputTokens) {
+      return block(request, 'MODEL_TOKEN_COUNT_UNVERIFIED');
     }
     const projected = appendContext(body.value, result);
     if (projected._tag === 'Err') return block(request, projected.error.code);
