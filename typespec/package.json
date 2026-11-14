@@ -7,7 +7,8 @@
   "scripts": {
     "generate:tsp": "tsp compile .",
     "generate:sdk": "openapi-ts -i ./generated/openapi.json -o ./generated/sdk",
-    "generate": "npm run generate:tsp && npm run generate:sdk"
+    "generate": "npm run generate:tsp && npm run generate:sdk",
+    "check:sdk": "tsc --noEmit --project tsconfig.sdk.json"
   },
   "devDependencies": {
     "@typespec/compiler": "1.17.0",

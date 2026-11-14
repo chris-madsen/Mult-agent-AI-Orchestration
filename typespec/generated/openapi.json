@@ -1,0 +1,393 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "ACE Gateway Projection v1",
+    "version": "0.0.0"
+  },
+  "tags": [],
+  "paths": {
+    "/internal/ace-gateway/v1/project": {
+      "post": {
+        "operationId": "project",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "The request has succeeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectionDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Existing HTTP failure envelope; errors are not fabricated success results.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Existing HTTP failure envelope; errors are not fabricated success results.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectionRequest"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "EvidenceId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "GatewayError": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "description": "Existing HTTP failure envelope; errors are not fabricated success results."
+      },
+      "HostCompactionAttestation": {
+        "type": "object",
+        "required": [
+          "hostBuildDigest",
+          "sessionId",
+          "activeEngineId",
+          "effectiveCompressionControlsDigest",
+          "durableActiveTranscriptRevision",
+          "durableActiveTranscriptDigest",
+          "hostCompactionEpoch",
+          "attestorId",
+          "providerManagedHistoryCapability",
+          "hostTranscriptAttested",
+          "compactionEnabled"
+        ],
+        "properties": {
+          "hostBuildDigest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "sessionId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "parentSessionId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "activeEngineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "effectiveCompressionControlsDigest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "durableActiveTranscriptRevision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "durableActiveTranscriptDigest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "hostCompactionEpoch": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "unknown"
+                ]
+              }
+            ],
+            "minimum": 0
+          },
+          "attestorId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "providerManagedHistoryCapability": {
+            "type": "string",
+            "enum": [
+              "visible",
+              "hidden",
+              "unknown"
+            ]
+          },
+          "hostTranscriptAttested": {
+            "type": "boolean"
+          },
+          "compactionEnabled": {
+            "type": "boolean"
+          }
+        },
+        "description": "Checked by the existing application validator; string constraints are wire-only."
+      },
+      "ProjectionDecision": {
+        "type": "object",
+        "required": [
+          "kind",
+          "receipt"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "APPLY",
+              "UNCHANGED_AUTHORIZED",
+              "DEGRADED_AUTHORIZED",
+              "BLOCK"
+            ]
+          },
+          "bodyBase64": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/ProjectionReceipt"
+          }
+        }
+      },
+      "ProjectionReceipt": {
+        "type": "object",
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "attemptGroupId",
+          "attemptIndex",
+          "receiptId",
+          "decision",
+          "baseBodySha256",
+          "hostCompactionEpoch",
+          "activeEngineId",
+          "permittedWireRewrites"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "enum": [
+              "ace.gateway.v1"
+            ]
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "attemptGroupId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "attemptIndex": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "projectionId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "receiptId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "APPLY",
+              "UNCHANGED_AUTHORIZED",
+              "DEGRADED_AUTHORIZED",
+              "BLOCK"
+            ]
+          },
+          "reasonCode": {
+            "type": "string",
+            "minLength": 1
+          },
+          "baseBodySha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "projectedBodySha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "hostCompactionEpoch": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "unknown"
+                ]
+              }
+            ],
+            "minimum": 0
+          },
+          "activeEngineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "permittedWireRewrites": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          }
+        }
+      },
+      "ProjectionRequest": {
+        "type": "object",
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "attemptGroupId",
+          "agentSessionId",
+          "workspaceId",
+          "dataClass",
+          "protocol",
+          "provider",
+          "model",
+          "bodyBase64",
+          "bodySha256",
+          "query",
+          "projectionMode",
+          "deadlineEpochMs",
+          "attestation"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "enum": [
+              "ace.gateway.v1"
+            ]
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "attemptGroupId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "agentSessionId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "dataClass": {
+            "type": "string",
+            "enum": [
+              "private",
+              "project_document",
+              "public"
+            ]
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "openai.chat.completions"
+            ]
+          },
+          "provider": {
+            "type": "string",
+            "minLength": 1
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1
+          },
+          "bodyBase64": {
+            "type": "string",
+            "maxLength": 5592408,
+            "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+          },
+          "bodySha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1
+          },
+          "projectionMode": {
+            "type": "string",
+            "enum": [
+              "native",
+              "gateway",
+              "assist-only",
+              "observe-only",
+              "off"
+            ]
+          },
+          "deadlineEpochMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "attestation": {
+            "$ref": "#/components/schemas/HostCompactionAttestation"
+          },
+          "nativeProjectionActive": {
+            "type": "boolean"
+          },
+          "requestedEvidenceIds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceId"
+            },
+            "uniqueItems": true
+          }
+        }
+      }
+    }
+  }
+}

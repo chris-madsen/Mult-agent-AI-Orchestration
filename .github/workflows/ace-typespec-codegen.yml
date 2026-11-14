@@ -22,29 +22,16 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
-      - name: Install exact TypeSpec toolchain and generate lockfile
-        run: npm install --prefix typespec --package-lock-only --ignore-scripts --no-audit --no-fund
       - name: Install from generated lockfile
         run: npm ci --prefix typespec --ignore-scripts --no-audit --no-fund
       - name: Compile TypeSpec and generate maintained TypeScript SDK
         run: npm --prefix typespec run generate
-      - name: Export reproducible toolchain artifacts for the initial pin review
+      - name: Check generated files and lockfile are immutable under regeneration
         run: |
-          node --input-type=module <<'NODE'
-          import { readFileSync, readdirSync, statSync } from 'node:fs';
-          import { join } from 'node:path';
-          const files = ['typespec/package-lock.json'];
-          function walk(dir) {
-            for (const item of readdirSync(dir)) {
-              const path = join(dir, item);
-              if (statSync(path).isDirectory()) walk(path);
-              else files.push(path);
-            }
-          }
-          walk('typespec/generated');
-          for (const path of files) {
-            const value = readFileSync(path);
-            console.log('ACE_GENERATED_FILE ' + JSON.stringify({ path, base64: value.toString('base64') }));
-          }
-          console.log('ACE_GENERATED_COMPLETE ' + files.length);
-          NODE
+          git diff --exit-code -- typespec/package-lock.json typespec/generated
+          if test -n "$(git ls-files --others --exclude-standard -- typespec/generated)"; then
+            echo "Untracked codegen output detected"
+            exit 1
+          fi
+      - name: Typecheck the generated SDK
+        run: npm --prefix typespec run check:sdk
