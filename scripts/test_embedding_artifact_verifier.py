@@ -26,7 +26,7 @@ class ArtifactVerificationTests(unittest.TestCase):
         self.assertEqual(verify_loaded_artifact(object(), loaded_path=self.root), expected)
 
     def test_loaded_path_must_match_the_declared_artifact_model_and_revision(self):
-        model_root = self.root / 'models--fixture--artifact' / 'snapshots' / 'artifact-r1'
+        model_root = self.root / 'models--Fixture--Artifact' / 'snapshots' / 'artifact-r1'
         model_root.mkdir(parents=True)
         (model_root / 'model.bin').write_bytes(b'actual-model')
         os.environ['ACE_EMBEDDING_ARTIFACT_MODEL'] = 'fixture/artifact'
