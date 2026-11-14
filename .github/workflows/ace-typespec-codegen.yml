@@ -37,3 +37,7 @@ jobs:
         run: npm --prefix typespec run check:sdk
       - name: Prove strict Gateway v1 runtime schema compatibility
         run: npm --prefix typespec run check:compat
+      - name: Install locked ACE runtime type dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check exhaustive generated DTO to existing domain type mapping
+        run: npm run check:public-contract-types
