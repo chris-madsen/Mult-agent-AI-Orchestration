@@ -12,6 +12,7 @@ import {
 } from '../src/domain/feedback-harbor-config.js';
 import {
   classifyFeedbackVerifierHttpStatus,
+  inspectFeedbackVerifierModelsResponse,
   hermesCodexAuthenticationRoute,
   inspectFeedbackVerifierConfiguration,
   inspectHermesAuthJson,
@@ -219,6 +220,8 @@ const taskVerifier = async (nativeJobPath: string | undefined): Promise<Prefligh
       });
       const readiness = classifyFeedbackVerifierHttpStatus(response.status, configuration.identity);
       if (readiness.status !== 'ready') return { status: 'not_ready', reason: readiness.reason, identity: readiness.identity };
+      const models = inspectFeedbackVerifierModelsResponse(await response.json() as unknown, model!, configuration.identity);
+      if (models.status !== 'ready') return { status: 'not_ready', reason: models.reason, identity: models.identity };
       identities.push(configuration.identity);
     } catch {
       return { status: 'not_ready', reason: 'task verifier endpoint is unavailable', identity: configuration.identity };

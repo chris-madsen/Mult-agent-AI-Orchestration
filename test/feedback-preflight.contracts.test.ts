@@ -5,6 +5,7 @@ import {
   classifyFeedbackVerifierHttpStatus,
   hermesCodexAuthenticationRoute,
   inspectFeedbackVerifierConfiguration,
+  inspectFeedbackVerifierModelsResponse,
   inspectHermesAuthJson,
 } from '../src/domain/feedback-preflight.js';
 import * as feedbackPreflight from '../src/domain/feedback-preflight.js';
@@ -74,6 +75,32 @@ test('task verifier preflight never exposes credentials and classifies invalid c
   const invalid = inspectFeedbackVerifierConfiguration({ apiKey: '${OPENAI_API_KEY}', baseUrl: 'not-a-url', model: 'model' });
   assert.equal(invalid.status, 'invalid_configuration');
   assert.doesNotMatch(JSON.stringify(invalid), /OPENAI_API_KEY/u);
+});
+
+test('verifier readiness rejects model-list success without the requested model', () => {
+  const identity = 'https://api.openai.com/v1#model=eval-model';
+  assert.equal(inspectFeedbackVerifierModelsResponse({
+    data: [{ id: 'eval-model' }, { id: 'another-model' }],
+  }, 'eval-model', identity).status, 'ready');
+  for (const body of [
+    { data: [{ id: 'another-model' }] },
+    { data: [] },
+    { data: [{ invalid: 'missing id' }] },
+    { error: { message: 'not available' } },
+    null,
+  ]) {
+    assert.notEqual(inspectFeedbackVerifierModelsResponse(body, 'eval-model', identity).status, 'ready');
+  }
+  const queryUrl = inspectFeedbackVerifierConfiguration({
+    apiKey: 'x', baseUrl: 'https://example.invalid/v1?mode=1', model: 'm',
+  });
+  assert.equal(queryUrl.status, 'invalid_configuration');
+  const userInfoUrl = new URL('https://example.invalid/v1');
+  userInfoUrl.username = 'u';
+  userInfoUrl.password = 'p';
+  assert.equal(inspectFeedbackVerifierConfiguration({
+    apiKey: 'x', baseUrl: userInfoUrl.toString(), model: 'm',
+  }).status, 'invalid_configuration');
 });
 
 test('task verifier HTTP probe rejects authentication without treating it as a successful result', () => {
