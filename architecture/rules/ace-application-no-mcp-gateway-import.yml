@@ -1,0 +1,18 @@
+id: ace-application-no-mcp-gateway-import
+language: TypeScript
+rule:
+  kind: string_fragment
+  regex: '^(?:\\.\\./)+gateway/mcp-gateway\\.js$'
+  inside:
+    any:
+      - kind: import_statement
+      - kind: export_statement
+    stopBy: end
+severity: warning
+message: Application code must depend on its own context retrieval port, not the MCP gateway.
+note: |
+  ACE-ARCH-004. The application-owned ContextProvider interface is in src/application/ports.ts.
+  Do not import MCP gateway implementation types into generic application services.
+metadata:
+  contract: ADR-014 / ADR-017 / ADR-019, port ownership and separate delivery planes
+  repair: Import ContextProvider or other shared ports from application/ports.ts.
