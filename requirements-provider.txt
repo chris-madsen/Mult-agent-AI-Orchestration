@@ -1,5 +1,10 @@
 graphiti-core[falkordb]==0.31.1
 httpx==0.28.1
+# Keep the vulnerable transitive HTTP dependencies on reviewed versions.
+certifi==2026.10.23
+httpcore2==2.14.0
+httpx2==2.14.0
+requests==2.34.2
 tree-sitter==0.26.0
 tree-sitter-typescript==0.23.2
 ast-grep-py==0.51.0

@@ -1,6 +1,6 @@
 SHELL := bash
 .DEFAULT_GOAL := help
-EMBEDDING_PYTHON ?= $(shell command -v python3.13 || command -v python3)
+EMBEDDING_PYTHON ?= 3.13
 
 .PHONY: help install install-python-providers install-embedding-providers check lint lint-ts lint-rust probe-providers qdrant-up verify build test feedback-preflight feedback-stage0 acquire-repobench-r convert-repobench-r resolve-repobench-r harbor-task-identities freeze-feedback-tasks prepare-harbor-feedback adapt-repobench-r collect-feedback-loop report-feedback-summary report-harbor-retrieval clean
 
