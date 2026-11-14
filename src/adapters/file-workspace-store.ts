@@ -13,9 +13,9 @@ import {
   type WorkspaceId,
   type WorkspaceRecord,
 } from '../domain/workspace.js';
-import type { WorkspaceStore } from './ports.js';
+import type { WorkspaceStore } from '../application/ports.js';
 import type { DomainError } from '../domain/errors.js';
-import { recoverResult } from './effect-result.js';
+import { recoverResult } from '../application/effect-result.js';
 
 interface PersistedState {
   readonly schemaVersion: 1;

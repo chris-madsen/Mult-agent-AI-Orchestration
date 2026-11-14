@@ -20,7 +20,7 @@ export * from './application/ports.js';
 export * from './application/effect-result.js';
 export * from './application/workspace-service.js';
 export * from './application/policy-service.js';
-export * from './application/file-workspace-store.js';
+export * from './adapters/file-workspace-store.js';
 export * from './adapters/node-workspace-port.js';
 export * from './adapters/file-audit-sink.js';
 export * from './adapters/file-artifact-store.js';
