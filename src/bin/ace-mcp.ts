@@ -53,7 +53,7 @@ import {
   resolveLspProviderIdentity,
 } from '../adapters/lsp-semantic.js';
 import { makeVertexRagRetrievalPort } from '../adapters/vertex-rag.js';
-import { makeFileWorkspaceStore } from '../application/file-workspace-store.js';
+import { makeFileWorkspaceStore } from '../adapters/file-workspace-store.js';
 import type { MemorySearchPort, WorkspaceFilePort } from '../application/ports.js';
 import { defaultLocalPolicy } from '../domain/policy.js';
 import { makeWorkspaceId, type RepoPath, type WorkspaceId } from '../domain/workspace.js';

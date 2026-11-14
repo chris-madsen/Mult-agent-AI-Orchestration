@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { Effect } from 'effect';
-import { makeFileWorkspaceStore } from '../src/application/file-workspace-store.js';
+import { makeFileWorkspaceStore } from '../src/adapters/file-workspace-store.js';
 import { makeNodeWorkspacePort } from '../src/adapters/node-workspace-port.js';
 import { observeWorkspace, registerWorkspace } from '../src/application/workspace-service.js';
 
