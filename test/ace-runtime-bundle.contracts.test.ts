@@ -16,9 +16,9 @@ const validManifest = {
   sourceCommit: 'a'.repeat(40),
   bundleSha256: 'b'.repeat(64),
   taskImages: [{ reference: 'example/task:1', digest: `sha256:${'c'.repeat(64)}` }],
-  pythonVersions: ['3.10', '3.11'],
-  pillow: '11.3.0',
-  fastembed: '0.7.4',
+  pythonVersions: ['3.11'],
+  pillow: '13.0.0',
+  fastembed: '0.9.1',
   onnxruntime: '1.23.2',
   numpy: '2.2.6',
   huggingfaceHub: '1.33.0',
@@ -29,6 +29,11 @@ const validManifest = {
 
 test('validates a pinned runtime bundle manifest', () => {
   assert.deepEqual(validateAceRuntimeBundleManifest(validManifest), []);
+});
+
+test('rejects Python 3.10 runtimes after the reviewed Pillow baseline change', () => {
+  const failures = validateAceRuntimeBundleManifest({ ...validManifest, pythonVersions: ['3.10'] });
+  assert.ok(failures.includes('python_versions_invalid'));
 });
 
 test('rejects non-Git source commit identities in bundle manifests', () => {
@@ -85,13 +90,13 @@ test('verifies bundle bytes rather than accepting an unverified manifest digest'
     sourceCommit: validManifest.sourceCommit,
   }));
   assert.equal((await verifyAceRuntimeBundle(root, bundleSha256)).status, 'ready');
-  const missingPythonFile = join(root, 'runtime/python/3.10/site-packages/onnxruntime/__init__.py');
+  const missingPythonFile = join(root, 'runtime/python/3.11/site-packages/onnxruntime/__init__.py');
   await rm(missingPythonFile);
   const missingPython = await verifyAceRuntimeBundle(root, bundleSha256);
   assert.equal(missingPython.status, 'not_ready');
   assert.match(missingPython.reason, /missing Python packages/u);
   await writeFile(missingPythonFile, 'original');
-  const missingPillowFile = join(root, 'runtime/python/3.10/site-packages/PIL/__init__.py');
+  const missingPillowFile = join(root, 'runtime/python/3.11/site-packages/PIL/__init__.py');
   await rm(missingPillowFile);
   const missingPillow = await verifyAceRuntimeBundle(root, bundleSha256);
   assert.equal(missingPillow.status, 'not_ready');
@@ -103,12 +108,41 @@ test('verifies bundle bytes rather than accepting an unverified manifest digest'
   assert.match(tampered.reason, /bytes do not match/u);
 });
 
-test('Docker runtime uses the same valid NumPy pin as the Harbor bundle contract', async () => {
+test('Docker runtime uses the pinned embedding versions from the Harbor bundle contract', async () => {
+  const cpuEmbeddingRequirements = await readFile('requirements-embedding-st.txt', 'utf8');
+  assert.match(cpuEmbeddingRequirements, /^torch==2\.15\.0\+cpu$/mu, 'CPU-only Sentence-Transformers environment must not resolve a CUDA torch wheel');
   const dockerfile = await readFile('Dockerfile.ace', 'utf8');
-  assert.ok(dockerfile.includes('pillow==11.3.0'));
+  assert.match(dockerfile, /sys\.version_info < \(3, 11\)/u);
+  assert.ok(dockerfile.includes('pillow==13.0.0'));
+  assert.ok(dockerfile.includes('fastembed==0.9.1'));
   assert.ok(dockerfile.includes('numpy==2.2.6'));
   assert.ok(dockerfile.includes('onnxruntime==1.23.2'));
+  assert.ok(!dockerfile.includes('pillow==11.3.0'));
+  assert.ok(!dockerfile.includes('fastembed==0.7.4'));
   assert.ok(!dockerfile.includes('numpy==2.5.4'));
+
+  // Host Git owns source identity; Docker verifies exactly those source bytes
+  // and the compiled binary instead of inventing a HEAD inside a .git-free image.
+  const dockerignore = await readFile('.dockerignore', 'utf8');
+  assert.ok(dockerfile.includes('COPY dist ./dist'));
+  assert.ok(dockerfile.includes('verifyCompiledRuntimeProvenance'));
+  assert.ok(!dockerfile.includes('RUN npm run build'));
+  assert.ok(dockerignore.split('\n').includes('.git'));
+  assert.ok(!dockerignore.split('\n').includes('dist'));
+
+  const taskDockerfiles = [
+    'benchmarks/harbor/ace-shared-archive-impact/environment/Dockerfile',
+    'benchmarks/harbor/ace-retrieval-impact/environment/Dockerfile',
+    'benchmarks/harbor/ace-cloud-policy-impact/environment/Dockerfile',
+  ];
+  for (const path of taskDockerfiles) {
+    const taskDockerfile = await readFile(path, 'utf8');
+    assert.match(taskDockerfile, /sys\.version_info < \(3, 11\)/u, `${path} must reject Python 3.10`);
+    for (const pin of ['fastembed==0.9.1', 'pillow==13.0.0', 'onnxruntime==1.23.2', 'numpy==2.2.6']) {
+      assert.ok(taskDockerfile.includes(pin), `${path} is missing ${pin}`);
+    }
+    assert.doesNotMatch(taskDockerfile, /fastembed==0\.7\.4|pillow==11\.3\.0|onnxruntime==1\.31\.0/u);
+  }
 });
 
 test('Hermes runtime probe missing-Python guard executes under POSIX sh', async () => {
@@ -168,6 +202,17 @@ test('Harbor runtime builder validates exact embedding pins and native Python im
   const builder = await readFile('scripts/build-harbor-ace-runtime.mjs', 'utf8');
   assert.match(builder, /must be exactly \$\{length\} lowercase hexadecimal characters/u);
   assert.match(builder, /pinnedHex\('ACE_EMBEDDING_ARTIFACT_DIGEST'/u);
+  assert.match(builder, /const FASTEMBED = '0\.9\.1'/u);
+  assert.match(builder, /const PILLOW = '13\.0\.0'/u);
+  assert.match(builder, /pythonVersion !== '3\.11'/u);
   assert.match(builder, /pillow==\$\{PILLOW\}/u);
   assert.match(builder, /from PIL import Image; import PIL, fastembed, onnxruntime/u);
+});
+
+test('Harbor MCP launcher requires Python 3.11 and installs the reviewed embedding pins', async () => {
+  const launcher = await readFile('scripts/harbor-ace-mcp.sh', 'utf8');
+  assert.match(launcher, /sys\.version_info < \(3, 11\)/u);
+  assert.match(launcher, /fastembed==0\.9\.1/u);
+  assert.match(launcher, /pillow==13\.0\.0/u);
+  assert.doesNotMatch(launcher, /fastembed==0\.7\.4/u);
 });

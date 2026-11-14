@@ -10,6 +10,7 @@ WORKDIR /opt/ace
 USER root
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates python3 python3-pip python3-venv \
+  && python3 -c 'import sys; sys.exit("ACE runtime requires Python 3.11+") if sys.version_info < (3, 11) else None' \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json tsconfig.json ./
@@ -18,11 +19,14 @@ RUN npm ci --ignore-scripts
 COPY src ./src
 COPY scripts ./scripts
 COPY integrations ./integrations
-RUN npm run build \
-  && npm prune --omit=dev --ignore-scripts \
+# Compilation and git-bound provenance happen in the source checkout before
+# docker build; neither .git nor git itself is required in the image.
+COPY dist ./dist
+RUN npm prune --omit=dev --ignore-scripts \
+  && node --input-type=module -e 'import { verifyCompiledRuntimeProvenance } from "./dist/application/runtime-provenance.js"; const root = process.cwd(); const verified = await verifyCompiledRuntimeProvenance(root, `${root}/dist/bin/ace-mcp.js`); if (verified._tag !== "Ok") throw new Error(verified.error.message);' \
   && python3 -m venv /opt/ace/.venv-embedding-fast \
   && /opt/ace/.venv-embedding-fast/bin/pip install --no-cache-dir \
-       pillow==11.3.0 fastembed==0.7.4 onnxruntime==1.23.2 numpy==2.2.6 huggingface-hub==1.33.0 \
+       pillow==13.0.0 fastembed==0.9.1 onnxruntime==1.23.2 numpy==2.2.6 huggingface-hub==1.33.0 \
   && mkdir -p /var/lib/ace/state /var/lib/ace/artifacts /var/lib/ace/model-cache /tmp/ace \
   && chown -R node:node /var/lib/ace /tmp/ace
 

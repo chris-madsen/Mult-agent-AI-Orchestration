@@ -134,5 +134,13 @@
     "eslint-plugin-import": "2.31.0",
     "knip": "6.45.1",
     "tsx": "4.23.15"
+  },
+  "overrides": {
+    "@qdrant/js-client-rest": {
+      "undici": "7.30.2"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.1"
+    }
   }
 }

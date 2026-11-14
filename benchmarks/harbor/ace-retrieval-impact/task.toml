@@ -2,7 +2,7 @@ schema_version = "1.4"
 artifacts = ["/tmp/ace-artifacts"]
 [task]
 name = "ace/semantic-retry-impact"
-version = "1.0.0"
+version = "1.0.1"
 description = "Cross-file behavioral investigation with competing retry handlers"
 authors = []
 keywords = ["typescript", "code-intelligence", "semantic-retrieval", "impact"]

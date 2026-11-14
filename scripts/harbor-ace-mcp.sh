@@ -33,16 +33,23 @@ export ACE_EMBEDDING_ARTIFACT_REVISION="faf4aa4225822f3bc6376869cb1164e8e3feedd0
 export ACE_EMBEDDING_ARTIFACT_DIGEST="4bb74885d054d77b15c33520114d7edc19c31699bdab813d893e4f58c3afb4a1"
 export ACE_EMBEDDING_PREPROCESSING="raw_text_v1"
 
-package_root="/tmp/ace-fastembed-packages"
-marker="$package_root/.fastembed-0.7.4.ready"
+python3 -c 'import sys; sys.exit("ACE FastEmbed runtime requires Python 3.11+") if sys.version_info < (3, 11) else None'
+package_root="/tmp/ace-fastembed-packages-0.9.1"
+marker="$package_root/.fastembed-0.9.1.ready"
 python_launcher="$package_root/python"
 mkdir -p "$package_root"
 if [[ ! -f "$marker" ]]; then
+  rm -rf "$package_root"
+  mkdir -p "$package_root"
   python3 -m pip install \
     --disable-pip-version-check \
     --no-input \
     --target "$package_root" \
-    'fastembed==0.7.4' 1>&2
+    'fastembed==0.9.1' \
+    'pillow==13.0.0' \
+    'onnxruntime==1.23.2' \
+    'numpy==2.2.6' \
+    'huggingface-hub==1.33.0' 1>&2
   : > "$marker"
 fi
 
@@ -50,7 +57,7 @@ if [[ ! -x "$python_launcher" ]]; then
   cat > "$python_launcher" <<'PYTHON_LAUNCHER'
 #!/usr/bin/env bash
 set -euo pipefail
-export PYTHONPATH="/tmp/ace-fastembed-packages:/ace/scripts${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="/tmp/ace-fastembed-packages-0.9.1:/ace/scripts${PYTHONPATH:+:$PYTHONPATH}"
 exec python3 "$@"
 PYTHON_LAUNCHER
   chmod +x "$python_launcher"
