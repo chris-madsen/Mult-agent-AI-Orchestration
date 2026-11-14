@@ -109,6 +109,14 @@ test('Docker runtime uses the same valid NumPy pin as the Harbor bundle contract
   assert.ok(dockerfile.includes('numpy==2.2.6'));
   assert.ok(dockerfile.includes('onnxruntime==1.23.2'));
   assert.ok(!dockerfile.includes('numpy==2.5.4'));
+
+  // Docker must not require Git inside the image or accept stale host dist.
+  const dockerignore = await readFile('.dockerignore', 'utf8');
+  assert.ok(dockerfile.includes('COPY dist ./dist'));
+  assert.ok(dockerfile.includes('verifyCompiledRuntimeProvenance'));
+  assert.ok(!dockerfile.includes('RUN npm run build'));
+  assert.ok(dockerignore.split('\n').includes('.git'));
+  assert.ok(!dockerignore.split('\n').includes('dist'));
 });
 
 test('Hermes runtime probe missing-Python guard executes under POSIX sh', async () => {

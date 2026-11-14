@@ -18,8 +18,12 @@ RUN npm ci --ignore-scripts
 COPY src ./src
 COPY scripts ./scripts
 COPY integrations ./integrations
-RUN npm run build \
-  && npm prune --omit=dev --ignore-scripts \
+# The clean Git checkout compiles dist before Docker starts; no .git history is
+# included in the build context or image. Verify the exact copied source and
+# executable against the host-generated provenance before publishing an image.
+COPY dist ./dist
+RUN npm prune --omit=dev --ignore-scripts \
+  && node --input-type=module -e 'import { verifyCompiledRuntimeProvenance } from "./dist/application/runtime-provenance.js"; const root = process.cwd(); const verified = await verifyCompiledRuntimeProvenance(root, `${root}/dist/bin/ace-mcp.js`); if (verified._tag !== "Ok") throw new Error(verified.error.message);' \
   && python3 -m venv /opt/ace/.venv-embedding-fast \
   && /opt/ace/.venv-embedding-fast/bin/pip install --no-cache-dir \
        pillow==11.3.0 fastembed==0.7.4 onnxruntime==1.23.2 numpy==2.2.6 huggingface-hub==1.33.0 \

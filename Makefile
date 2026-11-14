@@ -1,8 +1,9 @@
 SHELL := bash
 .DEFAULT_GOAL := help
 EMBEDDING_PYTHON ?= $(shell command -v python3.13 || command -v python3)
+ACE_IMAGE_TAG ?= ace:local
 
-.PHONY: help install install-python-providers install-embedding-providers check lint lint-ts lint-rust probe-providers qdrant-up verify build test feedback-preflight feedback-stage0 acquire-repobench-r convert-repobench-r resolve-repobench-r harbor-task-identities freeze-feedback-tasks prepare-harbor-feedback adapt-repobench-r collect-feedback-loop report-feedback-summary report-harbor-retrieval clean
+.PHONY: help install install-python-providers install-embedding-providers check lint lint-ts lint-rust probe-providers qdrant-up verify build test feedback-preflight feedback-stage0 acquire-repobench-r convert-repobench-r resolve-repobench-r harbor-task-identities freeze-feedback-tasks prepare-harbor-feedback adapt-repobench-r collect-feedback-loop report-feedback-summary report-harbor-retrieval ace-image clean
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -93,6 +94,11 @@ report-feedback-summary: ## Write a hash-linked summary for a real feedback run
 
 build: ## Compile the foundation
 	npm run build
+
+ace-image: ## Build a source-verified ACE Docker image from the current clean Git checkout
+	@printf '%s\n' "$(ACE_NODE_IMAGE)" | grep -Eq '^.+@sha256:[a-f0-9]{64}$' || { echo 'ACE_NODE_IMAGE must be a pinned image@sha256:<64hex>'; exit 2; }
+	npm run build
+	docker build -f Dockerfile.ace --build-arg "ACE_NODE_IMAGE=$(ACE_NODE_IMAGE)" -t "$(ACE_IMAGE_TAG)" .
 
 test: ## Run foundation tests
 	npm test
