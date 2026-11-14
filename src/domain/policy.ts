@@ -57,10 +57,23 @@ export const defaultLocalPolicy = (workspaceId: WorkspaceId): ProjectDataPolicy 
   deniedPathPrefixes: ['.env', '.git/', 'secrets/'],
 });
 
+// Only normalize spelling, not filesystem resolution. Rejected traversal must
+// never be used to evade a deny prefix; paths are normally repo-relative.
+const policyPath = (path: string): string =>
+  path.replaceAll('\\', '/').replace(/^(?:\.\/)+/u, '');
+
 const hasDeniedPath = (action: PolicyAction, policy: ProjectDataPolicy): boolean =>
-  action.paths.some((candidate) =>
-    policy.deniedPathPrefixes.some((prefix) => candidate === prefix || candidate.startsWith(`${prefix}/`)),
-  );
+  action.paths.some((candidate) => {
+    const path = policyPath(candidate);
+    if (path.split('/').includes('..')) return true;
+    return policy.deniedPathPrefixes.some((prefix) => {
+      const root = policyPath(prefix).replace(/\/+$/u, '');
+      if (root.length === 0) return false;
+      return path === root
+        || path.startsWith(`${root}/`)
+        || (root === '.env' && path.startsWith('.env.'));
+    });
+  });
 
 export const authorizeOutbound = (
   action: PolicyAction,

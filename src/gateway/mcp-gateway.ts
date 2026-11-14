@@ -2,17 +2,16 @@ import { Effect, Schema } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, isErr, ok, type Result } from '../domain/result.js';
 import { workspaceIdFrom, type WorkspaceServicePorts } from '../application/workspace-service.js';
-import type { ArtifactStore, MemorySearchPort } from '../application/ports.js';
-import type { ContextBundle } from '../domain/retrieval.js';
+import type { ArtifactStore, ContextProvider, MemorySearchPort } from '../application/ports.js';
+export type { ContextProvider } from '../application/ports.js';
 import { projectContextForDelivery, resolveDeliveryIntent } from '../domain/context-delivery.js';
-import { ingestRepoPath, type RepoPath, type WorkingContextHints, type WorkspaceId } from '../domain/workspace.js';
+import { ingestRepoPath, type RepoPath, type WorkingContextHints } from '../domain/workspace.js';
 import { deterministicRoute } from '../domain/routing.js';
 import {
   resolveExplicitSourceRequirements,
   resolveSourceRequirements,
   sourceIsRequested,
   type SourceObligations,
-  type SourceRequirements,
 } from '../domain/source-coverage.js';
 
 const ContextInput = Schema.Struct({
@@ -84,20 +83,6 @@ export interface McpGatewayPorts extends WorkspaceServicePorts {
   readonly context?: ContextProvider;
   readonly memory?: MemoryProvider;
   readonly readiness?: () => Readonly<Record<string, CapabilityReadiness>>;
-}
-
-export interface ContextProvider {
-  readonly search: (input: {
-    readonly workspaceId: WorkspaceId;
-    readonly query: string;
-    readonly intent?: string;
-    readonly includeCode?: boolean;
-    readonly includeDocs: boolean;
-    readonly includeMemory: boolean;
-    readonly includeHistory?: boolean;
-    readonly sourceRequirements?: SourceRequirements;
-    readonly workingContextHints?: WorkingContextHints;
-  }) => Effect.Effect<Result<ContextBundle, DomainError>>;
 }
 
 export type MemoryProvider = MemorySearchPort;

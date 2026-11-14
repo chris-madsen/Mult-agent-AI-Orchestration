@@ -3,7 +3,7 @@ import { domainError, type DomainError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import type { GraphProjectionPort, GraphProjectionStatePort, ProjectionOutboxPort } from './ports.js';
 import type { EpisodeId } from '../domain/memory.js';
-import type { AsyncMemoryArchivePort } from '../adapters/file-memory-archive.js';
+import type { AsyncMemoryArchivePort } from './ports.js';
 
 export interface VerifiedProjectionDeleteOptions {
   readonly verificationAttempts?: number;

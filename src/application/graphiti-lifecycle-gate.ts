@@ -8,7 +8,7 @@ import type {
   MemorySearchPort,
   ProjectionOutboxPort,
 } from './ports.js';
-import type { AsyncMemoryArchivePort } from '../adapters/file-memory-archive.js';
+import type { AsyncMemoryArchivePort } from './ports.js';
 import { deleteEpisodeWithProjection } from './retained-memory.js';
 
 export interface GraphitiLifecycleGateInput {

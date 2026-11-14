@@ -1,8 +1,7 @@
 import { Effect } from 'effect';
 import { domainError, type DomainError } from '../domain/errors.js';
 import { err, isErr, ok, type Result } from '../domain/result.js';
-import type { ContextProvider } from '../gateway/mcp-gateway.js';
-import type { WorkspaceStore, IdPort } from './ports.js';
+import type { WorkspaceStore, IdPort, ContextProvider } from './ports.js';
 import { makeContextAssembler, type ContextAssembler } from './context-assembler.js';
 import { projectContextForDelivery, resolveDeliveryIntent } from '../domain/context-delivery.js';
 import { ingestRepoPath, makeWorkspaceId, type WorkingContextHints, type WorkspaceId } from '../domain/workspace.js';

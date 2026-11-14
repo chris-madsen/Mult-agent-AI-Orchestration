@@ -1,0 +1,15 @@
+id: ace-application-no-mcp-gateway-import
+valid:
+  - |
+    import type { ContextProvider } from './ports.js';
+  - |
+    export type { ContextProvider } from '../application/ports.js';
+  - |
+    const sample = "import type { ContextProvider } from '../gateway/mcp-gateway.js'";
+invalid:
+  - |
+    import type { ContextProvider } from '../gateway/mcp-gateway.js';
+  - |
+    export type { ContextProvider } from '../gateway/mcp-gateway.js';
+  - |
+    import { makeMcpGateway } from '../../gateway/mcp-gateway.js';

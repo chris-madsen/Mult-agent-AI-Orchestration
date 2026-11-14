@@ -1,0 +1,18 @@
+id: ace-application-no-adapter-import
+language: TypeScript
+rule:
+  kind: string_fragment
+  regex: '^(?:\.\./)+adapters/'
+  inside:
+    any:
+      - kind: import_statement
+      - kind: export_statement
+    stopBy: end
+severity: warning
+message: Application code must use inward typed ports, not concrete adapter implementations.
+note: |
+  ACE-ARCH-005. Use src/application/ports.ts; let runtime composition wire adapters.
+  The former archive adapter type dependency was removed in PR #237.
+metadata:
+  contract: ADR-019 / Functional DDD inward ports
+  repair: Move the required interface to application/ports.ts and import from there.

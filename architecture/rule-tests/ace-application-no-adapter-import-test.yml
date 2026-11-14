@@ -1,0 +1,13 @@
+id: ace-application-no-adapter-import
+valid:
+  - |
+    import type { WorkspaceStore } from './ports.js';
+  - |
+    const sample = "import { Foo } from '../adapters/foo.js'";
+invalid:
+  - |
+    import type { AsyncMemoryArchivePort } from '../adapters/file-memory-archive.js';
+  - |
+    export { makeFileStore } from '../adapters/file-workspace-store.js';
+  - |
+    import { thing } from '../../adapters/x.js';
