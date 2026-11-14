@@ -8,7 +8,11 @@
   },
   "include": [
     "src/**/*.ts",
-    "test/public-contract-compatibility.contracts.test.ts"
+    "test/public-contract-compatibility.contracts.test.ts",
+    "test/typespec-gateway-type-coverage.typecheck.ts"
   ],
-  "exclude": ["dist", "node_modules"]
+  "exclude": [
+    "dist",
+    "node_modules"
+  ]
 }

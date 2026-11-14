@@ -35,3 +35,5 @@ jobs:
           fi
       - name: Typecheck the generated SDK
         run: npm --prefix typespec run check:sdk
+      - name: Prove strict Gateway v1 runtime schema compatibility
+        run: npm --prefix typespec run check:compat
