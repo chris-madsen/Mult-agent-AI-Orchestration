@@ -1,0 +1,32 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "AceMemorySearchInput.json",
+    "type": "object",
+    "properties": {
+        "workspace_id": {
+            "$ref": "#/$defs/NonEmpty"
+        },
+        "query": {
+            "type": "string"
+        },
+        "as_of": {
+            "type": "string"
+        },
+        "include_original": {
+            "type": "boolean"
+        }
+    },
+    "required": [
+        "workspace_id",
+        "query"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "$defs": {
+        "NonEmpty": {
+            "type": "string",
+            "minLength": 1
+        }
+    }
+}

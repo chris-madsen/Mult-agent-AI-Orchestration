@@ -1,0 +1,46 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "BridgeReady.json",
+    "type": "object",
+    "properties": {
+        "type": {
+            "type": "string",
+            "const": "bridge_ready"
+        },
+        "schemaVersion": {
+            "type": "number",
+            "const": 1
+        },
+        "runtimeId": {
+            "type": "string",
+            "const": "ace-harbor-runtime-v1"
+        },
+        "node": {
+            "type": "string",
+            "minLength": 1
+        },
+        "providerIdentities": {
+            "$ref": "#/$defs/RecordString"
+        }
+    },
+    "required": [
+        "type",
+        "schemaVersion",
+        "runtimeId",
+        "node",
+        "providerIdentities"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "The bridge_ready JSONL record sent before any provider request.",
+    "$defs": {
+        "RecordString": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "type": "string"
+            }
+        }
+    }
+}

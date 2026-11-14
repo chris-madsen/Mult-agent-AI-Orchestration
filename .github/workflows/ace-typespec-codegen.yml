@@ -41,22 +41,3 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Check exhaustive generated DTO to existing domain type mapping
         run: npm run check:public-contract-types
-      - name: Temporarily export new TS-04 emitter output for tracked-artifact review
-        if: always()
-        run: |
-          node --input-type=module <<'NODE'
-          import { readFileSync, readdirSync, statSync } from 'node:fs';
-          import { join } from 'node:path';
-          const files = [];
-          function walk(dir) {
-            for (const name of readdirSync(dir)) {
-              const path = join(dir, name);
-              if (statSync(path).isDirectory()) walk(path);
-              else files.push(path);
-            }
-          }
-          walk('typespec/generated/schema');
-          for (const path of files) {
-            console.log('ACE_TS04_OUTPUT ' + JSON.stringify({ path, base64: readFileSync(path).toString('base64') }));
-          }
-          NODE

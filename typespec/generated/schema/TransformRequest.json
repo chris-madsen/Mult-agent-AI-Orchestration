@@ -1,0 +1,134 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "TransformRequest.json",
+    "type": "object",
+    "properties": {
+        "type": {
+            "type": "string",
+            "const": "transform"
+        },
+        "schemaVersion": {
+            "type": "number",
+            "const": 1
+        },
+        "requestId": {
+            "type": "string",
+            "minLength": 1
+        },
+        "sessionId": {
+            "type": "string",
+            "minLength": 1
+        },
+        "turnId": {
+            "type": "string",
+            "minLength": 1
+        },
+        "workspaceId": {
+            "type": "string",
+            "minLength": 1
+        },
+        "query": {
+            "type": "string",
+            "minLength": 1
+        },
+        "budgetTokens": {
+            "type": "integer",
+            "minimum": 1
+        },
+        "sourceObligations": {
+            "type": "object",
+            "properties": {
+                "required": {
+                    "type": "array",
+                    "prefixItems": [
+                        {
+                            "type": "string",
+                            "const": "code"
+                        }
+                    ],
+                    "minItems": 1,
+                    "maxItems": 1
+                }
+            },
+            "required": [
+                "required"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            }
+        },
+        "intent": {
+            "type": "string"
+        },
+        "workingContext": {
+            "$ref": "#/$defs/WorkingContext"
+        },
+        "knownBundleId": {
+            "type": "string"
+        },
+        "knownEvidenceIds": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        }
+    },
+    "required": [
+        "type",
+        "schemaVersion",
+        "requestId",
+        "sessionId",
+        "turnId",
+        "workspaceId",
+        "query",
+        "budgetTokens",
+        "sourceObligations"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "Request fields accepted by the current native transform entrypoint.",
+    "$defs": {
+        "WorkingContext": {
+            "type": "object",
+            "properties": {
+                "focusedPath": {
+                    "type": "string"
+                },
+                "openPaths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "maxItems": 100
+                },
+                "focusedRange": {
+                    "$ref": "#/$defs/WorkingRange"
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            }
+        },
+        "WorkingRange": {
+            "type": "object",
+            "properties": {
+                "startLine": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "endLine": {
+                    "type": "integer",
+                    "minimum": 1
+                }
+            },
+            "required": [
+                "startLine",
+                "endLine"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            }
+        }
+    }
+}
