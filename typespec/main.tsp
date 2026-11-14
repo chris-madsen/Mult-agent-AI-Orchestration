@@ -9,6 +9,9 @@ using JsonSchema;
 // Do not claim provider-wire delivery or introduce a token admission gate.
 @service(#{ title: "ACE Gateway Projection v1" })
 namespace AceGatewayV1 {
+  @minLength(1)
+  scalar EvidenceId extends string;
+
   /** Checked by the existing application validator; string constraints are wire-only. */
   model HostCompactionAttestation {
     @pattern("^[a-f0-9]{64}$")
@@ -63,8 +66,8 @@ namespace AceGatewayV1 {
     deadlineEpochMs: int64;
     attestation: HostCompactionAttestation;
     nativeProjectionActive?: boolean;
-    @minItems(0)
-    requestedEvidenceIds?: string[];
+    @uniqueItems
+    requestedEvidenceIds?: EvidenceId[];
   }
 
   model ProjectionReceipt {
@@ -86,9 +89,11 @@ namespace AceGatewayV1 {
     baseBodySha256: string;
     @pattern("^[a-f0-9]{64}$")
     projectedBodySha256?: string;
+    @minValue(0)
     hostCompactionEpoch: int64 | "unknown";
     @minLength(1)
     activeEngineId: string;
+    @uniqueItems
     permittedWireRewrites: string[];
   }
 
