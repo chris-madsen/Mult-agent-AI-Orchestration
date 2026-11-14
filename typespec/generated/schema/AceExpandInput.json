@@ -1,0 +1,42 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "AceExpandInput.json",
+    "type": "object",
+    "properties": {
+        "handle": {
+            "$ref": "#/$defs/NonEmpty"
+        },
+        "cursor": {
+            "type": "string"
+        },
+        "max_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+        },
+        "format": {
+            "anyOf": [
+                {
+                    "type": "string",
+                    "const": "base64"
+                },
+                {
+                    "type": "string",
+                    "const": "utf8"
+                }
+            ]
+        }
+    },
+    "required": [
+        "handle"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "$defs": {
+        "NonEmpty": {
+            "type": "string",
+            "minLength": 1
+        }
+    }
+}

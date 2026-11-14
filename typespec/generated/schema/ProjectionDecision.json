@@ -1,0 +1,142 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "ProjectionDecision.json",
+    "type": "object",
+    "properties": {
+        "kind": {
+            "anyOf": [
+                {
+                    "type": "string",
+                    "const": "APPLY"
+                },
+                {
+                    "type": "string",
+                    "const": "UNCHANGED_AUTHORIZED"
+                },
+                {
+                    "type": "string",
+                    "const": "DEGRADED_AUTHORIZED"
+                },
+                {
+                    "type": "string",
+                    "const": "BLOCK"
+                }
+            ]
+        },
+        "bodyBase64": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+        },
+        "receipt": {
+            "$ref": "#/$defs/ProjectionReceipt"
+        }
+    },
+    "required": [
+        "kind",
+        "receipt"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "$defs": {
+        "ProjectionReceipt": {
+            "type": "object",
+            "properties": {
+                "schemaVersion": {
+                    "type": "string",
+                    "const": "ace.gateway.v1"
+                },
+                "requestId": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "attemptGroupId": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "attemptIndex": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "projectionId": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "receiptId": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "decision": {
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "const": "APPLY"
+                        },
+                        {
+                            "type": "string",
+                            "const": "UNCHANGED_AUTHORIZED"
+                        },
+                        {
+                            "type": "string",
+                            "const": "DEGRADED_AUTHORIZED"
+                        },
+                        {
+                            "type": "string",
+                            "const": "BLOCK"
+                        }
+                    ]
+                },
+                "reasonCode": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "baseBodySha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                },
+                "projectedBodySha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                },
+                "hostCompactionEpoch": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "string",
+                            "const": "unknown"
+                        }
+                    ],
+                    "minimum": 0
+                },
+                "activeEngineId": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "permittedWireRewrites": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "uniqueItems": true
+                }
+            },
+            "required": [
+                "schemaVersion",
+                "requestId",
+                "attemptGroupId",
+                "attemptIndex",
+                "receiptId",
+                "decision",
+                "baseBodySha256",
+                "hostCompactionEpoch",
+                "activeEngineId",
+                "permittedWireRewrites"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            }
+        }
+    }
+}

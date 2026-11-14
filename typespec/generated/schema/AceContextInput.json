@@ -1,0 +1,133 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "AceContextInput.json",
+    "type": "object",
+    "properties": {
+        "workspace_id": {
+            "$ref": "#/$defs/NonEmpty"
+        },
+        "query": {
+            "type": "string"
+        },
+        "intent": {
+            "type": "string"
+        },
+        "include_code": {
+            "type": "boolean"
+        },
+        "include_docs": {
+            "type": "boolean"
+        },
+        "include_memory": {
+            "type": "boolean"
+        },
+        "include_history": {
+            "type": "boolean"
+        },
+        "known_bundle_id": {
+            "$ref": "#/$defs/NonEmpty"
+        },
+        "known_evidence_ids": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/NonEmpty"
+            },
+            "maxItems": 1000
+        },
+        "working_context": {
+            "$ref": "#/$defs/WorkingContext"
+        },
+        "source_obligations": {
+            "$ref": "#/$defs/SourceObligations"
+        }
+    },
+    "required": [
+        "workspace_id",
+        "query"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "Official MCP SDK tool input, not a competing SDK/transport.",
+    "$defs": {
+        "NonEmpty": {
+            "type": "string",
+            "minLength": 1
+        },
+        "WorkingContext": {
+            "type": "object",
+            "properties": {
+                "focused_path": {
+                    "$ref": "#/$defs/NonEmpty"
+                },
+                "open_paths": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/NonEmpty"
+                    },
+                    "maxItems": 100
+                },
+                "focused_range": {
+                    "$ref": "#/$defs/FocusedRange"
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            }
+        },
+        "SourceObligations": {
+            "type": "object",
+            "properties": {
+                "required": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SourceKind"
+                    }
+                },
+                "optional": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SourceKind"
+                    }
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            }
+        },
+        "FocusedRange": {
+            "type": "object",
+            "properties": {
+                "start_line": {
+                    "$ref": "#/$defs/PositiveLine"
+                },
+                "end_line": {
+                    "$ref": "#/$defs/PositiveLine"
+                }
+            },
+            "required": [
+                "start_line",
+                "end_line"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            }
+        },
+        "SourceKind": {
+            "type": "string",
+            "enum": [
+                "code",
+                "structural",
+                "lsp",
+                "documentation",
+                "memory",
+                "history"
+            ]
+        },
+        "PositiveLine": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+        }
+    }
+}

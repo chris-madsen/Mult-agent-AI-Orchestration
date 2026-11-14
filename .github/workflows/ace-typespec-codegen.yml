@@ -1,0 +1,52 @@
+name: ACE TypeSpec codegen pilot
+
+on:
+  pull_request:
+    paths:
+      - 'typespec/**'
+      - 'src/generated/ace-gateway/**'
+      - 'src/transport/gateway-projection-http.ts'
+      - 'test/typespec-gateway-*.ts'
+      - '.github/workflows/ace-typespec-codegen.yml'
+      - 'docs/plans/2026-11-14-typespec-migration-g02.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract-codegen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Install from generated lockfile
+        run: npm ci --prefix typespec --ignore-scripts --no-audit --no-fund
+      - name: Compile TypeSpec and generate maintained TypeScript SDK
+        run: npm --prefix typespec run generate
+      - name: Check generated files and lockfile are immutable under regeneration
+        run: |
+          git diff --exit-code -- typespec/package-lock.json typespec/generated src/generated/ace-gateway
+          if test -n "$(git ls-files --others --exclude-standard -- typespec/generated src/generated/ace-gateway)"; then
+            echo "Untracked codegen output detected"
+            exit 1
+          fi
+      - name: Typecheck the generated SDK
+        run: npm --prefix typespec run check:sdk
+      - name: Prove strict Gateway v1 runtime schema compatibility
+        run: npm --prefix typespec run check:compat
+      - name: Install locked ACE runtime type dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check exhaustive generated DTO to existing domain type mapping
+        run: npm run check:public-contract-types
+      - name: Check versioned MCP and Hermes schema inventory and negative fixtures
+        run: npm --prefix typespec run check:mcp-hermes
+      - name: Exercise official MCP and native bridge adapters with existing contract tests
+        run: ./node_modules/.bin/tsx --test test/mcp-sdk-runtime.conformance.test.ts test/context-bridge.contracts.test.ts
+      - name: Exercise real Gateway HTTP and domain v1 compatibility tests
+        run: ./node_modules/.bin/tsx --test test/gateway-projection-http.contracts.test.ts test/gateway-projection.contracts.test.ts test/gateway-schema.contracts.test.ts
