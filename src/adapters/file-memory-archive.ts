@@ -5,13 +5,12 @@ import { domainError } from '../domain/errors.js';
 import { err, ok } from '../domain/result.js';
 import type { ContentDigest } from '../domain/workspace.js';
 import { makeEpisode, makeEpisodeId, type EpisodeId, type SessionEpisode } from '../domain/memory.js';
-import type { MemoryArchivePort } from '../application/ports.js';
+import type { AsyncMemoryArchivePort } from '../application/ports.js';
+
+// Preserve existing type-only adapter imports while the application owns the port.
+export type { AsyncMemoryArchivePort } from '../application/ports.js';
 
 const digestOf = (bytes: Uint8Array): ContentDigest => createHash('sha256').update(bytes).digest('hex') as ContentDigest;
-
-export interface AsyncMemoryArchivePort extends MemoryArchivePort {
-  readonly listEpisodes: () => Promise<import('../domain/result.js').Result<readonly SessionEpisode[], ReturnType<typeof domainError>>>;
-}
 
 export const makeAsyncFileMemoryArchive = async (rootPath: string): Promise<AsyncMemoryArchivePort> => {
   const episodesPath = join(rootPath, 'episodes');

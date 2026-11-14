@@ -23,6 +23,44 @@ const vertexDocsPolicy: ProjectDataPolicy = {
   },
 };
 
+
+test('default denied paths block secrets even with authorized cloud data class', () => {
+  const blocked = [
+    '.env', '.env.production', '.env.local',
+    '.git', '.git/config', './.git/config',
+    'secrets', 'secrets/token.json', './secrets/token.json',
+    'secrets\\token.json', 'public/../secrets/token.json',
+  ];
+  for (const path of blocked) {
+    const decision = authorizeOutbound({
+      workspaceId: workspace.value,
+      operation: 'documentation_search',
+      destination: 'vertex',
+      dataClasses: ['project_document'],
+      paths: [path],
+      secretDetected: false,
+    }, vertexDocsPolicy);
+    assert.equal(decision._tag, 'Ok', path);
+    if (decision._tag === 'Ok') {
+      assert.equal(decision.value.outcome, 'denied', path);
+      assert.equal(decision.value.reasonCode, 'PATH_DENIED', path);
+    }
+  }
+
+  for (const path of ['.gitignore', '.environment', 'secrets-public/readme.md', 'docs/readme.md']) {
+    const decision = authorizeOutbound({
+      workspaceId: workspace.value,
+      operation: 'documentation_search',
+      destination: 'vertex',
+      dataClasses: ['project_document'],
+      paths: [path],
+      secretDetected: false,
+    }, vertexDocsPolicy);
+    assert.equal(decision._tag, 'Ok', path);
+    if (decision._tag === 'Ok') assert.equal(decision.value.reasonCode, 'ALLOWED', path);
+  }
+});
+
 test('cloud authorization requires both provider and data-class permission', () => {
   const docs = authorizeOutbound({
     workspaceId: workspace.value,

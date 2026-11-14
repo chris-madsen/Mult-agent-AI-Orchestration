@@ -229,6 +229,11 @@ export interface MemoryArchivePort {
   readonly deleteEpisode: (episodeId: EpisodeId) => Promise<Result<void, DomainError>>;
 }
 
+/** Application-owned listing capability for the immutable archive. */
+export interface AsyncMemoryArchivePort extends MemoryArchivePort {
+  readonly listEpisodes: () => Promise<Result<readonly SessionEpisode[], DomainError>>;
+}
+
 export interface ExactRead {
   readonly bytes: Uint8Array;
   readonly digest: ContentDigest;
