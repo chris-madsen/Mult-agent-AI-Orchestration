@@ -358,6 +358,10 @@ class AceContextEngine(ContextCompressor):
             "originalEstimatedTokens": original_estimate,
             "projectedEstimatedTokens": projected_estimate,
             "estimatedAddedTokens": estimated_added,
+            # Reporting only: this is content-length/4, not provider usage.
+            # Never use this metric to authorize or block a model request.
+            "estimatedTokensSaved": max(0, original_estimate - projected_estimate),
+            "tokenSavingsMeasurement": "message_content_char_heuristic_v1",
             "replacedToolOutputs": replaced_tool_outputs if useful else 0,
             "originalRequestSha256": _request_digest(request_messages),
             "projectedRequestSha256": _request_digest(projected),

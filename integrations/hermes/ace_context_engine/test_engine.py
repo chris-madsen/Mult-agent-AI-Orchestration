@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 import tempfile
 import types
@@ -127,6 +128,8 @@ class ContextEngineTests(unittest.TestCase):
             self.assertEqual(receipt["receiptId"], "receipt-1")
             self.assertEqual(receipt["deliveryMode"], "no_op")
             self.assertEqual(receipt["estimatedAddedTokens"], 0)
+            self.assertEqual(receipt["estimatedTokensSaved"], 0)
+            self.assertEqual(receipt["tokenSavingsMeasurement"], "message_content_char_heuristic_v1")
             self.assertEqual(
                 receipt["projectedEstimatedTokens"] - receipt["originalEstimatedTokens"],
                 receipt["estimatedAddedTokens"],
@@ -212,6 +215,60 @@ class ContextEngineTests(unittest.TestCase):
             self.assertEqual(receipt["deliveryMode"], "replacement")
             self.assertEqual(receipt["replacedToolOutputs"], 1)
             self.assertLess(receipt["estimatedAddedTokens"], 0)
+            self.assertEqual(receipt["estimatedTokensSaved"], -receipt["estimatedAddedTokens"])
+            self.assertGreater(receipt["estimatedTokensSaved"], 0)
+            self.assertEqual(receipt["tokenSavingsMeasurement"], "message_content_char_heuristic_v1")
+
+    def test_token_savings_report_is_diagnostic_only_and_deduplicates_retries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            receipt_path = Path(directory) / "receipts.jsonl"
+            entries = [
+                {
+                    "sessionId": "s1", "requestId": "r1", "deliveryMode": "replacement",
+                    "originalEstimatedTokens": 200, "projectedEstimatedTokens": 100,
+                    "estimatedAddedTokens": -100, "estimatedTokensSaved": 100,
+                },
+                {
+                    "sessionId": "s1", "requestId": "r1", "deliveryMode": "replacement",
+                    "originalEstimatedTokens": 200, "projectedEstimatedTokens": 100,
+                    "estimatedAddedTokens": -100,
+                },
+                {
+                    "sessionId": "s1", "requestId": "r2", "deliveryMode": "no_op",
+                    "originalEstimatedTokens": 50, "projectedEstimatedTokens": 50,
+                    "estimatedAddedTokens": 0,
+                },
+                {"sessionId": "s1", "requestId": "r3", "status": "blocked"},
+                {
+                    "sessionId": "s1", "requestId": "r4", "deliveryMode": "replacement",
+                    "originalEstimatedTokens": "not-an-integer",
+                    "projectedEstimatedTokens": 1,
+                },
+            ]
+            receipt_path.write_text(
+                "\n".join(json.dumps(entry) for entry in entries) + "\n",
+                encoding="utf-8",
+            )
+            report = subprocess.run(
+                [
+                    sys.executable, str(_REPO_ROOT / "scripts" / "report-ace-token-savings.py"),
+                    str(receipt_path), "--json",
+                ],
+                check=True, text=True, capture_output=True,
+            )
+            result = json.loads(report.stdout)
+            self.assertEqual(result["measuredRequests"], 2)
+            self.assertEqual(result["replacements"], 1)
+            self.assertEqual(result["noOps"], 1)
+            self.assertEqual(result["blocked"], 1)
+            self.assertEqual(result["duplicates"], 1)
+            self.assertEqual(result["skipped"], 1)
+            self.assertEqual(result["originalEstimatedTokens"], 250)
+            self.assertEqual(result["projectedEstimatedTokens"], 150)
+            self.assertEqual(result["estimatedTokensSaved"], 100)
+            self.assertEqual(result["estimatedNetSavingsPercent"], 40.0)
+            self.assertEqual(result["measurement"], "message_content_char_heuristic_v1")
+            self.assertIn("not_provider_usage", result["limitations"])
 
     def test_native_compressor_methods_remain_available(self):
         engine = AceContextEngine(
