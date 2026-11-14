@@ -64,6 +64,18 @@ namespace AceMcpToolV1 {
 }
 
 namespace AceHermesNativeV1 {
+  model WorkingRange {
+    @minValue(1)
+    startLine: int64;
+    @minValue(1)
+    endLine: int64;
+  }
+  model WorkingContext {
+    focusedPath?: string;
+    @maxItems(100)
+    openPaths?: string[];
+    focusedRange?: WorkingRange;
+  }
   /** The bridge_ready JSONL record sent before any provider request. */
   @jsonSchema
   model BridgeReady {
@@ -93,6 +105,7 @@ namespace AceHermesNativeV1 {
     budgetTokens: int64;
     sourceObligations: { required: ["code"]; };
     intent?: string;
+    workingContext?: WorkingContext;
     knownBundleId?: string;
     knownEvidenceIds?: string[];
   }
