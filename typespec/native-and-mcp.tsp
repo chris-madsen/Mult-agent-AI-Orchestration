@@ -91,7 +91,7 @@ namespace AceHermesNativeV1 {
     query: string;
     @minValue(1)
     budgetTokens: int64;
-    sourceObligations: { required: string[]; };
+    sourceObligations: { required: ["code"]; };
     intent?: string;
     knownBundleId?: string;
     knownEvidenceIds?: string[];
