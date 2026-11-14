@@ -16,7 +16,9 @@ module.exports = {
       },
     },
   },
-  ignorePatterns: ["dist/", "node_modules/"],
+  // Third-party-generated DTOs are linted by their generator, checked for drift, and typechecked.
+  // Lint hand-written boundary adapters normally; do not reformat emitted code.
+  ignorePatterns: ["dist/", "node_modules/", "src/generated/ace-gateway/"],
   rules: {
     "@typescript-eslint/no-use-before-define": "off",
     "class-methods-use-this": "off",
