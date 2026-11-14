@@ -39,6 +39,9 @@ export const inspectFeedbackVerifierConfiguration = (input: {
   try {
     const parsed = new URL(baseUrl);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('unsupported protocol');
+    // URL credentials or query parameters could be exposed in retained
+    // verifier identities and may leak into a GET /models request.
+    if (parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error('unsafe URL');
   } catch {
     return { status: 'invalid_configuration', reason: 'task verifier endpoint is not a valid HTTP(S) URL' };
   }
@@ -57,6 +60,31 @@ export const classifyFeedbackVerifierHttpStatus = (
   if (status === 401 || status === 403) return { status: 'authentication_rejected', reason: 'task verifier endpoint rejected authentication', identity };
   if (status === 400 || status === 404) return { status: 'invalid_configuration', reason: 'task verifier endpoint rejected the configured request', identity };
   return { status: 'unavailable', reason: 'task verifier endpoint is unavailable', identity };
+};
+
+/**
+ * HTTP 200 from /models proves only endpoint reachability. Verify that this
+ * authenticated response explicitly advertises the configured evaluator model.
+ * Never copy provider response data or credentials into readiness logs.
+ */
+export const inspectFeedbackVerifierModelsResponse = (
+  body: unknown,
+  expectedModel: string,
+  identity: string,
+): FeedbackVerifierReadiness => {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return { status: 'unavailable', reason: 'task verifier model list is malformed', identity };
+  }
+  const data = (body as Record<string, unknown>).data;
+  if (!Array.isArray(data) || !data.every((entry: unknown) =>
+    typeof entry === 'object' && entry !== null && !Array.isArray(entry)
+    && typeof (entry as Record<string, unknown>).id === 'string')) {
+    return { status: 'unavailable', reason: 'task verifier model list is malformed', identity };
+  }
+  const found = data.some((entry) => (entry as Record<string, unknown>).id === expectedModel);
+  return found
+    ? { status: 'ready', reason: 'requested evaluator model is advertised by the authenticated endpoint', identity }
+    : { status: 'invalid_configuration', reason: 'requested evaluator model is absent from the authenticated endpoint', identity };
 };
 
 export type HermesAuthenticationCheck = {
