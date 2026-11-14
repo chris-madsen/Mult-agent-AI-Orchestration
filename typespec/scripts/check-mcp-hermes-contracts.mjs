@@ -59,7 +59,13 @@ for (const [name, schemaName] of mcp) {
   }
   for (const [path, expected] of Object.entries(owner.types)) {
     const field = at(generated, path);
-    assert.equal(field.type, expected, `${name}.${path}: type drift`);
+    // Literal unions emit JSON Schema anyOf/const instead of type=string.
+    // That is the same accepted finite string type, not a missing type.
+    const cases = variants(field);
+    const normalizedType = field.type ?? (
+      cases.length > 0 && cases.every((value) => typeof value === 'string') ? 'string' : undefined
+    );
+    assert.equal(normalizedType, expected, `${name}.${path}: type drift`);
   }
   for (const [path, expected] of Object.entries(owner.enums ?? {})) {
     assert.deepEqual([...variants(at(generated, path))].sort(), [...expected].sort(),
