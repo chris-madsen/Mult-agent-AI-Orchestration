@@ -78,7 +78,7 @@ namespace AceGatewayV1 {
     @minLength(1)
     attemptGroupId: string;
     @minValue(0)
-    attemptIndex: int32;
+    attemptIndex: int64;
     @minLength(1)
     projectionId?: string;
     @minLength(1)

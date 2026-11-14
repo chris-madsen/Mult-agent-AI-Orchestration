@@ -107,6 +107,16 @@ const receipt = {
 };
 const baseDecision = { kind: 'BLOCK', receipt };
 compare('decision good', oldDecision, newDecision, baseDecision, true);decisionCount++;
+// Gateway v1 intentionally has no 32-bit upper bound on the attempt index.
+// A generator default of int32 would reject valid historical receipts.
+for (const index of [2147483648, Number.MAX_SAFE_INTEGER]) {
+  const value = { kind: 'BLOCK', receipt: { ...receipt, attemptIndex: index } };
+  compare(`unbounded nonnegative attemptIndex=${index}`, oldDecision, newDecision, value, true);
+  decisionCount++;
+}
+compare('negative attemptIndex', oldDecision, newDecision,
+  { kind: 'BLOCK', receipt: { ...receipt, attemptIndex: -1 } }, false);
+decisionCount++;
 for (const key of legacyDecision.required) {
   const input = structuredClone(baseDecision);delete input[key];
   compare(`missing decision.${key}`, oldDecision, newDecision, input, false);decisionCount++;
