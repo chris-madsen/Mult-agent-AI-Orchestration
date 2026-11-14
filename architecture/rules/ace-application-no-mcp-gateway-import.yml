@@ -2,7 +2,7 @@ id: ace-application-no-mcp-gateway-import
 language: TypeScript
 rule:
   kind: string_fragment
-  regex: '^(?:\../)+gateway/mcp-gateway\.js$'
+  regex: '^(?:\.\./)+gateway/mcp-gateway\.js$'
   inside:
     any:
       - kind: import_statement
