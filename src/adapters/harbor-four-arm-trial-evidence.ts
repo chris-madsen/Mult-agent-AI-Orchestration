@@ -72,7 +72,7 @@ const readResponsesProjections = async (
     const decision = object(parsed?.decision) ?? parsed;
     const kind = decision?.kind;
     const requestId = nonEmpty(parsed?.requestId);
-    if (!parsed || parsed.schemaVersion !== 'ace.gateway.v2'
+    if (!parsed || parsed.schemaVersion !== 'ace.context.v3'
       || !decision || !['PREPARED', 'BLOCK'].includes(String(kind)) || requestId === undefined) {
       throw new Error(`BLOCKED: malformed native Responses projection evidence ${index + 1}`);
     }

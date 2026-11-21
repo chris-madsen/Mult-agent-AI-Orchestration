@@ -5,22 +5,21 @@ import test from 'node:test';
 const loadJson = async (path: string): Promise<Record<string, unknown>> =>
   JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
 
-test('generated Gateway contract is native Responses v2 only', async () => {
+test('generated ACE context RPC v3 is not a separate model gateway', async () => {
   const openapi = await loadJson('typespec/generated/openapi.json');
-  assert.equal((openapi.info as { version?: string }).version, '2.0.0');
+  assert.equal((openapi.info as { version?: string }).version, '3.0.0');
   const paths = Object.keys(openapi.paths as Record<string, unknown>)
-    .filter((path) => path.startsWith('/internal/ace-gateway/'))
+    .filter((path) => path.startsWith('/internal/ace-context/'))
     .sort();
   assert.deepEqual(paths, [
-    '/internal/ace-gateway/v2/authorize-attempt',
-    '/internal/ace-gateway/v2/capabilities',
-    '/internal/ace-gateway/v2/health',
-    '/internal/ace-gateway/v2/project',
-    '/internal/ace-gateway/v2/record-delivery',
+    '/internal/ace-context/v3/authorize-attempt',
+    '/internal/ace-context/v3/capabilities',
+    '/internal/ace-context/v3/health',
+    '/internal/ace-context/v3/project',
   ]);
   const request = await loadJson('typespec/generated/schema/ProjectionRequest.json');
   const properties = request.properties as Record<string, { const?: string }>;
-  assert.equal(properties.schemaVersion?.const, 'ace.gateway.v2');
+  assert.equal(properties.schemaVersion?.const, 'ace.context.v3');
   assert.equal(properties.protocol?.const, 'openai.responses');
   assert.deepEqual(request.unevaluatedProperties, { not: {} });
   const components = openapi.components as { schemas: Record<string, Record<string, unknown>> };

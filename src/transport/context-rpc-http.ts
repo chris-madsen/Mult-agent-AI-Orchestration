@@ -5,17 +5,16 @@ import type { ResponsesProjectionService } from '../application/responses-projec
 import type { GatewayAttemptAuthorizationService } from '../application/gateway-attempt-authorization-service.js';
 import { isIP } from 'node:net';
 import type {
-  GatewayHealth as GeneratedGatewayHealth,
-  GatewayCapabilities as GeneratedGatewayCapabilities,
-  DeliveryNotCertified as GeneratedDeliveryNotCertified,
-} from '../generated/ace-gateway/v2/types.gen.js';
+  ContextHealth as GeneratedContextHealth,
+  ContextCapabilities as GeneratedContextCapabilities,
+} from '../generated/ace-context/v3/types.gen.js';
 
-export interface GatewayProjectionHttpService {
+export interface ContextRpcHttpService {
   readonly projectResponses?: ResponsesProjectionService['projectResponses'];
   readonly authorizePhysicalSend?: GatewayAttemptAuthorizationService['authorizePhysicalSend'];
 }
 
-export interface GatewayProjectionHttpOptions {
+export interface ContextRpcHttpOptions {
   readonly host?: string;
   readonly port?: number;
   readonly maxBodyBytes?: number;
@@ -23,18 +22,18 @@ export interface GatewayProjectionHttpOptions {
   readonly authToken?: string;
 }
 
-export interface GatewayProjectionHttpResponse {
+export interface ContextRpcHttpResponse {
   readonly statusCode: number;
   readonly body: Readonly<Record<string, unknown>>;
 }
 
-const schemaVersion = 'ace.gateway.v2';
+const schemaVersion = 'ace.context.v3';
 const defaultMaxBodyBytes = 4 * 1024 * 1024;
 // The HTTP request is a JSON envelope containing Base64, not raw provider bytes.
 // The query is repeated outside bodyBase64 and can occupy nearly all of the
 // original provider body. Bound both representations, not just encoded bytes.
 export const maxEnvelopeBytesFor = (bodyBytes: number): number => 4 * Math.ceil(bodyBytes / 3) + bodyBytes + 64 * 1024;
-export const isLoopbackGatewayHttpHost = (host: string): boolean => {
+export const isLoopbackContextRpcHost = (host: string): boolean => {
   const normalizedHost = host.toLowerCase();
   if (normalizedHost === 'localhost') return true;
   const family = isIP(normalizedHost);
@@ -43,60 +42,52 @@ export const isLoopbackGatewayHttpHost = (host: string): boolean => {
 };
 const jsonHeaders = { 'content-type': 'application/json; charset=utf-8' };
 
-const json = (body: Readonly<Record<string, unknown>>): GatewayProjectionHttpResponse => ({
+const json = (body: Readonly<Record<string, unknown>>): ContextRpcHttpResponse => ({
   statusCode: 200,
   body,
 });
 
-const error = (statusCode: number, code: string, message: string): GatewayProjectionHttpResponse => ({
+const error = (statusCode: number, code: string, message: string): ContextRpcHttpResponse => ({
   statusCode,
   body: { error: { code, message } },
 });
 
-type GatewayRouteId = 'health' | 'capabilities' | 'record-delivery' | 'project' | 'authorize-attempt' | 'not-found' | 'method-not-allowed';
+type ContextRpcRouteId = 'health' | 'capabilities' | 'project' | 'authorize-attempt' | 'not-found' | 'method-not-allowed';
 
-const gatewayRouteId = (method: string, path: string): GatewayRouteId => {
+const contextRpcRouteId = (method: string, path: string): ContextRpcRouteId => {
   switch (`${method} ${path}`) {
-    case 'GET /internal/ace-gateway/v2/health': return 'health';
-    case 'GET /internal/ace-gateway/v2/capabilities': return 'capabilities';
-    case 'POST /internal/ace-gateway/v2/record-delivery': return 'record-delivery';
-    case 'POST /internal/ace-gateway/v2/project': return 'project';
-    case 'POST /internal/ace-gateway/v2/authorize-attempt': return 'authorize-attempt';
+    case 'GET /internal/ace-context/v3/health': return 'health';
+    case 'GET /internal/ace-context/v3/capabilities': return 'capabilities';
+    case 'POST /internal/ace-context/v3/project': return 'project';
+    case 'POST /internal/ace-context/v3/authorize-attempt': return 'authorize-attempt';
     default: return method === 'POST' ? 'not-found' : 'method-not-allowed';
   }
 };
 
-const healthRoute = async (): Promise<GatewayProjectionHttpResponse> => {
-  const wire: GeneratedGatewayHealth = {
+const healthRoute = async (): Promise<ContextRpcHttpResponse> => {
+  const wire: GeneratedContextHealth = {
     schemaVersion, liveness: 'ready', readiness: 'adapter_implemented', providerWire: 'not_certified',
   };
   return json(wire as unknown as Readonly<Record<string, unknown>>);
 };
 
-const capabilitiesRoute = async (maxBodyBytes: number): Promise<GatewayProjectionHttpResponse> => {
-  const wire: GeneratedGatewayCapabilities = {
+const capabilitiesRoute = async (maxBodyBytes: number): Promise<ContextRpcHttpResponse> => {
+  const wire: GeneratedContextCapabilities = {
     schemaVersion,
     // No provider generation route is advertised until final-wire certification.
     routes: [],
     maxBodyBytes,
-    projectionModes: ['gateway'],
+    projectionModes: ['bifrost_hook'],
     providerWireCertification: 'not_certified',
   };
   return json(wire as unknown as Readonly<Record<string, unknown>>);
 };
 
-const recordDeliveryRoute = async (): Promise<GatewayProjectionHttpResponse> => {
-  const unavailable: GeneratedDeliveryNotCertified = {
-    error: { code: 'PROVIDER_WIRE_NOT_CERTIFIED', message: 'delivery recording requires a verified final-send integration' },
-  };
-  return error(501, unavailable.error.code, unavailable.error.message);
-};
-
 const projectRoute = async (
-  service: GatewayProjectionHttpService,
+  service: ContextRpcHttpService,
   body: string,
   signal?: AbortSignal,
-): Promise<GatewayProjectionHttpResponse> => {
+): Promise<ContextRpcHttpResponse> => {
   if (!service.projectResponses) return error(503, 'RESPONSES_NOT_READY', 'native Responses projector is not configured');
   let payload: unknown;
   try { payload = JSON.parse(body) as unknown; } catch {
@@ -110,10 +101,10 @@ const projectRoute = async (
 };
 
 const authorizeAttemptRoute = async (
-  service: GatewayProjectionHttpService,
+  service: ContextRpcHttpService,
   body: string,
   signal?: AbortSignal,
-): Promise<GatewayProjectionHttpResponse> => {
+): Promise<ContextRpcHttpResponse> => {
   if (!service.authorizePhysicalSend) return error(503, 'ATTEMPT_AUTHORIZATION_NOT_READY', 'physical-send authorization is not configured');
   let payload: unknown;
   try { payload = JSON.parse(body) as unknown; } catch {
@@ -127,26 +118,25 @@ const authorizeAttemptRoute = async (
   return json(response.value);
 };
 
-export const handleGatewayProjectionHttp = (
-  service: GatewayProjectionHttpService,
+export const handleContextRpcHttp = (
+  service: ContextRpcHttpService,
   method: string,
   path: string,
   body: string,
   maxBodyBytes = defaultMaxBodyBytes,
   signal?: AbortSignal,
-): Promise<GatewayProjectionHttpResponse> => {
-  switch (gatewayRouteId(method, path)) {
+): Promise<ContextRpcHttpResponse> => {
+  switch (contextRpcRouteId(method, path)) {
     case 'health': return healthRoute();
     case 'capabilities': return capabilitiesRoute(maxBodyBytes);
-    case 'record-delivery': return recordDeliveryRoute();
     case 'project': return projectRoute(service, body, signal);
     case 'authorize-attempt': return authorizeAttemptRoute(service, body, signal);
-    case 'method-not-allowed': return Promise.resolve(error(405, 'METHOD_NOT_ALLOWED', 'unsupported gateway method'));
-    case 'not-found': return Promise.resolve(error(404, 'NOT_FOUND', 'unknown Gateway v2 endpoint'));
+    case 'method-not-allowed': return Promise.resolve(error(405, 'METHOD_NOT_ALLOWED', 'unsupported ACE context RPC method'));
+    case 'not-found': return Promise.resolve(error(404, 'NOT_FOUND', 'unknown ACE context RPC endpoint'));
   }
 };
 
-const writeResponse = (response: ServerResponse, result: GatewayProjectionHttpResponse): void => {
+const writeResponse = (response: ServerResponse, result: ContextRpcHttpResponse): void => {
   response.writeHead(result.statusCode, jsonHeaders);
   response.end(JSON.stringify(result.body));
 };
@@ -170,21 +160,21 @@ const authorizedProjectionRequest = (value: string | undefined, token: string): 
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 };
 
-export const createGatewayProjectionServer = (
-  service: GatewayProjectionHttpService,
-  options: GatewayProjectionHttpOptions = {},
+export const createContextRpcServer = (
+  service: ContextRpcHttpService,
+  options: ContextRpcHttpOptions = {},
 ): Server => {
   const maxBodyBytes = options.maxBodyBytes ?? defaultMaxBodyBytes;
   const maxEnvelopeBytes = maxEnvelopeBytesFor(maxBodyBytes);
   return createServer(async (request, response) => {
     try {
-      const token = options.authToken ?? process.env.ACE_GATEWAY_HTTP_SHARED_SECRET;
+      const token = options.authToken ?? process.env.ACE_CONTEXT_RPC_SHARED_SECRET;
       if (!token?.trim()) {
-        writeResponse(response, error(503, 'NOT_READY', 'Gateway projection authentication is not configured'));
+        writeResponse(response, error(503, 'NOT_READY', 'ACE context RPC authentication is not configured'));
         return;
       }
       if (!authorizedProjectionRequest(request.headers.authorization, token)) {
-        writeResponse(response, error(401, 'UNAUTHORIZED', 'Gateway projection authentication failed'));
+        writeResponse(response, error(401, 'UNAUTHORIZED', 'ACE context RPC authentication failed'));
         return;
       }
       const body = await readRequestBody(request, maxEnvelopeBytes);
@@ -193,7 +183,7 @@ export const createGatewayProjectionServer = (
       request.once('aborted', abort);
       response.once('close', abort);
       try {
-        const result = await handleGatewayProjectionHttp(
+        const result = await handleContextRpcHttp(
           service, request.method ?? 'GET', request.url ?? '/', body, maxBodyBytes, controller.signal,
         );
         if (!response.destroyed) writeResponse(response, result);
@@ -202,27 +192,27 @@ export const createGatewayProjectionServer = (
         response.off('close', abort);
       }
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : 'gateway request failed';
+      const message = cause instanceof Error ? cause.message : 'ACE context RPC request failed';
       if (!response.destroyed) {
         writeResponse(response, error(message === 'BODY_TOO_LARGE' ? 413 : 400, message,
-          message === 'BODY_TOO_LARGE' ? 'request body exceeds gateway bound' : 'request could not be read'));
+          message === 'BODY_TOO_LARGE' ? 'request body exceeds ACE context RPC bound' : 'request could not be read'));
       }
     }
   });
 };
 
-export const runGatewayProjectionHttp = async (
-  service: GatewayProjectionHttpService,
-  options: GatewayProjectionHttpOptions = {},
+export const runContextRpcHttp = async (
+  service: ContextRpcHttpService,
+  options: ContextRpcHttpOptions = {},
 ): Promise<void> => {
-  const host = options.host ?? process.env.ACE_GATEWAY_HTTP_HOST ?? '127.0.0.1';
-  if (!isLoopbackGatewayHttpHost(host)) throw new Error('ACE Gateway HTTP host must be a loopback address');
-  const server = createGatewayProjectionServer(service, options);
-  const port = options.port ?? Number(process.env.ACE_GATEWAY_HTTP_PORT ?? '8765');
+  const host = options.host ?? process.env.ACE_CONTEXT_RPC_HOST ?? '127.0.0.1';
+  if (!isLoopbackContextRpcHost(host)) throw new Error('ACE context RPC host must be a loopback address');
+  const server = createContextRpcServer(service, options);
+  const port = options.port ?? Number(process.env.ACE_CONTEXT_RPC_PORT ?? '8765');
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, () => {
-      process.stderr.write(`ace-gateway-http listening host=${host} port=${port} schema=${schemaVersion}\n`);
+      process.stderr.write(`ace-context-rpc listening host=${host} port=${port} schema=${schemaVersion}\n`);
     });
     const shutdown = (): void => {
       server.close(() => resolve());

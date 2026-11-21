@@ -75,6 +75,22 @@ func validateLoopbackEndpoint(endpoint string) error {
 	return nil
 }
 
+
+// ValidateContextRPCProjectEndpoint rejects unsupported versions, aliased
+// paths and remote endpoints before a Bifröst plugin is registered. Do not
+// discover an incompatible ACE sidecar only after the first agent request.
+func ValidateContextRPCProjectEndpoint(endpoint string) error {
+	if err := validateLoopbackEndpoint(endpoint); err != nil {
+		return err
+	}
+	target, err := url.Parse(endpoint)
+	if err != nil || target.Path != "/internal/ace-context/v3/project" ||
+		target.RawPath != "" || target.RawQuery != "" || target.ForceQuery || target.Fragment != "" || target.RawFragment != "" {
+		return errors.New("ACE context RPC requires the exact loopback /internal/ace-context/v3/project URL")
+	}
+	return nil
+}
+
 func loopbackHTTPClient(client *http.Client) *http.Client {
 	if client == nil {
 		client = http.DefaultClient

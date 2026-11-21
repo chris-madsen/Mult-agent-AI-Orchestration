@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import type {
   PhysicalSendAttemptDecision as GeneratedPhysicalSendAttemptDecision,
   PhysicalSendAttemptRequest as GeneratedPhysicalSendAttemptRequest,
-} from '../generated/ace-gateway/v2/types.gen.js';
+} from '../generated/ace-context/v3/types.gen.js';
 import type { DomainError } from '../domain/errors.js';
 import { authorizeOutbound, type DataClass, type SafePhysicalSendAuditDetails } from '../domain/policy.js';
 import { containsLikelySecret } from '../domain/sensitive-text.js';

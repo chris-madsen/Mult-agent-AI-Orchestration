@@ -4,9 +4,9 @@ on:
   pull_request:
     paths:
       - 'typespec/**'
-      - 'src/generated/ace-gateway/**'
-      - 'src/transport/gateway-projection-http.ts'
-      - 'test/typespec-gateway-*.ts'
+      - 'src/generated/ace-context/**'
+      - 'src/transport/context-rpc-http.ts'
+      - 'test/typespec-context-*.ts'
       - '.github/workflows/ace-typespec-codegen.yml'
       - 'docs/docs/references/ADR-020-native-responses-only.md'
       - 'openspec/changes/013-gateway-g11-production-acceptance/**'
@@ -38,8 +38,8 @@ jobs:
         run: test ! -e typespec/generated/__obsolete-schema-fixture.json
       - name: Check generated files and lockfile are immutable under regeneration
         run: |
-          git diff --exit-code -- typespec/package-lock.json typespec/generated src/generated/ace-gateway
-          if test -n "$(git ls-files --others --exclude-standard -- typespec/generated src/generated/ace-gateway)"; then
+          git diff --exit-code -- typespec/package-lock.json typespec/generated src/generated/ace-context
+          if test -n "$(git ls-files --others --exclude-standard -- typespec/generated src/generated/ace-context)"; then
             echo "Untracked codegen output detected"
             exit 1
           fi
@@ -62,4 +62,4 @@ jobs:
       - name: Check exhaustive generated DTO to existing domain type mapping
         run: npm run check:public-contract-types
       - name: Exercise native projection and fail-closed contract tests
-        run: ./node_modules/.bin/tsx --test test/gateway-projection-http.contracts.test.ts test/responses-projection.contracts.test.ts test/responses-projection-service.contracts.test.ts test/gateway-schema.contracts.test.ts test/data-class-policy.contracts.test.ts test/bifrost-plugin.contracts.test.ts
+        run: ./node_modules/.bin/tsx --test test/context-rpc-http.contracts.test.ts test/responses-projection.contracts.test.ts test/responses-projection-service.contracts.test.ts test/context-rpc-schema.contracts.test.ts test/data-class-policy.contracts.test.ts test/bifrost-plugin.contracts.test.ts

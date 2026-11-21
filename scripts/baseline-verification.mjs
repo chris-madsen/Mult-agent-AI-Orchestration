@@ -144,7 +144,7 @@ const manifest = {
     acePackage: `${packageJson.name}@${packageJson.version}`,
     node: process.version,
     typescript: packageJson.dependencies?.typescript ?? 'unknown',
-    gatewayWire: 'ace.gateway.v2',
+    gatewayWire: 'ace.context.v3',
     packageLockSha256: sha256(packageLock),
   },
   mandatoryChecks: {

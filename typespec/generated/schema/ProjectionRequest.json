@@ -5,7 +5,7 @@
     "properties": {
         "schemaVersion": {
             "type": "string",
-            "const": "ace.gateway.v2"
+            "const": "ace.context.v3"
         },
         "protocol": {
             "type": "string",
@@ -66,7 +66,7 @@
         },
         "projectionMode": {
             "type": "string",
-            "const": "gateway"
+            "const": "bifrost_hook"
         },
         "deadlineEpochMs": {
             "type": "integer",

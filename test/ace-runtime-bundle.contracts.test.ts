@@ -60,7 +60,7 @@ test('reports missing runtime bundle paths instead of treating an incomplete mou
   const missing = missingAceRuntimeBundlePaths(root);
   assert.deepEqual(missing, requiredAceRuntimeBundlePaths);
   await mkdir(join(root, 'dist/bin'), { recursive: true });
-  await writeFile(join(root, 'dist/bin/ace-gateway-http.js'), '');
+  await writeFile(join(root, 'dist/bin/ace-context-rpc.js'), '');
   assert.ok(missingAceRuntimeBundlePaths(root).includes('node_modules/effect/package.json'));
 });
 
@@ -146,7 +146,7 @@ test('Docker runtime uses the pinned embedding versions from the Harbor bundle c
 });
 
 test('bundle requires compiled Gateway and no optional native context plugin', () => {
-  assert.ok(requiredAceRuntimeBundlePaths.includes('dist/bin/ace-gateway-http.js'));
+  assert.ok(requiredAceRuntimeBundlePaths.includes('dist/bin/ace-context-rpc.js'));
   assert.ok(requiredAceRuntimeBundlePaths.every((path) => !path.startsWith('integrations/hermes/')));
 });
 
@@ -180,7 +180,7 @@ test('pinned Harbor builder and Gateway container probe remain explicit', async 
   assert.match(builder, /const executionImage = \(image\)/u);
   assert.match(builder, /localId === image\.digest \? localId :/u);
   assert.match(builder, /const prefetchImage = executionImage\(imageRefs\[0\]\)/u);
-  assert.match(probe, /gateway-projection-http\.js/u);
+  assert.match(probe, /context-rpc-http\.js/u);
   assert.match(probe, /gatewayHttpLiveness: true/u);
   assert.match(probe, /providerWireCertified: false/u);
 });

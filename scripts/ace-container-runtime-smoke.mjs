@@ -42,13 +42,13 @@ const quote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
 try {
   // Import the compiled HTTP owner instead of the retired stdin bridge.
   const loaded = run('docker', ['run', '--rm', '--entrypoint', 'node', '-v', mount, image,
-    '-e', 'import("file:///ace/dist/transport/gateway-projection-http.js").then(() => process.stdout.write("gateway_import=READY\\n"))',
+    '-e', 'import("file:///ace/dist/transport/context-rpc-http.js").then(() => process.stdout.write("gateway_import=READY\\n"))',
   ]);
   if (!loaded.includes('gateway_import=READY')) throw new Error('compiled Gateway transport could not be imported');
   const qdrantProbe = run('docker', ['run', '--rm', '--network', 'host', '--entrypoint', 'node', '-v', mount, image,
     '-e', `fetch(${JSON.stringify(`${qdrantUrl.replace(/\/$/u, '')}/collections`)}).then((response) => { if (!response.ok) process.exit(2); })`,
   ]);
-  const healthCheck = `fetch("http://127.0.0.1:8765/internal/ace-gateway/v2/health", { headers: { authorization: "Bearer ace-container-smoke-secret" } }).then(async (r) => {
+  const healthCheck = `fetch("http://127.0.0.1:8765/internal/ace-context/v3/health", { headers: { authorization: "Bearer ace-container-smoke-secret" } }).then(async (r) => {
     const body = await r.json();
     if (r.status !== 200 || body.providerWire !== "not_certified") process.exit(1);
     process.stdout.write("gateway_health=READY\\n");
@@ -57,7 +57,7 @@ try {
     'set -eu',
     'mkdir -p /tmp/ace-gateway-smoke',
     'printf "export const aceSmoke = 1;\\n" > /tmp/ace-gateway-smoke/smoke.ts',
-    'node /ace/dist/bin/ace-gateway-http.js >/tmp/ace-gateway-smoke.log 2>&1 & child=$!',
+    'node /ace/dist/bin/ace-context-rpc.js >/tmp/ace-gateway-smoke.log 2>&1 & child=$!',
     'trap "kill $child 2>/dev/null || :" EXIT',
     `i=0; until node -e ${quote(healthCheck)}; do i=$((i+1)); if [ "$i" -ge 40 ]; then cat /tmp/ace-gateway-smoke.log >&2; exit 1; fi; sleep 0.2; done`,
   ].join('; ');
@@ -66,7 +66,7 @@ try {
     '-e', 'ACE_ALLOWED_ROOTS=/tmp/ace-gateway-smoke',
     '-e', 'ACE_STATE_DIR=/tmp/ace-gateway-state',
     '-e', 'ACE_RUNTIME_ROOT=/ace',
-    '-e', 'ACE_GATEWAY_HTTP_SHARED_SECRET=ace-container-smoke-secret',
+    '-e', 'ACE_CONTEXT_RPC_SHARED_SECRET=ace-container-smoke-secret',
     '-e', 'ACE_ENABLE_EXPERIMENTAL_QDRANT=false',
     '--entrypoint', 'sh', image, '-lc', shell,
   ]);

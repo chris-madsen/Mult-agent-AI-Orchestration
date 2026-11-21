@@ -7,7 +7,7 @@ test('pinned Bifröst ACE plugin requires per-attempt native Responses authoriza
   const plugin = await readFile('integrations/bifrost/ace-connector/plugin/main.go', 'utf8');
   const workflow = await readFile('.github/workflows/ace-contracts.yml', 'utf8');
   assert.match(script, /BIFROST_COMMIT:=72f03b4b0d4a93b08e9fc0e5ebfe3447248af2a0/u);
-  assert.match(script, /OUTPUT:=\$temp_root\/ace-gateway-projection\.so/u);
+  assert.match(script, /OUTPUT:=\$temp_root\/ace-bifrost-context\.so/u);
   assert.match(script, /mktemp -d "\$temp_root\/ace-bifrost-plugin\./u);
   assert.match(script, /status --porcelain --untracked-files=all/u);
   assert.match(script, /Bifrost source checkout must be clean/u);
@@ -41,7 +41,7 @@ test('pinned Bifröst ACE plugin requires per-attempt native Responses authoriza
   assert.match(plugin, /ExpectedProvider: binding\.provider, ExpectedModel: binding\.model/u);
   assert.match(plugin, /Do not decide a route-changing fallback from normalized request fields here/u);
   assert.match(plugin, /ctx\.TrustedValue\(projectionBindingKey\{\}\)/u);
-  assert.match(plugin, /ACE Gateway endpoint is unsupported/u);
+  assert.match(plugin, /Bifröst native Responses route is unsupported by the ACE context extension/u);
   assert.match(plugin, /func PreLLMHook\(/u);
   assert.match(plugin, /req\.PassthroughRequest/u);
   assert.match(plugin, /p\.UpstreamURL != chatGPTProviderOrigin/u);
@@ -54,7 +54,7 @@ test('pinned Bifröst ACE plugin requires per-attempt native Responses authoriza
 
   assert.doesNotMatch(plugin, /projectionClient\.Project\(/u);
   assert.doesNotMatch(plugin, /context\.Background\(\)/u);
-  assert.doesNotMatch(plugin, /ACE_GATEWAY_STRICT/u);
+  assert.doesNotMatch(plugin, /ACE_CONTEXT_STRICT/u);
 });
 
 test('native plugin retains truthful request-bound identity helpers', async () => {

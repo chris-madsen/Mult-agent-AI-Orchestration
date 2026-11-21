@@ -82,7 +82,7 @@ import {
 import { knownLspServers, selectInstalledLspServersForPaths } from '../application/lsp/claw-discovery.js';
 import { makeRoutedLspSession, resolvedLspProviderLabel } from '../application/lsp/routed-semantic.js';
 import { makeResponsesProjectionService } from '../application/responses-projection-service.js';
-import { runGatewayProjectionHttp } from '../transport/gateway-projection-http.js';
+import { runContextRpcHttp } from '../transport/context-rpc-http.js';
 
 const required = (name: string): string => {
   const value = process.env[name];
@@ -1180,31 +1180,31 @@ const main = async (): Promise<void> => {
     readiness.unified_context = { state: 'not_ready', reason: 'real_provider_disabled' };
     process.stderr.write('ace-runtime context NOT_READY: enable ACE_ENABLE_EXPERIMENTAL_QDRANT=true for the real local Qdrant+FastEmbed+Codebase Memory+LSP composition; provider outage remains not_ready\n');
   }
-  const gatewayAllowedLlmProviders = configuredStringArray('ACE_GATEWAY_ALLOWED_LLM_PROVIDERS_JSON', [])
+  const gatewayAllowedLlmProviders = configuredStringArray('ACE_CONTEXT_ALLOWED_LLM_PROVIDERS_JSON', [])
     .map((provider) => provider.trim().toLowerCase())
     .filter((provider) => provider.length > 0);
-  const gatewayAllowedLlmDestinations = configuredStringArray('ACE_GATEWAY_ALLOWED_LLM_DESTINATIONS_JSON', [])
+  const gatewayAllowedLlmDestinations = configuredStringArray('ACE_CONTEXT_ALLOWED_LLM_DESTINATIONS_JSON', [])
     .map((destination) => destination.trim())
     .filter((destination) => destination.length > 0);
-  const gatewayAllowedLlmModelsByProvider = configuredStringArrayMap('ACE_GATEWAY_ALLOWED_LLM_MODELS_BY_PROVIDER_JSON');
-  const gatewayAllowedLlmStreamingRoutes = configuredNativeResponsesStreamingRoutes('ACE_GATEWAY_ALLOWED_LLM_STREAMING_ROUTES_JSON');
+  const gatewayAllowedLlmModelsByProvider = configuredStringArrayMap('ACE_CONTEXT_ALLOWED_LLM_MODELS_BY_PROVIDER_JSON');
+  const gatewayAllowedLlmStreamingRoutes = configuredNativeResponsesStreamingRoutes('ACE_CONTEXT_ALLOWED_LLM_STREAMING_ROUTES_JSON');
   for (const route of gatewayAllowedLlmStreamingRoutes) {
     if (!gatewayAllowedLlmProviders.includes(route.provider)
       || !(gatewayAllowedLlmModelsByProvider[route.provider] ?? []).includes(route.model)
       || !gatewayAllowedLlmDestinations.includes(route.destination)) {
-      throw new Error('ACE_GATEWAY_ALLOWED_LLM_STREAMING_ROUTES_JSON must be a subset of the provider, model, and destination allowlists');
+      throw new Error('ACE_CONTEXT_ALLOWED_LLM_STREAMING_ROUTES_JSON must be a subset of the provider, model, and destination allowlists');
     }
   }
-  const configuredGatewayDataClasses = configuredStringArray('ACE_GATEWAY_ALLOWED_LLM_DATA_CLASSES_JSON', [])
+  const configuredGatewayDataClasses = configuredStringArray('ACE_CONTEXT_ALLOWED_LLM_DATA_CLASSES_JSON', [])
     .map((dataClass) => dataClass.trim());
   const allowedGatewayDataClasses = new Set<Exclude<DataClass, 'secret'>>([
     'private_source', 'private_conversation', 'project_document', 'public',
   ]);
   if (configuredGatewayDataClasses.some((dataClass) => !allowedGatewayDataClasses.has(dataClass as Exclude<DataClass, 'secret'>))) {
-    throw new Error('ACE_GATEWAY_ALLOWED_LLM_DATA_CLASSES_JSON contains an unsupported or secret data class');
+    throw new Error('ACE_CONTEXT_ALLOWED_LLM_DATA_CLASSES_JSON contains an unsupported or secret data class');
   }
   const gatewayAllowedLlmDataClasses = [...new Set(configuredGatewayDataClasses)] as Exclude<DataClass, 'secret'>[];
-  const gatewayExternalLlmOptIn = process.env.ACE_GATEWAY_EXTERNAL_LLM_OPT_IN === 'true';
+  const gatewayExternalLlmOptIn = process.env.ACE_CONTEXT_EXTERNAL_LLM_OPT_IN === 'true';
   const gatewayPolicy = {
     ...defaultLocalPolicy(registered.value.workspaceId),
     cloudOptIn: gatewayExternalLlmOptIn,
@@ -1252,7 +1252,7 @@ const main = async (): Promise<void> => {
   try {
     const projection = makeResponsesProjectionService(contextProvider, gatewaySecurity);
     const attemptAuthorization = makeGatewayAttemptAuthorizationService(gatewaySecurity);
-    await runGatewayProjectionHttp({
+    await runContextRpcHttp({
       projectResponses: projection.projectResponses,
       authorizePhysicalSend: attemptAuthorization.authorizePhysicalSend,
     });

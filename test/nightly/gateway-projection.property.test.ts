@@ -15,11 +15,11 @@ const attestation = (): Record<string, unknown> => ({
 const validRequest = (): Record<string, unknown> => {
   const bodyBase64 = Buffer.from(JSON.stringify({ model: 'fixture-model', store: false, input: 'fixture query' }), 'utf8').toString('base64');
   return {
-    schemaVersion: 'ace.gateway.v2', protocol: 'openai.responses', requestId: 'nightly-request',
+    schemaVersion: 'ace.context.v3', protocol: 'openai.responses', requestId: 'nightly-request',
     attemptGroupId: 'nightly-attempt', agentSessionId: 'nightly-session', workspaceId: 'nightly-workspace',
     dataClass: 'private', provider: 'fixture-provider', model: 'fixture-model', bodyBase64,
     bodySha256: createHash('sha256').update(Buffer.from(bodyBase64, 'base64')).digest('hex'),
-    query: 'fixture query', projectionMode: 'gateway', deadlineEpochMs: Date.now() + 60_000,
+    query: 'fixture query', projectionMode: 'bifrost_hook', deadlineEpochMs: Date.now() + 60_000,
     attestation: attestation(),
   };
 };

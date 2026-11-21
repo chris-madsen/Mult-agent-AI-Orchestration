@@ -466,7 +466,7 @@ test('feedback collector signature-checks final-wire bytes but leaves missing He
       }));
       if (arm === 'ace') {
         await writeFile(join(trial, 'agent', 'ace-responses-projection.jsonl'), `${JSON.stringify({
-          schemaVersion: 'ace.gateway.v2',
+          schemaVersion: 'ace.context.v3',
           requestId: gatewayRequestId,
           kind: 'PREPARED',
           baseBodySha256: 'a'.repeat(64),

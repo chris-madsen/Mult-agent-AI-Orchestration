@@ -14,10 +14,10 @@ test('ACE image requires an operator-supplied pinned base and contains pinned lo
 });
 
 
-test('Gateway-only deployment never falls back to a retired kubectl tool launcher', async () => {
+test('Bifröst-only deployment never falls back to a retired kubectl tool launcher', async () => {
   await assert.rejects(readFile('infra/k8s/ace-local/ace-' + String.fromCharCode(109, 99, 112) + '.yaml', 'utf8'), { code: 'ENOENT' });
   await assert.rejects(readFile('scripts/kubectl-ace-' + String.fromCharCode(109, 99, 112) + '.sh', 'utf8'), { code: 'ENOENT' });
-  const http = await readFile('src/transport/gateway-projection-http.ts', 'utf8');
-  assert.match(http, /isLoopbackGatewayHttpHost/u);
-  assert.match(http, /ACE_GATEWAY_HTTP_HOST/u);
+  const http = await readFile('src/transport/context-rpc-http.ts', 'utf8');
+  assert.match(http, /isLoopbackContextRpcHost/u);
+  assert.match(http, /ACE_CONTEXT_RPC_HOST/u);
 });

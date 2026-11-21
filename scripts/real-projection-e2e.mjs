@@ -62,17 +62,17 @@ const child = spawnRealProviderProcess(process.execPath, [runtime.executable], {
     ACE_QDRANT_URL: outage ? 'http://127.0.0.1:6339' : qdrantUrl,
     ACE_EMBEDDING_WORKER: process.env.ACE_EMBEDDING_WORKER ?? runtime.embeddingWorker,
     ACE_AST_GREP_COMMAND: process.env.ACE_AST_GREP_COMMAND ?? runtime.astGrepCommand,
-    ACE_GATEWAY_HTTP_HOST: '127.0.0.1',
-    ACE_GATEWAY_HTTP_PORT: String(gatewayPort),
-    ACE_GATEWAY_HTTP_SHARED_SECRET: 'real-provider-fixture-secret',
-    ACE_GATEWAY_EXTERNAL_LLM_OPT_IN: 'true',
-    ACE_GATEWAY_ALLOWED_LLM_PROVIDERS_JSON: '["mock"]',
+    ACE_CONTEXT_RPC_HOST: '127.0.0.1',
+    ACE_CONTEXT_RPC_PORT: String(gatewayPort),
+    ACE_CONTEXT_RPC_SHARED_SECRET: 'real-provider-fixture-secret',
+    ACE_CONTEXT_EXTERNAL_LLM_OPT_IN: 'true',
+    ACE_CONTEXT_ALLOWED_LLM_PROVIDERS_JSON: '["mock"]',
     ...(race ? { ACE_ENABLE_TEST_FAILPOINTS: 'true', ACE_EMBEDDING_DELAY_MS: '1000' } : {}),
   },
   stdio: ['ignore', 'ignore', 'pipe'],
 });
 let startupLog = '';
-const endpoint = `http://127.0.0.1:${gatewayPort}/internal/ace-gateway/v2`;
+const endpoint = `http://127.0.0.1:${gatewayPort}/internal/ace-context/v3`;
 const timeout = (ms) => AbortSignal.timeout(ms);
 try {
   await new Promise((resolve, reject) => {
@@ -86,7 +86,7 @@ try {
     const timer = setTimeout(() => settle(new Error('Gateway startup timed out: ' + startupLog.slice(-3000))), maxWait);
     child.stderr.on('data', (chunk) => {
       startupLog += chunk.toString('utf8');
-      if (startupLog.includes('ace-gateway-http listening')) settle();
+      if (startupLog.includes('ace-context-rpc listening')) settle();
     });
     child.once('exit', (code) => settle(new Error('Gateway exited before listening: ' + code + ': ' + startupLog.slice(-3000))));
     child.once('error', settle);
@@ -107,12 +107,12 @@ try {
   const bodyBase64 = bodyBytes.toString('base64');
   const sessionId = 'real-projection-session';
   const payload = {
-    schemaVersion: 'ace.gateway.v2', protocol: 'openai.responses', requestId: 'responses-projection-' + randomUUID(),
+    schemaVersion: 'ace.context.v3', protocol: 'openai.responses', requestId: 'responses-projection-' + randomUUID(),
     attemptGroupId: 'turn-1', agentSessionId: sessionId, workspaceId,
     dataClass: 'private', provider: 'mock', model: 'test-model',
     bodyBase64, bodySha256: digest(bodyBytes),
     query: 'Find retryAfterTransientFailure and its definition.',
-    projectionMode: 'gateway', deadlineEpochMs: Date.now() + maxWait,
+    projectionMode: 'bifrost_hook', deadlineEpochMs: Date.now() + maxWait,
     attestation: {
       hostBuildDigest: digest('host'), sessionId, activeEngineId: 'bifrost-visible-request-only',
       effectiveCompressionControlsDigest: digest('controls'),

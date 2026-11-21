@@ -65,7 +65,7 @@ The TypeScript + Effect modular monolith now implements substantial slices acros
   Harbor/third-party contracts are verified;
 - local lexical candidate retrieval retained for controlled experiments, not
   a substitute for production hybrid context;
-- an experimental local Gateway projection path using native Codebase Memory v0.12.1 for AST, graph and semantic/BM25 discovery; Qdrant still performs dense/sparse retrieval and native RRF, with optional reranking and external LSP verification (TypeScript Language Server default); exact source rechecks and receipt/delta delivery are implemented;
+- an experimental ACE context projection extension behind the Bifröst Gateway using native Codebase Memory v0.12.1 for AST, graph and semantic/BM25 discovery; Qdrant still performs dense/sparse retrieval and native RRF, with optional reranking and external LSP verification (TypeScript Language Server default); exact source rechecks and receipt/delta delivery are implemented;
   see `docs/reviews/2026-10-19-real-provider-e2e.md` for earlier exploratory
   evidence, not an approval of the latest code;
 - immutable content-addressed archive, replay/tombstones and memory lifecycle mechanisms remain in the codebase; **Gateway-native Graphiti is NOT configured**: `ACE_ENABLE_GRAPHITI=true` fails startup intentionally in `src/bin/ace-runtime.ts`. Do not claim full memory retrieval/readiness;
@@ -78,14 +78,14 @@ The TypeScript + Effect modular monolith now implements substantial slices acros
   evidence hashes and explicit unknown measurements.
 - typed Qdrant/Vertex/Graphiti/Jev HTTP boundaries and a Harbor CLI runner with
   policy-gated requests, response validation and retained failed-run evidence.
-- TypeSpec-generated `ace.gateway.v2` native Responses projection/ownership contracts, deterministic
+- TypeSpec-generated `ace.context.v3` native Responses projection/ownership contracts, deterministic
   request-local projection tests, a host-compaction ownership guard, an
   isolated Go connector and a pinned Bifrost mock-provider wire proof; real
   external-provider, agent-E2E and production gates remain separate.
 
-Before enabling Gateway projection, configure a shared high-entropy secret in the ACE process (`ACE_GATEWAY_HTTP_SHARED_SECRET`) and the Bifröst plugin (`ACE_GATEWAY_PROJECTION_TOKEN`). Without it the projection POST endpoint returns `NOT_READY` (503); callers without the correct Bearer token receive 401. Model egress remains separately blocked until final-send authorization is certified. The local projector requires explicit provider policy before preparing private source context; that policy is not a send permit. Bifröst-visible request binding does not imply coding-host transcript/compaction attestation.
+Before enabling Gateway projection, configure a shared high-entropy secret in the ACE process (`ACE_CONTEXT_RPC_SHARED_SECRET`) and the Bifröst plugin (`ACE_CONTEXT_RPC_TOKEN`). Without it the projection POST endpoint returns `NOT_READY` (503); callers without the correct Bearer token receive 401. Model egress remains separately blocked until final-send authorization is certified. The local projector requires explicit provider policy before preparing private source context; that policy is not a send permit. Bifröst-visible request binding does not imply coding-host transcript/compaction attestation.
 
-For the internal ACE context service, run `ACE_WORKSPACE_ROOT=/path/to/repo npm run gateway:http` and configure Hermes to use **Bifröst's existing** `/chatgpt_passthrough` base route; Bifröst calls the authenticated ACE local `ace.gateway.v2` context service. This local service is **not** another model Gateway. See [ChatGPT subscription runbook](docs/operations/gateway-subscription-oauth.md).
+For the internal ACE context service, run `ACE_WORKSPACE_ROOT=/path/to/repo npm run context:rpc` and configure Hermes to use **Bifröst's existing** `/chatgpt_passthrough` base route; Bifröst calls the authenticated ACE local `ace.context.v3` context service. This local service is **not** another model Gateway. See [ChatGPT subscription runbook](docs/operations/gateway-subscription-oauth.md).
 Without the real retrieval provider it exposes an honest `not_ready` status,
 not a simulated production search. For the **experimental** local retrieval
 path, forward the local k3s Qdrant port and configure:
@@ -115,7 +115,7 @@ Vertex documentation requires `ACE_ENABLE_VERTEX=true` **and**
 Permission covers the `project_document` class only; secret-like queries are
 denied before HTTP.
 
-With local Qdrant, pinned CBM and embedding workers installed, `npm run test:real-projection` runs the real **Gateway HTTP projection** against a local workspace. `npm run test:real-projection-race`, `npm run test:real-projection-outage` and `npm run test:real-projection-hard-outage` exercise changed-source and provider failure paths. These are local integration tests, not Bifröst final-provider egress or Hermes task acceptance.
+With local Qdrant, pinned CBM and embedding workers installed, `npm run test:real-projection` runs the real **ACE context RPC projection** against a local workspace. `npm run test:real-projection-race`, `npm run test:real-projection-outage` and `npm run test:real-projection-hard-outage` exercise changed-source and provider failure paths. These are local integration tests, not Bifröst final-provider egress or Hermes task acceptance.
 
 `npm run test:memory-process` tests immutable archive identity and
 cross-process safety. `npm run test:real-same-name` checks structural

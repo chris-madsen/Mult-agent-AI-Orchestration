@@ -58,7 +58,7 @@ const writeTrial = (
   }));
   if (projectionRequestId !== undefined) {
     writeFileSync(join(directory, 'agent', 'ace-responses-projection.jsonl'), `${JSON.stringify({
-      schemaVersion: 'ace.gateway.v2',
+      schemaVersion: 'ace.context.v3',
       requestId: projectionRequestId,
       decision: { kind: 'PREPARED' },
       baseBodySha256: digest('6'),

@@ -16,7 +16,7 @@ func TestNativeResponsesV2ProjectionPreservesFunctionCallAndReasoning(t *testing
 	original := []byte(`{"model":"openai/gpt-test","store":false,"stream":true,"reasoning":{"effort":"high"},"tools":[{"type":"function","name":"read_file"}],"input":[{"role":"user","content":"find handler"},{"type":"reasoning","id":"r1","encrypted_content":"opaque"},{"type":"function_call","call_id":"call_1","name":"read_file","arguments":"{}"},{"type":"function_call_output","call_id":"call_1","output":"handler found"}]}`)
 	projected := []byte(`{"model":"openai/gpt-test","store":false,"stream":true,"reasoning":{"effort":"high"},"tools":[{"type":"function","name":"read_file"}],"input":[{"role":"developer","content":"Untrusted source.\n[ACE verified context]\nsrc/main.ts:12\n[/ACE verified context]"},{"role":"user","content":"find handler"},{"type":"reasoning","id":"r1","encrypted_content":"opaque"},{"type":"function_call","call_id":"call_1","name":"read_file","arguments":"{}"},{"type":"function_call_output","call_id":"call_1","output":"handler found"}]}`)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/internal/ace-gateway/v2/project" || r.Header.Get("Authorization") != "Bearer native-test" {
+		if r.URL.Path != "/internal/ace-context/v3/project" || r.Header.Get("Authorization") != "Bearer native-test" {
 			t.Errorf("request must use authenticated native v2 route")
 			w.WriteHeader(401)
 			return
@@ -31,7 +31,7 @@ func TestNativeResponsesV2ProjectionPreservesFunctionCallAndReasoning(t *testing
 		_ = json.Unmarshal(envelope["protocol"], &protocol)
 		_ = json.Unmarshal(envelope["schemaVersion"], &schema)
 		_ = json.Unmarshal(envelope["bodyBase64"], &received)
-		if protocol != "openai.responses" || schema != "ace.gateway.v2" || received != base64.StdEncoding.EncodeToString(original) {
+		if protocol != "openai.responses" || schema != "ace.context.v3" || received != base64.StdEncoding.EncodeToString(original) {
 			t.Error("v2 request must bind untouched native provider input")
 			w.WriteHeader(409)
 			return
@@ -44,7 +44,7 @@ func TestNativeResponsesV2ProjectionPreservesFunctionCallAndReasoning(t *testing
 		_ = json.NewEncoder(w).Encode(decision)
 	}))
 	defer server.Close()
-	client := Client{Endpoint: server.URL + "/internal/ace-gateway/v2/project", AuthToken: "native-test"}
+	client := Client{Endpoint: server.URL + "/internal/ace-context/v3/project", AuthToken: "native-test"}
 	decision, validatedBody, err := client.ProjectNativeResponsesAndApply(context.Background(), ResponsesV2Request{
 		RequestID: "request-1", AttemptGroupID: "attempt-1", AgentSessionID: "session-1",
 		WorkspaceID: "workspace-1", Provider: "openai", Model: "openai/gpt-test",
@@ -104,7 +104,7 @@ func TestNativeProjectionBlockIsDeterministicNotTransportOutage(t *testing.T) {
         })
     }))
     defer server.Close()
-    client := Client{Endpoint: server.URL + "/internal/ace-gateway/v2/project", AuthToken:"test"}
+    client := Client{Endpoint: server.URL + "/internal/ace-context/v3/project", AuthToken:"test"}
     _, _, err := client.ProjectNativeResponsesAndApply(context.Background(), ResponsesV2Request{
         RequestID:"r",AttemptGroupID:"g",AgentSessionID:"s",
         WorkspaceID:"w",Provider:"openai",Model:"openai/gpt-test",DataClass:"private",
@@ -147,7 +147,7 @@ func TestNoAdditionProjectionRequiresByteExactStatelessBody(t *testing.T) {
 }
 
 func TestNativeResponsesV2ProjectionRejectsOutboundURLBeforeHTTP(t *testing.T) {
-	c := Client{Endpoint: "https://example.com/internal/ace-gateway/v2/project", AuthToken: "token", HTTPClient: &http.Client{Transport: unexpectedRoundTripper{}}}
+	c := Client{Endpoint: "https://example.com/internal/ace-context/v3/project", AuthToken: "token", HTTPClient: &http.Client{Transport: unexpectedRoundTripper{}}}
 	_, err := c.ProjectNativeResponses(context.Background(), ResponsesV2Request{})
 	if err == nil {
 		t.Fatal("must reject nonloopback before any network")

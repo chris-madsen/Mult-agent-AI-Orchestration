@@ -130,7 +130,7 @@ func TestNativeResponsesProjectionRejectsLateMutationAndCapturesMockFinalWire(t 
 			t.Errorf("ACE local request did not carry the configured connector credential")
 		}
 		switch r.URL.Path {
-		case "/internal/ace-gateway/v2/project":
+		case "/internal/ace-context/v3/project":
 			var envelope struct {
 				Model      string `json:"model"`
 				BodyBase64 string `json:"bodyBase64"`
@@ -157,7 +157,7 @@ func TestNativeResponsesProjectionRejectsLateMutationAndCapturesMockFinalWire(t 
 				BodyBase64:          base64.StdEncoding.EncodeToString(projected),
 				ProjectionReceipt:   "test-signed-projection-receipt", ReasonCode: "VERIFIED_CONTEXT_ADDED",
 			})
-		case "/internal/ace-gateway/v2/authorize-attempt":
+		case "/internal/ace-context/v3/authorize-attempt":
 			var attempt connector.PhysicalSendV2Request
 			if err := json.NewDecoder(r.Body).Decode(&attempt); err != nil {
 				t.Errorf("decode physical-send attempt: %v", err)
@@ -184,7 +184,7 @@ func TestNativeResponsesProjectionRejectsLateMutationAndCapturesMockFinalWire(t 
 
 	oldClient, oldWorkspace := projectionClient, defaultWorkspaceID
 	projectionClient = connector.Client{
-		Endpoint:  server.URL + "/internal/ace-gateway/v2/project",
+		Endpoint:  server.URL + "/internal/ace-context/v3/project",
 		AuthToken: "local-token", MaxBodyBytes: connector.DefaultMaxBodyBytes,
 	}
 	defaultWorkspaceID = "workspace-1"
@@ -546,6 +546,36 @@ func TestInitRejectsMissingBifrostBuildProvenance(t *testing.T) {
 }
 
 
+
+func TestInitValidatesContextV3URLAndRejectsStaleConfigAtStartup(t *testing.T) {
+	originalACE, originalBifrost := aceSourceCommit, aceBifrostCommit
+	originalClient, originalWorkspace := projectionClient, defaultWorkspaceID
+	t.Cleanup(func() {
+		aceSourceCommit, aceBifrostCommit = originalACE, originalBifrost
+		projectionClient, defaultWorkspaceID = originalClient, originalWorkspace
+	})
+	aceSourceCommit, aceBifrostCommit = strings.Repeat("a", 40), strings.Repeat("b", 40)
+	t.Setenv("ACE_CONTEXT_RPC_URL", "http://127.0.0.1:8765/internal/ace-context/v3/project")
+	t.Setenv("ACE_CONTEXT_RPC_TOKEN", "test-local-secret")
+	t.Setenv("ACE_BIFROST_TENANCY_MODE", "single-workspace")
+	t.Setenv("ACE_BIFROST_WORKSPACE_ID", "test-workspace")
+	if err := Init(map[string]any{"responses_projection_url": "http://127.0.0.1:8765/internal/ace" + "-gateway/v2/project"}); err == nil {
+		t.Fatal("obsolete configuration key must fail closed even when the environment URL is valid")
+	}
+	for _, url := range []string{
+		"http://127.0.0.1:8765/internal/ace" + "-gateway/v2/project",
+		"https://example.com/internal/ace-context/v3/project",
+		"http://127.0.0.1:8765/internal/ace-context/v3/project?bad=1",
+	} {
+		if err := Init(map[string]any{"context_rpc_url": url}); err == nil {
+			t.Fatalf("plugin must reject incompatible endpoint %q at startup", url)
+		}
+	}
+	if err := Init(map[string]any{"context_rpc_url": "http://127.0.0.1:8765/internal/ace-context/v3/project"}); err != nil {
+		t.Fatalf("valid co-located ACE v3 sidecar must be accepted: %v", err)
+	}
+}
+
 func TestChatGPTSubscriptionPassthroughUsesExistingNativePluginAndTerminalGuard(t *testing.T) {
 	model := "gpt-5.6-sol"
 	original := []byte(`{"model":"gpt-5.6-sol","store":false,"stream":false,"input":[{"role":"user","content":"find entrypoint"}]}`)
@@ -556,7 +586,7 @@ func TestChatGPTSubscriptionPassthroughUsesExistingNativePluginAndTerminalGuard(
 			t.Errorf("internal ACE connection lost its connector authentication")
 		}
 		switch r.URL.Path {
-		case "/internal/ace-gateway/v2/project":
+		case "/internal/ace-context/v3/project":
 			var request struct {
 				Provider   string `json:"provider"`
 				Model      string `json:"model"`
@@ -575,7 +605,7 @@ func TestChatGPTSubscriptionPassthroughUsesExistingNativePluginAndTerminalGuard(
 				BodyBase64: base64.StdEncoding.EncodeToString(projected),
 				ProjectionReceipt: "synthetic-signed-receipt", ReasonCode: "VERIFIED_CONTEXT_ADDED",
 			})
-		case "/internal/ace-gateway/v2/authorize-attempt":
+		case "/internal/ace-context/v3/authorize-attempt":
 			var attempt connector.PhysicalSendV2Request
 			if err := json.NewDecoder(r.Body).Decode(&attempt); err != nil {
 				t.Errorf("decode physical attempt: %v", err)
@@ -603,7 +633,7 @@ func TestChatGPTSubscriptionPassthroughUsesExistingNativePluginAndTerminalGuard(
 	defer server.Close()
 	oldClient, oldWorkspace := projectionClient, defaultWorkspaceID
 	projectionClient = connector.Client{
-		Endpoint: server.URL + "/internal/ace-gateway/v2/project",
+		Endpoint: server.URL + "/internal/ace-context/v3/project",
 		AuthToken: "local-connector-secret", MaxBodyBytes: connector.DefaultMaxBodyBytes,
 	}
 	defaultWorkspaceID = "single-workspace"

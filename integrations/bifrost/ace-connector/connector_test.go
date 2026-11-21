@@ -49,10 +49,10 @@ func (unexpectedRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
 
 func TestValidateLoopbackEndpoint(t *testing.T) {
 	for _, endpoint := range []string{
-		"http://127.0.0.1:8765/internal/ace-gateway/v2/project",
-		"https://127.10.20.30:8765/internal/ace-gateway/v2/project",
-		"http://[::1]:8765/internal/ace-gateway/v2/project",
-		"http://localhost:8765/internal/ace-gateway/v2/project",
+		"http://127.0.0.1:8765/internal/ace-context/v3/project",
+		"https://127.10.20.30:8765/internal/ace-context/v3/project",
+		"http://[::1]:8765/internal/ace-context/v3/project",
+		"http://localhost:8765/internal/ace-context/v3/project",
 	} {
 		if err := validateLoopbackEndpoint(endpoint); err != nil {
 			t.Errorf("expected loopback endpoint %q to pass: %v", endpoint, err)
@@ -69,6 +69,33 @@ func TestValidateLoopbackEndpoint(t *testing.T) {
 	} {
 		if err := validateLoopbackEndpoint(endpoint); err == nil {
 			t.Errorf("expected endpoint %q to be rejected", endpoint)
+		}
+	}
+}
+
+
+func TestValidateContextRPCProjectEndpointRejectsObsoleteOrRemoteContracts(t *testing.T) {
+	valid := []string{
+		"http://127.0.0.1:8765/internal/ace-context/v3/project",
+		"http://[::1]:8765/internal/ace-context/v3/project",
+		"http://localhost:8765/internal/ace-context/v3/project",
+	}
+	for _, endpoint := range valid {
+		if err := ValidateContextRPCProjectEndpoint(endpoint); err != nil {
+			t.Errorf("valid internal context RPC %q rejected: %v", endpoint, err)
+		}
+	}
+	bad := []string{
+		"http://127.0.0.1:8765/internal/ace" + "-gateway/v2/project",
+		"http://127.0.0.1:8765/internal/ace-context/v3/authorize-attempt",
+		"http://127.0.0.1:8765/internal/ace-context/v3/project?debug=true",
+		"http://127.0.0.1:8765/internal/ace-context/v3/project?",
+		"http://127.0.0.1:8765/internal/ace-context/v3/%70roject",
+		"https://example.com/internal/ace-context/v3/project",
+	}
+	for _, endpoint := range bad {
+		if err := ValidateContextRPCProjectEndpoint(endpoint); err == nil {
+			t.Errorf("invalid internal context RPC %q accepted", endpoint)
 		}
 	}
 }
@@ -92,7 +119,7 @@ func TestProjectNativeResponsesRefusesRedirect(t *testing.T) {
 		Body:        []byte(`{"model":"openai/gpt-test","store":false,"input":"question"}`),
 		Attestation: validHostAttestation(t, 0),
 	}
-	client := Client{Endpoint: redirector.URL + "/internal/ace-gateway/v2/project", AuthToken: "token"}
+	client := Client{Endpoint: redirector.URL + "/internal/ace-context/v3/project", AuthToken: "token"}
 	if _, err := client.ProjectNativeResponses(context.Background(), request); err == nil {
 		t.Fatal("native projection must refuse redirects")
 	}
@@ -152,7 +179,7 @@ func TestPhysicalSendAuthorizationBindsExactWireAndPreparedSemantics(t *testing.
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
-		if r.URL.Path != "/internal/ace-gateway/v2/authorize-attempt" {
+		if r.URL.Path != "/internal/ace-context/v3/authorize-attempt" {
 			t.Errorf("unexpected authorization path %q", r.URL.Path)
 		}
 		if r.Header.Get("Authorization") != "Bearer local-token" {
@@ -182,7 +209,7 @@ func TestPhysicalSendAuthorizationBindsExactWireAndPreparedSemantics(t *testing.
 	defer server.Close()
 
 	request := PhysicalSendV2Request{
-		SchemaVersion: "ace.gateway.v2", RequestID: "ace-" + strings.Repeat("a", 32),
+		SchemaVersion: "ace.context.v3", RequestID: "ace-" + strings.Repeat("a", 32),
 		AttemptGroupID: "ace-" + strings.Repeat("a", 32), AgentSessionID: "session-1",
 		WorkspaceID: "workspace-1", DataClass: "private", Provider: "openai", Model: "gpt-test",
 		AttemptID: "bf-attempt-" + strings.Repeat("b", 32), Method: http.MethodPost,
@@ -190,7 +217,7 @@ func TestPhysicalSendAuthorizationBindsExactWireAndPreparedSemantics(t *testing.
 		PreparedBodySHA256: digest(prepared), PreparedBodySemanticSHA256: semanticDigest,
 		ProjectionReceipt: "signed-receipt", DeadlineEpochMs: time.Now().Add(30 * time.Second).UnixMilli(),
 	}
-	client := Client{Endpoint: server.URL + "/internal/ace-gateway/v2/project", AuthToken: "local-token"}
+	client := Client{Endpoint: server.URL + "/internal/ace-context/v3/project", AuthToken: "local-token"}
 	decision, err := client.AuthorizeNativeResponsesAttempt(context.Background(), request)
 	if err != nil {
 		t.Fatalf("expected exact, semantically unchanged wire request to authorize: %v", err)
@@ -250,7 +277,7 @@ func TestPhysicalSendRouteChangeIsAuditedAndCannotBeAllowed(t *testing.T) {
 	defer server.Close()
 
 	request := PhysicalSendV2Request{
-		SchemaVersion: "ace.gateway.v2", RequestID: "ace-" + strings.Repeat("a", 32),
+		SchemaVersion: "ace.context.v3", RequestID: "ace-" + strings.Repeat("a", 32),
 		AttemptGroupID: "ace-" + strings.Repeat("a", 32), AgentSessionID: "session-1",
 		WorkspaceID: "workspace-1", DataClass: "private", Provider: "azure", Model: "azure/different-model",
 		ExpectedProvider: "openai", ExpectedModel: "gpt-test",
@@ -259,7 +286,7 @@ func TestPhysicalSendRouteChangeIsAuditedAndCannotBeAllowed(t *testing.T) {
 		PreparedBodySHA256: digest(prepared), PreparedBodySemanticSHA256: semanticDigest,
 		ProjectionReceipt: "signed-receipt", DeadlineEpochMs: time.Now().Add(30 * time.Second).UnixMilli(),
 	}
-	client := Client{Endpoint: server.URL + "/internal/ace-gateway/v2/project", AuthToken: "local-token"}
+	client := Client{Endpoint: server.URL + "/internal/ace-context/v3/project", AuthToken: "local-token"}
 	decision, err := client.AuthorizeNativeResponsesAttempt(context.Background(), request)
 	if err != nil {
 		t.Fatalf("changed route should receive an audited local BLOCK: %v", err)

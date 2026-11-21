@@ -14,7 +14,7 @@ We chose mature engines for *actual behavior*, but the implementation can satisf
 flowchart LR
   LG["LangGraph or other external orchestrator"] --> A["Existing coding agents"]
   A -->|"configured model endpoint"| B["Bifröst gateway + pinned ACE Go connector"]
-  B -->|"authenticated ace.gateway.v2"| Gate["ACE authorization / data policy"]
+  B -->|"authenticated ace.context.v3"| Gate["ACE authorization / data policy"]
   B -.->|"dispatch blocked until certified"| P["LLM providers"]
   Gate --> O["Context Orchestration / Effect"]
   O --> Plan["Deterministic retrieval routing"]
@@ -99,7 +99,7 @@ ContextRequest.resolve(request, workspace, policy)
 
 1. **Unit/contract**: pure domain rules; helper/fixture doubles permitted. Output: `contract-pass:isolated`.
 2. **Integration**: real pinned provider and wiring; down/up/outage/race. Output: `provider-pass`.
-3. **Agent E2E**: use the actual supported delivery path: real coding agent → Bifröst → ACE Gateway → authorized provider. Inspect server-minted physical request binding, normalized session correlation, APPLY/BLOCK receipt, provider-bound evidence, answer/task quality and route identity. Output: `agent-e2e-pass` only for the exact tested route/commit.
+3. **Agent E2E**: use the actual supported delivery path: real coding agent → Bifröst → ACE context extension → authorized provider. Inspect server-minted physical request binding, normalized session correlation, APPLY/BLOCK receipt, provider-bound evidence, answer/task quality and route identity. Output: `agent-e2e-pass` only for the exact tested route/commit.
 4. **Benchmark**: paired Harbor retrieval-demanding tasks; real ACE calls and separate total tokens, costs, success/latency. Output: `evaluation-pass`.
 5. **Owner gate**: unresolved provider/license/K8s decisions approved and no outstanding mandatory contracts. Output: `production-ready` only then.
 

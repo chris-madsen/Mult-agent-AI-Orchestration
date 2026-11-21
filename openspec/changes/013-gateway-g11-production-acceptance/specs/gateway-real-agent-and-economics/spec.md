@@ -4,7 +4,7 @@
 
 ### Requirement: Real agent on the sole approved route
 
-The ACE Gateway implementation SHALL satisfy the following observable G11 criteria before the named capability is certified. Repository-only and mock-only evidence MUST NOT count as external-provider or real-agent acceptance.
+The ACE context extension implementation SHALL satisfy the following observable G11 criteria before the named capability is certified. Repository-only and mock-only evidence MUST NOT count as external-provider or real-agent acceptance.
 
 #### Scenario: G11-013 — End-to-end real coding-agent task
 - **WHEN** an explicitly selected coding-agent process uses a configurable Bifröst endpoint for a nontrivial source-retrieval coding task
@@ -28,7 +28,7 @@ The ACE Gateway implementation SHALL satisfy the following observable G11 criter
 
 ### Requirement: Paired Harbor economics must be quality-gated and causally attributable
 
-The ACE Gateway implementation SHALL satisfy the following observable G11 criteria before the named capability is certified. Repository-only and mock-only evidence MUST NOT count as external-provider or real-agent acceptance.
+The ACE context extension implementation SHALL satisfy the following observable G11 criteria before the named capability is certified. Repository-only and mock-only evidence MUST NOT count as external-provider or real-agent acceptance.
 
 #### Scenario: G11-017 — Strong paired baseline
 - **WHEN** Harbor compares a Gateway-delivered ACE task with a baseline on a frozen task/revision

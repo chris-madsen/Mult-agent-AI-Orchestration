@@ -4,7 +4,7 @@
 
 ### Requirement: Streaming is separately certifiable
 
-The ACE Gateway implementation SHALL satisfy the following observable G11 criteria before the named capability is certified. Repository-only and mock-only evidence MUST NOT count as external-provider or real-agent acceptance.
+The ACE context extension implementation SHALL satisfy the following observable G11 criteria before the named capability is certified. Repository-only and mock-only evidence MUST NOT count as external-provider or real-agent acceptance.
 
 #### Scenario: G11-005 — Complete streaming success
 - **WHEN** an authorized stream=true provider-native Responses request is sent through the exact pinned route after streaming support is explicitly enabled for that route
@@ -18,7 +18,7 @@ The ACE Gateway implementation SHALL satisfy the following observable G11 criter
 
 ### Requirement: Cancellation and partial failures
 
-The ACE Gateway implementation SHALL satisfy the following observable G11 criteria before the named capability is certified. Repository-only and mock-only evidence MUST NOT count as external-provider or real-agent acceptance.
+The ACE context extension implementation SHALL satisfy the following observable G11 criteria before the named capability is certified. Repository-only and mock-only evidence MUST NOT count as external-provider or real-agent acceptance.
 
 #### Scenario: G11-007 — Client cancellation or deadline
 - **WHEN** a client disconnects, a deadline expires or cancellation arrives before dispatch or during a streaming response

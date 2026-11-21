@@ -112,7 +112,7 @@ test('public contract authority guard rejects a handwritten live schema outside 
       'namespace ACE.ResponsesV2 {',
       'model ProjectionRequest { protocol: "openai.responses"; }',
       'union ProjectionDecision { PREPARED: {}; BLOCK: {}; }',
-      '@route("/internal/ace-gateway/v2/project")',
+      '@route("/internal/ace-context/v3/project")',
       'op project(): ProjectionDecision;',
       '}',
       '',

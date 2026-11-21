@@ -4,7 +4,7 @@ import { sha256Base64 } from './gateway-request-binding.js';
 import type {
   PhysicalSendAttemptDecision as GeneratedPhysicalSendAttemptDecision,
   PhysicalSendAttemptRequest as GeneratedPhysicalSendAttemptRequest,
-} from '../generated/ace-gateway/v2/types.gen.js';
+} from '../generated/ace-context/v3/types.gen.js';
 
 export type PhysicalSendAttemptRequest = Readonly<GeneratedPhysicalSendAttemptRequest>;
 export type PhysicalSendAttemptDecision = Readonly<GeneratedPhysicalSendAttemptDecision>;
@@ -36,7 +36,7 @@ export const validatePhysicalSendAttemptRequest = (
   if (!object(value)) return rejected('request', 'physical-send authorization must be an object');
   const unknown = Object.keys(value).find((key) => !fields.has(key));
   if (unknown !== undefined) return rejected(unknown, 'unrecognized v2 attempt field');
-  if (value.schemaVersion !== 'ace.gateway.v2') return rejected('schemaVersion', 'unsupported gateway version');
+  if (value.schemaVersion !== 'ace.context.v3') return rejected('schemaVersion', 'unsupported ACE context RPC version');
   for (const key of [
     'requestId', 'attemptGroupId', 'agentSessionId', 'workspaceId', 'provider', 'model',
     'attemptId', 'method', 'destination', 'bodyBase64', 'bodySha256', 'projectionReceipt',

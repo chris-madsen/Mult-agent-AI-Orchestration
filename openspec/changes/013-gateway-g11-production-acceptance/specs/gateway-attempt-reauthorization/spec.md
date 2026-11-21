@@ -4,7 +4,7 @@
 
 ### Requirement: Authorization belongs to each actual attempt
 
-The ACE Gateway implementation SHALL satisfy the following observable G11 criteria before the named capability is certified. Repository-only and mock-only evidence MUST NOT count as external-provider or real-agent acceptance.
+The ACE context extension implementation SHALL satisfy the following observable G11 criteria before the named capability is certified. Repository-only and mock-only evidence MUST NOT count as external-provider or real-agent acceptance.
 
 #### Scenario: G11-009 — Second attempt after transient failure
 - **WHEN** Bifröst intends to retry the same provider/model after an initial attempt
@@ -18,7 +18,7 @@ The ACE Gateway implementation SHALL satisfy the following observable G11 criter
 
 ### Requirement: Replay prevention and failure transparency
 
-The ACE Gateway implementation SHALL satisfy the following observable G11 criteria before the named capability is certified. Repository-only and mock-only evidence MUST NOT count as external-provider or real-agent acceptance.
+The ACE context extension implementation SHALL satisfy the following observable G11 criteria before the named capability is certified. Repository-only and mock-only evidence MUST NOT count as external-provider or real-agent acceptance.
 
 #### Scenario: G11-011 — Reused, stale, raced or mismatched receipt
 - **WHEN** a receipt belongs to a different physical request, attempt number, session correlation, body digest or provider/model, or is consumed twice

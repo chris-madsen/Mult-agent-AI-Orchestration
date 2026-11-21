@@ -148,7 +148,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
 });
 
 
-test('ACE Gateway runtime forwards explicit sparse LD library path into the sparse worker environment', async () => {
+test('ACE context extension runtime forwards explicit sparse LD library path into the sparse worker environment', async () => {
   const runtime = await readFile(resolve('src/bin/ace-runtime.ts'), 'utf8');
   const sparseEnvironmentBlock = runtime.slice(
     runtime.indexOf('const sparseEnvironment: Record<string, string>'),

@@ -1,4 +1,4 @@
-name: ACE Gateway-only architecture audit
+name: Bifröst single-LLM-gateway architecture audit
 
 on:
   pull_request:

@@ -31,7 +31,7 @@ test('DBC-01 real Gateway remains reachable but blocks projection when required 
   const session = 'session-readiness';
   const body = { model: 'mock', store: false, input: 'find context' };
   const encoded = Buffer.from(JSON.stringify(body), 'utf8').toString('base64');
-  const child = spawn(process.execPath, ['--import', 'tsx', 'src/bin/ace-gateway-http.ts'], {
+  const child = spawn(process.execPath, ['--import', 'tsx', 'src/bin/ace-context-rpc.ts'], {
     cwd: process.cwd(),
     env: {
       ...process.env,
@@ -43,13 +43,13 @@ test('DBC-01 real Gateway remains reachable but blocks projection when required 
       ACE_ARTIFACT_DIR: join(root, 'artifacts'),
       ACE_ENABLE_EXPERIMENTAL_QDRANT: 'false',
       ACE_ENABLE_GRAPHITI: 'false',
-      ACE_GATEWAY_HTTP_HOST: '127.0.0.1',
-      ACE_GATEWAY_HTTP_PORT: String(port),
-      ACE_GATEWAY_HTTP_SHARED_SECRET: 'readiness-fixture-secret',
-      ACE_GATEWAY_EXTERNAL_LLM_OPT_IN: 'true',
-      ACE_GATEWAY_ALLOWED_LLM_PROVIDERS_JSON: '["mock"]',
-      ACE_GATEWAY_ALLOWED_LLM_MODELS_BY_PROVIDER_JSON: '{"mock":["mock"]}',
-      ACE_GATEWAY_ALLOWED_LLM_DATA_CLASSES_JSON: '["private_source"]',
+      ACE_CONTEXT_RPC_HOST: '127.0.0.1',
+      ACE_CONTEXT_RPC_PORT: String(port),
+      ACE_CONTEXT_RPC_SHARED_SECRET: 'readiness-fixture-secret',
+      ACE_CONTEXT_EXTERNAL_LLM_OPT_IN: 'true',
+      ACE_CONTEXT_ALLOWED_LLM_PROVIDERS_JSON: '["mock"]',
+      ACE_CONTEXT_ALLOWED_LLM_MODELS_BY_PROVIDER_JSON: '{"mock":["mock"]}',
+      ACE_CONTEXT_ALLOWED_LLM_DATA_CLASSES_JSON: '["private_source"]',
     },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
@@ -67,12 +67,12 @@ test('DBC-01 real Gateway remains reachable but blocks projection when required 
       const timer = setTimeout(() => finish(new Error('Gateway did not start: ' + stderr.slice(-1000))), 20_000);
       child.stderr.on('data', (chunk: Buffer) => {
         stderr += chunk.toString('utf8');
-        if (stderr.includes('ace-gateway-http listening')) finish();
+        if (stderr.includes('ace-context-rpc listening')) finish();
       });
       child.once('error', (error) => finish(error));
       child.once('exit', (code) => finish(new Error('Gateway exited before ready: ' + code + ' ' + stderr.slice(-1000))));
     });
-    const base = `http://127.0.0.1:${port}/internal/ace-gateway/v2`;
+    const base = `http://127.0.0.1:${port}/internal/ace-context/v3`;
     const health = await fetch(base + '/health', {
       headers: { authorization: 'Bearer readiness-fixture-secret' },
     });
@@ -80,7 +80,7 @@ test('DBC-01 real Gateway remains reachable but blocks projection when required 
     const readiness = await health.json() as { providerWire: string };
     assert.equal(readiness.providerWire, 'not_certified');
     const request = {
-      schemaVersion: 'ace.gateway.v2',
+      schemaVersion: 'ace.context.v3',
       requestId: 'request-readiness',
       attemptGroupId: 'turn-readiness',
       agentSessionId: session,
@@ -92,7 +92,7 @@ test('DBC-01 real Gateway remains reachable but blocks projection when required 
       bodyBase64: encoded,
       bodySha256: digest(Buffer.from(encoded, 'base64').toString('utf8')),
       query: 'find context',
-      projectionMode: 'gateway',
+      projectionMode: 'bifrost_hook',
       deadlineEpochMs: Date.now() + 30_000,
       attestation: {
         hostBuildDigest: digest('host'),

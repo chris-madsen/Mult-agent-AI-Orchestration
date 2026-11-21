@@ -4,24 +4,24 @@
 
 ### Requirement: Agent route must be provider-native Responses
 
-ACE SHALL use **Bifröst as its only agent-facing LLM Gateway**, with its native Responses protocol. The ACE Core and authenticated `ace.gateway.v2` local HTTP API are **internal context projection and source-policy services**, never provider-facing LLM gateways. Reuse Bifröst's native ChatGPT/Codex subscription passthrough rather than implementing a second model route, proxy, OAuth handler or Chat/Completions converter.
+ACE SHALL use **Bifröst as its only agent-facing LLM Gateway**, with its native Responses protocol. The ACE Core and authenticated `ace.context.v3` local HTTP API are **internal context projection and source-policy services**, never provider-facing LLM gateways. Reuse Bifröst's native ChatGPT/Codex subscription passthrough rather than implementing a second model route, proxy, OAuth handler or Chat/Completions converter.
 
 #### Scenario: RESP-001 — Native Responses is the only generation protocol
-- **WHEN** Hermes sends a model request to the configured ACE/Bifröst endpoint
+- **WHEN** Hermes sends a model request to the configured Bifröst endpoint
 - **THEN** the supported Bifröst native Responses ingress paths are `POST /v1/responses` (generic native API) and `POST /chatgpt_passthrough/backend-api/codex/responses` (the **only** Hermes subscription route); both use the same Bifröst Gateway pipeline and ACE internal projector
 - **AND** the subscribed request retains its original bare Codex model, ChatGPT bearer and native Responses body, with only verified additive context; it is sent through Bifröst's existing ChatGPT passthrough to `https://chatgpt.com/backend-api/codex/responses`, not an API-key endpoint
 - **AND** every non-Responses route, non-ChatGPT passthrough, protocol converter, automatic provider substitution and unverified route bypass is blocked before provider egress; a valid local `PREPARED` response is not permission to send.
 
 #### Scenario: RESP-002 — Explicit fail-closed capability surface
 - **WHEN** a required native route, model, auth, privacy or per-physical-send guard is missing, or general provider-wire certification is incomplete
-- **THEN** Gateway v2 readiness advertises ordinary generation as unavailable/not_certified; ordinary agent traffic cannot bypass an uncertified route or a missing guard
+- **THEN** ACE context v3 diagnostics report provider-wire certification as not_certified without advertising any provider route; only Bifröst handles generation, and its send guard blocks traffic lacking the required ACE source-policy authorization
 - **AND** a separately owner-authorized **disposable PUBLIC C03–C05 certification probe** MAY send on native Responses/Bifröst **only after** the exact physical-attempt guard, C04 transmission-time provider/model/destination/data policy, payload integrity and audit are verified. Its test-only admission does not certify general generation or permit unchecked retries
 - **AND** missing retrieval, failed policy, untrusted plugins or invalid body cannot silently forward unprojected requests.
 
 #### Scenario: RESP-003 — Versioned TypeSpec contract migration
 - **WHEN** ACE introduces the native Responses projection request/decision wire
-- **THEN** the new v2 operation and DTOs originate in TypeSpec with pinned generated output, typed mapping and negative compatibility tests
-- **AND** Gateway v2 is the sole active generated projection contract; previous projection schemas, DTOs and runtime routes are removed rather than retained as a compatibility surface.
+- **THEN** the internal ace.context.v3 operations and DTOs originate in TypeSpec with pinned generated output, typed mapping and negative compatibility tests
+- **AND** ace.context.v3 is the sole active internal Go↔TypeScript contract for context projection and source-policy authorization; no separate ACE LLM Gateway, obsolete provider-delivery stub, provider proxy route or old-version RPC alias is exposed.
 
 ### Requirement: Preserve the real long agent loop without provider-held implicit state
 

@@ -110,7 +110,7 @@ stateDiagram-v2
 ## 6. Сквозные workflow-спецификации
 
 ### UC-01 «Найди retry и почини цикл»
-1. Coding agent отправляет provider-native `/v1/responses` request на настроенный Bifröst endpoint; connector формирует request-bound локальную `ace.gateway.v2` projection.
+1. Coding agent отправляет provider-native `/v1/responses` request на настроенный Bifröst endpoint; connector формирует request-bound локальную `ace.context.v3` projection.
 2. Policy Gate разрешает локальный код. Rule router выбирает lexical + local semantic candidates, а документацию добавляет только при соответствующем вопросе/зависимости.
 3. Qdrant возвращает кандидатов `sourceDigest`, Tree-sitter/ast-grep выделяют точные spans, LSP разрешает symbols/references на текущей версии.
 4. EvidenceMerger отбрасывает дубли, не утверждает полное покрытие динамических вызовов.

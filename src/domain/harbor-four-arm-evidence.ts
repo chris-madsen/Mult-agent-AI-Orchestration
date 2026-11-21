@@ -26,7 +26,7 @@ export interface HarborFourArmTrialObservation {
   readonly reusedContextBytes: number | null;
   readonly duplicateContextAvoided: number | null;
   readonly latencyMs: number | null;
-  /** Request IDs from independently parsed successful ACE Gateway responses. */
+  /** Request IDs from independently parsed successful ACE context extension responses. */
   readonly successfulRequestIds: readonly string[];
   /** Evidence receipt IDs returned by the successful ACE responses. */
   readonly evidenceReceiptIds: readonly string[];

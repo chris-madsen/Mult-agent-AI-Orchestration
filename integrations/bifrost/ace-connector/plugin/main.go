@@ -66,18 +66,28 @@ func Init(config any) error {
 	if len(aceBifrostCommit) != 40 || strings.Trim(aceBifrostCommit, "0123456789abcdef") != "" {
 		return errors.New("ACE Bifröst source commit provenance is unavailable")
 	}
-	endpoint := os.Getenv("ACE_GATEWAY_RESPONSES_URL")
+	endpoint := os.Getenv("ACE_CONTEXT_RPC_URL")
 	if values, ok := config.(map[string]any); ok {
-		if configured, ok := values["responses_projection_url"].(string); ok && configured != "" {
-			endpoint = configured
+		if _, deprecated := values["responses_projection_url"]; deprecated {
+			return errors.New("deprecated responses_projection_url is unsupported; configure context_rpc_url for the v3 ACE context contract")
+		}
+		if configured, present := values["context_rpc_url"]; present {
+			value, ok := configured.(string)
+			if !ok || strings.TrimSpace(value) == "" {
+				return errors.New("context_rpc_url must be a non-empty string")
+			}
+			endpoint = value
 		}
 	}
 	if endpoint == "" {
-		return errors.New("ACE_GATEWAY_RESPONSES_URL is required")
+		return errors.New("ACE_CONTEXT_RPC_URL is required")
 	}
-	token := os.Getenv("ACE_GATEWAY_PROJECTION_TOKEN")
+	if err := connector.ValidateContextRPCProjectEndpoint(endpoint); err != nil {
+		return fmt.Errorf("invalid ACE context RPC endpoint at plugin initialization: %w", err)
+	}
+	token := os.Getenv("ACE_CONTEXT_RPC_TOKEN")
 	if token == "" {
-		return errors.New("ACE_GATEWAY_PROJECTION_TOKEN is required")
+		return errors.New("ACE_CONTEXT_RPC_TOKEN is required")
 	}
 	projectionClient = connector.Client{Endpoint: endpoint, AuthToken: token, MaxBodyBytes: connector.DefaultMaxBodyBytes}
 	// The Bifröst transport hook authenticates its connector, not a per-user
@@ -93,7 +103,7 @@ func Init(config any) error {
 	return nil
 }
 
-func GetName() string { return "ace-gateway-projection" }
+func GetName() string { return "ace-bifrost-context" }
 
 func sha256Hex(value []byte) string {
 	sum := sha256.Sum256(value)
@@ -173,7 +183,7 @@ func requestBoundIdentityForProvider(req *schemas.HTTPRequest, body []byte, rawM
 	}
 	provider, normalizedModel := schemas.ParseModelString(rawModel, expectedProvider)
 	if provider == "" || normalizedModel == "" || (expectedProvider != "" && provider != expectedProvider) {
-		return "", "", "", "", nil, errors.New("ACE Gateway requires an explicit Bifrost provider/model route")
+		return "", "", "", "", nil, errors.New("ACE context extension requires an explicit Bifröst provider/model route")
 	}
 	if queryProvider := strings.TrimSpace(req.CaseInsensitiveQueryLookup("provider")); queryProvider != "" && !strings.EqualFold(queryProvider, string(provider)) {
 		return "", "", "", "", nil, errors.New("native Responses provider query conflicts with the explicit model route")
@@ -227,7 +237,7 @@ func errorResponse(status int, message string) *schemas.HTTPResponse {
 // guard; a PREPARED projection by itself never authorizes dispatch.
 func HTTPTransportPreHook(ctx *schemas.BifrostContext, req *schemas.HTTPRequest) (*schemas.HTTPResponse, error) {
 	if req == nil {
-		return errorResponse(400, "ACE gateway request is missing"), nil
+		return errorResponse(400, "Bifröst native request is missing"), nil
 	}
 	path := req.Path
 	switch path {
@@ -242,7 +252,7 @@ func HTTPTransportPreHook(ctx *schemas.BifrostContext, req *schemas.HTTPRequest)
 		}
 		return prepareNativeResponses(ctx, req)
 	default:
-		return errorResponse(404, "ACE Gateway endpoint is unsupported"), nil
+		return errorResponse(404, "Bifröst native Responses route is unsupported by the ACE context extension"), nil
 	}
 }
 
@@ -334,7 +344,7 @@ func prepareNativeResponses(ctx *schemas.BifrostContext, req *schemas.HTTPReques
 				return providerUtils.NewPhysicalSendAuthorizationError(403, "WIRE_BODY_DIGEST_MISMATCH", nil)
 			}
 			physicalDecision, authorizeErr := projectionClient.AuthorizeNativeResponsesAttempt(attemptCtx, connector.PhysicalSendV2Request{
-				SchemaVersion: "ace.gateway.v2", RequestID: binding.requestID,
+				SchemaVersion: "ace.context.v3", RequestID: binding.requestID,
 				AttemptGroupID: binding.attemptGroupID, AgentSessionID: binding.sessionID,
 				WorkspaceID: binding.workspaceID, DataClass: binding.dataClass,
 				Provider: string(attempt.Provider), Model: attempt.Model,

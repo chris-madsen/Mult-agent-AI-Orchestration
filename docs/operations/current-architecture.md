@@ -6,8 +6,8 @@
 
 ```text
 Hermes native Responses client
-      -> Bifröst /v1/responses + Go ACE connector
-      -> authenticated ACE Gateway projection (TypeSpec ace.gateway.v2)
+      -> Bifröst /chatgpt_passthrough/backend-api/codex/responses + Go ACE plugin
+      -> authenticated loopback ACE context RPC (TypeSpec ace.context.v3; no model dispatch)
       -> ACE TypeScript/Effect application
            code       CBM v0.12.1 native index/AST/graph/semantic/BM25 discovery
                       + currently required Qdrant dense/sparse code retrieval
@@ -31,7 +31,7 @@ Hermes native Responses client
 
 ## Readiness — code merged is not accepted E2E
 
-- Native Responses v2 TypeSpec/Go/TS contracts and offline implementation candidates for OpenSpec 013 C01–C07 are present on the inspected SHA. The canonical [C01–C08 tracker](../../openspec/changes/013-gateway-g11-production-acceptance/tasks.md) distinguishes local implementation, G02 approvals and **real final-wire/Hermes/Harbor acceptance that remains open**. C08 paired agent economics is not a completed production acceptance.
+- Native Responses with TypeSpec ace.context.v3/Go/TS contracts and offline implementation candidates for OpenSpec 013 C01–C07 are present on the inspected SHA. The canonical [C01–C08 tracker](../../openspec/changes/013-gateway-g11-production-acceptance/tasks.md) distinguishes local implementation, G02 approvals and **real final-wire/Hermes/Harbor acceptance that remains open**. C08 paired agent economics is not a completed production acceptance.
 - The full-unified memory path is currently BLOCKED by the rejected `ACE_ENABLE_GRAPHITI=true` configuration; the archive/reconciliation tests do not certify active Gateway-native temporal recall.
 - OpenSpec 014 AR01–AR10 describes 22 audit requirements, some implemented in merged PRs; its unchecked tracker is **not proof that all code is absent**, and merged PRs are **not proof that all acceptance criteria passed**. [AR01–AR10 tracker](../../openspec/changes/014-ace-audit-reliability-remediation/tasks.md).
 - Dedicated real-CBM CI: `.github/workflows/ace-codebase-memory.yml` installs pinned CBM v0.12.1 and runs `ACE_TEST_REAL_CBM=true npx tsx --test test/codebase-memory-stdio.contracts.test.ts test/codebase-memory-graph.contracts.test.ts test/codebase-memory-structural.contracts.test.ts test/cbm-graph-delivery.contracts.test.ts`. It is **not** a provider-wire or actual Hermes coding-task certificate.

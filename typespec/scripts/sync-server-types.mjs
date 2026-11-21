@@ -7,6 +7,6 @@ import { fileURLToPath } from 'node:url';
 // Generation/diff checks verify both outputs against TypeSpec on every change.
 const dir = dirname(fileURLToPath(import.meta.url));
 const from = resolve(dir, '../generated/sdk/types.gen.ts');
-const to = resolve(dir, '../../src/generated/ace-gateway/v2/types.gen.ts');
+const to = resolve(dir, '../../src/generated/ace-context/v3/types.gen.ts');
 mkdirSync(dirname(to), { recursive: true });
 writeFileSync(to, readFileSync(from));

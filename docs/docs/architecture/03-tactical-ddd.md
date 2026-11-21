@@ -105,7 +105,7 @@
 
 **Инварианты:** нет bundle до Policy Gate; хотя бы одна честно указанная provenance на значимые claims; `VerifiedCurrent` невозможен без live revision check; `partial` не скрывается; long outputs lossless; никому не выдавать enterprise/private sources из другого workspace; data from retrieval treated untrusted.
 
-**Gateway projection:** provider-native Responses model requests arrive only through Bifröst; the connector submits a local `ace.gateway.v2` projection request. Retrieval, exact-source access and memory lookup are internal ACE use cases behind application ports. Gateway projection remains read-only with respect to repository source. Contract ownership is described in `05-contracts-and-deployment.md` and OpenSpec changes 010/013.
+**Gateway projection:** provider-native Responses model requests arrive only through Bifröst; the connector submits a local `ace.context.v3` projection request. Retrieval, exact-source access and memory lookup are internal ACE use cases behind application ports. Gateway projection remains read-only with respect to repository source. Contract ownership is described in `05-contracts-and-deployment.md` and OpenSpec changes 010/013.
 
 ## 8. BC-07 Trust & Policy
 

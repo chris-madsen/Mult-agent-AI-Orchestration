@@ -92,7 +92,7 @@ jobs:
           set -euo pipefail
           for retired in \
             typespec/main.tsp \
-            src/generated/ace-gateway/v1/types.gen.ts \
+            src/generated/ace-context/v1/types.gen.ts \
             contracts/ace-gateway/v1/projection-request.schema.json \
             contracts/ace-gateway/v1/projection-decision.schema.json; do
             if [[ -e "${retired}" || -L "${retired}" ]]; then
@@ -326,7 +326,7 @@ jobs:
         env:
           BIFROST_COMMIT: 72f03b4b0d4a93b08e9fc0e5ebfe3447248af2a0
           BIFROST_SOURCE_ROOT: ${{ runner.temp }}/bifrost-src
-          OUTPUT: ${{ runner.temp }}/ace-gateway-projection.so
+          OUTPUT: ${{ runner.temp }}/ace-bifrost-context.so
         run: |
           set -euo pipefail
           GO_BIN="$(command -v go)" ./scripts/build-bifrost-ace-plugin.sh

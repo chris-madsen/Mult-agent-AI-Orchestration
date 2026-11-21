@@ -131,7 +131,7 @@ export const makeCodebaseMemoryStdio = (options: CodebaseMemoryStdioOptions): Co
     });
     // Never leak source paths or native stderr into a model-visible response.
     child.stderr.resume();
-    // ACE Gateway and in-flight deadline timers own process liveness; a test
+    // ACE context extension and in-flight deadline timers own process liveness; a test
     // with no active calls must not hang because this provider is idle.
     child.unref();
     for (const stream of [child.stdin, child.stdout, child.stderr]) {

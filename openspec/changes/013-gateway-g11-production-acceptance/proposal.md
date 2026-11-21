@@ -2,7 +2,7 @@
 
 ## Why
 
-ACE's agent-facing integration is being migrated to **Hermes → Bifröst native `/v1/responses` → ACE Gateway v2** as the only supported context-delivery route. The owner has explicitly directed removal of the previous projection contract, generated artifacts, runtime adapters and repository compatibility implementations, with semantically equivalent Responses behavior and no fallback to another protocol. Existing CI and simulated stage handoffs do not prove a real Hermes loop or physical provider send.
+ACE's agent-facing integration is being migrated to **Hermes → Bifröst native `/v1/responses` → ACE context extension v2** as the only supported context-delivery route. The owner has explicitly directed removal of the previous projection contract, generated artifacts, runtime adapters and repository compatibility implementations, with semantically equivalent Responses behavior and no fallback to another protocol. Existing CI and simulated stage handoffs do not prove a real Hermes loop or physical provider send.
 
 ## What changes in this planning-only revision
 

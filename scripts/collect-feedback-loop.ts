@@ -203,7 +203,7 @@ const gatewayRequestsFor = async (trialDirectory: string): Promise<{
     }
     const record = object(parsed);
     const decision = object(record?.decision) ?? record;
-    if (record?.schemaVersion !== 'ace.gateway.v2' || decision === undefined
+    if (record?.schemaVersion !== 'ace.context.v3' || decision === undefined
       || !['PREPARED', 'BLOCK'].includes(String(decision.kind))
       || !nonEmpty(record.requestId) || seen.has(record.requestId)) {
       throw new Error(`BLOCKED: Gateway projection evidence is malformed or duplicated at line ${index + 1}`);

@@ -6,7 +6,7 @@ import { makeGatewayAttemptAuthorizationService } from '../src/application/gatew
 import { validateNativeResponsesStreamingRoutes } from '../src/application/gateway-security-contract.js';
 import { makeResponsesProjectionService } from '../src/application/responses-projection-service.js';
 import { verifyProjectionReceipt } from '../src/application/projection-receipt.js';
-import { handleGatewayProjectionHttp, createGatewayProjectionServer } from '../src/transport/gateway-projection-http.js';
+import { handleContextRpcHttp, createContextRpcServer } from '../src/transport/context-rpc-http.js';
 import { makeContextTransformService, type ContextTransformService, type AceTransformResult } from '../src/application/context-transform-service.js';
 import type { ResponsesProjectionRequest } from '../src/domain/responses-projection.js';
 import { defaultLocalPolicy } from '../src/domain/policy.js';
@@ -46,11 +46,11 @@ const req = (override: Partial<ResponsesProjectionRequest> = {}, bodyValue: unkn
   const bodyText = JSON.stringify(bodyValue);
   const bodyBase64 = encodeBase64Utf8(bodyText);
   return {
-    schemaVersion: 'ace.gateway.v2', protocol: 'openai.responses',
+    schemaVersion: 'ace.context.v3', protocol: 'openai.responses',
     requestId: 'r1', attemptGroupId: 'g1', agentSessionId: 's1',
     workspaceId: 'ws1', dataClass: 'private', provider: 'openai', model: native.model,
     bodyBase64, bodySha256: hash(bodyText),
-    query: 'entrypoint here', projectionMode: 'gateway', deadlineEpochMs: Date.now() + 30000,
+    query: 'entrypoint here', projectionMode: 'bifrost_hook', deadlineEpochMs: Date.now() + 30000,
     attestation: {
       hostBuildDigest: hash('host'), sessionId: 's1', activeEngineId: 'bifrost-visible-request-only',
       effectiveCompressionControlsDigest: hash('controls'),
@@ -170,7 +170,7 @@ test('physical-send authorization binds each attempt, consumes IDs once, and fai
     provider = 'openai',
     model = native.model,
   ) => ({
-    schemaVersion: 'ace.gateway.v2', requestId, attemptGroupId: requestId,
+    schemaVersion: 'ace.context.v3', requestId, attemptGroupId: requestId,
     agentSessionId: 's1', workspaceId: 'ws1', dataClass: 'private',
     provider, model, attemptId, method: 'POST', destination,
     bodyBase64: projection.value.kind === 'PREPARED' ? projection.value.bodyBase64 : '',
@@ -600,15 +600,15 @@ test('audit failure is explicit and blocks native projection', async () => {
 test('native gateway HTTP endpoint requires auth and returns local preparation only', async () => {
   const service = make();
   const payload = JSON.stringify(req());
-  const direct = await handleGatewayProjectionHttp(service, 'POST', '/internal/ace-gateway/v2/project', payload);
+  const direct = await handleContextRpcHttp(service, 'POST', '/internal/ace-context/v3/project', payload);
   assert.equal(direct.statusCode, 200);
   assert.equal(direct.body.kind, 'PREPARED');
-  const server = createGatewayProjectionServer(service, { authToken: 'local-secret' });
+  const server = createContextRpcServer(service, { authToken: 'local-secret' });
   await new Promise<void>((done, reject) => { server.once('error', reject);server.listen(0, '127.0.0.1', done); });
   try {
     const addr = server.address();
     assert.ok(addr && typeof addr !== 'string');
-    const url = 'http://127.0.0.1:' + addr.port + '/internal/ace-gateway/v2/project';
+    const url = 'http://127.0.0.1:' + addr.port + '/internal/ace-context/v3/project';
     const unauthenticated = await fetch(url, { method: 'POST', body: payload });
     assert.equal(unauthenticated.status, 401);
     const authorized = await fetch(url, {

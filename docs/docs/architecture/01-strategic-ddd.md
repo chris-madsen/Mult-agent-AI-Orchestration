@@ -75,7 +75,7 @@
 flowchart TB
   LG["LangGraph external orchestrator"] --> AG["Existing coding agents"]
   AG -->|"configured model endpoint"| BF["Bifröst gateway + pinned thin Go connector"]
-  BF -->|"authenticated ace.gateway.v2"| ACL["ACE native Responses projection adapter"]
+  BF -->|"authenticated ace.context.v3"| ACL["ACE native Responses projection adapter"]
   ACL --> O["BC-06 Context Orchestration / CORE"]
   O --> P["BC-07 Trust & Policy"]
   O --> W["BC-01 Workspace Truth"]

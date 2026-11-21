@@ -1,12 +1,12 @@
-# ACE — Контракты, интеграции и Deployment Sketch
+# Bifröst single-Gateway contracts and ACE context RPC deployment
 
 **Статус:** Native Responses/Gateway baseline from 2026-11-18; native code-intelligence wiring was migrated in PR #316. See [source-inspected current architecture](../../operations/current-architecture.md). Older ast-grep/RepoMap and Qdrant-only target sections remain dated design history, not current source. Domain contracts remain provider-neutral; native Responses Gateway v2 public wire is TypeSpec-owned and concrete provider DTOs remain adapter-specific.
 
 ## 1. Инварианты границ
 
-**Current architecture (owner decisions 2026-11-14/18):** participating coding agents use Bifröst as their configured model endpoint and native Responses is the only supported provider protocol. A pinned thin Go connector calls the authenticated local `ace.gateway.v2` Projection API; ACE Core remains TypeScript + Effect. Provider dispatch remains fail-closed; no Hermes-native or model-invoked ACE context route exists as an alternative. Provider-wire and real-agent acceptance are separate G11 evidence.
+**Current architecture (owner decisions 2026-11-14/18):** participating coding agents use Bifröst as their configured model endpoint and native Responses is the only supported provider protocol. A pinned thin Go connector calls the authenticated local `ace.context.v3` Projection API; ACE Core remains TypeScript + Effect. Provider dispatch remains fail-closed; no Hermes-native or model-invoked ACE context route exists as an alternative. Provider-wire and real-agent acceptance are separate G11 evidence.
 
-1. **Одна agent-facing плоскость:** model-bound context проходит только через Bifröst → authenticated ACE Gateway Projection API (ADR-017 / OpenSpec 010). LangGraph может планировать агентов снаружи ACE, но не является альтернативным context transport.
+1. **Одна agent-facing плоскость:** model-bound context проходит только через Bifröst → authenticated ACE context extension Projection API (ADR-017 / OpenSpec 010). LangGraph может планировать агентов снаружи ACE, но не является альтернативным context transport.
 2. Выполнение кодовых правок и контроль Git остаются за Codex; ACE **read-only** относительно файлов проекта (кроме своих индексов/архивов).
 3. Порты не импортируют типы Qdrant/Vertex/Graphiti в домен.
 4. `RepoPath` не может выйти из разрешённого root после canonicalization (включая symlinks).
@@ -18,10 +18,9 @@
 
 | Endpoint / boundary | Input | Output | Control |
 |---|---|---|---|
-| `POST /internal/ace-gateway/v2/project` | native Responses request, session/workspace identity, provider/model, exact body digest+Base64, query, deadline, attestation | `PREPARED` with projected body or `BLOCK` | authenticated loopback caller, strict schema/digest/body identity, policy/freshness; preparation is not send authorization |
-| `GET /internal/ace-gateway/v2/health` | none | liveness, adapter readiness and provider-wire certification state | authenticated loopback caller; liveness is not production readiness |
-| `GET /internal/ace-gateway/v2/capabilities` | none | native Responses route capability and certification state | authenticated loopback caller; unsupported route never becomes implicit pass |
-| `POST /internal/ace-gateway/v2/record-delivery` | no certified final-send evidence | `501 PROVIDER_WIRE_NOT_CERTIFIED` | cannot accept unverified client claims as delivery proof |
+| `POST /internal/ace-context/v3/project` | native Responses request, session/workspace identity, provider/model, exact body digest+Base64, query, deadline, attestation | `PREPARED` with projected body or `BLOCK` | authenticated loopback caller, strict schema/digest/body identity, policy/freshness; preparation is not send authorization |
+| `GET /internal/ace-context/v3/health` | none | liveness, adapter readiness and provider-wire certification state | authenticated loopback caller; liveness is not production readiness |
+| `GET /internal/ace-context/v3/capabilities` | none | native Responses route capability and certification state | authenticated loopback caller; unsupported route never becomes implicit pass |
 | Bifröst provider-attempt guard | normalized native Responses request + local projection decision | **currently blocks every physical attempt** | no fallback/retry reuse; final-send authorization requires independent certification |
 
 The public agent-facing contract is Gateway-only. Exact source retrieval, memory lookup and expansion remain internal ACE capabilities behind application ports. A model does not choose whether to call ACE.
@@ -118,7 +117,7 @@ Security logs: `occurred_at, correlation_id, component, category, policy_version
 flowchart TB
   LG["External orchestrator (optional)"] --> AG["Coding agents"]
   AG -->|"configured model endpoint"| BF["Bifröst + pinned thin Go ACE connector"]
-  BF -->|"authenticated ace.gateway.v2"| ACE["ACE modular monolith / TS+Effect"]
+  BF -->|"authenticated ace.context.v3"| ACE["ACE modular monolith / TS+Effect"]
   BF -.->|"dispatch blocked until certified"| LLM["LLM provider"]
   ACE --> Q["Qdrant"]
   ACE --> T["Codebase Memory AST / graph / semantic / BM25 + LSP"]
@@ -145,7 +144,7 @@ flowchart TB
 
 ## 9. Versioning и migrations
 
-- `ContextBundle.schema_version`, domain events and `ace.gateway.v2` have explicit versions; the TypeSpec source and generated native Responses contract are checked for deterministic regeneration.
+- `ContextBundle.schema_version`, domain events and `ace.context.v3` have explicit versions; the TypeSpec source and generated native Responses contract are checked for deterministic regeneration.
 - Индекс содержит `embeddingProfileVersion`, `parserVersion`, `repo revision` и `generationId`; смена профиля требует нового generation.
 - История Graphiti extraction версионируется; смена extractor не меняет raw archive, только derived projection.
 - Test fixtures/Harbor/Codex/provider model versions замораживаются в run manifest.
@@ -173,7 +172,7 @@ CPU/memory-heavy code-intelligence операций; Python остаётся в�
 
 ## Implementation correction — executable composition and proof (proposed, 2026-10-18)
 
-1. **Production bootstrap contract (current implementation correction):** a supported coding-agent model request traverses Bifröst → request-bound ACE Gateway Projection → Effect runtime with Codebase Memory as sole AST/graph/semantic/BM25 native engine, plus *currently* Qdrant dense/sparse retrieval and independent LSP verification as needed. Qdrant necessity is under independent CBM-only A/B evaluation, not proved by historical architecture. Vertex and Graphiti are routed only on authorized requests; an unavailable/unapproved provider cannot be reported ready. An adapter existing on disk does **not** satisfy this clause.
+1. **Production bootstrap contract (current implementation correction):** a supported coding-agent model request traverses Bifröst → request-bound ACE context extension Projection → Effect runtime with Codebase Memory as sole AST/graph/semantic/BM25 native engine, plus *currently* Qdrant dense/sparse retrieval and independent LSP verification as needed. Qdrant necessity is under independent CBM-only A/B evaluation, not proved by historical architecture. Vertex and Graphiti are routed only on authorized requests; an unavailable/unapproved provider cannot be reported ready. An adapter existing on disk does **not** satisfy this clause.
 2. **Provider truth:** attach `provider_id`, `version`, `status`, `source_digest`, `range`, `evidence_method`, and internal trace/call receipts to every claimed real-provider integration. Runtime receipts may be logged in a secret-safe test channel rather than exposed as user text. Do not silently substitute regex/whole-file candidates for AST spans or hash vectors for embeddings.
 3. **Completeness:** compute `complete` from the **required** retrieval plan (covered/failed/skipped-by-policy per source) and source verification; a missing required backend makes the bundle partial even when other evidence is current.
 4. **Relevance vs losslessness:** first response provides accurate minimal relevant spans without arbitrary mandatory token ceilings; exact full file/2000-line artifact remains retrievable with an authorized handle. Returning every entire file per lexical symbol is a retrieval-quality failure, not compliance with ADR-006.
@@ -213,3 +212,5 @@ ContextBundle/evidence identities support repeated-context suppression. A versio
 ### Agent independence
 
 No editor-specific state is mandatory. IDE-aware and CLI agents use the same Bifröst model endpoint; richer working-context hints require an accepted Gateway contract extension. See ADR-014, OpenSpec 007 and active Gateway ownership change 010.
+
+**Current ownership:** Hermes sends native Responses only to Bifröst. Bifröst calls ACE over the internal `/internal/ace-context/v3` JSON RPC for source-verified projection and single-use attempt policy; ACE never forwards a model request or starts a competing LLM gateway. Deploy the Bifröst Go plugin and ACE service at the same contract version.

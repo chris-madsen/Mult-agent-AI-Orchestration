@@ -4,7 +4,7 @@ import { sha256Base64, validateHostCompactionAttestation } from './gateway-reque
 import type {
   ProjectionRequest as GeneratedProjectionRequest,
   ProjectionDecision as GeneratedProjectionDecision,
-} from '../generated/ace-gateway/v2/types.gen.js';
+} from '../generated/ace-context/v3/types.gen.js';
 
 // The maintained TypeSpec-generated Responses DTOs own the public wire shape.
 // Keep semantic validation/policy in the domain, not a second handwritten DTO.
@@ -26,10 +26,10 @@ export const validateResponsesProjectionRequest = (value: unknown): Result<Respo
   if (!object(value)) return rejected('request', 'Responses projection must be a JSON object');
   const unknown = Object.keys(value).find((key) => !fields.has(key));
   if (unknown) return rejected(unknown, 'unrecognized v2 request field');
-  if (value.schemaVersion !== 'ace.gateway.v2' || value.protocol !== 'openai.responses') {
+  if (value.schemaVersion !== 'ace.context.v3' || value.protocol !== 'openai.responses') {
     return rejected('protocol', 'native Responses v2 only; alternate provider protocols are rejected');
   }
-  if (value.projectionMode !== 'gateway') return rejected('projectionMode', 'only automatic Gateway projection is supported');
+  if (value.projectionMode !== 'bifrost_hook') return rejected('projectionMode', 'only automatic Bifröst hook projection is supported');
   for (const key of ['requestId', 'attemptGroupId', 'agentSessionId', 'workspaceId', 'provider', 'model', 'bodyBase64', 'bodySha256', 'query']) {
     if (!nonempty(value[key])) return rejected(key, 'missing required Responses identity');
   }

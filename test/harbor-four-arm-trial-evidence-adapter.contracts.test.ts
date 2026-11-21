@@ -45,7 +45,7 @@ test('Gateway arm without request-bound receipts is blocked, not counted as succ
 test('Gateway projection is distinct from model-invoked ACE tools and final-provider delivery', async () => {
   await withTrial(async (_, dir, aggregate) => {
     const projection = {
-      schemaVersion: 'ace.gateway.v2', requestId: 'req1',
+      schemaVersion: 'ace.context.v3', requestId: 'req1',
       kind: 'PREPARED', baseBodySha256: 'a'.repeat(64),
       projectedBodySha256: 'b'.repeat(64), bodyBase64: 'e30=', reasonCode: 'VERIFIED_CONTEXT_ADDED',
     };
@@ -80,7 +80,7 @@ test('malformed, duplicate and native-contaminating projection receipts fail clo
     const path = join(dir, 'agent', 'ace-responses-projection.jsonl');
     await writeFile(path, '{"kind":"FAKE_SUCCESS"}\n');
     await assert.rejects(readHarborFourArmTrialObservations('dense', aggregate), /malformed native Responses projection evidence/u);
-    const record = { schemaVersion: 'ace.gateway.v2', requestId: 'x', kind: 'BLOCK',
+    const record = { schemaVersion: 'ace.context.v3', requestId: 'x', kind: 'BLOCK',
       baseBodySha256: 'a'.repeat(64), reasonCode: 'NOT_READY',
     };
     await writeFile(path, JSON.stringify(record) + '\n' + JSON.stringify(record) + '\n');
@@ -94,7 +94,7 @@ test('feedback adapter binds unsigned stream summaries to the exact Gateway proj
     const requestId = `ace-${'a'.repeat(32)}`;
     const attemptId = `bf-attempt-${'b'.repeat(32)}`;
     const projection = {
-      schemaVersion: 'ace.gateway.v2', requestId, kind: 'PREPARED',
+      schemaVersion: 'ace.context.v3', requestId, kind: 'PREPARED',
       baseBodySha256: 'a'.repeat(64), projectedBodySha256: 'b'.repeat(64),
       bodyBase64: 'e30=', reasonCode: 'VERIFIED_CONTEXT_ADDED',
     };

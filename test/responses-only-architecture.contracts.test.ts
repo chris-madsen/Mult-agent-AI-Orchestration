@@ -13,7 +13,7 @@ test('native projection owns its request contract and protected provider control
   const domain = await source('src/domain/responses-projection.ts');
   const service = await source('src/application/responses-projection-service.ts');
   assert.match(domain, /GeneratedProjectionRequest/u);
-  assert.match(domain, /generated\/ace-gateway\/v2\/types\.gen/u);
+  assert.match(domain, /generated\/ace-context\/v3\/types\.gen/u);
   assert.match(domain, /value\.store !== false/u);
   assert.match(service, /kind: 'PREPARED'/u);
   assert.match(service, /kind: 'BLOCK'/u);
@@ -30,26 +30,26 @@ test('pinned Bifröst plugin gates all provider sends on a request-bound physica
   assert.match(wire, /decision\.Kind != "PREPARED"/u);
 });
 
-test('TypeSpec and generated SDK publish only the native v2 projection contract', async () => {
-  const v2 = await source('typespec/responses-v2.tsp');
+test('TypeSpec and generated SDK publish only the native context v3 projection contract', async () => {
+  const v2 = await source('typespec/context-v3.tsp');
   assert.match(v2, /protocol: "openai\.responses"/u);
   assert.match(v2, /union ProjectionDecision \{/u);
   assert.match(v2, /PREPARED: PreparedProjection;/u);
   assert.match(v2, /BLOCK: BlockedProjection;/u);
   assert.match(v2, /kind: "PREPARED";/u);
   assert.match(v2, /kind: "BLOCK";/u);
-  assert.match(v2, /@route\("\/internal\/ace-gateway\/v2\/project"\)/u);
-  const generated = await source('src/generated/ace-gateway/v2/types.gen.ts');
-  assert.match(generated, /schemaVersion: 'ace\.gateway\.v2'/u);
+  assert.match(v2, /@route\("\/internal\/ace-context\/v3\/project"\)/u);
+  const generated = await source('src/generated/ace-context/v3/types.gen.ts');
+  assert.match(generated, /schemaVersion: 'ace\.context\.v3'/u);
 });
-test('active Gateway and Bifröst wiring stays on native v2 and blocks unguarded dispatch', async () => {
+test('active Gateway and Bifröst wiring stays on native context v3 and blocks unguarded dispatch', async () => {
   const runtime = await source('src/bin/ace-runtime.ts');
   assert.match(runtime, /makeResponsesProjectionService/u);
-  const server = await source('src/bin/ace-gateway-http.ts');
-  assert.match(server, /ACE_GATEWAY_HTTP_MODE/u);
+  const server = await source('src/bin/ace-context-rpc.ts');
+  assert.match(server, /ACE_CONTEXT_RPC_MODE/u);
   assert.match(server, /ace-runtime\.js/u);
-  const gateway = await source('src/transport/gateway-projection-http.ts');
-  assert.match(gateway, /ace-gateway\/v2/u);
+  const gateway = await source('src/transport/context-rpc-http.ts');
+  assert.match(gateway, /ace-context\/v3/u);
   assert.match(gateway, /routes: \[\]/u, 'gateway must not advertise uncertified generation');
   assert.match(gateway, /providerWire: 'not_certified'/u);
   const plugin = await source('integrations/bifrost/ace-connector/plugin/main.go');

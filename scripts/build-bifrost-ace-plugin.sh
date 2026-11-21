@@ -5,7 +5,7 @@ set -euo pipefail
 : "${BIFROST_COMMIT:=72f03b4b0d4a93b08e9fc0e5ebfe3447248af2a0}"
 : "${GO_BIN:=go}"
 temp_root=${RUNNER_TEMP:-${TMPDIR:-$HOME/.cache/ace}}
-: "${OUTPUT:=$temp_root/ace-gateway-projection.so}"
+: "${OUTPUT:=$temp_root/ace-bifrost-context.so}"
 export GOWORK=off
 
 root=$(git -C "$BIFROST_SOURCE_ROOT" rev-parse --show-toplevel)
@@ -30,7 +30,7 @@ build_root=$(mktemp -d "$temp_root/ace-bifrost-plugin.XXXXXX")
 trap 'rm -rf "$build_root"' EXIT
 cp integrations/bifrost/ace-connector/plugin/*.go "$build_root/"
 cat > "$build_root/go.mod" <<EOF
-module ace-gateway-projection-plugin
+module ace-bifrost-context-plugin
 
 go 1.27.4
 

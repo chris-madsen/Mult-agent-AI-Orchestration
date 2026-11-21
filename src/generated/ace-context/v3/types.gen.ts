@@ -11,25 +11,16 @@ export type BlockedProjection = {
     [key: string]: unknown;
 };
 
-export type DeliveryNotCertified = {
-    error: {
-        code: 'PROVIDER_WIRE_NOT_CERTIFIED';
-        message: string;
-        [key: string]: unknown;
-    };
-    [key: string]: unknown;
-};
-
-export type GatewayCapabilities = {
-    schemaVersion: 'ace.gateway.v2';
-    routes: Array<GatewayRouteCapability>;
+export type ContextCapabilities = {
+    schemaVersion: 'ace.context.v3';
+    routes: Array<ContextRouteCapability>;
     maxBodyBytes: number;
-    projectionModes: Array<'gateway'>;
+    projectionModes: Array<'bifrost_hook'>;
     providerWireCertification: 'not_certified';
     [key: string]: unknown;
 };
 
-export type GatewayError = {
+export type ContextError = {
     error: {
         code: string;
         message: string;
@@ -38,15 +29,15 @@ export type GatewayError = {
     [key: string]: unknown;
 };
 
-export type GatewayHealth = {
-    schemaVersion: 'ace.gateway.v2';
+export type ContextHealth = {
+    schemaVersion: 'ace.context.v3';
     liveness: 'ready';
     readiness: 'adapter_implemented';
     providerWire: 'not_certified';
     [key: string]: unknown;
 };
 
-export type GatewayRouteCapability = {
+export type ContextRouteCapability = {
     protocol: 'openai.responses';
     mode: 'structured';
     capability: 'NATIVE_RESPONSES_NOT_CERTIFIED';
@@ -95,7 +86,7 @@ export type PhysicalSendAttemptDecision = ({
 } & PhysicalSendAttemptBlocked);
 
 export type PhysicalSendAttemptRequest = {
-    schemaVersion: 'ace.gateway.v2';
+    schemaVersion: 'ace.context.v3';
     requestId: string;
     attemptGroupId: string;
     agentSessionId: string;
@@ -131,7 +122,7 @@ export type ProjectionDecision = ({
 } & BlockedProjection);
 
 export type ProjectionRequest = {
-    schemaVersion: 'ace.gateway.v2';
+    schemaVersion: 'ace.context.v3';
     protocol: 'openai.responses';
     requestId: string;
     attemptGroupId: string;
@@ -143,7 +134,7 @@ export type ProjectionRequest = {
     bodyBase64: string;
     bodySha256: string;
     query: string;
-    projectionMode: 'gateway';
+    projectionMode: 'bifrost_hook';
     deadlineEpochMs: number;
     attestation: HostCompactionAttestation;
     [key: string]: unknown;
@@ -153,42 +144,38 @@ export type AuthorizePhysicalSendData = {
     body: PhysicalSendAttemptRequest;
     path?: never;
     query?: never;
-    url: '/internal/ace-gateway/v2/authorize-attempt';
+    url: '/internal/ace-context/v3/authorize-attempt';
 };
 
 export type AuthorizePhysicalSendErrors = {
     /**
      * The server could not understand the request due to invalid syntax.
      */
-    400: GatewayError;
+    400: ContextError;
     /**
      * Access is unauthorized.
      */
-    401: GatewayError;
+    401: ContextError;
     /**
      * The server cannot find the requested resource.
      */
-    404: GatewayError;
+    404: ContextError;
     /**
      * Client error
      */
-    405: GatewayError;
+    405: ContextError;
     /**
      * The request conflicts with the current state of the server.
      */
-    409: GatewayError;
+    409: ContextError;
     /**
      * Client error
      */
-    413: GatewayError;
-    /**
-     * Server error
-     */
-    501: GatewayError;
+    413: ContextError;
     /**
      * Service unavailable.
      */
-    503: GatewayError;
+    503: ContextError;
 };
 
 export type AuthorizePhysicalSendError = AuthorizePhysicalSendErrors[keyof AuthorizePhysicalSendErrors];
@@ -206,14 +193,14 @@ export type CapabilitiesData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/internal/ace-gateway/v2/capabilities';
+    url: '/internal/ace-context/v3/capabilities';
 };
 
 export type CapabilitiesResponses = {
     /**
      * The request has succeeded.
      */
-    200: GatewayCapabilities;
+    200: ContextCapabilities;
 };
 
 export type CapabilitiesResponse = CapabilitiesResponses[keyof CapabilitiesResponses];
@@ -222,14 +209,14 @@ export type HealthData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/internal/ace-gateway/v2/health';
+    url: '/internal/ace-context/v3/health';
 };
 
 export type HealthResponses = {
     /**
      * The request has succeeded.
      */
-    200: GatewayHealth;
+    200: ContextHealth;
 };
 
 export type HealthResponse = HealthResponses[keyof HealthResponses];
@@ -238,42 +225,38 @@ export type ProjectData = {
     body: ProjectionRequest;
     path?: never;
     query?: never;
-    url: '/internal/ace-gateway/v2/project';
+    url: '/internal/ace-context/v3/project';
 };
 
 export type ProjectErrors = {
     /**
      * The server could not understand the request due to invalid syntax.
      */
-    400: GatewayError;
+    400: ContextError;
     /**
      * Access is unauthorized.
      */
-    401: GatewayError;
+    401: ContextError;
     /**
      * The server cannot find the requested resource.
      */
-    404: GatewayError;
+    404: ContextError;
     /**
      * Client error
      */
-    405: GatewayError;
+    405: ContextError;
     /**
      * The request conflicts with the current state of the server.
      */
-    409: GatewayError;
+    409: ContextError;
     /**
      * Client error
      */
-    413: GatewayError;
-    /**
-     * Server error
-     */
-    501: GatewayError;
+    413: ContextError;
     /**
      * Service unavailable.
      */
-    503: GatewayError;
+    503: ContextError;
 };
 
 export type ProjectError = ProjectErrors[keyof ProjectErrors];
@@ -286,19 +269,3 @@ export type ProjectResponses = {
 };
 
 export type ProjectResponse = ProjectResponses[keyof ProjectResponses];
-
-export type RecordDeliveryData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/internal/ace-gateway/v2/record-delivery';
-};
-
-export type RecordDeliveryErrors = {
-    /**
-     * Server error
-     */
-    501: DeliveryNotCertified;
-};
-
-export type RecordDeliveryError = RecordDeliveryErrors[keyof RecordDeliveryErrors];

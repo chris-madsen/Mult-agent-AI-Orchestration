@@ -17,7 +17,7 @@ export interface AceRuntimeBundleManifest {
 
 export const requiredAceRuntimeBundlePaths = [
   'dist/bin/ace-runtime.js',
-  'dist/bin/ace-gateway-http.js',
+  'dist/bin/ace-context-rpc.js',
   'dist/runtime-provenance.json',
   'node_modules/effect/package.json',
   'node_modules/.bin/ast-grep',

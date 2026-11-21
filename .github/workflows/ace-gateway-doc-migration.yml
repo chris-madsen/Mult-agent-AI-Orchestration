@@ -1,4 +1,4 @@
-name: ACE Gateway-only historical docs migration preview
+name: Bifröst-only historical docs migration preview
 
 on:
   pull_request:

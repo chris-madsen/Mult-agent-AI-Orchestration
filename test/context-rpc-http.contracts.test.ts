@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Effect } from 'effect';
 import {
-  createGatewayProjectionServer,
-  handleGatewayProjectionHttp,
-  isLoopbackGatewayHttpHost,
+  createContextRpcServer,
+  handleContextRpcHttp,
+  isLoopbackContextRpcHost,
   maxEnvelopeBytesFor,
-  runGatewayProjectionHttp,
-} from '../src/transport/gateway-projection-http.js';
+  runContextRpcHttp,
+} from '../src/transport/context-rpc-http.js';
 import { ok } from '../src/domain/result.js';
 
 let projectCalls = 0;
@@ -20,39 +20,39 @@ const service = {
 
 test('gateway HTTP host validation accepts loopback addresses only', () => {
   for (const host of ['127.0.0.1', '127.10.20.30', '::1', '0:0:0:0:0:0:0:1', 'localhost', 'LOCALHOST']) {
-    assert.equal(isLoopbackGatewayHttpHost(host), true, host);
+    assert.equal(isLoopbackContextRpcHost(host), true, host);
   }
   for (const host of ['0.0.0.0', '192.168.1.4', '::', 'example.com', '127.0.0.1.example.com']) {
-    assert.equal(isLoopbackGatewayHttpHost(host), false, host);
+    assert.equal(isLoopbackContextRpcHost(host), false, host);
   }
 });
 
 test('gateway HTTP rejects non-loopback options and environment hosts before listening', async () => {
-  await assert.rejects(runGatewayProjectionHttp(service, { host: '0.0.0.0' }), /loopback address/u);
+  await assert.rejects(runContextRpcHttp(service, { host: '0.0.0.0' }), /loopback address/u);
 
-  const previousHost = process.env.ACE_GATEWAY_HTTP_HOST;
-  process.env.ACE_GATEWAY_HTTP_HOST = '192.168.1.4';
+  const previousHost = process.env.ACE_CONTEXT_RPC_HOST;
+  process.env.ACE_CONTEXT_RPC_HOST = '192.168.1.4';
   try {
-    await assert.rejects(runGatewayProjectionHttp(service), /loopback address/u);
+    await assert.rejects(runContextRpcHttp(service), /loopback address/u);
   } finally {
-    if (previousHost === undefined) delete process.env.ACE_GATEWAY_HTTP_HOST;
-    else process.env.ACE_GATEWAY_HTTP_HOST = previousHost;
+    if (previousHost === undefined) delete process.env.ACE_CONTEXT_RPC_HOST;
+    else process.env.ACE_CONTEXT_RPC_HOST = previousHost;
   }
 });
 
-test('gateway HTTP exposes native Responses v2 health and capability contracts', async () => {
-  const health = await handleGatewayProjectionHttp(service, 'GET', '/internal/ace-gateway/v2/health', '');
+test('ACE context RPC exposes v3 internal health and capabilities', async () => {
+  const health = await handleContextRpcHttp(service, 'GET', '/internal/ace-context/v3/health', '');
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.schemaVersion, 'ace.gateway.v2');
+  assert.equal(health.body.schemaVersion, 'ace.context.v3');
   assert.equal(health.body.providerWire, 'not_certified');
-  const capabilities = await handleGatewayProjectionHttp(service, 'GET', '/internal/ace-gateway/v2/capabilities', '');
+  const capabilities = await handleContextRpcHttp(service, 'GET', '/internal/ace-context/v3/capabilities', '');
   assert.equal(capabilities.statusCode, 200);
-  assert.equal(capabilities.body.schemaVersion, 'ace.gateway.v2');
+  assert.equal(capabilities.body.schemaVersion, 'ace.context.v3');
   assert.deepEqual(capabilities.body.routes, [], 'provider generation must not be advertised before certification');
 });
 
 test('capabilities report the effective configured raw body limit', async () => {
-  const server = createGatewayProjectionServer(service, { authToken: 'limit-fixture', maxBodyBytes: 1024 });
+  const server = createContextRpcServer(service, { authToken: 'limit-fixture', maxBodyBytes: 1024 });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
@@ -61,7 +61,7 @@ test('capabilities report the effective configured raw body limit', async () => 
     const address = server.address();
     assert.ok(address && typeof address !== 'string');
     const response = await fetch(
-      `http://127.0.0.1:${address.port}/internal/ace-gateway/v2/capabilities`,
+      `http://127.0.0.1:${address.port}/internal/ace-context/v3/capabilities`,
       { headers: { Authorization: 'Bearer limit-fixture' } },
     );
     assert.equal(response.status, 200);
@@ -74,28 +74,28 @@ test('capabilities report the effective configured raw body limit', async () => 
 
 test('native Responses projection returns a typed denial until dispatch is certified', async () => {
   projectCalls = 0;
-  const projected = await handleGatewayProjectionHttp(service, 'POST', '/internal/ace-gateway/v2/project', '{}');
+  const projected = await handleContextRpcHttp(service, 'POST', '/internal/ace-context/v3/project', '{}');
   assert.equal(projected.statusCode, 200);
   assert.equal(projected.body.kind, 'BLOCK');
   assert.equal(projected.body.reasonCode, 'ROUTE_NOT_CERTIFIED');
   assert.equal(projectCalls, 1);
-  const missing = await handleGatewayProjectionHttp(service, 'POST', '/unknown', '{}');
+  const missing = await handleContextRpcHttp(service, 'POST', '/unknown', '{}');
   assert.equal(missing.statusCode, 404);
   assert.equal(projectCalls, 1, 'unknown endpoints must not invoke the projection service');
-  const unsupportedMethod = await handleGatewayProjectionHttp(
-    service, 'GET', '/internal/ace-gateway/v2/project', '{}',
+  const unsupportedMethod = await handleContextRpcHttp(
+    service, 'GET', '/internal/ace-context/v3/project', '{}',
   );
   assert.equal(unsupportedMethod.statusCode, 405);
 });
 
-test('gateway HTTP does not accept unverified final-delivery claims', async () => {
-  const result = await handleGatewayProjectionHttp(service, 'POST', '/internal/ace-gateway/v2/record-delivery', '{}');
-  assert.equal(result.statusCode, 501);
+test('ACE context RPC rejects provider-delivery recording because Bifröst owns it', async () => {
+  const result = await handleContextRpcHttp(service, 'POST', '/internal/ace-context/v3/record-delivery', '{}');
+  assert.equal(result.statusCode, 404);
 });
 
-test('attempt authorization is a distinct authenticated Gateway decision route', async () => {
+test('attempt authorization is an authenticated ACE source-policy route', async () => {
   const body = {
-    schemaVersion: 'ace.gateway.v2', attemptId: 'bf-attempt-' + 'a'.repeat(32),
+    schemaVersion: 'ace.context.v3', attemptId: 'bf-attempt-' + 'a'.repeat(32),
     bodySha256: 'b'.repeat(64), requestId: 'ace-' + 'c'.repeat(32),
   };
   let calls = 0;
@@ -109,22 +109,22 @@ test('attempt authorization is a distinct authenticated Gateway decision route',
       }));
     },
   };
-  const result = await handleGatewayProjectionHttp(
-    decisionService, 'POST', '/internal/ace-gateway/v2/authorize-attempt', JSON.stringify(body),
+  const result = await handleContextRpcHttp(
+    decisionService, 'POST', '/internal/ace-context/v3/authorize-attempt', JSON.stringify(body),
   );
   assert.equal(result.statusCode, 200);
   assert.equal(result.body.kind, 'BLOCK');
   assert.equal(result.body.reasonCode, 'PROJECTION_RECEIPT_INVALID');
   assert.equal(calls, 1);
 
-  const server = createGatewayProjectionServer(decisionService, { authToken: 'attempt-test-secret' });
+  const server = createContextRpcServer(decisionService, { authToken: 'attempt-test-secret' });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
   });
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
-  const url = `http://127.0.0.1:${address.port}/internal/ace-gateway/v2/authorize-attempt`;
+  const url = `http://127.0.0.1:${address.port}/internal/ace-context/v3/authorize-attempt`;
   try {
     const anonymous = await fetch(url, { method: 'POST', body: JSON.stringify(body) });
     assert.equal(anonymous.status, 401);
@@ -138,8 +138,8 @@ test('attempt authorization is a distinct authenticated Gateway decision route',
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
-  const missingAuthorizer = await handleGatewayProjectionHttp(
-    service, 'POST', '/internal/ace-gateway/v2/authorize-attempt', JSON.stringify(body),
+  const missingAuthorizer = await handleContextRpcHttp(
+    service, 'POST', '/internal/ace-context/v3/authorize-attempt', JSON.stringify(body),
   );
   assert.equal(missingAuthorizer.statusCode, 503);
 });
@@ -162,7 +162,7 @@ test('disconnect interrupts a long-running local projection instead of leaving r
       Effect.onInterrupt(() => Effect.sync(() => finalized())),
     ),
   };
-  const server = createGatewayProjectionServer(hanging, { authToken: 'interrupt-fixture' });
+  const server = createContextRpcServer(hanging, { authToken: 'interrupt-fixture' });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
@@ -171,7 +171,7 @@ test('disconnect interrupts a long-running local projection instead of leaving r
     const address = server.address();
     assert.ok(address && typeof address !== 'string');
     const controller = new AbortController();
-    const request = fetch(`http://127.0.0.1:${address.port}/internal/ace-gateway/v2/project`, {
+    const request = fetch(`http://127.0.0.1:${address.port}/internal/ace-context/v3/project`, {
       method: 'POST',
       headers: { Authorization: 'Bearer interrupt-fixture' },
       body: '{}', signal: controller.signal,
@@ -192,14 +192,14 @@ test('disconnect interrupts a long-running local projection instead of leaving r
 });
 
 test('native projection HTTP refuses local callers without the configured shared secret', async () => {
-  const server = createGatewayProjectionServer(service, { authToken: 'in-memory-test-token' });
+  const server = createContextRpcServer(service, { authToken: 'in-memory-test-token' });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
   });
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
-  const url = `http://127.0.0.1:${address.port}/internal/ace-gateway/v2/project`;
+  const url = `http://127.0.0.1:${address.port}/internal/ace-context/v3/project`;
   try {
     const anonymous = await fetch(url, { method: 'POST', body: '{}' });
     assert.equal(anonymous.status, 401);
@@ -226,7 +226,7 @@ test('native projection HTTP refuses local callers without the configured shared
 });
 
 test('native projection HTTP without a server credential is NOT_READY, not public', async () => {
-  const server = createGatewayProjectionServer(service, { authToken: '' });
+  const server = createContextRpcServer(service, { authToken: '' });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
@@ -234,19 +234,27 @@ test('native projection HTTP without a server credential is NOT_READY, not publi
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
   try {
-    const reply = await fetch(`http://127.0.0.1:${address.port}/internal/ace-gateway/v2/project`, {
+    const reply = await fetch(`http://127.0.0.1:${address.port}/internal/ace-context/v3/project`, {
       method: 'POST',
       body: '{}',
     });
     assert.equal(reply.status, 503);
-    const health = await fetch(`http://127.0.0.1:${address.port}/internal/ace-gateway/v2/health`);
+    const health = await fetch(`http://127.0.0.1:${address.port}/internal/ace-context/v3/health`);
     assert.equal(health.status, 503);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
 
-test('only the generated native Responses v2 paths are recognized', async () => {
-  const response = await handleGatewayProjectionHttp(service, 'POST', '/internal/ace-gateway/v2/unsupported', '{}');
+test('only the internal ACE context v3 routes are recognized; obsolete RPC paths are not aliases', async () => {
+  for (const old of ['/project', '/authorize-attempt'].map((suffix) => '/internal/ace' + '-gateway/v2' + suffix)) {
+    const blocked = await handleContextRpcHttp(service, 'POST', old, '{}');
+    assert.equal(blocked.statusCode, 404);
+  }
+  for (const modelRoute of ['/v1/responses', '/chatgpt_passthrough/backend-api/codex/responses', '/internal/ace-context/v3/generate']) {
+    const result = await handleContextRpcHttp(service, 'POST', modelRoute, '{}');
+    assert.equal(result.statusCode, 404, modelRoute);
+  }
+  const response = await handleContextRpcHttp(service, 'POST', '/internal/ace-context/v3/unsupported', '{}');
   assert.equal(response.statusCode, 404);
 });

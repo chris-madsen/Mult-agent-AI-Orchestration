@@ -37,9 +37,9 @@ type GeneratedSendDecisionCoversDomain = Expect<GeneratedPhysicalSendAttemptDeci
 type DomainSendDecisionCoversGenerated = Expect<PhysicalSendAttemptDecision extends GeneratedPhysicalSendAttemptDecision ? true : false>;
 
 const request: GeneratedProjectionRequest = {
-  schemaVersion: 'ace.gateway.v2', protocol: 'openai.responses', requestId: 'r1', attemptGroupId: 'a1',
+  schemaVersion: 'ace.context.v3', protocol: 'openai.responses', requestId: 'r1', attemptGroupId: 'a1',
   agentSessionId: 's1', workspaceId: 'ws1', dataClass: 'private', provider: 'openai', model: 'openai/model',
-  bodyBase64: 'e30=', bodySha256: 'a'.repeat(64), query: 'query', projectionMode: 'gateway',
+  bodyBase64: 'e30=', bodySha256: 'a'.repeat(64), query: 'query', projectionMode: 'bifrost_hook',
   deadlineEpochMs: 1, attestation: {
     hostBuildDigest: 'a'.repeat(64), sessionId: 's1', activeEngineId: 'bifrost-visible-request-only',
     effectiveCompressionControlsDigest: 'b'.repeat(64), durableActiveTranscriptRevision: 'unattested',
@@ -54,7 +54,7 @@ const prepared: GeneratedProjectionDecision = {
 const blocked: GeneratedProjectionDecision = { kind: 'BLOCK', baseBodySha256: 'a'.repeat(64), reasonCode: 'NOT_READY' };
 const samples: readonly [GeneratedProjectionRequest, GeneratedProjectionDecision, GeneratedProjectionDecision] = [request, prepared, blocked];
 const attempt: GeneratedPhysicalSendAttemptRequest = {
-  schemaVersion: 'ace.gateway.v2', requestId: 'ace-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  schemaVersion: 'ace.context.v3', requestId: 'ace-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   attemptGroupId: 'ace-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', agentSessionId: 's1', workspaceId: 'ws1',
   dataClass: 'private', provider: 'openai', model: 'gpt-test',
   attemptId: 'bf-attempt-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', method: 'POST',

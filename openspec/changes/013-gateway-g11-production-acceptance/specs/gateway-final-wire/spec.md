@@ -4,7 +4,7 @@
 
 ### Requirement: Final-send observation, not hook inference
 
-The ACE Gateway implementation SHALL satisfy the following observable G11 criteria before the named capability is certified. Repository-only and mock-only evidence MUST NOT count as external-provider or real-agent acceptance.
+The ACE context extension implementation SHALL satisfy the following observable G11 criteria before the named capability is certified. Repository-only and mock-only evidence MUST NOT count as external-provider or real-agent acceptance.
 
 #### Scenario: G11-001 — Exact allowed outbound projection
 - **WHEN** an authorized provider-native, non-streaming Responses request with explicit store:false is projected and dispatched through pinned Bifröst
@@ -18,7 +18,7 @@ The ACE Gateway implementation SHALL satisfy the following observable G11 criter
 
 ### Requirement: Real provider evidence and truthful capabilities
 
-The ACE Gateway implementation SHALL satisfy the following observable G11 criteria before the named capability is certified. Repository-only and mock-only evidence MUST NOT count as external-provider or real-agent acceptance.
+The ACE context extension implementation SHALL satisfy the following observable G11 criteria before the named capability is certified. Repository-only and mock-only evidence MUST NOT count as external-provider or real-agent acceptance.
 
 #### Scenario: G11-003 — Authorized actual provider trial
 - **WHEN** an operator explicitly permits a disposable synthetic/public-data trial with a specified provider/model and approved egress policy

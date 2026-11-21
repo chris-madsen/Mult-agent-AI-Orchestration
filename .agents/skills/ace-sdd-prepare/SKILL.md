@@ -51,5 +51,5 @@ Finally report: task/tier, branch/HEAD, reused or new change ID, research eviden
 ## Failure and resume contract
 
 - Re-entry repeats G00 source/branch checks, opens the existing change, re-reads the actual artifacts, and **updates instead of duplicating** it; stale conclusions do not transfer across SHA changes.
-- If owner decisions are unresolved, finish independent research/drafting and mark the dependent slice BLOCKED; never fake a full ready result.
+- If owner decisions are unresolved, finish independent research and writing and mark the dependent slice BLOCKED; never fake a full ready result.
 - Do not mark an unexecuted skill, test, provider run, independent review, or G02 approval PASS.

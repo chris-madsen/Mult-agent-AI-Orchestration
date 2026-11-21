@@ -98,7 +98,7 @@ const requirements = [
       'func HTTPTransportPreHook',
       'case "/v1/responses":',
       'func prepareNativeResponses',
-      'ACE Gateway endpoint is unsupported',
+      'Bifröst native Responses route is unsupported by the ACE context extension',
       'ctx.SetPhysicalSendGuard(guard)',
       'AuthorizeNativeResponsesAttempt',
       'func PreLLMHook',
@@ -159,12 +159,12 @@ const requirements = [
     id: 'GATEWAY_EGRESS_CONFIG',
     file: 'src/bin/ace-runtime.ts',
     contains: [
-      'ACE_GATEWAY_EXTERNAL_LLM_OPT_IN',
-      'ACE_GATEWAY_ALLOWED_LLM_PROVIDERS_JSON',
-      'ACE_GATEWAY_ALLOWED_LLM_DESTINATIONS_JSON',
-      'ACE_GATEWAY_ALLOWED_LLM_MODELS_BY_PROVIDER_JSON',
-      'ACE_GATEWAY_ALLOWED_LLM_DATA_CLASSES_JSON',
-      'ACE_GATEWAY_ALLOWED_LLM_STREAMING_ROUTES_JSON',
+      'ACE_CONTEXT_EXTERNAL_LLM_OPT_IN',
+      'ACE_CONTEXT_ALLOWED_LLM_PROVIDERS_JSON',
+      'ACE_CONTEXT_ALLOWED_LLM_DESTINATIONS_JSON',
+      'ACE_CONTEXT_ALLOWED_LLM_MODELS_BY_PROVIDER_JSON',
+      'ACE_CONTEXT_ALLOWED_LLM_DATA_CLASSES_JSON',
+      'ACE_CONTEXT_ALLOWED_LLM_STREAMING_ROUTES_JSON',
       'configuredStringArrayMap',
       'allowedCloudDataClassesByProvider',
       'gateway-policy-audit.jsonl',
@@ -266,20 +266,20 @@ const publicContractAuthorityGuard = async () => {
   const unexpected = files;
   let typeSpecMissing = [];
   try {
-    const source = await readFile(resolve(root, 'typespec/responses-v2.tsp'), 'utf8');
+    const source = await readFile(resolve(root, 'typespec/context-v3.tsp'), 'utf8');
     for (const needle of [
-      'namespace ACE.ResponsesV2',
+      'namespace ACE.ContextV3',
       'model ProjectionRequest',
       'union ProjectionDecision',
       'protocol: "openai.responses"',
-      '@route("/internal/ace-gateway/v2/project")',
+      '@route("/internal/ace-context/v3/project")',
       'model PhysicalSendAttemptRequest',
-      '@route("/internal/ace-gateway/v2/authorize-attempt")',
+      '@route("/internal/ace-context/v3/authorize-attempt")',
     ]) {
       if (!source.includes(needle)) typeSpecMissing.push(needle);
     }
   } catch {
-    typeSpecMissing = ['typespec/responses-v2.tsp'];
+    typeSpecMissing = ['typespec/context-v3.tsp'];
   }
   return {
     id: 'PUBLIC_CONTRACT_TYPESPEC_AUTHORITY',

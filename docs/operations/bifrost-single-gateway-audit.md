@@ -1,6 +1,6 @@
 # Bifröst single-Gateway boundary audit — 2026-11-21
 
-**Scope inspected:** `src/transport/gateway-projection-http.ts`, `src/application/gateway-attempt-authorization-service.ts`, `src/application/responses-projection-service.ts`, `integrations/bifrost/ace-connector/plugin/main.go`, Bifröst pinned fork `6baf302d` native ChatGPT passthrough and physical-send transport. Architectural authority: ADR-017 + ADR-021. Verification: source inspection + Go contract tests; no real provider E2E claim.
+**Scope inspected:** `src/transport/context-rpc-http.ts`, `src/application/gateway-attempt-authorization-service.ts`, `src/application/responses-projection-service.ts`, `integrations/bifrost/ace-connector/plugin/main.go`, Bifröst pinned fork `72f03b4b0d4a93b08e9fc0e5ebfe3447248af2a0` native ChatGPT passthrough and physical-send transport. Architectural authority: ADR-017 + ADR-021. Verification: source inspection + Go contract tests; no real provider E2E claim.
 
 ## Existing functions, actual owners, disposition
 
@@ -12,11 +12,10 @@
 | Native SSE/streaming and provider response parsing | Model stream / error / usage | Bifröst | **Reuse**, test C06; ACE does not reimplement SSE or count provider usage |
 | Context retrieval and evidence | CBM/Qdrant/LSP/Vertex/current source | No | **Keep ACE Core (TS/Effect)** |
 | Context insertion before provider send | Verified source, additive Responses request, unchanged caller history | No | **Keep ACE projection** via Bifröst post-auth plugin |
-| `POST /internal/ace-gateway/v2/project` | Authenticated **local** Go↔TS context projection RPC | No | **Keep**: no public generation endpoint, no provider network request |
-| `POST /internal/ace-gateway/v2/authorize-attempt` | ACE-specific source/data permission and final body/receipt integrity | Bifröst provides the **terminal hook**, not ACE's evidence policy | **Keep ACE policy inside Bifröst hook**; do not implement separate OAuth or route switching |
+| `POST /internal/ace-context/v3/project` | Authenticated **local** Go↔TS context projection RPC | No | **Keep**: no public generation endpoint, no provider network request |
+| `POST /internal/ace-context/v3/authorize-attempt` | ACE-specific source/data permission and final body/receipt integrity | Bifröst provides the **terminal hook**, not ACE's evidence policy | **Keep ACE policy inside Bifröst hook**; do not implement separate OAuth or route switching |
 | `GET .../health`, `GET .../capabilities` | ACE Core readiness and internal capability diagnostics | Bifröst health does not know ACE retrieval readiness | **Keep local**; do not call them a second LLM Gateway |
-| `POST .../record-delivery` | Current stub returns `501 PROVIDER_WIRE_NOT_CERTIFIED` | Bifröst has provider dispatch and response accounting | **Obsolete candidate**; remove in a **versioned TypeSpec/contract migration** only after consumers are checked. No implementation or alternate provider dispatch should be built for this stub |
-| `ace.gateway.v2` TypeSpec DTOs | Versioned internal Go↔TS schema, receipt and source-policy results | No | **Keep**: internal RPC contract, despite historical 'Gateway' name |
+| `ace.context.v3` TypeSpec DTOs | Versioned internal Go↔TS schema, receipt and source-policy results | No | **Keep**: native context-only contract; DTOs use Context rather than Gateway terminology |
 | Provider-native `POST /v1/responses` | Generic API-key-compatible native Responses mode | Bifröst | **Do not use as a substitute** for ChatGPT subscription; only the existing `/chatgpt_passthrough/.../responses` is configured for Hermes |
 | `HTTPTransportPreHook` and `PreLLMHook` | Native Bifröst extension points | Yes | **Extend existing Go ACE plugin** only for exact Codex subscription route |
 | `physical-send` guard / retry IDs | Bifröst terminal transport and per-attempt callback | Yes | **Reuse**, ACE supplies policy decision; no second outbound connector |
@@ -35,6 +34,6 @@
 - The pinned fork contains native ChatGPT passthrough and forwards the caller's token; the ACE plugin now binds this route and the existing Bifröst physical-send hook in a local synthetic request path.
 - Local Go tests can prove correct prepared body, rejections and synthetic final-wire capture. They cannot prove a real Hermes installation points to this Bifröst listener, authenticates the subscriber to the real ChatGPT backend, or preserves a multi-turn SSE/tool loop under real model load.
 - Bifröst's `/chatgpt_passthrough/backend-api/codex/responses` uses the *native passthrough streaming path*. Verify C06 streaming, cancellation and retry behavior on the exact installed binary. **Do not** treat the static ACL alone as a successful real stream.
-- `record-delivery` is a dormant internal TypeSpec route, **not** a live provider duplicate. Removing it unversioned would break generated-contract stability and API tests; preserve current explicit 501 until a deliberate contract revision, rather than silently stripping it from v2.
+- The obsolete delivery-stub endpoint was **removed** in the v3 internal contract migration. Bifröst exclusively owns provider dispatch, streaming and response accounting; ACE only prepares context and evaluates exact send-attempt policy.
 
 **Result:** The runtime architecture has one model Gateway, one context engine and a thin extension boundary. The public / private provider wire and quality claims remain separately testable.
